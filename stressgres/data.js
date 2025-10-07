@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759867459567,
+  "lastUpdate": 1759868080644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6610,6 +6610,54 @@ window.BENCHMARK_DATA = {
             "value": 6.0875398022061304,
             "unit": "median tps",
             "extra": "avg tps: 6.091249464804023, max tps: 7.364780657057596, count: 56525"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759868079014,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 452.9128472748808,
+            "unit": "median tps",
+            "extra": "avg tps: 437.4356677940625, max tps: 503.2888481666922, count: 56481"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 518.0573955314501,
+            "unit": "median tps",
+            "extra": "avg tps: 517.6987526583404, max tps: 549.7518771917648, count: 56481"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 972.0537521371298,
+            "unit": "median tps",
+            "extra": "avg tps: 955.0845846418384, max tps: 1228.737581871722, count: 56481"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.159990478722072,
+            "unit": "median tps",
+            "extra": "avg tps: 6.160401121771515, max tps: 7.4841527929309, count: 56481"
           }
         ]
       }

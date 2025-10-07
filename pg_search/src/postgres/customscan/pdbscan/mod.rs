@@ -586,13 +586,35 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_target_list_len(Some(tlist.len()));
 
-            let private_data = builder.custom_private();
-
-            let rti: i32 = private_data
+            // Detect window aggregates in the Query's target list
+            let rti: i32 = builder
+                .custom_private()
                 .range_table_index()
                 .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
+
+            let parse = (*builder.args().root).parse;
+            let window_aggs = projections::window_agg::extract_window_aggregates(
+                (*parse).targetList,
+                rti as pg_sys::Index,
+            );
+            if !window_aggs.is_empty() {
+                pgrx::warning!(
+                    "Found {} window aggregates in Query's target list",
+                    window_aggs.len()
+                );
+
+                // Replace WindowFunc nodes in the Query's targetlist with placeholders
+                // This must happen BEFORE the planner creates a WindowAgg node
+                replace_windowfuncs_in_query_target_list(parse);
+
+                builder
+                    .custom_private_mut()
+                    .set_window_aggregates(window_aggs);
+            }
+
+            let private_data = builder.custom_private();
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
@@ -665,21 +687,6 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            // Extract window aggregates from the target list
-            let window_aggs = projections::window_agg::extract_window_aggregates(
-                (*(*builder.args().root).parse).targetList,
-                rti as pg_sys::Index,
-            );
-            if !window_aggs.is_empty() {
-                pgrx::warning!(
-                    "Found {} window aggregates in target list",
-                    window_aggs.len()
-                );
-                builder
-                    .custom_private_mut()
-                    .set_window_aggregates(window_aggs);
-            }
-
             builder.build()
         }
     }
@@ -735,8 +742,14 @@ impl CustomScan for PdbScan {
                 builder.custom_private().join_predicates().clone();
 
             // Store window aggregates in the scan state
-            builder.custom_state().window_aggregates =
-                builder.custom_private().window_aggregates().clone();
+            let window_aggs = builder.custom_private().window_aggregates().clone();
+            if let Some(ref aggs) = window_aggs {
+                pgrx::warning!(
+                    "Initializing scan state with {} window aggregates",
+                    aggs.len()
+                );
+            }
+            builder.custom_state().window_aggregates = window_aggs;
 
             // store our query into our custom state too
             let base_query = builder
@@ -1341,6 +1354,11 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = state.custom_state().window_aggregates.is_some();
 
+    pgrx::warning!(
+        "inject_score_and_snippet_placeholders: need_scores={}, need_snippets={}, has_window_aggs={}",
+        need_scores, need_snippets, has_window_aggs
+    );
+
     if !need_scores && !need_snippets && !has_window_aggs {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
@@ -1375,7 +1393,8 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
 }
 
-/// Inject placeholder Const nodes for window aggregates
+/// Inject placeholder Const nodes for window aggregates at execution time
+/// At this point, the WindowFunc has already been replaced with a placeholder FuncExpr (now())
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
@@ -1384,42 +1403,115 @@ unsafe fn inject_window_aggregate_placeholders(
 
     let mut const_nodes = HashMap::default();
     let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    let placeholder_oid = placeholder_procid();
 
     for agg_info in window_aggs {
         let te_idx = agg_info.target_entry_index;
 
         // Get the target entry at this index
         if let Some(te) = tlist.get_ptr(te_idx) {
-            // Check if this is a WindowFunc node
-            if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
-                // Create a placeholder Const node with the appropriate type
-                let const_node = pg_sys::makeConst(
-                    agg_info.result_type_oid,
-                    -1,
-                    pg_sys::DEFAULT_COLLATION_OID,
-                    if agg_info.result_type_oid == pg_sys::INT8OID {
-                        8
-                    } else {
-                        -1
-                    },
-                    pg_sys::Datum::null(),
-                    true,                                        // constisnull
-                    agg_info.result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
-                );
+            // Check if this is our placeholder FuncExpr (now())
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                if (*funcexpr).funcid == placeholder_oid {
+                    // Create a placeholder Const node with the appropriate type
+                    let const_node = pg_sys::makeConst(
+                        agg_info.result_type_oid,
+                        -1,
+                        pg_sys::DEFAULT_COLLATION_OID,
+                        if agg_info.result_type_oid == pg_sys::INT8OID {
+                            8
+                        } else {
+                            -1
+                        },
+                        pg_sys::Datum::null(),
+                        true,                                        // constisnull
+                        agg_info.result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                    );
 
-                // Replace the WindowFunc with our Const node
-                (*te).expr = const_node.cast();
+                    // Replace the placeholder FuncExpr with our Const node
+                    (*te).expr = const_node.cast();
 
-                const_nodes.insert(te_idx, const_node);
-                pgrx::warning!(
-                    "Injected placeholder for window aggregate at index {}",
-                    te_idx
-                );
+                    const_nodes.insert(te_idx, const_node);
+                    pgrx::warning!(
+                        "Injected Const node for window aggregate at index {}",
+                        te_idx
+                    );
+                }
             }
         }
     }
 
     (tlist.into_pg(), const_nodes)
+}
+
+/// Get the Oid of a placeholder function to use instead of WindowFunc
+/// We use the same trick as aggregatescan: replace with now()
+unsafe fn placeholder_procid() -> pg_sys::Oid {
+    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
+        .expect("the `now()` function should exist")
+}
+
+/// Replace WindowFunc nodes with placeholder FuncExpr in the Query's target list
+/// This is called at planning time to prevent PostgreSQL from adding a WindowAgg node
+unsafe fn replace_windowfuncs_in_query_target_list(parse: *mut pg_sys::Query) {
+    if (*parse).targetList.is_null() {
+        pgrx::warning!("replace_windowfuncs: Query targetList is null");
+        return;
+    }
+
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    pgrx::warning!(
+        "replace_windowfuncs: Query targetList has {} entries",
+        original_tlist.len()
+    );
+
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
+    let placeholder_oid = placeholder_procid();
+    let mut replaced_count = 0;
+
+    for te in original_tlist.iter_ptr() {
+        let node_tag = (*(*te).expr).type_;
+        pgrx::warning!(
+            "  Query Entry resno={}, node type={:?}",
+            (*te).resno,
+            node_tag
+        );
+
+        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+
+            // Create a FuncExpr that calls now() as a placeholder
+            let funcexpr = pg_sys::makeFuncExpr(
+                placeholder_oid,
+                (*window_func).wintype,
+                std::ptr::null_mut(), // no args
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            );
+
+            // Replace the WindowFunc with our placeholder FuncExpr
+            (*new_te).expr = funcexpr.cast();
+            new_targetlist.push(new_te);
+            replaced_count += 1;
+
+            pgrx::warning!(
+                "Replaced WindowFunc in Query at resno {} with placeholder function",
+                (*te).resno
+            );
+        } else {
+            // For non-WindowFunc entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
+        }
+    }
+
+    pgrx::warning!(
+        "replace_windowfuncs: replaced {} WindowFunc nodes in Query",
+        replaced_count
+    );
+    (*parse).targetList = new_targetlist.into_pg();
 }
 
 pub enum PathKeyInfo {

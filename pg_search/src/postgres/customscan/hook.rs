@@ -20,8 +20,10 @@ use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
+
+use crate::nodecast;
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -210,4 +212,235 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 
         add_path(output_rel, path)
     }
+}
+
+/// Register a global planner hook to intercept and modify queries before planning.
+/// This is called once during extension initialization and affects all queries.
+pub unsafe fn register_window_function_hook() {
+    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+
+    PREV_PLANNER_HOOK = pg_sys::planner_hook;
+    pg_sys::planner_hook = Some(paradedb_planner_hook);
+}
+
+/// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them
+/// Only replaces window functions if the query will be handled by our custom scans
+#[pg_guard]
+unsafe extern "C-unwind" fn paradedb_planner_hook(
+    parse: *mut pg_sys::Query,
+    query_string: *const ::core::ffi::c_char,
+    cursor_options: ::core::ffi::c_int,
+    bound_params: pg_sys::ParamListInfo,
+) -> *mut pg_sys::PlannedStmt {
+    // Check if this is a SELECT query with window functions that we can handle
+    if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
+        let has_window_funcs =
+            !(*parse).targetList.is_null() && has_window_functions((*parse).targetList);
+        let has_search_op = query_has_search_operator(parse);
+
+        pgrx::warning!(
+            "planner_hook: SELECT query - has_window_funcs={}, has_search_op={}",
+            has_window_funcs,
+            has_search_op
+        );
+
+        if has_window_funcs && has_search_op {
+            pgrx::warning!(
+                "planner_hook: Found window functions in search query, replacing before planning"
+            );
+            replace_windowfuncs_in_query(parse);
+        }
+    }
+
+    // Call the previous planner hook or standard planner
+    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+    if let Some(prev_hook) = PREV_PLANNER_HOOK {
+        prev_hook(parse, query_string, cursor_options, bound_params)
+    } else {
+        pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+    }
+}
+
+/// Check if the target list contains any window functions
+unsafe fn has_window_functions(target_list: *mut pg_sys::List) -> bool {
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+    for te in tlist.iter_ptr() {
+        if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if the query contains the @@@ search operator
+/// This indicates that our custom scans will likely handle this query
+unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
+    use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+
+    let searchqueryinput_opno = anyelement_query_input_opoid();
+    let text_opno = anyelement_text_opoid();
+
+    pgrx::warning!(
+        "query_has_search_operator: Looking for opno={} or {}",
+        searchqueryinput_opno,
+        text_opno
+    );
+
+    // Check WHERE clause (jointree->quals)
+    if !(*parse).jointree.is_null() {
+        let jointree = (*parse).jointree;
+        pgrx::warning!("query_has_search_operator: jointree is not null");
+        if !(*jointree).quals.is_null() {
+            pgrx::warning!("query_has_search_operator: quals is not null, checking...");
+            if expr_contains_any_operator(
+                (*jointree).quals as *mut pg_sys::Node,
+                &[searchqueryinput_opno, text_opno],
+            ) {
+                pgrx::warning!("query_has_search_operator: Found @@@ in WHERE clause");
+                return true;
+            }
+        } else {
+            pgrx::warning!("query_has_search_operator: quals is null");
+        }
+    } else {
+        pgrx::warning!("query_has_search_operator: jointree is null");
+    }
+
+    // Check HAVING clause
+    if !(*parse).havingQual.is_null() {
+        pgrx::warning!("query_has_search_operator: Checking HAVING clause");
+        if expr_contains_any_operator(
+            (*parse).havingQual as *mut pg_sys::Node,
+            &[searchqueryinput_opno, text_opno],
+        ) {
+            pgrx::warning!("query_has_search_operator: Found @@@ in HAVING clause");
+            return true;
+        }
+    }
+
+    pgrx::warning!("query_has_search_operator: @@@ operator not found");
+    false
+}
+
+/// Recursively check if an expression tree contains any of the specified operators
+unsafe fn expr_contains_any_operator(
+    node: *mut pg_sys::Node,
+    target_opnos: &[pg_sys::Oid],
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    let node_type = (*node).type_;
+    pgrx::warning!("expr_contains_operator: Checking node type={:?}", node_type);
+
+    match node_type {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node as *mut pg_sys::OpExpr;
+            pgrx::warning!(
+                "expr_contains_operator: Found OpExpr with opno={}",
+                (*opexpr).opno
+            );
+            if target_opnos.contains(&(*opexpr).opno) {
+                pgrx::warning!("expr_contains_operator: MATCH! Found target operator");
+                return true;
+            }
+            // Check arguments
+            if !(*opexpr).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_any_operator(arg, target_opnos) {
+                        return true;
+                    }
+                }
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node as *mut pg_sys::BoolExpr;
+            pgrx::warning!("expr_contains_operator: Found BoolExpr, checking args");
+            if !(*boolexpr).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_any_operator(arg, target_opnos) {
+                        return true;
+                    }
+                }
+            }
+        }
+        pg_sys::NodeTag::T_RestrictInfo => {
+            // RestrictInfo wraps the actual clause
+            let rinfo = node as *mut pg_sys::RestrictInfo;
+            pgrx::warning!("expr_contains_operator: Found RestrictInfo, unwrapping");
+            if !(*rinfo).clause.is_null() {
+                return expr_contains_any_operator(
+                    (*rinfo).clause as *mut pg_sys::Node,
+                    target_opnos,
+                );
+            }
+        }
+        _ => {
+            pgrx::warning!(
+                "expr_contains_operator: Unhandled node type={:?}",
+                node_type
+            );
+        }
+    }
+
+    false
+}
+
+/// Replace WindowFunc nodes in the Query's target list with placeholder functions
+unsafe fn replace_windowfuncs_in_query(parse: *mut pg_sys::Query) {
+    if (*parse).targetList.is_null() {
+        return;
+    }
+
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
+    let placeholder_oid = placeholder_procid();
+    let mut replaced_count = 0;
+
+    for te in original_tlist.iter_ptr() {
+        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+
+            // Create a FuncExpr that calls now() as a placeholder
+            let funcexpr = pg_sys::makeFuncExpr(
+                placeholder_oid,
+                (*window_func).wintype,
+                std::ptr::null_mut(), // no args
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            );
+
+            // Replace the WindowFunc with our placeholder FuncExpr
+            (*new_te).expr = funcexpr.cast();
+            new_targetlist.push(new_te);
+            replaced_count += 1;
+
+            pgrx::warning!(
+                "planner_hook: Replaced WindowFunc at resno {} with placeholder",
+                (*te).resno
+            );
+        } else {
+            // For non-WindowFunc entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
+        }
+    }
+
+    pgrx::warning!(
+        "planner_hook: Replaced {} WindowFunc nodes in Query",
+        replaced_count
+    );
+    (*parse).targetList = new_targetlist.into_pg();
+}
+
+/// Get the Oid of the now() function to use as a placeholder
+unsafe fn placeholder_procid() -> pg_sys::Oid {
+    use pgrx::IntoDatum;
+    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
+        .expect("the `now()` function should exist")
 }

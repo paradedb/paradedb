@@ -17,10 +17,14 @@
 
 use std::cell::RefCell;
 
-use crate::api::OrderByInfo;
+use crate::api::{HashMap, OrderByInfo};
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
+use crate::postgres::customscan::pdbscan::projections::window_agg::{
+    WindowAggregateInfo, WindowAggregateType,
+};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -48,6 +52,10 @@ pub struct TopNScanExecState {
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
     scale_factor: f64,
+    // Window aggregates to compute
+    window_aggregates: Option<Vec<WindowAggregateInfo>>,
+    // Computed aggregate results (stored once, reused for all rows)
+    computed_aggregates: Option<HashMap<usize, pg_sys::Datum>>,
 }
 
 impl TopNScanExecState {
@@ -93,6 +101,8 @@ impl TopNScanExecState {
             chunk_size: 0,
             claimed_segments: RefCell::default(),
             scale_factor,
+            window_aggregates: None,
+            computed_aggregates: None,
         }
     }
 
@@ -149,6 +159,38 @@ impl TopNScanExecState {
             }
         }
     }
+
+    /// Compute window aggregates based on the search results
+    fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
+        let Some(window_aggs) = &self.window_aggregates else {
+            return;
+        };
+
+        let mut results = HashMap::default();
+
+        for agg_info in window_aggs {
+            let datum = match &agg_info.agg_type {
+                WindowAggregateType::CountStar => {
+                    // For COUNT(*), we need to count ALL matching documents, not just the TopN
+                    // For now, we'll use the search_results count as an approximation
+                    // TODO: Implement proper full-scan counting
+                    let count = self.search_results.original_len() as i64;
+                    pgrx::warning!("Computing COUNT(*) OVER (): {}", count);
+                    unsafe { count.into_datum().unwrap() }
+                }
+                _ => {
+                    // TODO: Implement other aggregate types
+                    pgrx::warning!("Aggregate type {:?} not yet implemented", agg_info.agg_type);
+                    unsafe { pg_sys::Datum::from(0) }
+                }
+            };
+
+            results.insert(agg_info.target_entry_index, datum);
+        }
+
+        self.computed_aggregates = Some(results.clone());
+        state.window_aggregate_results = Some(results);
+    }
 }
 
 impl ExecMethod for TopNScanExecState {
@@ -192,6 +234,11 @@ impl ExecMethod for TopNScanExecState {
         // If we got fewer results than we requested, then the query is exhausted: there is no
         // point executing further queries.
         self.exhausted = self.search_results.original_len() < local_limit;
+
+        // Compute window aggregates if needed
+        if self.window_aggregates.is_some() && self.computed_aggregates.is_none() {
+            self.compute_window_aggregates(state);
+        }
 
         // But if we got any results at all, then the query was a success.
         self.search_results.original_len() > 0
@@ -255,9 +302,18 @@ impl ExecMethod for TopNScanExecState {
         self.search_reader = state.search_reader.clone();
         self.search_results = TopNSearchResults::empty();
 
+        // Get window aggregates from state if available
+        if let ExecMethodType::TopN {
+            window_aggregates, ..
+        } = &state.exec_method_type
+        {
+            self.window_aggregates = window_aggregates.clone();
+        }
+
         // Reset counters - excluding nresults which tracks processed results
         self.chunk_size = 0;
         self.found = 0;
         self.offset = 0;
+        self.computed_aggregates = None;
     }
 }

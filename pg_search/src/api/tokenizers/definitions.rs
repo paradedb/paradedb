@@ -1,14 +1,19 @@
+use crate::api::tokenizers::typmod::{save_typmod, ParsedTypmod};
 use crate::api::tokenizers::{CowString, DatumWrapper};
 use macros::generate_tokenizer_sql;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::nullable::Nullable;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
-use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
-use std::ffi::CString;
+use pgrx::{
+    extension_sql, function_name, pg_extern, pg_sys, Array, FromDatum, IntoDatum, PgLogLevel,
+    PgSqlErrorCode,
+};
+use std::ffi::{CStr, CString};
 use tantivy::tokenizer::Language;
-use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
+use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchTokenizer;
 
 pub trait TokenizerCtor {
@@ -155,7 +160,32 @@ define_tokenizer_type!(
     tokenize_exact,
     "exact",
     preferred = false,
-    custom_tymod = false
+    custom_tymod = true
+);
+
+#[pg_extern(immutable, parallel_safe)]
+fn exact_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
+    let parsed_typmod = ParsedTypmod::try_from(&typmod_parts).unwrap();
+    if parsed_typmod.len() == 1 && matches!(parsed_typmod[0].key(), Some("alias")) {
+        drop(parsed_typmod);
+        return save_typmod(typmod_parts.iter()).expect("should not fail to save typmod");
+    }
+
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+        "type modifier is not allowed for type \"exact\"",
+        function_name!(),
+    )
+    .report(PgLogLevel::ERROR);
+    unreachable!()
+}
+
+extension_sql!(
+    r#"
+        ALTER TYPE paradedb.exact SET (TYPMOD_IN = exact_typmod_in);
+    "#,
+    name = "exact_typmod",
+    requires = [exact_typmod_in, "exact_definition"]
 );
 
 define_tokenizer_type!(
@@ -169,7 +199,7 @@ define_tokenizer_type!(
 
 define_tokenizer_type!(
     Lindera,
-    SearchTokenizer::Lindera(LinderaStyle::Chinese, SearchTokenizerFilters::default()),
+    SearchTokenizer::Lindera(LinderaLanguage::Chinese, SearchTokenizerFilters::default()),
     tokenize_lindera,
     "lindera",
     preferred = false,

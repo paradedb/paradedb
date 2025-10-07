@@ -133,6 +133,17 @@ impl FromStr for Property {
 }
 
 impl Property {
+    pub fn key(&self) -> Option<&str> {
+        match self {
+            Property::NoSuchProperty => None,
+            Property::None(key)
+            | Property::String(key, _)
+            | Property::Regex(key, _)
+            | Property::Integer(key, _)
+            | Property::Boolean(key, _) => key.as_deref(),
+        }
+    }
+
     pub fn as_usize(&self) -> Option<usize> {
         match self {
             Property::Integer(_, i) => Some(*i as usize),
@@ -227,9 +238,9 @@ impl TryFrom<Vec<String>> for ParsedTypmod {
     }
 }
 
-impl<'mcx> TryFrom<Array<'mcx, &'mcx CStr>> for ParsedTypmod {
+impl<'mcx> TryFrom<&Array<'mcx, &'mcx CStr>> for ParsedTypmod {
     type Error = Error;
-    fn try_from(value: Array<'mcx, &'mcx CStr>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: &Array<'mcx, &'mcx CStr>) -> std::result::Result<Self, Self::Error> {
         let mut parsed = ParsedTypmod::with_capacity(value.len());
         for entry in value.iter() {
             match entry {
@@ -327,6 +338,10 @@ impl ParsedTypmod {
         Self {
             properties: Vec::with_capacity(capacity),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.properties.len()
     }
 
     pub fn add_property(&mut self, property: Property) {

@@ -7,7 +7,7 @@ use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::Cow;
 use std::ptr::addr_of_mut;
 use tantivy::tokenizer::Language;
-use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
+use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 mod definitions;
@@ -32,9 +32,10 @@ pub fn search_field_config_from_type(
 
     let mut tokenizer = match type_name.as_str() {
         "simple" => SearchTokenizer::Default(SearchTokenizerFilters::default()),
-        "lindera" => {
-            SearchTokenizer::Lindera(LinderaStyle::default(), SearchTokenizerFilters::default())
-        }
+        "lindera" => SearchTokenizer::Lindera(
+            LinderaLanguage::default(),
+            SearchTokenizerFilters::default(),
+        ),
         #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
@@ -102,7 +103,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         SearchTokenizer::Lindera(style, filters) => {
             let lindera_typmod =
                 lookup_lindera_typmod(typmod).expect("typmod lookup should not fail");
-            *style = lindera_typmod.style;
+            *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
 

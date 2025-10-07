@@ -1,7 +1,7 @@
 use crate::api::tokenizers::typmod;
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod};
 use tantivy::tokenizer::Language;
-use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
+use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
 pub struct GenericTypmod {
     parsed: ParsedTypmod,
@@ -43,7 +43,7 @@ pub fn lookup_ngram_typmod(typmod: i32) -> typmod::Result<NgramTypmod> {
         .and_then(|p| p.as_usize())
         .ok_or(typmod::Error::MissingKey("max"))?;
     let prefix_only = parsed
-        .try_get("prefix_only", 2)
+        .get("prefix_only")
         .and_then(|p| p.as_bool())
         .unwrap_or(false);
 
@@ -87,27 +87,27 @@ pub fn lookup_stemmed_typmod(typmod: i32) -> typmod::Result<StemmedTypmod> {
 }
 
 pub struct LinderaTypmod {
-    pub style: LinderaStyle,
+    pub language: LinderaLanguage,
     pub filters: SearchTokenizerFilters,
 }
 
 pub fn lookup_lindera_typmod(typmod: i32) -> typmod::Result<LinderaTypmod> {
     let parsed = load_typmod(typmod)?;
     let filters = SearchTokenizerFilters::from(&parsed);
-    let style = parsed
-        .try_get("style", 0)
+    let language = parsed
+        .try_get("language", 0)
         .map(|p| match p.as_str() {
-            None => panic!("missing style"),
+            None => panic!("missing language"),
             Some(s) => {
                 let lcase = s.to_lowercase();
                 match lcase.as_str() {
-                    "chinese" => LinderaStyle::Chinese,
-                    "japanese" => LinderaStyle::Japanese,
-                    "korean" => LinderaStyle::Korean,
-                    other => panic!("unknown lindera style: {other}"),
+                    "chinese" => LinderaLanguage::Chinese,
+                    "japanese" => LinderaLanguage::Japanese,
+                    "korean" => LinderaLanguage::Korean,
+                    other => panic!("unknown lindera language: {other}"),
                 }
             }
         })
-        .ok_or(typmod::Error::MissingKey("style"))?;
-    Ok(LinderaTypmod { style, filters })
+        .ok_or(typmod::Error::MissingKey("language"))?;
+    Ok(LinderaTypmod { language, filters })
 }

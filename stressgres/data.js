@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759868748832,
+  "lastUpdate": 1759868828200,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9322,6 +9322,60 @@ window.BENCHMARK_DATA = {
             "value": 19.571492314283386,
             "unit": "median tps",
             "extra": "avg tps: 19.493504032238675, max tps: 20.02431687348693, count: 55569"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f61e5c2d8fb03377c37dcd10c558e9967781b97",
+          "message": "feat: A Free Space Manager fronted by an AVL tree (#3252)\n\n## What\n\nThis implements a new `v2` FSM that's fronted by an AVL tree which\nallows for minimal locking during extension and draining. It also\nprovides efficient continuation during drain as xid blocklists are\nexhausted or found to be unavailable to the current transaction. And it\nimplements a (simple) transparent conversion of the current `v1` FSM to\nthe new format.\n\nAdditionally, this fixes a problem with background merging where more\nthan one background merger process could be spawned at once -- I've seen\nup to 8 concurrently. It does this by introducing some a new page on\ndisk to track the process and coordinate locking.\n\n## Why\n\nOur current FSM is very heavyweight in terms of lock contention. This\nshould get us to something that isn't.\n\n## How\n\n## Tests\n\nA number of new tests for the array-backed AVL tree and the FSM itself.\nAll existing tests also pass and, at least, the `wide-table.toml`\nstressgres shows a slight performance improvement for the update jobs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-07T15:36:47-04:00",
+          "tree_id": "31410dd4c4d2be73d287e97485f4d0faaf1b2932",
+          "url": "https://github.com/paradedb/paradedb/commit/2f61e5c2d8fb03377c37dcd10c558e9967781b97"
+        },
+        "date": 1759868826572,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.09473848527078,
+            "unit": "median tps",
+            "extra": "avg tps: 37.15278274585468, max tps: 37.528097155684755, count: 55588"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 132.42819812931668,
+            "unit": "median tps",
+            "extra": "avg tps: 175.94105389959984, max tps: 2968.586602113102, count: 55588"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1055.5063228337328,
+            "unit": "median tps",
+            "extra": "avg tps: 1053.3095701632244, max tps: 1061.8313330900987, count: 55588"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 116.34455505099363,
+            "unit": "median tps",
+            "extra": "avg tps: 121.44539578803781, max tps: 814.6131003558486, count: 111176"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.499929520251218,
+            "unit": "median tps",
+            "extra": "avg tps: 19.784655814403074, max tps: 24.654095338003025, count: 55588"
           }
         ]
       }

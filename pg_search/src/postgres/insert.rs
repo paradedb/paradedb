@@ -65,6 +65,7 @@ pub struct InsertModeMutable {
     ctids: Vec<u64>,
     key_field_name: FieldName,
     key_field_attno: usize,
+    row_limit: usize,
 }
 
 pub enum InsertMode {
@@ -99,24 +100,31 @@ impl InsertState {
             pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
         );
 
-        let (key_field_name, key_field_attno) = indexrel
-            .schema()?
-            .categorized_fields()
-            .iter()
-            .find(|(_, categorized_field)| categorized_field.is_key_field)
-            .map(|(search_field, categorized_field)| {
-                (search_field.field_name().clone(), categorized_field.attno)
+        let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
+            let (key_field_name, key_field_attno) = indexrel
+                .schema()?
+                .categorized_fields()
+                .iter()
+                .find(|(_, categorized_field)| categorized_field.is_key_field)
+                .map(|(search_field, categorized_field)| {
+                    (search_field.field_name().clone(), categorized_field.attno)
+                })
+                .expect("No key field defined.");
+
+            InsertMode::Mutable(InsertModeMutable {
+                ctids: Vec::new(),
+                key_field_name,
+                key_field_attno,
+                row_limit: row_limit.into(),
             })
-            .expect("No key field defined.");
+        } else {
+            InsertMode::Immutable(InsertModeImmutable::new(indexrel)?)
+        };
 
         Ok(Self {
             indexrelid: indexrel.oid(),
             indexrel: indexrel.clone(),
-            mode: InsertMode::Mutable(InsertModeMutable {
-                ctids: Vec::new(),
-                key_field_name,
-                key_field_attno,
-            }),
+            mode,
             per_row_context: PgMemoryContexts::For(per_row_context),
         })
     }
@@ -295,7 +303,7 @@ unsafe fn insert(
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
             }
 
-            if mode.ctids.len() < state.indexrel.options().mutable_segments_size() {
+            if mode.ctids.len() < mode.row_limit {
                 mode.ctids.push(ctid);
                 return;
             }

@@ -411,7 +411,12 @@ impl SegmentMetaEntry {
         match &mut self.content {
             SegmentMetaEntryContent::Mutable(content) if !content.frozen => {
                 unsafe { content.open(indexrel).add_items(items, None) };
-                if new_max_doc as usize >= indexrel.options().mutable_segments_size() {
+                let row_limit = indexrel
+                    .options()
+                    .mutable_segment_rows()
+                    .map(|v| v.get())
+                    .unwrap_or(0);
+                if new_max_doc as usize >= row_limit {
                     content.frozen = true;
                 }
             }

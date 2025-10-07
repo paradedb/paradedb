@@ -63,7 +63,7 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 
 #[rstest]
 fn bulk_insert_segments_behavior(mut conn: PgConnection) {
-    let mutable_segments_size = 10;
+    let mutable_segment_rows = 10;
     format!(
         r#"
         SET maintenance_work_mem = '1GB';
@@ -75,7 +75,7 @@ fn bulk_insert_segments_behavior(mut conn: PgConnection) {
         USING bm25 (id, value)
         WITH (
             key_field = 'id',
-            mutable_segments_size = {mutable_segments_size}
+            mutable_segment_rows = {mutable_segment_rows}
         );
     "#
     )
@@ -96,7 +96,7 @@ fn bulk_insert_segments_behavior(mut conn: PgConnection) {
     // segment, and then produces one additional (immutable) segment.
     format!(
         "INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, {})",
-        4 * mutable_segments_size
+        4 * mutable_segment_rows
     )
     .execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"

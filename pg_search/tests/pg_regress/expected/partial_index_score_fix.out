@@ -229,7 +229,7 @@ ORDER BY rating LIMIT 20;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx
@@ -264,7 +264,7 @@ ORDER BY rating LIMIT 20;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx

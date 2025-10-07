@@ -15,12 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
+use std::cell::{Ref, RefCell};
+use std::ffi::CStr;
+use std::num::NonZeroUsize;
+use std::rc::Rc;
+
+use crate::api::{FieldName, HashMap};
+use crate::gucs;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
-use std::cell::{Ref, RefCell};
 
 use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
@@ -29,8 +33,6 @@ use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde_json::Map;
-use std::ffi::CStr;
-use std::rc::Rc;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 /* ADDING OPTIONS
@@ -243,9 +245,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             offset: offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
         },
         pg_sys::relopt_parse_elt {
-            optname: "mutable_segments_size".as_pg_cstr(),
+            optname: "mutable_segment_rows".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: offset_of!(BM25IndexOptionsData, mutable_segments_size) as i32,
+            offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "background_layer_sizes".as_pg_cstr(),
@@ -329,12 +331,8 @@ impl BM25IndexOptions {
             .unwrap_or_else(crate::available_parallelism)
     }
 
-    pub fn mutable_segments_size(&self) -> usize {
-        // TODO: Further tune this default. Seemed to give reasonable performance on `wide-table`.
-        self.options_data()
-            .mutable_segments_size()
-            .map(|count| count as usize)
-            .unwrap_or(1000)
+    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        gucs::global_mutable_segment_rows().or_else(|| self.options_data().mutable_segment_rows())
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -611,7 +609,7 @@ struct BM25IndexOptionsData {
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
-    mutable_segments_size: i32,
+    mutable_segment_rows: i32,
     background_layer_sizes_offset: i32,
 }
 
@@ -644,11 +642,11 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn mutable_segments_size(&self) -> Option<i32> {
-        if self.mutable_segments_size == 0 {
-            None
+    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        if self.mutable_segment_rows > 0 {
+            NonZeroUsize::new(self.mutable_segment_rows as usize)
         } else {
-            Some(self.mutable_segments_size)
+            None
         }
     }
 
@@ -811,7 +809,7 @@ pub unsafe fn init() {
     );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "mutable_segments_size".as_pg_cstr(),
+        "mutable_segment_rows".as_pg_cstr(),
         "The size of mutable segments.".as_pg_cstr(),
         0,
         0,

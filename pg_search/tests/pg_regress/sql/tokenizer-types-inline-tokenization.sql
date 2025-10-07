@@ -7,5 +7,5 @@ SELECT 'this is a test.'::pdb.lindera(korean)::text[];
 SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
 SELECT 'this is a test.'::pdb.regex('is|a')::text[];
 SELECT 'this is a test.'::pdb.simple::text[];
-SELECT 'this is a test.'::pdb.stemmed(english)::text[];
+SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
 SELECT 'this is a test.'::pdb.whitespace::text[];

@@ -19,7 +19,7 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
      (t::pdb.ngram(3, 5, 'alias=ngram')),
      (t::pdb.regex('is|a', 'alias=regex')),
      (t::pdb.simple('alias=simple')),
-     (t::pdb.stemmed(english, 'alias=stemmed')),
+     (t::pdb.simple('stemmer=english', 'alias=stemmed')),
      (t::pdb.whitespace('alias=whitespace'))
         )
     WITH (key_field = 'id');
@@ -59,7 +59,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"whitespace","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) @@@ 'test';
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -215,7 +215,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"whitespace","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) &&& 'test';
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -371,7 +371,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"whitespace","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) ||| 'test';
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -527,7 +527,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"whitespace","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) === 'test';
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
  Aggregate

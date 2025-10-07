@@ -37,27 +37,26 @@ SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
-SELECT 'Running Shoes.  olé'::pdb.stemmed::text[]; -- error, needs a language
-SELECT 'Running Shoes.  olé'::pdb.stemmed(arabic)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(danish)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(dutch)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(english)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(finnish)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(french)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(german)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(greek)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(hungarian)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(italian)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(norwegian)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(portuguese)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(romanian)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(russian)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(spanish)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(swedish)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(tamil)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(turkish)::text[];
-SELECT 'Running Shoes.  olé'::pdb.stemmed(foo)::text[]; -- error
-SELECT 'Running Shoes.  olé'::pdb.stemmed('language=english', 'lowercase=false', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=danish')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=dutch')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=finnish')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=french')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=german')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=greek')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=hungarian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=italian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=norwegian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=portuguese')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=romanian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=russian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=spanish')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=swedish')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=tamil')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=turkish')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=foo')::text[]; -- error
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 'ascii_folding=true')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.regex::text[]; -- error, needs a regular expression
 SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes')::text[];

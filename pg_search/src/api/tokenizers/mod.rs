@@ -6,7 +6,6 @@ use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::Cow;
 use std::ptr::addr_of_mut;
-use tantivy::tokenizer::Language;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -47,10 +46,6 @@ pub fn search_field_config_from_type(
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         "exact" => SearchTokenizer::Keyword,
-        "stemmed" => SearchTokenizer::Stem {
-            language: Language::English,
-            filters: SearchTokenizerFilters::default(),
-        },
         "chinese_compatible" => {
             SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
         }

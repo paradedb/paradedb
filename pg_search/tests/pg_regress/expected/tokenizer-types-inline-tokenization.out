@@ -52,7 +52,7 @@ SELECT 'this is a test.'::pdb.simple::text[];
  {this,is,a,test}
 (1 row)
 
-SELECT 'this is a test.'::pdb.stemmed(english)::text[];
+SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
        text       
 ------------------
  {this,is,a,test}

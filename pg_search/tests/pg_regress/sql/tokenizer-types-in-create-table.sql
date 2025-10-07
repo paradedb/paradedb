@@ -18,7 +18,7 @@ CREATE TABLE all_types
     ngram_col              pdb.ngram(3, 5),
     regex_col              pdb.regex('ll|o'),
     simple_col             pdb.simple,
-    stemmed_en_col         pdb.stemmed(english),
+    stemmed_en_col         pdb.simple('stemmer=english'),
     whitespace_col         pdb.whitespace
 );
 

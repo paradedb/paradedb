@@ -14,7 +14,6 @@ mod pdb {
     };
     use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
     use std::ffi::CString;
-    use tantivy::tokenizer::Language;
     use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
     use tokenizers::SearchTokenizer;
 
@@ -216,18 +215,6 @@ mod pdb {
         },
         tokenize_ngram,
         "ngram",
-        preferred = false,
-        custom_tymod = false
-    );
-
-    define_tokenizer_type!(
-        Stemmed,
-        SearchTokenizer::Stem {
-            language: Language::English,
-            filters: SearchTokenizerFilters::default(),
-        },
-        tokenize_stemmed,
-        "stemmed",
         preferred = false,
         custom_tymod = false
     );

@@ -1474,13 +1474,14 @@ fn parse<QueryParserCtor: Fn() -> QueryParser>(
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
+    let field = schema
+        .search_field(field)
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .field();
 
     if let Some(fuzzy_data) = fuzzy_data {
         parser.set_field_fuzzy(
-            schema
-                .search_field(field)
-                .ok_or(QueryError::NonIndexedField(field.clone()))?
-                .field(),
+            field,
             fuzzy_data.prefix,
             fuzzy_data.distance,
             fuzzy_data.transposition_cost_one,

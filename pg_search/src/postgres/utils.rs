@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{lookup_generic_typmod, type_is_tokenizer};
+use crate::api::tokenizers::{lookup_generic_typmod, type_is_alias, type_is_tokenizer};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
@@ -195,6 +195,9 @@ pub unsafe fn extract_field_attributes(
             let mut expression = Some(expression);
 
             if type_is_tokenizer(typoid) {
+                if type_is_alias(typoid) {
+                    panic!("`pdb.alias` is not allowed in index definitions")
+                }
                 typmod = pg_sys::exprTypmod(node);
 
                 let parsed_typmod = lookup_generic_typmod(typmod).expect("typmod should be valid");

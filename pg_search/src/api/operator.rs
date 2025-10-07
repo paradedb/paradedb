@@ -29,7 +29,9 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::{lookup_generic_typmod, type_is_tokenizer};
+use crate::api::tokenizers::{
+    lookup_alias_typmod, lookup_generic_typmod, type_is_alias, type_is_tokenizer,
+};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -267,8 +269,16 @@ unsafe fn field_name_from_node(
 ) -> Option<FieldName> {
     use crate::PG_SEARCH_PREFIX;
 
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    // just directly reach in and pluck out the alias if the type is cast to it
+    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+        if type_is_alias((*relabel).resulttype) {
+            if let Ok(alias) = lookup_alias_typmod((*relabel).resulttypmod) {
+                return Some(FieldName::from(alias.alias));
+            }
+        }
+    }
 
+    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
     loop {
         if let Some(var) = nodecast!(Var, T_Var, node) {
             // the expression we're looking for is just a simple Var.

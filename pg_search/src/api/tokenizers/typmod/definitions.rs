@@ -128,3 +128,17 @@ pub fn lookup_lindera_typmod(typmod: i32) -> typmod::Result<LinderaTypmod> {
         .ok_or(typmod::Error::MissingKey("language"))?;
     Ok(LinderaTypmod { language, filters })
 }
+
+pub struct AliasTypmod {
+    pub alias: String,
+}
+
+pub fn lookup_alias_typmod(typmod: i32) -> typmod::Result<AliasTypmod> {
+    let parsed = load_typmod(typmod)?;
+    let alias = parsed
+        .try_get("alias", 0)
+        .ok_or(typmod::Error::MissingKey("alias"))?;
+    Ok(AliasTypmod {
+        alias: alias.as_str().unwrap().to_string(),
+    })
+}

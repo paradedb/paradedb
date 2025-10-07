@@ -18,7 +18,7 @@
 use crate::api::tokenizers::typmod::{
     lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod, lookup_stemmed_typmod,
 };
-use crate::postgres::catalog::{lookup_type_category, lookup_type_name};
+use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
 use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::Cow;
@@ -30,7 +30,7 @@ mod definitions;
 mod typmod;
 
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
-pub use typmod::{lookup_generic_typmod, Typmod};
+pub use typmod::{lookup_alias_typmod, lookup_generic_typmod, Typmod};
 
 #[inline]
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
@@ -38,6 +38,11 @@ pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
     lookup_type_category(oid)
         .map(|c| c == b't')
         .unwrap_or(false)
+}
+#[inline]
+pub fn type_is_alias(oid: pg_sys::Oid) -> bool {
+    // TODO:  could this benefit from a local cache?
+    Some(oid) == lookup_typoid(c"pdb", c"alias")
 }
 
 pub fn search_field_config_from_type(
@@ -47,6 +52,7 @@ pub fn search_field_config_from_type(
     let type_name = lookup_type_name(oid)?;
 
     let mut tokenizer = match type_name.as_str() {
+        "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
         "simple" => SearchTokenizer::Default(SearchTokenizerFilters::default()),
         "lindera" => SearchTokenizer::Lindera(
             LinderaLanguage::default(),

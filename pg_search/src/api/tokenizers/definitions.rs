@@ -159,6 +159,15 @@ mod pdb {
     }
 
     define_tokenizer_type!(
+        Alias,
+        SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        tokenize_alias,
+        "alias",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    define_tokenizer_type!(
         Simple,
         SearchTokenizer::Default(SearchTokenizerFilters::default()),
         tokenize_simple,

@@ -13,22 +13,23 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let cast_name = args.take_ident("cast_name").unwrap();
     let preferred = args.take_bool("preferred").unwrap();
     let custom_typmod = args.take_bool("custom_typmod").unwrap().value();
+    let schema = args.take_ident("schema").unwrap();
     let pgrx_name = format!("{}_definition", sql_name.value());
 
     let create_type_sql = format!(
         r#"
-            CREATE TYPE {sql_name};
+            CREATE TYPE {schema}.{sql_name};
 
-            CREATE OR REPLACE FUNCTION {sql_name}_in(cstring) RETURNS {sql_name} AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {sql_name}_out({sql_name}) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {sql_name}_send({sql_name}) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {sql_name}_recv(internal) RETURNS {sql_name} AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_in(cstring) RETURNS {schema}.{sql_name} AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_out({schema}.{sql_name}) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_send({schema}.{sql_name}) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_recv(internal) RETURNS {schema}.{sql_name} AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
 
-            CREATE TYPE {sql_name} (
-                INPUT = {sql_name}_in,
-                OUTPUT = {sql_name}_out,
-                SEND = {sql_name}_send,
-                RECEIVE = {sql_name}_recv,
+            CREATE TYPE {schema}.{sql_name} (
+                INPUT = {schema}.{sql_name}_in,
+                OUTPUT = {schema}.{sql_name}_out,
+                SEND = {schema}.{sql_name}_send,
+                RECEIVE = {schema}.{sql_name}_recv,
                 COLLATABLE = true,
                 CATEGORY = 't', -- 't' is for tokenizer
                 PREFERRED = {preferred},
@@ -41,15 +42,15 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
 
     let pgrx_cast_to_text_array_name = format!("{}_cast_to_text_array", sql_name.value());
     let create_cast_to_text_array = format!(
-        "CREATE CAST ({sql_name} AS TEXT[]) WITH FUNCTION {cast_name} AS IMPLICIT;",
+        "CREATE CAST ({schema}.{sql_name} AS TEXT[]) WITH FUNCTION {schema}.{cast_name} AS IMPLICIT;",
         sql_name = sql_name.value(),
         cast_name = cast_name
     );
 
     let typmod = if !custom_typmod {
         let alter_type_sql = format!(
-            "ALTER TYPE {} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
-            sql_name.value()
+            "ALTER TYPE {schema}.{sql_name} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
+            sql_name = sql_name.value()
         );
         let alter_type_pgrx_name = format!("{}_alter_type", sql_name.value());
         quote! {

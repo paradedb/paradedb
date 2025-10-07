@@ -9,17 +9,17 @@ CREATE TABLE all_types
     id                     serial8 not null primary key,
     text_col               text,
     varchar_col            varchar,
-    chinese_compatible_col paradedb.chinese_compatible,
-    exact_col              paradedb.exact,
-    jieba_col              paradedb.jieba,
-    lindera_chinese_col    paradedb.lindera(chinese),
-    lindera_japanese_col   paradedb.lindera(japanese),
-    lindera_korean_col     paradedb.lindera(korean),
-    ngram_col              paradedb.ngram(3, 5),
-    regex_col              paradedb.regex('ll|o'),
-    simple_col             paradedb.simple,
-    stemmed_en_col         paradedb.stemmed(english),
-    whitespace_col         paradedb.whitespace
+    chinese_compatible_col pdb.chinese_compatible,
+    exact_col              pdb.exact,
+    jieba_col              pdb.jieba,
+    lindera_chinese_col    pdb.lindera(chinese),
+    lindera_japanese_col   pdb.lindera(japanese),
+    lindera_korean_col     pdb.lindera(korean),
+    ngram_col              pdb.ngram(3, 5),
+    regex_col              pdb.regex('ll|o'),
+    simple_col             pdb.simple,
+    stemmed_en_col         pdb.stemmed(english),
+    whitespace_col         pdb.whitespace
 );
 
 INSERT INTO all_types(text_col, varchar_col, chinese_compatible_col, exact_col, jieba_col, lindera_chinese_col,

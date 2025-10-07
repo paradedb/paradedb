@@ -10,17 +10,17 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
     (
      id,
      t,
-     (t::paradedb.chinese_compatible('alias=chinese_compatible')),
-     (t::paradedb.exact('alias=exact')),
-     (t::paradedb.jieba('alias=jieba')),
-     (t::paradedb.lindera(chinese, 'alias=lindera_chinese')),
-     (t::paradedb.lindera(japanese, 'alias=lindera_japanese')),
-     (t::paradedb.lindera(korean, 'alias=lindera_korean')),
-     (t::paradedb.ngram(3, 5, 'alias=ngram')),
-     (t::paradedb.regex('is|a', 'alias=regex')),
-     (t::paradedb.simple('alias=simple')),
-     (t::paradedb.stemmed(english, 'alias=stemmed')),
-     (t::paradedb.whitespace('alias=whitespace'))
+     (t::pdb.chinese_compatible('alias=chinese_compatible')),
+     (t::pdb.exact('alias=exact')),
+     (t::pdb.jieba('alias=jieba')),
+     (t::pdb.lindera(chinese, 'alias=lindera_chinese')),
+     (t::pdb.lindera(japanese, 'alias=lindera_japanese')),
+     (t::pdb.lindera(korean, 'alias=lindera_korean')),
+     (t::pdb.ngram(3, 5, 'alias=ngram')),
+     (t::pdb.regex('is|a', 'alias=regex')),
+     (t::pdb.simple('alias=simple')),
+     (t::pdb.stemmed(english, 'alias=stemmed')),
+     (t::pdb.whitespace('alias=whitespace'))
         )
     WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t @@@ 'test';
@@ -35,7 +35,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"t","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=chinese_compatible')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) @@@ 'test';
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -47,7 +47,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"chinese_compatible","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.whitespace('alias=whitespace')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) @@@ 'test';
                                                                         QUERY PLAN                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -59,7 +59,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"whitespace","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.stemmed(english, 'alias=stemmed')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) @@@ 'test';
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -71,7 +71,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"stemmed","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.simple('alias=simple')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) @@@ 'test';
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -83,7 +83,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"simple","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.regex('is|a', 'alias=regex')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex('is|a', 'alias=regex')) @@@ 'test';
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -95,7 +95,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"regex","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.ngram(3, 5, 'alias=ngram')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) @@@ 'test';
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -107,7 +107,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ngram","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(korean, 'alias=lindera_korean')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) @@@ 'test';
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -119,7 +119,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_korean","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(japanese, 'alias=lindera_japanese')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) @@@ 'test';
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -131,7 +131,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_japanese","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(chinese, 'alias=lindera_chinese')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) @@@ 'test';
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -143,7 +143,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_chinese","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.jieba('alias=jieba')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) @@@ 'test';
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -155,7 +155,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"jieba","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.exact('alias=exact')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) @@@ 'test';
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -167,7 +167,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"exact","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=simple')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=simple')) @@@ 'test';
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -191,7 +191,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"t","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=chinese_compatible')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) &&& 'test';
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -203,7 +203,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"chinese_compatible","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.whitespace('alias=whitespace')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) &&& 'test';
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -215,7 +215,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"whitespace","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.stemmed(english, 'alias=stemmed')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) &&& 'test';
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -227,7 +227,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"stemmed","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.simple('alias=simple')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) &&& 'test';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -239,7 +239,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"simple","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.regex('is|a', 'alias=regex')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex('is|a', 'alias=regex')) &&& 'test';
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -251,7 +251,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"regex","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.ngram(3, 5, 'alias=ngram')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) &&& 'test';
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -263,7 +263,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"ngram","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(korean, 'alias=lindera_korean')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) &&& 'test';
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -275,7 +275,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_korean","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(japanese, 'alias=lindera_japanese')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) &&& 'test';
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -287,7 +287,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_japanese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(chinese, 'alias=lindera_chinese')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) &&& 'test';
                                                                                                 QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -299,7 +299,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_chinese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.jieba('alias=jieba')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) &&& 'test';
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -311,7 +311,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"jieba","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.exact('alias=exact')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) &&& 'test';
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -323,7 +323,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"exact","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=simple')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=simple')) &&& 'test';
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -347,7 +347,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"t","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=chinese_compatible')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) ||| 'test';
                                                                                                   QUERY PLAN                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -359,7 +359,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"chinese_compatible","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.whitespace('alias=whitespace')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) ||| 'test';
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -371,7 +371,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"whitespace","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.stemmed(english, 'alias=stemmed')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) ||| 'test';
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -383,7 +383,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"stemmed","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.simple('alias=simple')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) ||| 'test';
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -395,7 +395,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"simple","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.regex('is|a', 'alias=regex')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex('is|a', 'alias=regex')) ||| 'test';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -407,7 +407,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"regex","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.ngram(3, 5, 'alias=ngram')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) ||| 'test';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -419,7 +419,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"ngram","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(korean, 'alias=lindera_korean')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) ||| 'test';
                                                                                                 QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -431,7 +431,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_korean","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(japanese, 'alias=lindera_japanese')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) ||| 'test';
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -443,7 +443,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_japanese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(chinese, 'alias=lindera_chinese')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) ||| 'test';
                                                                                                  QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -455,7 +455,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_chinese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.jieba('alias=jieba')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) ||| 'test';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -467,7 +467,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"jieba","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.exact('alias=exact')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) ||| 'test';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -479,7 +479,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"exact","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=simple')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=simple')) ||| 'test';
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -503,7 +503,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"t","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=chinese_compatible')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) === 'test';
                                                          QUERY PLAN                                                         
 ----------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -515,7 +515,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"chinese_compatible","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.whitespace('alias=whitespace')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) === 'test';
                                                      QUERY PLAN                                                     
 --------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -527,7 +527,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"whitespace","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.stemmed(english, 'alias=stemmed')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.stemmed(english, 'alias=stemmed')) === 'test';
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -539,7 +539,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"stemmed","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.simple('alias=simple')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) === 'test';
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -551,7 +551,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"simple","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.regex('is|a', 'alias=regex')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex('is|a', 'alias=regex')) === 'test';
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -563,7 +563,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"regex","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.ngram(3, 5, 'alias=ngram')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) === 'test';
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -575,7 +575,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"ngram","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(korean, 'alias=lindera_korean')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) === 'test';
                                                        QUERY PLAN                                                       
 ------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -587,7 +587,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_korean","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(japanese, 'alias=lindera_japanese')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) === 'test';
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -599,7 +599,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_japanese","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.lindera(chinese, 'alias=lindera_chinese')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) === 'test';
                                                        QUERY PLAN                                                        
 -------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -611,7 +611,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_chinese","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.jieba('alias=jieba')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) === 'test';
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -623,7 +623,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"jieba","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.exact('alias=exact')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) === 'test';
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -635,7 +635,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"exact","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::paradedb.chinese_compatible('alias=simple')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=simple')) === 'test';
                                                 QUERY PLAN                                                 
 -----------------------------------------------------------------------------------------------------------
  Aggregate

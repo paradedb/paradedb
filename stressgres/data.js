@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759868166661,
+  "lastUpdate": 1759868746229,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9268,6 +9268,60 @@ window.BENCHMARK_DATA = {
             "value": 19.168329665041952,
             "unit": "median tps",
             "extra": "avg tps: 19.18163036322835, max tps: 21.21000644057753, count: 55555"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759868744609,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.37340400859662,
+            "unit": "median tps",
+            "extra": "avg tps: 38.474991339614206, max tps: 39.60525475933167, count: 55569"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.1465559684618,
+            "unit": "median tps",
+            "extra": "avg tps: 273.31698737146684, max tps: 2817.109953942506, count: 55569"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1047.6646278296112,
+            "unit": "median tps",
+            "extra": "avg tps: 1037.6218788093272, max tps: 1068.264407791821, count: 55569"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.06217323856242,
+            "unit": "median tps",
+            "extra": "avg tps: 157.72111963505643, max tps: 808.4267395853834, count: 111138"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.571492314283386,
+            "unit": "median tps",
+            "extra": "avg tps: 19.493504032238675, max tps: 20.02431687348693, count: 55569"
           }
         ]
       }

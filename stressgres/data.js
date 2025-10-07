@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759851834491,
+  "lastUpdate": 1759852526795,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5668,6 +5668,54 @@ window.BENCHMARK_DATA = {
             "value": 5.977217617978894,
             "unit": "median tps",
             "extra": "avg tps: 6.00778102063647, max tps: 7.565659598186911, count: 56461"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34e2d538b7327fc30b32f6ee33b55cbc9ccb2749",
+          "message": "chore: Remove deprecated tokenizers: `en_stem`, `stem` and `lowercase` (#3279)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFor better maintainability:\n\n1. Removes three extremely deprecated tokenizers: `en_stem`, `stem`, and\n`lowercase`\n2. Wraps the filter builders in a macro, guaranteeing that all the\nfilters are applied to all tokenizers\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T11:16:19-04:00",
+          "tree_id": "7ef65d52251d2f4fb83439b6887924fa19564416",
+          "url": "https://github.com/paradedb/paradedb/commit/34e2d538b7327fc30b32f6ee33b55cbc9ccb2749"
+        },
+        "date": 1759852525149,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 457.1626847800514,
+            "unit": "median tps",
+            "extra": "avg tps: 444.22932937345996, max tps: 509.1388876800426, count: 56630"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 508.48697402696064,
+            "unit": "median tps",
+            "extra": "avg tps: 507.03183207574784, max tps: 536.3836806004434, count: 56630"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 949.7006506378768,
+            "unit": "median tps",
+            "extra": "avg tps: 928.7037930333101, max tps: 1193.2626766735834, count: 56630"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.944770572476202,
+            "unit": "median tps",
+            "extra": "avg tps: 5.962564920162041, max tps: 7.3148957046925105, count: 56630"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759866690997,
+  "lastUpdate": 1759866693678,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3586,6 +3586,126 @@ window.BENCHMARK_DATA = {
             "value": 148.6484375,
             "unit": "median mem",
             "extra": "avg mem: 128.65352559692226, max mem: 151.41796875, count: 54959"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759866691981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.94115208266753, max cpu: 14.738997, count: 54755"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.39035240788513, max mem: 154.62890625, count: 54755"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5376596085853, max cpu: 9.421001, count: 54755"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.896404366610355, max mem: 30.42578125, count: 54755"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.943217884942461, max cpu: 14.738997, count: 54755"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.5029623436216, max mem: 155.08984375, count: 54755"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.499795745154522, max cpu: 4.7151275, count: 54755"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.6024847902018, max mem: 154.58984375, count: 54755"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643398563083058, max cpu: 9.458128, count: 109510"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152,
+            "unit": "median mem",
+            "extra": "avg mem: 135.4169001047279, max mem: 153.6875, count: 109510"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28034,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27399.81636380239, max block_count: 51882.0, count: 54755"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.732170578029404, max segment_count: 74.0, count: 54755"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669678548110146, max cpu: 9.284333, count: 54755"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 135.9701396419277, max mem: 157.796875, count: 54755"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.626759368135436, max cpu: 4.7151275, count: 54755"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 128.4076317231303, max mem: 151.08203125, count: 54755"
           }
         ]
       }

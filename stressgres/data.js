@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759866693678,
+  "lastUpdate": 1759866774304,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1312,6 +1312,72 @@ window.BENCHMARK_DATA = {
             "value": 125.28967551546148,
             "unit": "median tps",
             "extra": "avg tps: 155.6537703222638, max tps: 1028.810818151515, count: 54755"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f61e5c2d8fb03377c37dcd10c558e9967781b97",
+          "message": "feat: A Free Space Manager fronted by an AVL tree (#3252)\n\n## What\n\nThis implements a new `v2` FSM that's fronted by an AVL tree which\nallows for minimal locking during extension and draining. It also\nprovides efficient continuation during drain as xid blocklists are\nexhausted or found to be unavailable to the current transaction. And it\nimplements a (simple) transparent conversion of the current `v1` FSM to\nthe new format.\n\nAdditionally, this fixes a problem with background merging where more\nthan one background merger process could be spawned at once -- I've seen\nup to 8 concurrently. It does this by introducing some a new page on\ndisk to track the process and coordinate locking.\n\n## Why\n\nOur current FSM is very heavyweight in terms of lock contention. This\nshould get us to something that isn't.\n\n## How\n\n## Tests\n\nA number of new tests for the array-backed AVL tree and the FSM itself.\nAll existing tests also pass and, at least, the `wide-table.toml`\nstressgres shows a slight performance improvement for the update jobs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-07T15:36:47-04:00",
+          "tree_id": "31410dd4c4d2be73d287e97485f4d0faaf1b2932",
+          "url": "https://github.com/paradedb/paradedb/commit/2f61e5c2d8fb03377c37dcd10c558e9967781b97"
+        },
+        "date": 1759866772625,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 792.4110887355787,
+            "unit": "median tps",
+            "extra": "avg tps: 791.1855589419616, max tps: 854.8155085269984, count: 55311"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3345.272329571123,
+            "unit": "median tps",
+            "extra": "avg tps: 3316.348359930314, max tps: 3364.341848934668, count: 55311"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 801.6707022349822,
+            "unit": "median tps",
+            "extra": "avg tps: 799.5498140579039, max tps: 811.2379933903844, count: 55311"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 695.5113521163062,
+            "unit": "median tps",
+            "extra": "avg tps: 690.8731817982662, max tps: 701.5322973047848, count: 55311"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1756.0244111062666,
+            "unit": "median tps",
+            "extra": "avg tps: 1745.2348087698683, max tps: 1773.9746922129575, count: 110622"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1308.1923849603909,
+            "unit": "median tps",
+            "extra": "avg tps: 1294.9791702915386, max tps: 1316.9201368218687, count: 55311"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 144.66869144484983,
+            "unit": "median tps",
+            "extra": "avg tps: 158.7255452432347, max tps: 1082.4092264562464, count: 55311"
           }
         ]
       }

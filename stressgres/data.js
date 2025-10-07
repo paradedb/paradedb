@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759868163923,
+  "lastUpdate": 1759868166661,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8200,6 +8200,108 @@ window.BENCHMARK_DATA = {
             "value": 154.16796875,
             "unit": "median mem",
             "extra": "avg mem: 167.65112113199572, max mem: 214.05078125, count: 56481"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f61e5c2d8fb03377c37dcd10c558e9967781b97",
+          "message": "feat: A Free Space Manager fronted by an AVL tree (#3252)\n\n## What\n\nThis implements a new `v2` FSM that's fronted by an AVL tree which\nallows for minimal locking during extension and draining. It also\nprovides efficient continuation during drain as xid blocklists are\nexhausted or found to be unavailable to the current transaction. And it\nimplements a (simple) transparent conversion of the current `v1` FSM to\nthe new format.\n\nAdditionally, this fixes a problem with background merging where more\nthan one background merger process could be spawned at once -- I've seen\nup to 8 concurrently. It does this by introducing some a new page on\ndisk to track the process and coordinate locking.\n\n## Why\n\nOur current FSM is very heavyweight in terms of lock contention. This\nshould get us to something that isn't.\n\n## How\n\n## Tests\n\nA number of new tests for the array-backed AVL tree and the FSM itself.\nAll existing tests also pass and, at least, the `wide-table.toml`\nstressgres shows a slight performance improvement for the update jobs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-07T15:36:47-04:00",
+          "tree_id": "31410dd4c4d2be73d287e97485f4d0faaf1b2932",
+          "url": "https://github.com/paradedb/paradedb/commit/2f61e5c2d8fb03377c37dcd10c558e9967781b97"
+        },
+        "date": 1759868165038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.3087909337909338, max background_merging: 1.0, count: 55944"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794780149452842, max cpu: 9.619239, count: 55944"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.5,
+            "unit": "median mem",
+            "extra": "avg mem: 17.497240683764122, max mem: 20.08984375, count: 55944"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.640985972112031, max cpu: 28.290766, count: 55944"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 165.8242957661903, max mem: 167.03515625, count: 55944"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59666,
+            "unit": "median block_count",
+            "extra": "avg block_count: 61294.17101029601, max block_count: 76751.0, count: 55944"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 86,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 93.36817174317174, max segment_count: 194.0, count: 55944"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.897072404854357, max cpu: 27.906979, count: 55944"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 165.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.93393267709675, max mem: 165.734375, count: 55944"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9370576021651615, max cpu: 27.745665, count: 55944"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.24550184950576, max mem: 164.09375, count: 55944"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.97464882515391, max cpu: 33.20158, count: 55944"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.2743889955804, max mem: 215.2578125, count: 55944"
           }
         ]
       }

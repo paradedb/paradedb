@@ -243,7 +243,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
     WITH (
         key_field='id',
         text_fields='{
-            "description": {"tokenizer": {"type": "en_stem"}},
+            "description": {"tokenizer": {"type": "default"}},
             "category": {}
         }',
         numeric_fields='{"rating": {}}',

@@ -47,6 +47,7 @@ use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, us
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
@@ -733,6 +734,10 @@ impl CustomScan for PdbScan {
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
 
+            // Store window aggregates in the scan state
+            builder.custom_state().window_aggregates =
+                builder.custom_private().window_aggregates().clone();
+
             // store our query into our custom state too
             let base_query = builder
                 .custom_private()
@@ -1038,6 +1043,20 @@ impl CustomScan for PdbScan {
                                 (*const_score_node).constisnull = false;
                             }
 
+                            // Update window aggregate values
+                            if let Some(agg_results) =
+                                &state.custom_state().window_aggregate_results
+                            {
+                                for (te_idx, datum) in agg_results {
+                                    if let Some(const_node) =
+                                        state.custom_state().const_window_agg_nodes.get(te_idx)
+                                    {
+                                        (**const_node).constvalue = *datum;
+                                        (**const_node).constisnull = false;
+                                    }
+                                }
+                            }
+
                             // TODO: We go _back_ to the heap to get snippet information here
                             // inside of `make_snippet` and `get_snippet_positions`. It's possible
                             // that we could use a wider tuple slot to fetch the extra columns that
@@ -1318,8 +1337,12 @@ fn check_visibility(
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
-    if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
-        // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
+    let need_scores = state.custom_state().need_scores();
+    let need_snippets = state.custom_state().need_snippets();
+    let has_window_aggs = state.custom_state().window_aggregates.is_some();
+
+    if !need_scores && !need_snippets && !has_window_aggs {
+        // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
 
@@ -1338,9 +1361,65 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
         &state.custom_state().snippet_generators,
     );
 
+    // Now inject window aggregate placeholders
+    let (targetlist, const_window_agg_nodes) =
+        if let Some(window_aggs) = &state.custom_state().window_aggregates {
+            inject_window_aggregate_placeholders(targetlist, window_aggs)
+        } else {
+            (targetlist, HashMap::default())
+        };
+
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
+    state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
+}
+
+/// Inject placeholder Const nodes for window aggregates
+unsafe fn inject_window_aggregate_placeholders(
+    targetlist: *mut pg_sys::List,
+    window_aggs: &[WindowAggregateInfo],
+) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
+    use pgrx::PgList;
+
+    let mut const_nodes = HashMap::default();
+    let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+
+    for agg_info in window_aggs {
+        let te_idx = agg_info.target_entry_index;
+
+        // Get the target entry at this index
+        if let Some(te) = tlist.get_ptr(te_idx) {
+            // Check if this is a WindowFunc node
+            if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+                // Create a placeholder Const node with the appropriate type
+                let const_node = pg_sys::makeConst(
+                    agg_info.result_type_oid,
+                    -1,
+                    pg_sys::DEFAULT_COLLATION_OID,
+                    if agg_info.result_type_oid == pg_sys::INT8OID {
+                        8
+                    } else {
+                        -1
+                    },
+                    pg_sys::Datum::null(),
+                    true,                                        // constisnull
+                    agg_info.result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                );
+
+                // Replace the WindowFunc with our Const node
+                (*te).expr = const_node.cast();
+
+                const_nodes.insert(te_idx, const_node);
+                pgrx::warning!(
+                    "Injected placeholder for window aggregate at index {}",
+                    te_idx
+                );
+            }
+        }
+    }
+
+    (tlist.into_pg(), const_nodes)
 }
 
 pub enum PathKeyInfo {

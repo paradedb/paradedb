@@ -27,6 +27,8 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
         )
     WITH (key_field = 'id');
 
+SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t @@@ 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) @@@ 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) @@@ 'test';

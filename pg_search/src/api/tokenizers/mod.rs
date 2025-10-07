@@ -61,7 +61,7 @@ pub fn search_field_config_from_type(
 
     Some(SearchFieldConfig::Text {
         indexed: true,
-        fast: false,
+        fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
         fieldnorms: true,
         tokenizer,
         record: IndexRecordOption::WithFreqsAndPositions,

@@ -26,14 +26,14 @@ SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_3","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description_lower","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
@@ -65,14 +65,14 @@ SELECT * FROM regress.mock_items WHERE description &&& 'running shoes' ORDER BY 
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes' ORDER BY id;
@@ -104,14 +104,14 @@ SELECT * FROM regress.mock_items WHERE description ||| 'running shoes' ORDER BY 
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes' ORDER BY id;
@@ -143,14 +143,14 @@ SELECT * FROM regress.mock_items WHERE description ### 'running shoes' ORDER BY 
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes';
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"_pg_search_3","phrase":"running shoes","slop":null}}}}
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description_lower","phrase":"running shoes","slop":null}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes' ORDER BY id;
@@ -182,14 +182,14 @@ SELECT * FROM regress.mock_items WHERE description === 'shoes' ORDER BY id;
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes';
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"_pg_search_3","value":"shoes","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description_lower","value":"shoes","is_datetime":false}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY id;
@@ -223,14 +223,14 @@ SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] O
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"_pg_search_3","terms":["shoes","SHOES"]}}}}
+   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description_lower","terms":["shoes","SHOES"]}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;

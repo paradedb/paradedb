@@ -29,6 +29,7 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
+use std::ffi::{CStr, CString};
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 
@@ -181,7 +182,7 @@ pub unsafe fn extract_field_attributes(
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid, att_typmod) = if heap_attno == 0 {
+        let (attname, attribute_type_oid, att_typmod, expression) = if heap_attno == 0 {
             // Is an expression.
             let Some(expression) = expressions_iter.next() else {
                 panic!("Expected expression for index attribute {attno}.");
@@ -191,6 +192,7 @@ pub unsafe fn extract_field_attributes(
             let mut attname = None;
             let typoid = pg_sys::exprType(node);
             let mut typmod = -1;
+            let mut expression = Some(expression);
 
             if type_is_tokenizer(typoid) {
                 typmod = pg_sys::exprTypmod(node);
@@ -209,12 +211,13 @@ pub unsafe fn extract_field_attributes(
                         .to_string();
 
                     attname = Some(heap_attname);
+                    expression = None;
                 }
             }
 
             let attname = attname.unwrap_or_else(|| format!("{PG_SEARCH_PREFIX}{attno}"));
 
-            (attname, typoid, typmod)
+            (attname, typoid, typmod, expression)
         } else {
             // Is a field -- get the field name from the heap relation.
             let att = heap_tupdesc
@@ -224,6 +227,7 @@ pub unsafe fn extract_field_attributes(
                 att.name().to_owned(),
                 att.type_oid().value(),
                 att.type_mod(),
+                None,
             )
         };
 
@@ -234,6 +238,25 @@ pub unsafe fn extract_field_attributes(
         let pg_type = PgOid::from_untagged(attribute_type_oid);
         let tantivy_type =
             SearchFieldType::try_from((pg_type, att_typmod)).unwrap_or_else(|e| panic!("{e}"));
+
+        // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.exact` tokenizer
+        let missing_tokenizer_cast = expression.is_some()
+            && att_typmod == -1
+            && matches!(tantivy_type, SearchFieldType::Text(..));
+        if missing_tokenizer_cast {
+            let expr_str = unsafe {
+                let heapname = CString::from_str(heap_relation.name())
+                    .expect("heap relation name must be valid UTF8");
+                let context = pg_sys::deparse_context_for(heapname.as_ptr(), heap_relation.oid());
+                pg_sys::deparse_expression(expression.unwrap().cast(), context, false, true)
+            };
+            let expr_str = CStr::from_ptr(expr_str);
+            panic!(
+                "indexed expression must be cast to a tokenizer: {}",
+                expr_str.to_str().unwrap()
+            );
+        }
+
         field_attributes.insert(
             attname.into(),
             ExtractedFieldAttribute {

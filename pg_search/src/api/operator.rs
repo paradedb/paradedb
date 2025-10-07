@@ -332,26 +332,47 @@ unsafe fn field_name_from_node(
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
             if heap_attno == 0 {
-                let Some(expression) = expressions_iter.next() else {
+                let Some(indexed_expression) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {i}.");
                 };
 
-                if unsafe { pg_sys::equal(node.cast(), expression.cast()) } {
-                    let field_name = if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
-                        let typmod = pg_sys::exprTypmod(expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-
-                        parsed.alias().map(FieldName::from).or_else(|| {
-                            find_one_var(expression.cast())
-                                .and_then(|var| attname_from_var(heaprel, var.cast()))
-                        })
+                let mut reduced_expression = indexed_expression;
+                loop {
+                    let inner_expression = if let Some(coerce) =
+                        nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression)
+                    {
+                        (*coerce).arg
                     } else {
-                        None
+                        reduced_expression
                     };
 
-                    return field_name
-                        .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
+                    if unsafe { pg_sys::equal(node.cast(), inner_expression.cast()) } {
+                        let field_name =
+                            if type_is_tokenizer(pg_sys::exprType(indexed_expression.cast())) {
+                                let typmod = pg_sys::exprTypmod(indexed_expression.cast());
+                                let parsed = lookup_generic_typmod(typmod).unwrap_or_else(|e| {
+                                    panic!("failed to lookup typmod {typmod}: {e}")
+                                });
+
+                                parsed.alias().map(FieldName::from).or_else(|| {
+                                    find_one_var(indexed_expression.cast())
+                                        .and_then(|var| attname_from_var(heaprel, var.cast()))
+                                })
+                            } else {
+                                None
+                            };
+
+                        return field_name
+                            .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
+                    }
+
+                    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression)
+                    {
+                        reduced_expression = (*relabel).arg.cast();
+                        continue;
+                    }
+
+                    break;
                 }
             }
         }

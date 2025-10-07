@@ -827,8 +827,17 @@ impl SearchIndexReader {
         }
     }
 
-    pub fn estimate_docs(&self, total_docs: f64) -> Option<usize> {
-        debug_assert!(self.searcher.segment_readers().len() == 1, "estimate_docs(): expected an index with only one segment, which is assumed to be the largest segment by num_docs");
+    pub fn estimate_docs(&self, total_docs: f64) -> usize {
+        match self.searcher.segment_readers().len() {
+            1 => {}
+            0 => return 0,
+            x => {
+                panic!(
+                    "estimate_docs(): expected an index with only one segment, \
+                    which is assumed to be the largest segment by num_docs. got: {x:?} segments.",
+                );
+            }
+        }
         let largest_reader = self.searcher.segment_reader(0);
         let weight = self.weight();
         let mut scorer = weight
@@ -843,7 +852,7 @@ impl SearchIndexReader {
         }
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
 
-        Some((count as f64 / segment_doc_proportion).ceil() as usize)
+        (count as f64 / segment_doc_proportion).ceil() as usize
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {

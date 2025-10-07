@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759868080644,
+  "lastUpdate": 1759868083245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8068,6 +8068,90 @@ window.BENCHMARK_DATA = {
             "value": 154.6484375,
             "unit": "median mem",
             "extra": "avg mem: 168.1407914777753, max mem: 215.22265625, count: 56525"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759868081641,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6889826600721545, max cpu: 28.514853, count: 56481"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168,
+            "unit": "median mem",
+            "extra": "avg mem: 166.63894218852357, max mem: 168.0, count: 56481"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 58106,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60559.49862785715, max block_count: 75375.0, count: 56481"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 91.63725854712204, max segment_count: 193.0, count: 56481"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.883383372486818, max cpu: 14.799589, count: 56481"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 162.5,
+            "unit": "median mem",
+            "extra": "avg mem: 154.77251904954764, max mem: 162.87890625, count: 56481"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.94514130479182, max cpu: 15.2019005, count: 56481"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.50877099433882, max mem: 162.0625, count: 56481"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.726033835275384, max cpu: 33.20158, count: 56481"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 154.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.65112113199572, max mem: 214.05078125, count: 56481"
           }
         ]
       }

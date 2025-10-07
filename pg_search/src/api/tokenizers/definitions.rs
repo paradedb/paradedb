@@ -39,7 +39,7 @@ mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_tymod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -164,7 +164,7 @@ mod pdb {
         tokenize_simple,
         "simple",
         preferred = true,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -173,7 +173,7 @@ mod pdb {
         tokenize_whitespace,
         "whitespace",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -182,7 +182,7 @@ mod pdb {
         tokenize_exact,
         "exact",
         preferred = false,
-        custom_tymod = true
+        custom_typmod = true
     );
 
     define_tokenizer_type!(
@@ -191,7 +191,7 @@ mod pdb {
         tokenize_chinese_compatible,
         "chinese_compatible",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -200,7 +200,7 @@ mod pdb {
         tokenize_lindera,
         "lindera",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -209,7 +209,7 @@ mod pdb {
         tokenize_jieba,
         "jieba",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -218,7 +218,7 @@ mod pdb {
         tokenize_source_code,
         "source_code",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     #[cfg(feature = "icu")]
@@ -228,7 +228,7 @@ mod pdb {
         tokenize_icu,
         "icu",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -242,7 +242,7 @@ mod pdb {
         tokenize_ngram,
         "ngram",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 
     define_tokenizer_type!(
@@ -254,7 +254,7 @@ mod pdb {
         tokenize_regex,
         "regex",
         preferred = false,
-        custom_tymod = false
+        custom_typmod = false
     );
 }
 

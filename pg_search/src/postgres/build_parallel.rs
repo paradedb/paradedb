@@ -54,8 +54,8 @@ struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
     concurrent: bool,
-    current_xid: pg_sys::TransactionId,
-    next_xid: pg_sys::TransactionId,
+    current_xid: pg_sys::FullTransactionId,
+    next_xid: pg_sys::FullTransactionId,
 }
 impl ParallelStateType for WorkerConfig {}
 
@@ -119,8 +119,8 @@ impl ParallelBuild {
         indexrel: &PgSearchRelation,
         snapshot: pg_sys::Snapshot,
         concurrent: bool,
-        current_xid: pg_sys::TransactionId,
-        next_xid: pg_sys::TransactionId,
+        current_xid: pg_sys::FullTransactionId,
+        next_xid: pg_sys::FullTransactionId,
     ) -> Self {
         let scandesc = unsafe {
             let size = size_of::<pg_sys::ParallelTableScanDescData>()
@@ -288,8 +288,8 @@ struct WorkerBuildState {
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
-    current_xid: pg_sys::TransactionId,
-    next_xid: pg_sys::TransactionId,
+    current_xid: pg_sys::FullTransactionId,
+    next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
     // the following statistics are used to determine when and what to merge:
@@ -318,8 +318,8 @@ impl WorkerBuildState {
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
         per_worker_memory_budget: NonZeroUsize,
-        current_xid: pg_sys::TransactionId,
-        next_xid: pg_sys::TransactionId,
+        current_xid: pg_sys::FullTransactionId,
+        next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
         nlaunched: usize,
         worker_number: i32,
@@ -552,8 +552,8 @@ pub(super) fn build_index(
         }
     });
 
-    let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
-    let next_xid = unsafe { pg_sys::ReadNextTransactionId() };
+    let current_xid = unsafe { pg_sys::GetCurrentFullTransactionId() };
+    let next_xid = unsafe { pg_sys::ReadNextFullTransactionId() };
     let process = ParallelBuild::new(
         &heaprel,
         &indexrel,

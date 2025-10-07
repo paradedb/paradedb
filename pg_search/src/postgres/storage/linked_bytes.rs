@@ -19,6 +19,7 @@ use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedL
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
+use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
 use pgrx::{check_for_interrupts, pg_sys};
 use std::cmp::min;
@@ -357,7 +358,7 @@ impl LinkedBytesList {
     /// Free Space Map behind this index.
     pub unsafe fn return_to_fsm(self) {
         let mut bman = self.bman().clone();
-        let fsm = bman.fsm();
+        let mut fsm = bman.fsm();
         fsm.extend(&mut bman, self.freeable_blocks());
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759867375441,
+  "lastUpdate": 1759867378108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5644,6 +5644,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.48104166666667, max segment_count: 105.0, count: 57600"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759867376417,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.681863738491487, max cpu: 42.899704, count: 57906"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.52845000140314, max mem: 227.59765625, count: 57906"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.403078382261636, max cpu: 33.267326, count: 57906"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.4103487764653, max mem: 166.08203125, count: 57906"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24044,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22857.8116084689, max block_count: 25779.0, count: 57906"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.37795737920078, max segment_count: 107.0, count: 57906"
           }
         ]
       }

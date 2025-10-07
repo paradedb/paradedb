@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759851157279,
+  "lastUpdate": 1759851831195,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3904,6 +3904,42 @@ window.BENCHMARK_DATA = {
             "value": 5.372552392224057,
             "unit": "median tps",
             "extra": "avg tps: 4.853079900099778, max tps: 5.965724945619175, count: 57791"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34e2d538b7327fc30b32f6ee33b55cbc9ccb2749",
+          "message": "chore: Remove deprecated tokenizers: `en_stem`, `stem` and `lowercase` (#3279)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFor better maintainability:\n\n1. Removes three extremely deprecated tokenizers: `en_stem`, `stem`, and\n`lowercase`\n2. Wraps the filter builders in a macro, guaranteeing that all the\nfilters are applied to all tokenizers\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T11:16:19-04:00",
+          "tree_id": "7ef65d52251d2f4fb83439b6887924fa19564416",
+          "url": "https://github.com/paradedb/paradedb/commit/34e2d538b7327fc30b32f6ee33b55cbc9ccb2749"
+        },
+        "date": 1759851829592,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.314033886629874,
+            "unit": "median tps",
+            "extra": "avg tps: 7.069765968465518, max tps: 10.951814817826302, count: 57270"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.368144580827352,
+            "unit": "median tps",
+            "extra": "avg tps: 4.862333386963252, max tps: 5.965499086673725, count: 57270"
           }
         ]
       }

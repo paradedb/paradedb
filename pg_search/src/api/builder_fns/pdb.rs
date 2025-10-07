@@ -84,7 +84,7 @@ mod pdb {
     }
 
     #[builder_fn]
-    #[pg_extern(immutable, parallel_safe, name = "phrase")]
+    #[pg_extern(immutable, parallel_safe, name = "phrase_array")]
     pub fn phrase_array(tokens: Vec<String>) -> pdb::Query {
         pdb::Query::PhraseArray { tokens, slop: None }
     }

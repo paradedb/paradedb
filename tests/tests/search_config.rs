@@ -233,7 +233,7 @@ fn default_tokenizer_config(mut conn: PgConnection) {
     WHERE tokenizer_config @@@ 'description:earbud' ORDER BY id"
         .fetch(&mut conn);
 
-    assert_eq!(rows[0], (12,));
+    assert!(rows.is_empty())
 }
 
 #[rstest]

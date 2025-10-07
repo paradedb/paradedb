@@ -279,40 +279,15 @@ select * from regress.mock_items where description === case when id = 1 then 'ke
 -- these are types that postgres will coerce to TEXT
 --
 SELECT * FROM regress.mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `@@@(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------

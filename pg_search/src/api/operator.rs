@@ -265,7 +265,7 @@ unsafe fn field_name_from_node(
     context: VarContext,
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
-    mut node: *mut pg_sys::Node,
+    node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
     use crate::PG_SEARCH_PREFIX;
 
@@ -279,137 +279,123 @@ unsafe fn field_name_from_node(
     }
 
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-    loop {
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            // the expression we're looking for is just a simple Var.
+    if let Some(var) = nodecast!(Var, T_Var, node) {
+        // the expression we're looking for is just a simple Var.
 
-            if (*var).varattno == 0 {
-                // the var references the whole row -- this means the fieldname is the name of the "key_field"
-                return Some(
-                    indexrel
-                        .schema()
-                        .expect("index should have a valid schema")
-                        .key_field_name(),
-                );
+        if (*var).varattno == 0 {
+            // the var references the whole row -- this means the fieldname is the name of the "key_field"
+            return Some(
+                indexrel
+                    .schema()
+                    .expect("index should have a valid schema")
+                    .key_field_name(),
+            );
+        }
+
+        // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
+
+        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+        let mut expr_no = 0;
+        for i in 0..index_info.ii_NumIndexAttrs {
+            let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
+
+            if heap_attno == (*var).varattno {
+                // this is a Var that directly matches an indexed attribute
+                return attname_from_var(heaprel, var);
+            } else if heap_attno == 0 {
+                // see if the Var we're looking for matches a custom tokenizer definition
+                let Some(expression) = expressions.get_ptr(expr_no) else {
+                    panic!("expected expression for index attribute {expr_no}");
+                };
+
+                if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
+                    let vars = find_vars(expression.cast());
+                    if vars.len() == 1 && pg_sys::equal(node.cast(), vars[0].cast()) {
+                        // the Var is the expression that matches the Var we're looking for
+                        // but lets make sure the whole expression is one without an alias
+                        // we pick the first un-aliased custom tokenizer expression that uses the
+                        // Var as the matching indexed expression
+                        let typmod = pg_sys::exprTypmod(expression.cast());
+                        let parsed = lookup_generic_typmod(typmod)
+                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
+                        if parsed.alias().is_none() {
+                            return attname_from_var(heaprel, var);
+                        }
+                    }
+                    expr_no += 1;
+                }
             }
+        }
 
-            // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
+        return None;
+    }
 
-            let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
-            let mut expr_no = 0;
-            for i in 0..index_info.ii_NumIndexAttrs {
-                let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
+    //
+    // we're looking for a more complex expression
+    //
 
-                if heap_attno == (*var).varattno {
-                    // this is a Var that directly matches an indexed attribute
-                    return attname_from_var(heaprel, var);
-                } else if heap_attno == 0 {
-                    // see if the Var we're looking for matches a custom tokenizer definition
-                    let Some(expression) = expressions.get_ptr(expr_no) else {
-                        panic!("expected expression for index attribute {expr_no}");
-                    };
+    let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+    let mut expressions_iter = expressions.iter_ptr();
 
-                    if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
-                        let vars = find_vars(expression.cast());
-                        if vars.len() == 1 && pg_sys::equal(node.cast(), vars[0].cast()) {
-                            // the Var is the expression that matches the Var we're looking for
-                            // but lets make sure the whole expression is one without an alias
-                            // we pick the first un-aliased custom tokenizer expression that uses the
-                            // Var as the matching indexed expression
-                            let typmod = pg_sys::exprTypmod(expression.cast());
+    for i in 0..index_info.ii_NumIndexAttrs {
+        let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
+        if heap_attno == 0 {
+            let Some(indexed_expression) = expressions_iter.next() else {
+                panic!("Expected expression for index attribute {i}.");
+            };
+
+            let mut reduced_expression = indexed_expression;
+            loop {
+                let inner_expression = if let Some(coerce) =
+                    nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression)
+                {
+                    (*coerce).arg
+                } else {
+                    reduced_expression
+                };
+
+                if unsafe { pg_sys::equal(node.cast(), inner_expression.cast()) } {
+                    let field_name =
+                        if type_is_tokenizer(pg_sys::exprType(indexed_expression.cast())) {
+                            let typmod = pg_sys::exprTypmod(indexed_expression.cast());
                             let parsed = lookup_generic_typmod(typmod).unwrap_or_else(|e| {
                                 panic!("failed to lookup typmod {typmod}: {e}")
                             });
-                            if parsed.alias().is_none() {
-                                return attname_from_var(heaprel, var);
-                            }
-                        }
-                        expr_no += 1;
-                    }
+
+                            parsed.alias().map(FieldName::from).or_else(|| {
+                                find_one_var(indexed_expression.cast())
+                                    .and_then(|var| attname_from_var(heaprel, var.cast()))
+                            })
+                        } else {
+                            None
+                        };
+
+                    return field_name
+                        .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
                 }
-            }
 
-            return None;
-        }
-
-        //
-        // we're looking for a more complex expression
-        //
-
-        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
-        let mut expressions_iter = expressions.iter_ptr();
-
-        for i in 0..index_info.ii_NumIndexAttrs {
-            let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
-            if heap_attno == 0 {
-                let Some(indexed_expression) = expressions_iter.next() else {
-                    panic!("Expected expression for index attribute {i}.");
-                };
-
-                let mut reduced_expression = indexed_expression;
-                loop {
-                    let inner_expression = if let Some(coerce) =
-                        nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression)
-                    {
-                        (*coerce).arg
-                    } else {
-                        reduced_expression
-                    };
-
-                    if unsafe { pg_sys::equal(node.cast(), inner_expression.cast()) } {
-                        let field_name =
-                            if type_is_tokenizer(pg_sys::exprType(indexed_expression.cast())) {
-                                let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                                let parsed = lookup_generic_typmod(typmod).unwrap_or_else(|e| {
-                                    panic!("failed to lookup typmod {typmod}: {e}")
-                                });
-
-                                parsed.alias().map(FieldName::from).or_else(|| {
-                                    find_one_var(indexed_expression.cast())
-                                        .and_then(|var| attname_from_var(heaprel, var.cast()))
-                                })
-                            } else {
-                                None
-                            };
-
-                        return field_name
-                            .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
-                    }
-
-                    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression)
-                    {
-                        reduced_expression = (*relabel).arg.cast();
-                        continue;
-                    }
-
-                    break;
+                if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {
+                    reduced_expression = (*relabel).arg.cast();
+                    continue;
                 }
+
+                break;
             }
         }
-
-        //
-        // the node we're evaluating doesn't match either an index expression or a direct Var
-        //
-
-        // could it be a json(b) path reference like:  json_field->'foo'->>'bar'?
-        let json_path = find_json_path(&context, node);
-        if !json_path.is_empty() {
-            return Some(FieldName::from(json_path.join(".")));
-        }
-
-        // maybe it's some other kind of expression
-        // if that expression only has 1 Var node, we'll use that and loop around to try again
-        // could be a simple relabel such as:  text_field::varchar
-        // TODO:  should we limit it to just that?  As written, this code might be a little over optimistic
-        let mut vars = find_vars(node);
-        if vars.len() == 1 {
-            node = vars.pop().unwrap().cast();
-            continue;
-        }
-
-        // whatever they're searching for, it's not something we know how to identify
-        return None;
     }
+
+    //
+    // the node we're evaluating doesn't match either an index expression or a direct Var
+    //
+
+    // could it be a json(b) path reference like:  json_field->'foo'->>'bar'?
+    let json_path = find_json_path(&context, node);
+    if !json_path.is_empty() {
+        return Some(FieldName::from(json_path.join(".")));
+    }
+
+    // whatever they're searching for, it's not something we know how to identify
+    None
 }
 
 unsafe fn request_simplify<ConstRewrite, ExecRewrite>(

@@ -2,11 +2,11 @@
 
 /.cargo/                                                       @philippemnoel @rebasedming
 /.cursor/                                                      @philippemnoel @mdashti
-/.github/                                                      @philippemnoel @rebasedming
+/.github/                                                      @philippemnoel @rebasedming @stuhood
 /benchmarks/                                                   @philippemnoel @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @philippemnoel @rebasedming @stuhood
 /pg_search/                                                    @rebasedming @eeeebbbbrrrr @stuhood @mdashti
-/scripts/                                                      @philippemnoel @mdashti
+/scripts/                                                      @philippemnoel @mdashti @stuhood
 /tests/                                                        @rebasedming @eeeebbbbrrrr @stuhood @mdashti
 /tokenizers/                                                   @rebasedming @eeeebbbbrrrr

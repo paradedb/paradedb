@@ -19,7 +19,7 @@
 mod exec_methods;
 pub mod parallel;
 mod privdat;
-mod projections;
+pub mod projections;
 mod scan_state;
 mod solve_expr;
 
@@ -664,6 +664,21 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
+            // Extract window aggregates from the target list
+            let window_aggs = projections::window_agg::extract_window_aggregates(
+                (*(*builder.args().root).parse).targetList,
+                rti as pg_sys::Index,
+            );
+            if !window_aggs.is_empty() {
+                pgrx::warning!(
+                    "Found {} window aggregates in target list",
+                    window_aggs.len()
+                );
+                builder
+                    .custom_private_mut()
+                    .set_window_aggregates(window_aggs);
+            }
+
             builder.build()
         }
     }
@@ -1156,6 +1171,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
+                window_aggregates: None, // TODO: Add window aggregate support
             };
         }
         if matches!(topn_pathkey_info, PathKeyInfo::None) {
@@ -1166,6 +1182,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
+                window_aggregates: None, // TODO: Add window aggregate support
             };
         }
     }
@@ -1198,6 +1215,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             orderby_info,
+            window_aggregates,
         } => builder.custom_state().assign_exec_method(
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,

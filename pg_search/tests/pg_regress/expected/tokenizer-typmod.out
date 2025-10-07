@@ -34,24 +34,6 @@ SELECT 'Running Shoes.  olé'::paradedb.whitespace('lowercase=false', 'stemmer=e
  {Run,Shoes.,ole}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::paradedb.whitespace::text[];
-         text         
-----------------------
- {running,shoes.,olé}
-(1 row)
-
-SELECT 'Running Shoes.  olé'::paradedb.whitespace('lowercase=false')::text[];
-         text         
-----------------------
- {Running,Shoes.,olé}
-(1 row)
-
-SELECT 'Running Shoes.  olé'::paradedb.whitespace('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-       text       
-------------------
- {Run,Shoes.,ole}
-(1 row)
-
 SELECT 'Running Shoes.  olé'::paradedb.exact::text[];
           text           
 -------------------------

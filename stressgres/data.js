@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759866777083,
+  "lastUpdate": 1759867375441,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4534,6 +4534,42 @@ window.BENCHMARK_DATA = {
             "value": 5.268253529168869,
             "unit": "median tps",
             "extra": "avg tps: 4.7704017844729005, max tps: 5.868632347972625, count: 57600"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8ebd1ad157e946d6fff8f775aec3189bc469325",
+          "message": "fix: possible naming collisions with builder functions (#3275)\n\n## What\n\nFix an issue where functions tagged with our `#[builder_fn]` macro could\nend up with the same name.\n\n## Why\n\nIt's come up in CI once or twice and I've seen it locally as well\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-07T15:35:22-04:00",
+          "tree_id": "bd88762bb48211807276741ce46d155ea36600b3",
+          "url": "https://github.com/paradedb/paradedb/commit/b8ebd1ad157e946d6fff8f775aec3189bc469325"
+        },
+        "date": 1759867373729,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.203869197847144,
+            "unit": "median tps",
+            "extra": "avg tps: 7.015916937034822, max tps: 10.94386167340485, count: 57906"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.427723030781504,
+            "unit": "median tps",
+            "extra": "avg tps: 4.901482306450147, max tps: 6.005452071881193, count: 57906"
           }
         ]
       }

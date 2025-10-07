@@ -308,3 +308,21 @@ SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes', 'lowercase=false', 'stemmer=
  {ing,oe}
 (1 row)
 
+SELECT 'Running Shoes.  olé'::pdb.source_code::text[];
+        text         
+---------------------
+ {running,shoes,ole}
+(1 row)
+
+SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false')::text[];
+        text         
+---------------------
+ {Running,Shoes,ole}
+(1 row)
+
+SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+      text      
+----------------
+ {Run,Shoe,ole}
+(1 row)
+

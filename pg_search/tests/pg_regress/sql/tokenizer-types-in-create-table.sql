@@ -19,20 +19,21 @@ CREATE TABLE all_types
     regex_col              pdb.regex('ll|o'),
     simple_col             pdb.simple,
     stemmed_en_col         pdb.simple('stemmer=english'),
-    whitespace_col         pdb.whitespace
+    whitespace_col         pdb.whitespace,
+    source_code_col        pdb.source_code
 );
 
 INSERT INTO all_types(text_col, varchar_col, chinese_compatible_col, exact_col, jieba_col, lindera_chinese_col,
                       lindera_japanese_col, lindera_korean_col,
-                      ngram_col, regex_col, simple_col, stemmed_en_col, whitespace_col)
+                      ngram_col, regex_col, simple_col, stemmed_en_col, whitespace_col, source_code_col)
 VALUES ('hello world', 'hello world', 'hello world', 'hello world', 'hello world', 'hello world',
         'hello world', 'hello world', 'hello world', 'hello world', 'hello world', 'hello world',
-        'hello world');
+        'hello world', 'hello world');
 CREATE INDEX idxall_types ON all_types USING bm25 (id, text_col, varchar_col, chinese_compatible_col, exact_col,
                                                    jieba_col, lindera_chinese_col,
                                                    lindera_japanese_col, lindera_korean_col,
                                                    ngram_col, regex_col, simple_col, stemmed_en_col,
-                                                   whitespace_col) WITH (key_field = 'id');
+                                                   whitespace_col, source_code_col) WITH (key_field = 'id');
 
 SELECT * FROM all_types WHERE text_col @@@ 'HELLO';
 SELECT * FROM all_types WHERE text_col &&& 'HELLO';
@@ -123,5 +124,8 @@ SELECT * FROM all_types WHERE whitespace_col ||| 'HELLO';
 SELECT * FROM all_types WHERE whitespace_col === 'HELLO';
 SELECT * FROM all_types WHERE whitespace_col === 'hello';
 
-
-
+SELECT * FROM all_types WHERE source_code_col @@@ 'HELLO';
+SELECT * FROM all_types WHERE source_code_col &&& 'HELLO';
+SELECT * FROM all_types WHERE source_code_col ||| 'HELLO';
+SELECT * FROM all_types WHERE source_code_col === 'HELLO';
+SELECT * FROM all_types WHERE source_code_col === 'hello';

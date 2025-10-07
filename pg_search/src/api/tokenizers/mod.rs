@@ -53,6 +53,7 @@ pub fn search_field_config_from_type(
             pattern: "".to_string(),
             filters: Default::default(),
         },
+        "source_code" => SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
         _ => return None,
     };
 

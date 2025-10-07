@@ -9,3 +9,4 @@ SELECT 'this is a test.'::pdb.regex('is|a')::text[];
 SELECT 'this is a test.'::pdb.simple::text[];
 SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
 SELECT 'this is a test.'::pdb.whitespace::text[];
+SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pdb.source_code::text[];

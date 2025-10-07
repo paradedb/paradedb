@@ -195,6 +195,15 @@ mod pdb {
         custom_tymod = false
     );
 
+    define_tokenizer_type!(
+        SourceCode,
+        SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
+        tokenize_source_code,
+        "source_code",
+        preferred = false,
+        custom_tymod = false
+    );
+
     #[cfg(feature = "icu")]
     define_tokenizer_type!(
         ICU,

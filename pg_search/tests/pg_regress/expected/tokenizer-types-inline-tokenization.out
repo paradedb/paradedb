@@ -64,3 +64,9 @@ SELECT 'this is a test.'::pdb.whitespace::text[];
  {this,is,a,test.}
 (1 row)
 
+SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pdb.source_code::text[];
+                          text                           
+---------------------------------------------------------
+ {this,is,a,test,fn,foo,arg,string,impl,foo,a,return,42}
+(1 row)
+

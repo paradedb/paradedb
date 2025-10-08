@@ -509,7 +509,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     r#"
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description)
-    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}}')
+    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}}')
     "#
       .execute(&mut conn);
 
@@ -653,7 +653,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "description": {
-                "tokenizer": {"type": "default"}
+                "tokenizer": {"type": "en_stem"}
             }
         }'
     ) WHERE category = 'Electronics';
@@ -764,7 +764,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     WITH (
         key_field='id',
         text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}},
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}},
             "category": {}
         }',
         numeric_fields='{"rating": {}}'
@@ -869,7 +869,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "description": {
-                "tokenizer": {"type": "default"}
+                "tokenizer": {"type": "en_stem"}
             }
         }'
     ) WHERE city = 'Electronics';
@@ -885,7 +885,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "description": {
-                "tokenizer": {"type": "default"}
+                "tokenizer": {"type": "en_stem"}
             }
         }'
     ) WHERE city = 'Electronics';
@@ -900,7 +900,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "description": {
-                "tokenizer": {"type": "default"}
+                "tokenizer": {"type": "en_stem"}
             }
         }'
     ) WHERE category = 'Electronics';
@@ -921,7 +921,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     WITH (
         key_field='id',
         text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}
         }'
     ) WHERE category = 'Electronics';
     "#
@@ -949,7 +949,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     WITH (
         key_field='id',
         text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}
         }'
     );
     "#

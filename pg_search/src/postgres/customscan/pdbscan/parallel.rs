@@ -38,7 +38,12 @@ impl ParallelQueryCapable for PdbScan {
         }
 
         let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
-        ParallelScanState::size_of(segments.len(), &serialized_query)
+        ParallelScanState::size_of(
+            segments.len(),
+            &serialized_query,
+            // TODO: Consume aggregate definition.
+            false,
+        )
     }
 
     fn initialize_dsm_custom_scan(
@@ -51,7 +56,12 @@ impl ParallelQueryCapable for PdbScan {
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).init(segments, &serialized_query);
+            (*pscan_state).init(
+                segments,
+                &serialized_query,
+                // TODO: Consume aggregate definition.
+                false,
+            );
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }

@@ -270,16 +270,49 @@ impl ExecMethod for TopNScanExecState {
             (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        self.search_results = state
-            .search_reader
-            .as_ref()
-            .unwrap()
-            .search_top_n_in_segments(
-                self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
-                self.orderby_info.as_ref(),
-                local_limit,
-                self.offset,
-            );
+        let search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+            self.search_reader
+                .as_ref()
+                .unwrap()
+                .search_top_n_in_segments(
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
+                    orderby_info,
+                    local_limit,
+                    self.offset,
+                    None,
+                )
+        } else {
+            self.search_reader
+                .as_ref()
+                .unwrap()
+                .search_top_n_unordered_in_segments(
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
+                    local_limit,
+                    self.offset,
+                )
+        };
+
+        if let Some(agg_result) = self.search_results.take_aggregation_results() {
+            let segment_count = self
+                .claimed_segments
+                .borrow()
+                .as_ref()
+                .expect("Should have claimed segments while running.")
+                .len();
+            if let Some(parallel_state) = state.parallel_state {
+                unsafe {
+                    (*parallel_state)
+                        .aggregation_append(agg_result, segment_count)
+                        .expect("Failed to append aggregation result");
+                }
+            }
+        }
 
         // Record the offset to start from for the next query.
         self.offset = next_offset;

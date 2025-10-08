@@ -21,7 +21,10 @@ use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::{OwnedPreparedStatement, Query};
-use pgrx::{extension_sql, pg_extern, pg_sys, Array, PgOid, Spi};
+use pgrx::{
+    extension_sql, pg_extern, pg_sys, register_xact_callback, Array, PgOid, PgXactCallbackEvent,
+    Spi,
+};
 use std::collections::hash_map::Entry;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
@@ -402,7 +405,7 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     match locked.entry(typmod) {
         Entry::Occupied(e) => Ok(e.get().clone()),
         Entry::Vacant(e) => {
-            let typmod = ParsedTypmod::try_from(
+            let parsed_typmod = ParsedTypmod::try_from(
                 Spi::connect(|client| {
                     static STMT: OnceLock<Mutex<StmtHolder>> = OnceLock::new();
 
@@ -427,8 +430,11 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
                 .ok_or_else(|| Error::TypmodNotFound(typmod))?,
             )?;
 
-            e.insert(typmod.clone());
-            Ok(typmod)
+            e.insert(parsed_typmod.clone());
+            register_xact_callback(PgXactCallbackEvent::Abort, move || {
+                CACHE.get_or_init(Default::default).lock().remove(&typmod);
+            });
+            Ok(parsed_typmod)
         }
     }
 }
@@ -466,7 +472,7 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
                     ))
                 });
 
-                let datum = unsafe { [DatumWithOid::new(as_text, pg_sys::TEXTARRAYOID)] };
+                let datum = unsafe { [DatumWithOid::new(as_text.clone(), pg_sys::TEXTARRAYOID)] };
                 (&prepared.lock().0)
                     .execute(client, None, &datum)?
                     .first()
@@ -477,8 +483,17 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
 
             let id = match id {
                 Some(id) => id,
-                None => Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
-                    .ok_or(Error::NullTypmodEntry)?,
+                None => {
+                    let id =
+                        Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
+                            .ok_or(Error::NullTypmodEntry)?;
+
+                    register_xact_callback(PgXactCallbackEvent::Abort, move || {
+                        CACHE.get_or_init(Default::default).lock().remove(&as_text);
+                    });
+
+                    id
+                }
             };
             e.insert(id);
             Ok(id)

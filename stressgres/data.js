@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759868831375,
+  "lastUpdate": 1759946326553,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1378,6 +1378,72 @@ window.BENCHMARK_DATA = {
             "value": 144.66869144484983,
             "unit": "median tps",
             "extra": "avg tps: 158.7255452432347, max tps: 1082.4092264562464, count: 55311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96f6d1fa999bb11ba37313786636681219629534",
+          "message": "chore: revert \"chore: Remove deprecated tokenizers: `en_stem`, `stem` and `lowercase` (#3279)\"\n\nThis reverts commit 34e2d538b7327fc30b32f6ee33b55cbc9ccb2749.\n\n\nRequested by @eeeebbbbrrrr due to conflicts with the SQL UX work, will\nre-open later",
+          "timestamp": "2025-10-08T13:42:37-04:00",
+          "tree_id": "9db0fcd9402217db0c7f51702ef447664a0831f4",
+          "url": "https://github.com/paradedb/paradedb/commit/96f6d1fa999bb11ba37313786636681219629534"
+        },
+        "date": 1759946324904,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 813.3584955045874,
+            "unit": "median tps",
+            "extra": "avg tps: 813.1268119334272, max tps: 861.9742521449818, count: 55184"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3367.790255746837,
+            "unit": "median tps",
+            "extra": "avg tps: 3353.0600383416286, max tps: 3420.460442530339, count: 55184"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 807.8804075513674,
+            "unit": "median tps",
+            "extra": "avg tps: 806.8990558277161, max tps: 839.0962712032594, count: 55184"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 701.6658202707715,
+            "unit": "median tps",
+            "extra": "avg tps: 699.6054818212547, max tps: 723.8243086260512, count: 55184"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1741.0880384798359,
+            "unit": "median tps",
+            "extra": "avg tps: 1728.0503272134438, max tps: 1762.5820796246173, count: 110368"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1298.2819086568877,
+            "unit": "median tps",
+            "extra": "avg tps: 1286.5038862267893, max tps: 1304.3707892225336, count: 55184"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 116.42924779268425,
+            "unit": "median tps",
+            "extra": "avg tps: 121.25762406559934, max tps: 655.7222255736914, count: 55184"
           }
         ]
       }

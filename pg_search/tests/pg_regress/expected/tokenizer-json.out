@@ -33,21 +33,72 @@ SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
-ERROR:  type `json` is not compatible with the `&&&` operator
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
-ERROR:  type `json` is not compatible with the `&&&` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
-ERROR:  type `json` is not compatible with the `|||` operator
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
-ERROR:  type `json` is not compatible with the `|||` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  type `json` is not compatible with the `###` operator
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"j.key1","phrase":"value1","slop":null}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  type `json` is not compatible with the `###` operator
+ id | j | jb 
+----+---+----
+(0 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
-ERROR:  type `json` is not compatible with the `===` operator
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1","is_datetime":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' === 'value1';
-ERROR:  type `json` is not compatible with the `===` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -66,21 +117,72 @@ SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
-ERROR:  type `jsonb` is not compatible with the `&&&` operator
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
-ERROR:  type `jsonb` is not compatible with the `&&&` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
-ERROR:  type `jsonb` is not compatible with the `|||` operator
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
-ERROR:  type `jsonb` is not compatible with the `|||` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
-ERROR:  type `jsonb` is not compatible with the `###` operator
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"jb.key2","phrase":"value2","slop":null}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
-ERROR:  type `jsonb` is not compatible with the `###` operator
+ id | j | jb 
+----+---+----
+(0 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-ERROR:  type `jsonb` is not compatible with the `===` operator
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2","is_datetime":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-ERROR:  type `jsonb` is not compatible with the `===` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 DROP INDEX idxindex_json;
 CREATE INDEX idxindex_json ON index_json USING bm25 (id, (j::pdb.ngram(2, 3)), (jb::pdb.whitespace)) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
@@ -110,21 +212,71 @@ SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
-ERROR:  type `json` is not compatible with the `&&&` operator
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
-ERROR:  type `json` is not compatible with the `&&&` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
-ERROR:  type `json` is not compatible with the `|||` operator
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"j.key1","value":"value1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
-ERROR:  type `json` is not compatible with the `|||` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  type `json` is not compatible with the `###` operator
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"j.key1","phrase":"value1","slop":null}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  type `json` is not compatible with the `###` operator
+ id | j | jb 
+----+---+----
+(0 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
-ERROR:  type `json` is not compatible with the `===` operator
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1","is_datetime":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE j->'key1' === 'value1';
-ERROR:  type `json` is not compatible with the `===` operator
+ id | j | jb 
+----+---+----
+(0 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -143,18 +295,69 @@ SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
-ERROR:  type `jsonb` is not compatible with the `&&&` operator
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
-ERROR:  type `jsonb` is not compatible with the `&&&` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
-ERROR:  type `jsonb` is not compatible with the `|||` operator
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"jb.key2","value":"value2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
-ERROR:  type `jsonb` is not compatible with the `|||` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
-ERROR:  type `jsonb` is not compatible with the `###` operator
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"jb.key2","phrase":"value2","slop":null}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
-ERROR:  type `jsonb` is not compatible with the `###` operator
+ id | j | jb 
+----+---+----
+(0 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-ERROR:  type `jsonb` is not compatible with the `===` operator
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on index_json
+   Table: index_json
+   Index: idxindex_json
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2","is_datetime":false}}}}
+(6 rows)
+
 SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-ERROR:  type `jsonb` is not compatible with the `===` operator
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
+

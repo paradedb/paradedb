@@ -677,6 +677,8 @@ unsafe fn validate_lhs_type_as_text_compatible(lhs: *mut pg_sys::Node, operator_
             || oid == pg_sys::VARCHAROID
             || oid == pg_sys::TEXTARRAYOID
             || oid == pg_sys::VARCHARARRAYOID
+            || oid == pg_sys::JSONOID
+            || oid == pg_sys::JSONBOID
             || type_is_tokenizer(oid)
     }
 

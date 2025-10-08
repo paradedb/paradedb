@@ -48,7 +48,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
     Text(pg_sys::Oid),
-    CustomText(pg_sys::Oid, Typmod),
+    Tokenized(pg_sys::Oid, Typmod, pg_sys::Oid),
     Uuid(pg_sys::Oid),
     Inet(pg_sys::Oid),
     I64(pg_sys::Oid),
@@ -64,7 +64,7 @@ impl SearchFieldType {
     pub fn default_config(&self) -> SearchFieldConfig {
         match self {
             SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
-            SearchFieldType::CustomText(_, _) => {
+            SearchFieldType::Tokenized(..) => {
                 // NB:  check `search_field_config_from_type` to make sure the tokenizer is properly represented
                 panic!("CustomText fields do not have a default config")
             }
@@ -83,7 +83,7 @@ impl SearchFieldType {
     pub fn typeoid(&self) -> PgOid {
         match self {
             SearchFieldType::Text(oid) => *oid,
-            SearchFieldType::CustomText(oid, _) => *oid,
+            SearchFieldType::Tokenized(oid, ..) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
             SearchFieldType::Inet(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
@@ -99,17 +99,19 @@ impl SearchFieldType {
 
     pub fn typmod(&self) -> Typmod {
         match self {
-            SearchFieldType::CustomText(_, typmod) => *typmod,
+            SearchFieldType::Tokenized(_, typmod, ..) => *typmod,
             _ => -1,
         }
     }
 }
 
-impl TryFrom<(PgOid, Typmod)> for SearchFieldType {
+impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
     type Error = SearchIndexSchemaError;
-    fn try_from(value: (PgOid, Typmod)) -> Result<Self, Self::Error> {
+    fn try_from(value: (PgOid, Typmod, pg_sys::Oid)) -> Result<Self, Self::Error> {
         let pg_oid = value.0;
         let typmod = value.1;
+        let inner_typoid = value.2;
+
         if matches!(
             pg_oid,
             PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBARRAYOID | pg_sys::BuiltinOid::JSONARRAYOID)
@@ -156,9 +158,9 @@ impl TryFrom<(PgOid, Typmod)> for SearchFieldType {
                 Ok(SearchFieldType::F64(*custom))
             }
 
-            PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => {
-                Ok(SearchFieldType::CustomText(*tokenizer_oid, typmod))
-            }
+            PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => Ok(
+                SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
+            ),
 
             PgOid::Custom(_) => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
 
@@ -278,8 +280,9 @@ impl SearchIndexSchema {
                 attname,
                 ExtractedFieldAttribute {
                     attno,
-                    pg_type,
                     tantivy_type,
+                    inner_typoid,
+                    ..
                 },
             ) in self.bm25_options.attributes().iter()
             {
@@ -292,7 +295,10 @@ impl SearchIndexSchema {
                 };
 
                 for search_field in search_fields {
-                    let (base_oid, is_array) = resolve_base_type(*pg_type).unwrap_or_else(|| {
+                    let (base_oid, is_array) = resolve_base_type(PgOid::from_untagged(
+                        *inner_typoid,
+                    ))
+                    .unwrap_or_else(|| {
                         pgrx::error!(
                             "Failed to resolve base type for column {} with type {:?}",
                             attname,

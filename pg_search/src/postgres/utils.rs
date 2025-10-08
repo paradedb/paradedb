@@ -166,6 +166,8 @@ pub struct ExtractedFieldAttribute {
 
     /// the type we'll use for indexing in tantivy
     pub tantivy_type: SearchFieldType,
+
+    pub inner_typoid: pg_sys::Oid,
 }
 
 /// Extracts the field attributes from the index relation.
@@ -181,7 +183,8 @@ pub unsafe fn extract_field_attributes(
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid, att_typmod, expression) = if heap_attno == 0 {
+        let (attname, attribute_type_oid, att_typmod, expression, inner_typoid) = if heap_attno == 0
+        {
             // Is an expression.
             let Some(expression) = expressions_iter.next() else {
                 panic!("Expected expression for index attribute {attno}.");
@@ -192,6 +195,7 @@ pub unsafe fn extract_field_attributes(
             let typoid = pg_sys::exprType(node);
             let mut typmod = -1;
             let mut expression = Some(expression);
+            let mut inner_typoid = typoid;
 
             if type_is_tokenizer(typoid) {
                 if type_is_alias(typoid) {
@@ -214,6 +218,7 @@ pub unsafe fn extract_field_attributes(
 
                     attname = Some(heap_attname);
                     expression = None;
+                    inner_typoid = (*var).vartype;
                 }
             }
 
@@ -222,7 +227,7 @@ pub unsafe fn extract_field_attributes(
                 panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
             };
 
-            (attname, typoid, typmod, expression)
+            (attname, typoid, typmod, expression, inner_typoid)
         } else {
             // Is a field -- get the field name from the heap relation.
             let att = heap_tupdesc
@@ -233,6 +238,7 @@ pub unsafe fn extract_field_attributes(
                 att.type_oid().value(),
                 att.type_mod(),
                 None,
+                att.type_oid().value(),
             )
         };
 
@@ -241,8 +247,8 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type =
-            SearchFieldType::try_from((pg_type, att_typmod)).unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
+            .unwrap_or_else(|e| panic!("{e}"));
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.exact` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -259,6 +265,7 @@ pub unsafe fn extract_field_attributes(
                 attno: attno as usize,
                 pg_type,
                 tantivy_type,
+                inner_typoid,
             },
         );
     }

@@ -14,6 +14,8 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let preferred = args.take_bool("preferred").unwrap();
     let custom_typmod = args.take_bool("custom_typmod").unwrap().value();
     let schema = args.take_ident("schema").unwrap();
+    let json_cast_name = args.take_ident("json_cast_name").unwrap();
+    let jsonb_cast_name = args.take_ident("jsonb_cast_name").unwrap();
     let pgrx_name = format!("{}_definition", sql_name.value());
 
     let create_type_sql = format!(
@@ -47,6 +49,15 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         cast_name = cast_name
     );
 
+    let pgrx_cast_from_json_name = format!("{}_cast_from_json", sql_name.value());
+    let create_cast_from_json = format!(
+        r#"
+        CREATE CAST (json AS {schema}.{sql_name}) WITH FUNCTION {schema}.{json_cast_name} AS ASSIGNMENT;
+        CREATE CAST (jsonb AS {schema}.{sql_name}) WITH FUNCTION {schema}.{jsonb_cast_name} AS ASSIGNMENT;
+        "#,
+        sql_name = sql_name.value()
+    );
+
     let typmod = if !custom_typmod {
         let alter_type_sql = format!(
             "ALTER TYPE {schema}.{sql_name} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
@@ -70,6 +81,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         #typmod
 
         extension_sql!(#create_cast_to_text_array, name = #pgrx_cast_to_text_array_name, requires = [#pgrx_name, #cast_name]);
+        extension_sql!(#create_cast_from_json, name = #pgrx_cast_from_json_name, requires = [#pgrx_name, #json_cast_name, #jsonb_cast_name]);
     }
         .into()
 }

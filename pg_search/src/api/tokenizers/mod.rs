@@ -20,13 +20,18 @@ use crate::api::tokenizers::typmod::{
 };
 use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
 use once_cell::sync::Lazy;
-use pgrx::{pg_sys, set_varsize_4b};
+use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
+use pgrx::pgrx_sql_entity_graph::metadata::{
+    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+};
+use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
-mod definitions;
+pub(crate) mod definitions;
 mod typmod;
 
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
@@ -48,6 +53,7 @@ pub fn type_is_alias(oid: pg_sys::Oid) -> bool {
 pub fn search_field_config_from_type(
     oid: pg_sys::Oid,
     typmod: Typmod,
+    inner_typoid: pg_sys::Oid,
 ) -> Option<SearchFieldConfig> {
     let type_name = lookup_type_name(oid)?;
 
@@ -82,15 +88,29 @@ pub fn search_field_config_from_type(
 
     apply_typmod(&mut tokenizer, typmod);
 
-    Some(SearchFieldConfig::Text {
-        indexed: true,
-        fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
-        fieldnorms: true,
-        tokenizer,
-        record: IndexRecordOption::WithFreqsAndPositions,
-        normalizer: SearchNormalizer::default(),
-        column: None,
-    })
+    if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
+        Some(SearchFieldConfig::Json {
+            indexed: true,
+            fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
+            fieldnorms: true,
+            tokenizer,
+            record: IndexRecordOption::WithFreqsAndPositions,
+            normalizer: SearchNormalizer::default(),
+            column: None,
+
+            expand_dots: true,
+        })
+    } else {
+        Some(SearchFieldConfig::Text {
+            indexed: true,
+            fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
+            fieldnorms: true,
+            tokenizer,
+            record: IndexRecordOption::WithFreqsAndPositions,
+            normalizer: SearchNormalizer::default(),
+            column: None,
+        })
+    }
 }
 
 pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
@@ -159,6 +179,8 @@ pub trait CowString {
 }
 
 pub trait DatumWrapper {
+    fn sql_name() -> &'static str;
+
     #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
 
@@ -221,6 +243,101 @@ impl<T: DatumWrapper> CowString for T {
                 Cow::Owned(s)
             }
         }
+    }
+}
+
+struct GenericTypeWrapper<Type: DatumWrapper> {
+    pub datum: pg_sys::Datum,
+    __marker: PhantomData<Type>,
+}
+
+unsafe impl<Type: DatumWrapper> SqlTranslatable for GenericTypeWrapper<Type> {
+    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+        Ok(SqlMapping::As(Type::sql_name().into()))
+    }
+
+    fn return_sql() -> Result<Returns, ReturnsError> {
+        Ok(Returns::One(SqlMapping::As(Type::sql_name().into())))
+    }
+}
+
+impl<Type: DatumWrapper> IntoDatum for GenericTypeWrapper<Type> {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        Some(self.datum)
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        todo!("lookup type name?")
+    }
+}
+
+impl<Type: DatumWrapper> FromDatum for GenericTypeWrapper<Type> {
+    unsafe fn from_polymorphic_datum(
+        datum: pg_sys::Datum,
+        is_null: bool,
+        _typoid: pg_sys::Oid,
+    ) -> Option<Self> {
+        if is_null {
+            None
+        } else {
+            Some(Self {
+                datum,
+                __marker: PhantomData,
+            })
+        }
+    }
+}
+
+unsafe impl<'mct, Type: DatumWrapper> ArgAbi<'mct> for GenericTypeWrapper<Type> {
+    unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'mct>) -> Self {
+        let index = arg.index();
+        unsafe {
+            arg.unbox_arg_using_from_datum()
+                .unwrap_or_else(|| panic!("argument {index} must not be null"))
+        }
+    }
+}
+
+unsafe impl<Type: DatumWrapper> BoxRet for GenericTypeWrapper<Type> {
+    unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {
+        fcinfo.return_raw_datum(self.datum)
+    }
+}
+
+impl<Type: DatumWrapper> GenericTypeWrapper<Type> {
+    fn new(datum: pg_sys::Datum) -> Self {
+        Self {
+            datum,
+            __marker: PhantomData,
+        }
+    }
+}
+
+impl DatumWrapper for pgrx::Json {
+    fn sql_name() -> &'static str {
+        "json"
+    }
+
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <pgrx::Json as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::JsonB {
+    fn sql_name() -> &'static str {
+        "jsonb"
+    }
+
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <pgrx::JsonB as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
     }
 }
 

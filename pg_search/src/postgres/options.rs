@@ -404,8 +404,10 @@ impl BM25IndexOptions {
 
         if field_name.root() == data.key_field_name()?.root() {
             return field_type.map(key_field_config);
-        } else if let Some(SearchFieldType::CustomText(tokenizer_oid, typmod)) = field_type {
-            return search_field_config_from_type(tokenizer_oid, typmod);
+        } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
+            field_type
+        {
+            return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
         }
 
         self.text_config()
@@ -826,7 +828,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
-        SearchFieldType::CustomText(..) => {
+        SearchFieldType::Tokenized(..) => {
             panic!("the key_field cannot use a custom tokenizer configuration")
         }
         SearchFieldType::Inet(_) => SearchFieldConfig::Inet {

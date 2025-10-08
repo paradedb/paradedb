@@ -21,8 +21,8 @@ use pgrx::{extension_sql, function_name, pg_extern, Array, PgLogLevel, PgSqlErro
 use std::ffi::CStr;
 
 #[pgrx::pg_schema]
-mod pdb {
-    use crate::api::tokenizers::{CowString, DatumWrapper};
+pub(crate) mod pdb {
+    use crate::api::tokenizers::{CowString, DatumWrapper, GenericTypeWrapper};
     use macros::generate_tokenizer_sql;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
@@ -39,7 +39,7 @@ mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -50,6 +50,10 @@ mod pdb {
             }
 
             impl DatumWrapper for $rust_name {
+                fn sql_name() -> &'static str {
+                    concat!("pdb", ".", $sql_name)
+                }
+
                 fn from_datum(datum: pg_sys::Datum) -> Self {
                     $rust_name(datum)
                 }
@@ -147,12 +151,28 @@ mod pdb {
                 tokens
             }
 
+            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+            fn $json_cast_name(
+                json: GenericTypeWrapper<pgrx::Json>,
+            ) -> GenericTypeWrapper<$rust_name> {
+                GenericTypeWrapper::new(json.datum)
+            }
+
+            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+            unsafe fn $jsonb_cast_name(
+                jsonb: GenericTypeWrapper<pgrx::JsonB>,
+            ) -> GenericTypeWrapper<$rust_name> {
+                GenericTypeWrapper::new(jsonb.datum)
+            }
+
             generate_tokenizer_sql!(
                 rust_name = $rust_name,
                 sql_name = $sql_name,
                 cast_name = $cast_name,
                 preferred = $preferred,
                 custom_typmod = $custom_typmod,
+                json_cast_name = $json_cast_name,
+                jsonb_cast_name = $jsonb_cast_name,
                 schema = pdb
             );
         };
@@ -162,6 +182,8 @@ mod pdb {
         Alias,
         SearchTokenizer::Default(SearchTokenizerFilters::default()),
         tokenize_alias,
+        json_to_alias,
+        jsonb_to_alias,
         "alias",
         preferred = false,
         custom_typmod = false
@@ -171,6 +193,8 @@ mod pdb {
         Simple,
         SearchTokenizer::Default(SearchTokenizerFilters::default()),
         tokenize_simple,
+        json_to_simple,
+        jsonb_to_simple,
         "simple",
         preferred = true,
         custom_typmod = false
@@ -180,6 +204,8 @@ mod pdb {
         Whitespace,
         SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         tokenize_whitespace,
+        json_to_whitespace,
+        jsonb_to_whitespace,
         "whitespace",
         preferred = false,
         custom_typmod = false
@@ -189,6 +215,8 @@ mod pdb {
         Exact,
         SearchTokenizer::Keyword,
         tokenize_exact,
+        json_to_exact,
+        jsonb_to_exact,
         "exact",
         preferred = false,
         custom_typmod = true
@@ -198,6 +226,8 @@ mod pdb {
         ChineseCompatible,
         SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
         tokenize_chinese_compatible,
+        json_to_chinese_compatible,
+        jsonb_to_chinese_compatible,
         "chinese_compatible",
         preferred = false,
         custom_typmod = false
@@ -207,6 +237,8 @@ mod pdb {
         Lindera,
         SearchTokenizer::Lindera(LinderaLanguage::Chinese, SearchTokenizerFilters::default()),
         tokenize_lindera,
+        json_to_lindera,
+        jsonb_to_lindera,
         "lindera",
         preferred = false,
         custom_typmod = false
@@ -216,6 +248,8 @@ mod pdb {
         Jieba,
         SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
         tokenize_jieba,
+        json_to_jieba,
+        jsonb_to_jieba,
         "jieba",
         preferred = false,
         custom_typmod = false
@@ -225,6 +259,8 @@ mod pdb {
         SourceCode,
         SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
         tokenize_source_code,
+        json_to_source_code,
+        jsonb_to_source_code,
         "source_code",
         preferred = false,
         custom_typmod = false
@@ -235,6 +271,8 @@ mod pdb {
         ICU,
         SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         tokenize_icu,
+        json_to_icu,
+        jsonb_to_icu,
         "icu",
         preferred = false,
         custom_typmod = false
@@ -249,6 +287,8 @@ mod pdb {
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_ngram,
+        json_to_ngram,
+        jsonb_to_ngram,
         "ngram",
         preferred = false,
         custom_typmod = false
@@ -261,6 +301,8 @@ mod pdb {
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_regex,
+        json_to_regex,
+        jsonb_to_regex,
         "regex",
         preferred = false,
         custom_typmod = false

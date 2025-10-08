@@ -1,0 +1,52 @@
+---
+title: 0.19.0
+---
+
+## New Features 🎉
+
+### Broadened Aggregate Pushdown Support
+
+The [custom aggregate scan](/documentation/aggregates) has pushdown support for several new query types. The first is `FILTER`,
+which is analagous to the Elastic filters aggregation. It allows a single query to efficiently collect aggregates over multiple
+`WHERE` clauses:
+
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics,
+  COUNT(*) FILTER (WHERE category @@@ 'books') AS books,
+  AVG(price) FILTER (WHERE status @@@ 'available') AS avg_available_price
+FROM products
+GROUP BY brand;
+```
+
+The second is pushdown support for `COALESCE` within an aggregate:
+
+```sql
+SELECT AVG(COALESCE(price, 0)) FROM products WHERE status @@@ 'available';
+```
+
+And the third is support for `COUNT` over a specific field (previously, only `COUNT(*)` was pushed down):
+
+```sql
+SELECT COUNT(price) FROM products WHERE status @@@ 'available';
+```
+
+### Logical Replication Support
+
+Previously, logical replication was an enterprise-only feature. We have made this feature available in ParadeDB Community,
+which means that ParadeDB Community can now run as a logical replica.
+
+<Note>Logical replication in ParadeDB is supported for PG17+ only.</Note>
+
+## Performance Improvements 🚀
+
+### Write Throughput
+
+We have made significant improvements to ParadeDB's write throughput, especially for single-row updates. The first change is a new
+["mutable segment" data structure](https://github.com/paradedb/paradedb/pull/3203), designed to incur the minimal possible overhead during a single-row write. The overhead of tokenizing,
+serializing, and flushing an immutable segment is now completely gone for these single-row writes.
+
+The second is a new [free space map data structure](https://github.com/paradedb/paradedb/pull/3252), backed by an AVL tree. This data structure was designed to minimize lock contention
+during heavy, concurrent writes.
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.19.0).

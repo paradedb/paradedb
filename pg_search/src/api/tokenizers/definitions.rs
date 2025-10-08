@@ -195,7 +195,7 @@ mod pdb {
     );
 
     define_tokenizer_type!(
-        ChineseCompatabile,
+        ChineseCompatible,
         SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
         tokenize_chinese_compatible,
         "chinese_compatible",

@@ -1,0 +1,75 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, rating)
+WITH (key_field='id', text_fields='{"description": {"fast": true, "normalizer": "lowercase"}}');
+-- This gets a TopN scan
+EXPLAIN SELECT description, rating FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY lower(description) DESC
+LIMIT 5;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.04 rows=3 width=68)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.04 rows=3 width=68)
+         Table: mock_items
+         Index: search_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: description desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT description, rating FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY lower(description) DESC
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ White jogging shoes |      3
+ Sleek running shoes |      5
+ Generic shoes       |      4
+(3 rows)
+
+-- No TopN scan
+EXPLAIN SELECT description, rating FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY description DESC
+LIMIT 5;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.04..10.05 rows=3 width=36)
+   ->  Sort  (cost=10.04..10.05 rows=3 width=36)
+         Sort Key: description DESC
+         ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=36)
+               Table: mock_items
+               Index: search_idx
+               Segment Count: 1
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: description, rating
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT description, rating FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY description DESC
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ White jogging shoes |      3
+ Sleek running shoes |      5
+ Generic shoes       |      4
+(3 rows)
+
+DROP TABLE mock_items;

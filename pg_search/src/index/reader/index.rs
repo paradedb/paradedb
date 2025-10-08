@@ -1032,6 +1032,12 @@ impl SearchIndexReader {
         (first_orderby_info, erased_features)
     }
 
+    /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
+    /// some callers (the TopN exec method in particular) are producing them lazily by checking
+    /// them out of shared mutable state as they go.
+    ///
+    /// TODO: See https://github.com/paradedb/paradedb/issues/2758 about removing the O(N) behavior
+    /// here.
     fn segment_readers_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,

@@ -14,7 +14,7 @@ CREATE INDEX idxexpr
                     (lower(t))
             )
     WITH (key_field = 'id');
-ERROR:  indexed expression must be cast to a tokenizer: lower(t)
+ERROR:  indexed expression requires a tokenizer cast with an alias: lower(t)
 CREATE INDEX idxexpr
     ON expr
         USING bm25 (

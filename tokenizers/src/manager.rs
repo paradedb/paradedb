@@ -45,6 +45,7 @@ pub struct SearchTokenizerFilters {
     pub stopwords_language: Option<Language>,
     pub stopwords: Option<Vec<String>>,
     pub ascii_folding: Option<bool>,
+    pub normalizer: Option<SearchNormalizer>,
 }
 
 impl SearchTokenizerFilters {
@@ -61,6 +62,7 @@ impl SearchTokenizerFilters {
             stopwords_language: None,
             stopwords: None,
             ascii_folding: None,
+            normalizer: Some(SearchNormalizer::Raw),
         }
     }
 
@@ -216,6 +218,10 @@ impl SearchTokenizerFilters {
             Some(true) => Some(AsciiFoldingFilter), // Only enable if explicitly requested.
             _ => None,
         }
+    }
+
+    fn normalizer(&self) -> Option<SearchNormalizer> {
+        self.normalizer
     }
 }
 
@@ -644,6 +650,10 @@ impl SearchTokenizer {
             SearchTokenizer::Jieba(filters) => filters,
         }
     }
+
+    pub fn normalizer(&self) -> Option<SearchNormalizer> {
+        self.filters().normalizer()
+    }
 }
 
 pub fn language_to_str(lang: &Language) -> &str {
@@ -762,6 +772,7 @@ mod tests {
             stopwords_language: None,
             stopwords: None,
             ascii_folding: None,
+            normalizer: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -793,6 +804,7 @@ mod tests {
                     stopwords_language: None,
                     stopwords: None,
                     ascii_folding: None,
+                    normalizer: None,
                 }
             }
         );
@@ -814,6 +826,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
+                normalizer: None,
             },
         };
 
@@ -855,6 +868,7 @@ mod tests {
                     "公园".to_string()
                 ]),
                 ascii_folding: None,
+                normalizer: None,
             })
         );
 
@@ -904,6 +918,7 @@ mod tests {
                 stopwords_language: Some(Language::English),
                 stopwords: None,
                 ascii_folding: None,
+                normalizer: None,
             })
         );
 

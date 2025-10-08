@@ -29,7 +29,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
-use tokenizers::{SearchNormalizer, SearchTokenizer};
+use tokenizers::SearchTokenizer;
 
 pub(crate) mod definitions;
 mod typmod;
@@ -88,6 +88,7 @@ pub fn search_field_config_from_type(
 
     apply_typmod(&mut tokenizer, typmod);
 
+    let normalizer = tokenizer.normalizer().unwrap_or_default();
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
             indexed: true,
@@ -95,9 +96,8 @@ pub fn search_field_config_from_type(
             fieldnorms: true,
             tokenizer,
             record: IndexRecordOption::WithFreqsAndPositions,
-            normalizer: SearchNormalizer::default(),
+            normalizer,
             column: None,
-
             expand_dots: true,
         })
     } else {
@@ -107,7 +107,7 @@ pub fn search_field_config_from_type(
             fieldnorms: true,
             tokenizer,
             record: IndexRecordOption::WithFreqsAndPositions,
-            normalizer: SearchNormalizer::default(),
+            normalizer,
             column: None,
         })
     }

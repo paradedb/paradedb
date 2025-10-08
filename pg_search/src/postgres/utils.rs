@@ -18,7 +18,9 @@
 use crate::api::tokenizers::{lookup_generic_typmod, type_is_alias, type_is_tokenizer};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
+use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
+use crate::postgres::customscan::pdbscan::text_lower_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
@@ -31,6 +33,7 @@ use rustc_hash::FxHashMap;
 use std::ffi::{CStr, CString};
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
+use tokenizers::SearchNormalizer;
 
 extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
@@ -168,6 +171,8 @@ pub struct ExtractedFieldAttribute {
     pub tantivy_type: SearchFieldType,
 
     pub inner_typoid: pg_sys::Oid,
+
+    pub normalizer: Option<SearchNormalizer>,
 }
 
 /// Extracts the field attributes from the index relation.
@@ -183,64 +188,88 @@ pub unsafe fn extract_field_attributes(
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid, att_typmod, expression, inner_typoid) = if heap_attno == 0
-        {
-            // Is an expression.
-            let Some(expression) = expressions_iter.next() else {
-                panic!("Expected expression for index attribute {attno}.");
-            };
-            let node = expression.cast();
+        let (attname, attribute_type_oid, att_typmod, expression, inner_typoid, normalizer) =
+            if heap_attno == 0 {
+                // Is an expression.
+                let Some(expression) = expressions_iter.next() else {
+                    panic!("Expected expression for index attribute {attno}.");
+                };
+                let node = expression.cast();
 
-            let mut attname = None;
-            let typoid = pg_sys::exprType(node);
-            let mut typmod = -1;
-            let mut expression = Some(expression);
-            let mut inner_typoid = typoid;
+                let mut attname = None;
+                let typoid = pg_sys::exprType(node);
+                let mut typmod = -1;
+                let mut expression = Some(expression);
+                let mut inner_typoid = typoid;
+                let mut normalizer = None;
 
-            if type_is_tokenizer(typoid) {
-                if type_is_alias(typoid) {
-                    panic!("`pdb.alias` is not allowed in index definitions")
+                if type_is_tokenizer(typoid) {
+                    if type_is_alias(typoid) {
+                        panic!("`pdb.alias` is not allowed in index definitions")
+                    }
+                    typmod = pg_sys::exprTypmod(node);
+
+                    let parsed_typmod =
+                        lookup_generic_typmod(typmod).expect("typmod should be valid");
+                    let vars = find_vars(node);
+
+                    normalizer = parsed_typmod.filters.normalizer;
+
+                    attname = parsed_typmod.alias();
+                    if attname.is_none() && vars.len() == 1 {
+                        let var = vars[0];
+                        let heap_attname = heap_relation
+                            .tuple_desc()
+                            .get((*var).varattno as usize - 1)
+                            .unwrap()
+                            .name()
+                            .to_string();
+
+                        if let Some(coerce) =
+                            nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
+                        {
+                            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
+                            {
+                                if (*func_expr).funcid == text_lower_funcoid() {
+                                    normalizer = Some(SearchNormalizer::Lowercase);
+                                }
+                            }
+                        }
+                        attname = Some(heap_attname);
+                        expression = None;
+                        inner_typoid = (*var).vartype;
+                    }
                 }
-                typmod = pg_sys::exprTypmod(node);
 
-                let parsed_typmod = lookup_generic_typmod(typmod).expect("typmod should be valid");
-                let vars = find_vars(node);
+                let Some(attname) = attname else {
+                    let expr_str = deparse_expr(&heap_relation, expression);
+                    panic!(
+                        "indexed expression requires a tokenizer cast with an alias: {expr_str}"
+                    );
+                };
 
-                attname = parsed_typmod.alias();
-                if attname.is_none() && vars.len() == 1 {
-                    let var = vars[0];
-                    let heap_attname = heap_relation
-                        .tuple_desc()
-                        .get((*var).varattno as usize - 1)
-                        .unwrap()
-                        .name()
-                        .to_string();
-
-                    attname = Some(heap_attname);
-                    expression = None;
-                    inner_typoid = (*var).vartype;
-                }
-            }
-
-            let Some(attname) = attname else {
-                let expr_str = deparse_expr(&heap_relation, expression);
-                panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
+                (
+                    attname,
+                    typoid,
+                    typmod,
+                    expression,
+                    inner_typoid,
+                    normalizer,
+                )
+            } else {
+                // Is a field -- get the field name from the heap relation.
+                let att = heap_tupdesc
+                    .get(heap_attno as usize - 1)
+                    .expect("attribute should exist");
+                (
+                    att.name().to_owned(),
+                    att.type_oid().value(),
+                    att.type_mod(),
+                    None,
+                    att.type_oid().value(),
+                    None,
+                )
             };
-
-            (attname, typoid, typmod, expression, inner_typoid)
-        } else {
-            // Is a field -- get the field name from the heap relation.
-            let att = heap_tupdesc
-                .get(heap_attno as usize - 1)
-                .expect("attribute should exist");
-            (
-                att.name().to_owned(),
-                att.type_oid().value(),
-                att.type_mod(),
-                None,
-                att.type_oid().value(),
-            )
-        };
 
         if field_attributes.contains_key(&FieldName::from(&attname)) {
             panic!("indexed attribute {attname} defined more than once");
@@ -266,6 +295,7 @@ pub unsafe fn extract_field_attributes(
                 pg_type,
                 tantivy_type,
                 inner_typoid,
+                normalizer,
             },
         );
     }

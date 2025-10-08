@@ -258,10 +258,17 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
-    for (name, ExtractedFieldAttribute { tantivy_type, .. }) in
-        unsafe { extract_field_attributes(index_relation.as_ptr()) }
+    for (
+        name,
+        ExtractedFieldAttribute {
+            tantivy_type,
+            normalizer,
+            ..
+        },
+    ) in unsafe { extract_field_attributes(index_relation.as_ptr()) }
     {
-        let config = options.field_config_or_default(&name);
+        let mut config = options.field_config_or_default(&name);
+        config.set_normalizer(normalizer);
 
         match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),

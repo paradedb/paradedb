@@ -37,6 +37,7 @@ use tokenizers::manager::SearchTokenizerFilters;
 
 pub use definitions::lookup_generic_typmod;
 pub use definitions::*;
+use tokenizers::SearchNormalizer;
 
 #[pg_extern(immutable, parallel_safe)]
 fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
@@ -195,6 +196,19 @@ impl Property {
         }
     }
 
+    pub fn as_normalizer(&self) -> Option<SearchNormalizer> {
+        if let Some(s) = self.as_str() {
+            let lcase = s.to_lowercase();
+            match lcase.as_str() {
+                "raw" => Some(SearchNormalizer::Raw),
+                "lowercase" => Some(SearchNormalizer::Lowercase),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn as_language(&self) -> Result<Language> {
         match self {
             Property::String(_, stemmer) => {
@@ -312,6 +326,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             stopwords_language: None,
             stopwords: None,
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
+            normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
         }
     }
 }

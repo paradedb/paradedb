@@ -38,7 +38,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::utils::{deparse_expr, locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{
     find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
 };
@@ -267,8 +267,6 @@ unsafe fn field_name_from_node(
     indexrel: &PgSearchRelation,
     node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
-    use crate::PG_SEARCH_PREFIX;
-
     // just directly reach in and pluck out the alias if the type is cast to it
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
         if type_is_alias((*relabel).resulttype) {
@@ -355,23 +353,23 @@ unsafe fn field_name_from_node(
                 };
 
                 if unsafe { pg_sys::equal(node.cast(), inner_expression.cast()) } {
-                    let field_name =
-                        if type_is_tokenizer(pg_sys::exprType(indexed_expression.cast())) {
-                            let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                            let parsed = lookup_generic_typmod(typmod).unwrap_or_else(|e| {
-                                panic!("failed to lookup typmod {typmod}: {e}")
-                            });
+                    let field_name = if type_is_tokenizer(pg_sys::exprType(
+                        indexed_expression.cast(),
+                    )) {
+                        let typmod = pg_sys::exprTypmod(indexed_expression.cast());
+                        let parsed = lookup_generic_typmod(typmod)
+                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
 
-                            parsed.alias().map(FieldName::from).or_else(|| {
-                                find_one_var(indexed_expression.cast())
-                                    .and_then(|var| attname_from_var(heaprel, var.cast()))
-                            })
-                        } else {
-                            None
-                        };
+                        parsed.alias().map(FieldName::from).or_else(|| {
+                            find_one_var(indexed_expression.cast())
+                                .and_then(|var| attname_from_var(heaprel, var.cast()))
+                        })
+                    } else {
+                        let expr_str = deparse_expr(heaprel, Some(indexed_expression));
+                        panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
+                    };
 
-                    return field_name
-                        .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
+                    return field_name;
                 }
 
                 if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {

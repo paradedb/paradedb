@@ -23,7 +23,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
-use crate::PG_SEARCH_PREFIX;
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
@@ -218,7 +217,10 @@ pub unsafe fn extract_field_attributes(
                 }
             }
 
-            let attname = attname.unwrap_or_else(|| format!("{PG_SEARCH_PREFIX}{attno}"));
+            let Some(attname) = attname else {
+                let expr_str = deparse_expr(&heap_relation, expression);
+                panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
+            };
 
             (attname, typoid, typmod, expression)
         } else {
@@ -247,17 +249,8 @@ pub unsafe fn extract_field_attributes(
             && att_typmod == -1
             && matches!(tantivy_type, SearchFieldType::Text(..));
         if missing_tokenizer_cast {
-            let expr_str = unsafe {
-                let heapname = CString::from_str(heap_relation.name())
-                    .expect("heap relation name must be valid UTF8");
-                let context = pg_sys::deparse_context_for(heapname.as_ptr(), heap_relation.oid());
-                pg_sys::deparse_expression(expression.unwrap().cast(), context, false, true)
-            };
-            let expr_str = CStr::from_ptr(expr_str);
-            panic!(
-                "indexed expression must be cast to a tokenizer: {}",
-                expr_str.to_str().unwrap()
-            );
+            let expr_str = unsafe { deparse_expr(&heap_relation, expression) };
+            panic!("indexed expression must be cast to a tokenizer: {expr_str}");
         }
 
         field_attributes.insert(
@@ -270,6 +263,20 @@ pub unsafe fn extract_field_attributes(
         );
     }
     field_attributes
+}
+
+pub unsafe fn deparse_expr(heaprel: &PgSearchRelation, expr: Option<*mut pg_sys::Expr>) -> String {
+    let Some(expr) = expr else {
+        return "<null expression>".into();
+    };
+    let heapname =
+        CString::from_str(heaprel.name()).expect("heap relation name must be valid UTF8");
+    let context = pg_sys::deparse_context_for(heapname.as_ptr(), heaprel.oid());
+    let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
+    if deparsed.is_null() {
+        return "<null expression>".into();
+    }
+    CStr::from_ptr(deparsed).to_string_lossy().into_owned()
 }
 
 pub unsafe fn row_to_search_document(

@@ -65,7 +65,7 @@ tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.6.0"
-bytemuck = "1.23.2"
+bytemuck = { version = "1.23.2", features = ["derive", "min_const_generics"] }
 
 [dev-dependencies]
 pgrx-tests.workspace = true

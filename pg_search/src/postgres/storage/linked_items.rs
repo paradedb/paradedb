@@ -18,6 +18,7 @@
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{init_new_buffer, BufferManager, BufferMut};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
@@ -189,7 +190,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         true
     }
 
-    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::TransactionId) -> Vec<T> {
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T> {
         // Delete all items that are definitely dead
         self.retain(when_recyclable, |bman, entry| {
             if entry.recyclable(bman) {
@@ -209,7 +210,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     ///
     pub unsafe fn retain(
         &mut self,
-        when_recyclable: pg_sys::TransactionId,
+        when_recyclable: pg_sys::FullTransactionId,
         mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
     ) -> Vec<T> {
         let (mut blockno, mut previous_buffer) = self.get_start_blockno_mut();
@@ -522,7 +523,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         .chain(std::iter::once(self.cloned.header_blockno));
         self.bman.fsm().extend_with_when_recyclable(
             &mut self.bman,
-            unsafe { pg_sys::ReadNextTransactionId() },
+            unsafe { pg_sys::ReadNextFullTransactionId() },
             recyclable_blocks,
         );
     }
@@ -600,7 +601,9 @@ mod tests {
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
-        list.garbage_collect(delete_xid);
+        list.garbage_collect(pg_sys::FullTransactionId {
+            value: delete_xid.into_inner() as u64,
+        });
 
         assert!(list
             .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
@@ -635,7 +638,9 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(&entries, None);
-            list.garbage_collect(deleted_xid);
+            list.garbage_collect(pg_sys::FullTransactionId {
+                value: deleted_xid.into_inner() as u64,
+            });
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
@@ -682,7 +687,9 @@ mod tests {
             list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect(deleted_xid);
+            list.garbage_collect(pg_sys::FullTransactionId {
+                value: deleted_xid.into_inner() as u64,
+            });
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

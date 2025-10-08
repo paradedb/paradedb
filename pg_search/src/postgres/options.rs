@@ -23,6 +23,7 @@ use crate::schema::{SearchFieldConfig, SearchFieldType};
 use std::cell::{Ref, RefCell};
 
 use crate::api::tokenizers::search_field_config_from_type;
+use crate::gucs::{global_enable_background_merging, global_target_segment_count};
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
@@ -304,10 +305,19 @@ impl BM25IndexOptions {
     }
 
     pub fn background_layer_sizes(&self) -> Vec<u64> {
+        if !global_enable_background_merging() {
+            return vec![];
+        }
+
         self.options_data().background_layer_sizes()
     }
 
     pub fn target_segment_count(&self) -> usize {
+        let global_tsc = global_target_segment_count();
+        if global_tsc != 0 {
+            return global_tsc as usize;
+        }
+
         self.options_data()
             .target_segment_count()
             .map(|count| count as usize)

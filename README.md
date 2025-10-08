@@ -1,3 +1,4 @@
+<!-- ParadeDB: Postgres for Search and Analytics -->
 <h1 align="center">
   <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></a>
 <br>

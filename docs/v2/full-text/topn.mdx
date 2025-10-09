@@ -17,6 +17,7 @@ In order for a Top N query to be executed by ParadeDB vs. vanilla Postgres, all 
 1. All `ORDER BY` fields must be indexed. If they are text fields, they [must use the exact tokenizer](#sorting-by-text).
 2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`.
 3. The query must have a `LIMIT`.
+4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves.
 
 To verify that ParadeDB is executing the Top N, look for a `Custom Scan` with a `TopNScanExecState` in the `EXPLAIN` output:
 
@@ -69,3 +70,22 @@ LIMIT 5;
 
 If a text field is present in the `ORDER BY` clause, it must be indexed with the [exact](/v2/tokenizers/available_tokenizers/exact) tokenizer.
 The reason is that the exact tokenizer preserves the original text, which is necessary for accurate sorting.
+
+Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, first ensure that `lower(<text_field>)` is indexed with the exact tokenizer.
+See [indexing expressions](/v2/indexing/indexing_expressions) for more information.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (lower(description)::pdb.exact))
+WITH (key_field='id');
+```
+
+This allows sorting by lowercase to be optimized.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+```

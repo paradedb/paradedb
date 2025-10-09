@@ -17,7 +17,8 @@
 
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
+    get_expr_result_type, pdb_query_typoid, request_simplify, searchqueryinput_typoid, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
@@ -59,22 +60,22 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
                     None => parse(query_string, None, None),
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
                     assert!(field.is_some());
                     let mut query = parse_with_field(string, None, None);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field.unwrap(), query)
                 }
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
                     assert!(field.is_some());
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
+                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
                         query = parse_with_field(string, None, None);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field.unwrap(), pdb::Query::Boost { query: Box::new(query), boost})
+                    to_search_query_input(field.unwrap(), pdb::Query::Boost { query: Box::new(query), boost })
                 }
                 RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());
@@ -92,12 +93,35 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
             },
             |field, _, rhs| {
                 let search_query_input_typoid = searchqueryinput_typoid();
+                let pdb_query_typoid = pdb_query_typoid();
                 let expr_type = get_expr_result_type(rhs);
+                let is_pdb_query = expr_type == pdb_query_typoid;
 
                 assert!(
-                    expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID,
+                    expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || is_pdb_query,
                     "The right-hand side of the `@@@` operator must be a text value"
                 );
+
+
+                let funcid = if is_pdb_query {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)".into_datum()],
+                    )
+                        .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
+                } else if field.is_some() {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
+                    )
+                        .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
+                } else {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.parse(text, bool, bool)".into_datum()],
+                    )
+                        .expect("`paradedb.parse(text, bool, bool)` should exist")
+                };
 
                 match field {
                     // here we call the `paradedb.parse_with_field` function
@@ -105,18 +129,17 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(field.into_const().cast());
                         args.push(rhs.cast());
-                        args.push(pg_sys::makeBoolConst(false, true));
-                        args.push(pg_sys::makeBoolConst(false, true));
+
+                        if !is_pdb_query {
+                            args.push(pg_sys::makeBoolConst(false, true));
+                            args.push(pg_sys::makeBoolConst(false, true));
+                        }
 
                         pg_sys::FuncExpr {
                             xpr: pg_sys::Expr {
                                 type_: pg_sys::NodeTag::T_FuncExpr,
                             },
-                            funcid: direct_function_call::<pg_sys::Oid>(
-                                pg_sys::regprocedurein,
-                                &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
-                            )
-                                .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist"),
+                            funcid,
                             funcresulttype: search_query_input_typoid,
                             funcretset: false,
                             funcvariadic: false,
@@ -130,6 +153,8 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
 
                     // here we call the `paradedb.parse` function without a FieldName
                     None => {
+                        assert!(!is_pdb_query);
+
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(rhs.cast());
                         args.push(pg_sys::makeBoolConst(false, true));
@@ -139,11 +164,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                             xpr: pg_sys::Expr {
                                 type_: pg_sys::NodeTag::T_FuncExpr,
                             },
-                            funcid: direct_function_call::<pg_sys::Oid>(
-                                pg_sys::regprocedurein,
-                                &[c"paradedb.parse(text, bool, bool)".into_datum()],
-                            )
-                                .expect("`paradedb.parse(text, bool, bool)` should exist"),
+                            funcid,
                             funcresulttype: search_query_input_typoid,
                             funcretset: false,
                             funcvariadic: false,

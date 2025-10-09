@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760041256511,
+  "lastUpdate": 1760042107707,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1906,6 +1906,72 @@ window.BENCHMARK_DATA = {
             "value": 171.66616779131905,
             "unit": "median tps",
             "extra": "avg tps: 178.74977751342166, max tps: 600.7532243927436, count: 55191"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a691cd226f9b335af5591dd84e695ec4da92df3",
+          "message": "chore: Un-revert remove deprecated tokenizers (#3306)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBrings back https://github.com/paradedb/paradedb/pull/3279 which was\nreverted\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:18:45-04:00",
+          "tree_id": "9f4e6764d3c00556eadd693db305527cbf8a2342",
+          "url": "https://github.com/paradedb/paradedb/commit/0a691cd226f9b335af5591dd84e695ec4da92df3"
+        },
+        "date": 1760042105895,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 772.2209975174113,
+            "unit": "median tps",
+            "extra": "avg tps: 773.2302426384687, max tps: 783.3430605449221, count: 54741"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3171.4749908482004,
+            "unit": "median tps",
+            "extra": "avg tps: 3172.9719147337487, max tps: 3496.4014632709077, count: 54741"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 766.0085761336535,
+            "unit": "median tps",
+            "extra": "avg tps: 766.9996418662467, max tps: 888.9903897565474, count: 54741"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 649.4833392340539,
+            "unit": "median tps",
+            "extra": "avg tps: 650.1211024460441, max tps: 670.5692421030413, count: 54741"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1705.9109608722906,
+            "unit": "median tps",
+            "extra": "avg tps: 1711.5631326993725, max tps: 1746.3076648965039, count: 109482"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1277.839779782642,
+            "unit": "median tps",
+            "extra": "avg tps: 1270.450517575403, max tps: 1283.6516776801793, count: 54741"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 130.18361773502343,
+            "unit": "median tps",
+            "extra": "avg tps: 129.00534452534208, max tps: 674.9660492077248, count: 54741"
           }
         ]
       }

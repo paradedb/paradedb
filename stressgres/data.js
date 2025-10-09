@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760026970775,
+  "lastUpdate": 1760026973509,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7054,6 +7054,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.40992347910391, max segment_count: 104.0, count: 57762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de316db45e848a0bc1c1ae86f820de701030f1",
+          "message": "chore: show readable error if serving reads from hot standby (#3267)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nShow a better error message if trying to serve reads on a hot standby\nfrom ParadeDB Community, which does not support WALs -- only Enterprise\ndoes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:48:50-04:00",
+          "tree_id": "da13ba2361322103116c1d498ec45f15ad86908c",
+          "url": "https://github.com/paradedb/paradedb/commit/10de316db45e848a0bc1c1ae86f820de701030f1"
+        },
+        "date": 1760026971787,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.86051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.60925395487376, max cpu: 42.857143, count: 57908"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 225.55825842554137, max mem: 227.73046875, count: 57908"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.410142571065045, max cpu: 33.267326, count: 57908"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.64653847482214, max mem: 163.3515625, count: 57908"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24396,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23253.68239276093, max block_count: 26133.0, count: 57908"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.5744629412171, max segment_count: 107.0, count: 57908"
           }
         ]
       }

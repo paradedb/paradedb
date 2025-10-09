@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760028706662,
+  "lastUpdate": 1760029921011,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1708,6 +1708,72 @@ window.BENCHMARK_DATA = {
             "value": 152.4695451795151,
             "unit": "median tps",
             "extra": "avg tps: 198.45327502788433, max tps: 1075.9525677070053, count: 55056"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76c4decb23962ae948fff00b4b64958c5b631bbf",
+          "message": "feat: support logical replication in community (#3264)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUntil now, logical replication has been an enterprise-only feature. We\nhave made the decision to move it to community, which allows anyone to\nrun ParadeDB as a logical replica of a primary Postgres.\n\nNote: Logical replication is only supported for Postgres 17 and newer.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:11:49-04:00",
+          "tree_id": "85d200bc61f1a460e3f621edae3ca55e6a027145",
+          "url": "https://github.com/paradedb/paradedb/commit/76c4decb23962ae948fff00b4b64958c5b631bbf"
+        },
+        "date": 1760029919266,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 803.6274784835317,
+            "unit": "median tps",
+            "extra": "avg tps: 801.2879470274389, max tps: 855.8555899968887, count: 55333"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3299.606820118628,
+            "unit": "median tps",
+            "extra": "avg tps: 3287.149651565754, max tps: 3322.287285659552, count: 55333"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 802.5293813615792,
+            "unit": "median tps",
+            "extra": "avg tps: 801.8323128649414, max tps: 839.2368651337965, count: 55333"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 689.8780470873949,
+            "unit": "median tps",
+            "extra": "avg tps: 687.7889583447732, max tps: 693.8410242976188, count: 55333"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1725.4144479458707,
+            "unit": "median tps",
+            "extra": "avg tps: 1719.2505803264237, max tps: 1761.301852064648, count: 110666"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1296.0315749938788,
+            "unit": "median tps",
+            "extra": "avg tps: 1284.593822941246, max tps: 1301.5484398170793, count: 55333"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 119.02821555914616,
+            "unit": "median tps",
+            "extra": "avg tps: 127.30363976886271, max tps: 911.0114869438388, count: 55333"
           }
         ]
       }

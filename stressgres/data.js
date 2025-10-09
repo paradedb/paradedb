@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760039843889,
+  "lastUpdate": 1760040568159,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9298,6 +9298,54 @@ window.BENCHMARK_DATA = {
             "value": 5.981992056840065,
             "unit": "median tps",
             "extra": "avg tps: 5.991274372437205, max tps: 7.306021663603563, count: 55926"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a3ca3d2629465260e3d38de91714d4fa3afb0a8",
+          "message": "feat: support the `stopwords_language` typmod property (#3299)\n\n## What\n\nThis adds back in support for the language-specific built-in list of\nstopwords, using `stopwords_language=xxx`.\n\n## Why\n\nStopwords are pretty useful!\n\n## How\n\n## Tests\n\nA regression test has been added.",
+          "timestamp": "2025-10-09T15:29:20-04:00",
+          "tree_id": "9ed34db181fb1282dd50b9ddde0b93999a79f19a",
+          "url": "https://github.com/paradedb/paradedb/commit/8a3ca3d2629465260e3d38de91714d4fa3afb0a8"
+        },
+        "date": 1760040566377,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 450.6328171720671,
+            "unit": "median tps",
+            "extra": "avg tps: 437.8067330527038, max tps: 492.76104092571984, count: 56552"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 484.3216373756377,
+            "unit": "median tps",
+            "extra": "avg tps: 481.4529471961451, max tps: 507.97685739175637, count: 56552"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 928.3168548416827,
+            "unit": "median tps",
+            "extra": "avg tps: 904.5149685143659, max tps: 1175.3996157905153, count: 56552"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.901899176574311,
+            "unit": "median tps",
+            "extra": "avg tps: 5.933110343057978, max tps: 7.231918581787788, count: 56552"
           }
         ]
       }

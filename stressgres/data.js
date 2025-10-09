@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760039139081,
+  "lastUpdate": 1760039841073,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6346,6 +6346,42 @@ window.BENCHMARK_DATA = {
             "value": 5.411858351717136,
             "unit": "median tps",
             "extra": "avg tps: 4.905711633348297, max tps: 6.014801364892113, count: 57877"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a3ca3d2629465260e3d38de91714d4fa3afb0a8",
+          "message": "feat: support the `stopwords_language` typmod property (#3299)\n\n## What\n\nThis adds back in support for the language-specific built-in list of\nstopwords, using `stopwords_language=xxx`.\n\n## Why\n\nStopwords are pretty useful!\n\n## How\n\n## Tests\n\nA regression test has been added.",
+          "timestamp": "2025-10-09T15:29:20-04:00",
+          "tree_id": "9ed34db181fb1282dd50b9ddde0b93999a79f19a",
+          "url": "https://github.com/paradedb/paradedb/commit/8a3ca3d2629465260e3d38de91714d4fa3afb0a8"
+        },
+        "date": 1760039839300,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.274008765967137,
+            "unit": "median tps",
+            "extra": "avg tps: 7.07002713440912, max tps: 11.002144785598938, count: 57936"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.403278879609921,
+            "unit": "median tps",
+            "extra": "avg tps: 4.879570871816216, max tps: 5.994573583848789, count: 57936"
           }
         ]
       }

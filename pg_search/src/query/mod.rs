@@ -444,20 +444,6 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn combine_query_with_filter(&self, filter_expr: Option<&Self>) -> Self {
-        match filter_expr {
-            Some(filter) => match self {
-                SearchQueryInput::All => filter.clone(),
-                _ => SearchQueryInput::Boolean {
-                    must: vec![self.clone(), filter.clone()],
-                    should: vec![],
-                    must_not: vec![],
-                },
-            },
-            None => self.clone(),
-        }
-    }
-
     pub fn canonical_query_string(&self) -> String {
         let mut cleaned_query = serde_json::to_value(self)
             .unwrap_or_else(|_| serde_json::Value::String("Error serializing query".to_string()));

@@ -610,10 +610,8 @@ fn explain_execution_strategy(
             explain_no_filters(explainer);
         } else {
             // Show the combined query
-            let combined_query = state
-                .custom_state()
-                .query
-                .combine_query_with_filter(filter_expr.as_ref());
+            let combined_query =
+                combine_query_with_filter(&state.custom_state().query, filter_expr);
             explainer.add_text("  Combined Query", combined_query.canonical_query_string());
             add_group_by(explainer);
             add_limit_offset(explainer);
@@ -635,10 +633,8 @@ fn explain_execution_strategy(
         add_limit_offset(explainer);
 
         for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
-            let combined_query = state
-                .custom_state()
-                .query
-                .combine_query_with_filter(filter_expr.as_ref());
+            let combined_query =
+                combine_query_with_filter(&state.custom_state().query, filter_expr);
 
             let query_label = if filter_expr.is_some() {
                 format!("  Group {} Query", group_idx + 1)
@@ -654,6 +650,23 @@ fn explain_execution_strategy(
                 ),
             );
         }
+    }
+}
+
+fn combine_query_with_filter(
+    query: &SearchQueryInput,
+    filter_expr: &Option<SearchQueryInput>,
+) -> SearchQueryInput {
+    match filter_expr {
+        Some(filter) => match query {
+            SearchQueryInput::All => filter.clone(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![query.clone(), filter.clone()],
+                should: vec![],
+                must_not: vec![],
+            },
+        },
+        None => query.clone(),
     }
 }
 

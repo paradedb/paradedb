@@ -671,7 +671,7 @@ pub fn build_aggregation_query_from_search_input(
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
     // Convert base query to FilterAggregation
-    let base_query_tantivy = SearchQueryInput::to_tantivy_query(qctx, Some(qparams.base_query))?;
+    let base_query_tantivy = to_tantivy_query(qctx, Some(qparams.base_query))?;
     let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
 
     // Convert filter queries to FilterAggregations
@@ -679,12 +679,36 @@ pub fn build_aggregation_query_from_search_input(
         .aggregate_types
         .iter()
         .map(|agg| {
-            SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())
+            to_tantivy_query(qctx, agg.filter_expr().as_ref())
                 .map(FilterAggregation::new_with_query)
         })
         .collect();
 
     build_aggregation_query(base_filter, filter_aggregations?, qparams)
+}
+
+/// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
+fn to_tantivy_query(
+    qctx: &QueryContext,
+    filter: Option<&SearchQueryInput>,
+) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
+    Ok(match filter {
+        Some(query) => query.clone().into_tantivy_query(
+            qctx.schema,
+            &|| {
+                tantivy::query::QueryParser::for_index(
+                    qctx.reader.searcher().index(),
+                    qctx.schema.fields().map(|(f, _)| f).collect(),
+                )
+            },
+            qctx.reader.searcher(),
+            qctx.index.oid(),
+            qctx.index.heap_relation().map(|r| r.oid()),
+            std::ptr::NonNull::new(qctx.context.as_ptr()),
+            None,
+        )?,
+        None => Box::new(tantivy::query::AllQuery),
+    })
 }
 
 /// Build Tantivy aggregations with consistent FilterAggregation structure

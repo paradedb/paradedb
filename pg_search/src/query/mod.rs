@@ -924,30 +924,6 @@ impl SearchQueryInput {
             }
         }
     }
-
-    /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
-    pub fn to_tantivy_query(
-        qctx: &QueryContext,
-        filter: Option<&SearchQueryInput>,
-    ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
-        Ok(match filter {
-            Some(query) => query.clone().into_tantivy_query(
-                qctx.schema,
-                &|| {
-                    tantivy::query::QueryParser::for_index(
-                        qctx.reader.searcher().index(),
-                        qctx.schema.fields().map(|(f, _)| f).collect(),
-                    )
-                },
-                qctx.reader.searcher(),
-                qctx.index.oid(),
-                qctx.index.heap_relation().map(|r| r.oid()),
-                std::ptr::NonNull::new(qctx.context.as_ptr()),
-                None,
-            )?,
-            None => Box::new(tantivy::query::AllQuery),
-        })
-    }
 }
 
 fn value_to_json_term(

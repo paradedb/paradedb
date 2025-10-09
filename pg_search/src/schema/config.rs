@@ -94,6 +94,16 @@ pub enum SearchFieldConfig {
 }
 
 impl SearchFieldConfig {
+    pub fn set_normalizer(&mut self, normalizer: Option<SearchNormalizer>) {
+        if let Some(new_normalizer) = normalizer {
+            match self {
+                SearchFieldConfig::Text { normalizer, .. }
+                | SearchFieldConfig::Json { normalizer, .. } => *normalizer = new_normalizer,
+                _ => {}
+            }
+        }
+    }
+
     pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
         let mut config: Self = serde_json::from_value(json!({
             "Text": value

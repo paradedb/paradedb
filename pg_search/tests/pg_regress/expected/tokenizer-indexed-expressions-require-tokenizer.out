@@ -1,0 +1,95 @@
+DROP TABLE IF EXISTS expr;
+CREATE TABLE expr
+(
+    id serial8 not null primary key,
+    t  text
+);
+INSERT INTO expr (t) VALUES ('This is a TEST');
+INSERT INTO expr (t) VALUES ('This is also a TEST');
+CREATE INDEX idxexpr
+    ON expr
+        USING bm25 (
+                    id,
+                    -- will cause an ERROR as it needs to be cast to a tokenizer
+                    (lower(t))
+            )
+    WITH (key_field = 'id');
+ERROR:  indexed expression requires a tokenizer cast with an alias: lower(t)
+CREATE INDEX idxexpr
+    ON expr
+        USING bm25 (
+                    id,
+                    (lower(t)::pdb.exact)
+            )
+    WITH (key_field = 'id');
+SELECT * FROM paradedb.schema('idxexpr') ORDER BY name;
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         | record | normalizer 
+------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+--------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                                           |        | 
+ id   | I64        | f      | t       | t    | f          |             |                                                           |        | 
+ t    | Str        | f      | t       | t    | f          |             | keyword[remove_long=18446744073709551615,lowercase=false] | basic  | lowercase
+(3 rows)
+
+SELECT * FROM expr WHERE lower(t) &&& 'This is a TEST';
+ id | t 
+----+---
+(0 rows)
+
+SELECT * FROM expr WHERE lower(t) @@@ lower('This is a TEST');  -- returns nothing
+ id | t 
+----+---
+(0 rows)
+
+SELECT * FROM expr WHERE lower(t) &&& lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE lower(t) ||| lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE lower(t) ### lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE lower(t) === lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE t @@@ lower('This is a TEST');  -- returns nothing
+ id | t 
+----+---
+(0 rows)
+
+SELECT * FROM expr WHERE t &&& lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE t ||| lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE t ### lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+
+SELECT * FROM expr WHERE t === lower('This is a TEST');
+ id |       t        
+----+----------------
+  1 | This is a TEST
+(1 row)
+

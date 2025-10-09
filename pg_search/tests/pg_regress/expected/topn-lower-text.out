@@ -9,17 +9,17 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, rating)
-WITH (key_field='id', text_fields='{"description": {"fast": true, "normalizer": "lowercase"}}');
+USING bm25 (id, (lower(description)::pdb.exact), rating)
+WITH (key_field='id');
 -- This gets a TopN scan
 EXPLAIN SELECT description, rating FROM mock_items
-WHERE description @@@ 'shoes'
+WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.00..10.04 rows=3 width=68)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.04 rows=3 width=68)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=68)
          Table: mock_items
          Index: search_idx
          Segment Count: 1
@@ -27,49 +27,45 @@ LIMIT 5;
          Scores: false
             TopN Order By: description desc
             TopN Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
 (10 rows)
 
 SELECT description, rating FROM mock_items
-WHERE description @@@ 'shoes'
+WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
      description     | rating 
 ---------------------+--------
- White jogging shoes |      3
  Sleek running shoes |      5
- Generic shoes       |      4
-(3 rows)
+(1 row)
 
 -- No TopN scan
 EXPLAIN SELECT description, rating FROM mock_items
-WHERE description @@@ 'shoes'
+WHERE description === 'sleek running shoes'
 ORDER BY description DESC
 LIMIT 5;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.04..10.05 rows=3 width=36)
-   ->  Sort  (cost=10.04..10.05 rows=3 width=36)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.02..10.02 rows=1 width=36)
+   ->  Sort  (cost=10.02..10.02 rows=1 width=36)
          Sort Key: description DESC
-         ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=36)
+         ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=36)
                Table: mock_items
                Index: search_idx
                Segment Count: 1
                Exec Method: MixedFastFieldExecState
                Fast Fields: description, rating
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
 (11 rows)
 
 SELECT description, rating FROM mock_items
-WHERE description @@@ 'shoes'
+WHERE description === 'sleek running shoes'
 ORDER BY description DESC
 LIMIT 5;
      description     | rating 
 ---------------------+--------
- White jogging shoes |      3
  Sleek running shoes |      5
- Generic shoes       |      4
-(3 rows)
+(1 row)
 
 DROP TABLE mock_items;

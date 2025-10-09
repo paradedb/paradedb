@@ -6,8 +6,10 @@ CALL paradedb.create_bm25_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (metadata->>'color'))
+USING bm25 (id, ((metadata->>'color')::pdb.ngram(2, 3)))
 WITH (key_field='id');
+
+SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
 
 EXPLAIN SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';

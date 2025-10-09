@@ -245,12 +245,12 @@ fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNo
             // in this case, we know that the rhs of the expression has a type of `SearchQueryInput`
             // so there's no need for additional rewriting
             //
-            |_, _| {
+            |_, _, _| {
                 unreachable!(
                     "query_input_support_request_simplify should never be called for Const rewriting"
                 )
             },
-            |_, _| {
+            |_, _, _| {
                 unreachable!("query_input_support_request_simplify should never be called for rhs expression rewriting")
             },
         )

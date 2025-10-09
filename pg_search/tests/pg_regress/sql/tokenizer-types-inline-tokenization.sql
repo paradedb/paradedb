@@ -1,0 +1,12 @@
+SELECT 'this is a test.'::pdb.chinese_compatible::text[];
+SELECT 'this is a test.'::pdb.exact::text[];
+SELECT 'this is a test.'::pdb.jieba::text[];
+SELECT 'this is a test.'::pdb.lindera(chinese)::text[];
+SELECT 'this is a test.'::pdb.lindera(japanese)::text[];
+SELECT 'this is a test.'::pdb.lindera(korean)::text[];
+SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
+SELECT 'this is a test.'::pdb.regex('is|a')::text[];
+SELECT 'this is a test.'::pdb.simple::text[];
+SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
+SELECT 'this is a test.'::pdb.whitespace::text[];
+SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pdb.source_code::text[];

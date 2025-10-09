@@ -40,6 +40,17 @@ mod pdb {
             prefix: None,
         }
     }
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "match_conjunction")]
+    pub fn match_conjunction_array(tokens: Vec<String>) -> pdb::Query {
+        pdb::Query::MatchArray {
+            tokens,
+            conjunction_mode: Some(true),
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+        }
+    }
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
@@ -55,9 +66,27 @@ mod pdb {
     }
 
     #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
+    pub fn match_disjunction_array(tokens: Vec<String>) -> pdb::Query {
+        pdb::Query::MatchArray {
+            tokens,
+            conjunction_mode: Some(false),
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+        }
+    }
+
+    #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
     pub fn phrase_string(phrase: String) -> pdb::Query {
         pdb::Query::TokenizedPhrase { phrase, slop: None }
+    }
+
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "phrase_array")]
+    pub fn phrase_array(tokens: Vec<String>) -> pdb::Query {
+        pdb::Query::PhraseArray { tokens, slop: None }
     }
 
     #[builder_fn]

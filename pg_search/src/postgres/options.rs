@@ -22,6 +22,7 @@ use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use std::cell::{Ref, RefCell};
 
+use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
 use anyhow::Result;
 use memoffset::*;
@@ -417,6 +418,16 @@ impl BM25IndexOptions {
                 // otherwise we'll use the default config for key_fields in general
                 _ => self.get_field_type(field_name).map(key_field_config),
             };
+        }
+
+        let field_type = self.get_field_type(field_name);
+
+        if field_name.root() == data.key_field_name()?.root() {
+            return field_type.map(key_field_config);
+        } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
+            field_type
+        {
+            return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
         }
 
         self.text_config()
@@ -837,6 +848,9 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
+        SearchFieldType::Tokenized(..) => {
+            panic!("the key_field cannot use a custom tokenizer configuration")
+        }
         SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
             indexed: true,
             fast: true,

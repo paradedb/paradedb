@@ -15,21 +15,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::{lookup_generic_typmod, type_is_alias, type_is_tokenizer};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
+use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
+use crate::postgres::customscan::pdbscan::text_lower_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
-use crate::PG_SEARCH_PREFIX;
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
+use std::ffi::{CStr, CString};
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
+use tokenizers::SearchNormalizer;
 
 extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
@@ -223,6 +228,10 @@ pub struct ExtractedFieldAttribute {
 
     /// the type we'll use for indexing in tantivy
     pub tantivy_type: SearchFieldType,
+
+    pub inner_typoid: pg_sys::Oid,
+
+    pub normalizer: Option<SearchNormalizer>,
 }
 
 /// Extracts the field attributes from the index relation.
@@ -230,42 +239,148 @@ pub struct ExtractedFieldAttribute {
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
-    let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
+    let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
+    let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
     let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
     let mut expressions_iter = expressions.iter_ptr();
-
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid) = if heap_attno == 0 {
-            // Is an expression.
-            let Some(expression) = expressions_iter.next() else {
-                panic!("Expected expression for index attribute {attno}.");
+        let (attname, attribute_type_oid, att_typmod, expression, inner_typoid, normalizer) =
+            if heap_attno == 0 {
+                // Is an expression.
+                let Some(expression) = expressions_iter.next() else {
+                    panic!("Expected expression for index attribute {attno}.");
+                };
+                let node = expression.cast();
+
+                let mut attname = None;
+                let typoid = pg_sys::exprType(node);
+                let mut typmod = -1;
+                let mut expression = Some(expression);
+                let mut inner_typoid = typoid;
+                let mut normalizer = None;
+
+                if type_is_tokenizer(typoid) {
+                    if type_is_alias(typoid) {
+                        panic!("`pdb.alias` is not allowed in index definitions")
+                    }
+                    typmod = pg_sys::exprTypmod(node);
+
+                    let parsed_typmod =
+                        lookup_generic_typmod(typmod).expect("typmod should be valid");
+                    let vars = find_vars(node);
+
+                    normalizer = parsed_typmod.filters.normalizer;
+
+                    attname = parsed_typmod.alias();
+                    if attname.is_none() && vars.len() == 1 {
+                        let var = vars[0];
+                        let heap_attname = heap_relation
+                            .tuple_desc()
+                            .get((*var).varattno as usize - 1)
+                            .unwrap()
+                            .name()
+                            .to_string();
+
+                        let mut inner_expression = var as *mut pg_sys::Node;
+                        if let Some(coerce) =
+                            nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
+                        {
+                            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
+                            {
+                                if (*func_expr).funcid == text_lower_funcoid() {
+                                    normalizer = Some(SearchNormalizer::Lowercase);
+                                }
+                            }
+                        } else if let Some(relabel) =
+                            nodecast!(RelabelType, T_RelabelType, expression.unwrap())
+                        {
+                            if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
+                                inner_expression = (*relabel).arg.cast();
+                            }
+                        }
+
+                        attname = Some(heap_attname);
+                        expression = None;
+                        inner_typoid = pg_sys::exprType(inner_expression.cast());
+                    }
+                }
+
+                let Some(attname) = attname else {
+                    let expr_str = deparse_expr(&heap_relation, expression);
+                    panic!(
+                        "indexed expression requires a tokenizer cast with an alias: {expr_str}"
+                    );
+                };
+
+                (
+                    attname,
+                    typoid,
+                    typmod,
+                    expression,
+                    inner_typoid,
+                    normalizer,
+                )
+            } else {
+                // Is a field -- get the field name from the heap relation.
+                let att = heap_tupdesc
+                    .get(heap_attno as usize - 1)
+                    .expect("attribute should exist");
+                (
+                    att.name().to_owned(),
+                    att.type_oid().value(),
+                    att.type_mod(),
+                    None,
+                    att.type_oid().value(),
+                    None,
+                )
             };
-            let node = expression.cast();
-            (
-                format!("{PG_SEARCH_PREFIX}{attno}").into(),
-                pg_sys::exprType(node),
-            )
-        } else {
-            // Is a field.
-            let att = tupdesc.get(attno as usize).expect("attribute should exist");
-            (att.name().to_owned().into(), att.type_oid().value())
-        };
+
+        if field_attributes.contains_key(&FieldName::from(&attname)) {
+            panic!("indexed attribute {attname} defined more than once");
+        }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from(pg_type).unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.exact` tokenizer
+        let missing_tokenizer_cast = expression.is_some()
+            && att_typmod == -1
+            && matches!(tantivy_type, SearchFieldType::Text(..));
+        if missing_tokenizer_cast {
+            let expr_str = unsafe { deparse_expr(&heap_relation, expression) };
+            panic!("indexed expression must be cast to a tokenizer: {expr_str}");
+        }
+
         field_attributes.insert(
-            attname,
+            attname.into(),
             ExtractedFieldAttribute {
                 attno: attno as usize,
                 pg_type,
                 tantivy_type,
+                inner_typoid,
+                normalizer,
             },
         );
     }
     field_attributes
+}
+
+pub unsafe fn deparse_expr(heaprel: &PgSearchRelation, expr: Option<*mut pg_sys::Expr>) -> String {
+    let Some(expr) = expr else {
+        return "<null expression>".into();
+    };
+    let heapname =
+        CString::from_str(heaprel.name()).expect("heap relation name must be valid UTF8");
+    let context = pg_sys::deparse_context_for(heapname.as_ptr(), heaprel.oid());
+    let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
+    if deparsed.is_null() {
+        return "<null expression>".into();
+    }
+    CStr::from_ptr(deparsed).to_string_lossy().into_owned()
 }
 
 pub unsafe fn row_to_search_document(

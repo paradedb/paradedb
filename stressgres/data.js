@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760040568159,
+  "lastUpdate": 1760040571026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11656,6 +11656,108 @@ window.BENCHMARK_DATA = {
             "value": 153.7421875,
             "unit": "median mem",
             "extra": "avg mem: 167.54303119300505, max mem: 213.2265625, count: 55926"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a3ca3d2629465260e3d38de91714d4fa3afb0a8",
+          "message": "feat: support the `stopwords_language` typmod property (#3299)\n\n## What\n\nThis adds back in support for the language-specific built-in list of\nstopwords, using `stopwords_language=xxx`.\n\n## Why\n\nStopwords are pretty useful!\n\n## How\n\n## Tests\n\nA regression test has been added.",
+          "timestamp": "2025-10-09T15:29:20-04:00",
+          "tree_id": "9ed34db181fb1282dd50b9ddde0b93999a79f19a",
+          "url": "https://github.com/paradedb/paradedb/commit/8a3ca3d2629465260e3d38de91714d4fa3afb0a8"
+        },
+        "date": 1760040569267,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.3011918234545197, max background_merging: 1.0, count: 56552"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.804372457692466, max cpu: 9.571285, count: 56552"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.439942580501132, max mem: 20.05078125, count: 56552"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.606261632742205, max cpu: 32.463768, count: 56552"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 166.95485218526755, max mem: 168.12890625, count: 56552"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 58875,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60953.68269910879, max block_count: 75614.0, count: 56552"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 92.2127599377564, max segment_count: 194.0, count: 56552"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.846839921629465, max cpu: 27.692308, count: 56552"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 169.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.60506874480566, max mem: 170.4375, count: 56552"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.90479590699952, max cpu: 28.973843, count: 56552"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 169.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.11527436861206, max mem: 169.9140625, count: 56552"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.885254411650813, max cpu: 33.07087, count: 56552"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.21117089968084, max mem: 217.44140625, count: 56552"
           }
         ]
       }

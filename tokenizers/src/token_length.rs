@@ -15,14 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! # Example
-//! ```rust
-//! use tantivy::tokenizer::*;
-//!
-//! let mut tokenizer = TextAnalyzer::builder(SimpleTokenizer::default())
-//!   .filter(TokenLengthFilter::new(Some(5), Some(20)))
-//!   .build();
-//! ```
 use tantivy::tokenizer::{Token, TokenFilter, TokenStream, Tokenizer};
 
 /// `TokenLengthFilter` removes tokens that are longer

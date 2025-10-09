@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760044661891,
+  "lastUpdate": 1760045392961,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9958,6 +9958,54 @@ window.BENCHMARK_DATA = {
             "value": 6.090414645122076,
             "unit": "median tps",
             "extra": "avg tps: 6.131294591206844, max tps: 8.317763381374434, count: 56366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42671fe0df806d6033d837f7b058b0b6f81b187d",
+          "message": "chore: Remove default `255` byte \"remove long\" filter setting (#3288)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA 255 byte \"remove long\" setting was applied to all text fields.\n\nThis was wrong for text fast fields -- any text longer than 255 bytes\nwas being silently dropped. And it's confusing to document for non fast\ntext fields, we should be preserving the tokens and let the user opt\ninto it rather than doing it by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:49:35-04:00",
+          "tree_id": "c1ccc15293d114edb6d9d98bc04d99512d1a539d",
+          "url": "https://github.com/paradedb/paradedb/commit/42671fe0df806d6033d837f7b058b0b6f81b187d"
+        },
+        "date": 1760045391167,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 450.0409560233927,
+            "unit": "median tps",
+            "extra": "avg tps: 435.38983528064085, max tps: 500.0557770417255, count: 56268"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 512.4060753334713,
+            "unit": "median tps",
+            "extra": "avg tps: 512.9885710424278, max tps: 553.4078723184972, count: 56268"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 958.9358902819337,
+            "unit": "median tps",
+            "extra": "avg tps: 942.0412634901663, max tps: 1219.4483261804194, count: 56268"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.053008116027971,
+            "unit": "median tps",
+            "extra": "avg tps: 6.053627551145733, max tps: 8.340118367129925, count: 56268"
           }
         ]
       }

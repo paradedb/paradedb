@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760039841073,
+  "lastUpdate": 1760039843889,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7996,6 +7996,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.30146690395148, max segment_count: 106.0, count: 57877"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a3ca3d2629465260e3d38de91714d4fa3afb0a8",
+          "message": "feat: support the `stopwords_language` typmod property (#3299)\n\n## What\n\nThis adds back in support for the language-specific built-in list of\nstopwords, using `stopwords_language=xxx`.\n\n## Why\n\nStopwords are pretty useful!\n\n## How\n\n## Tests\n\nA regression test has been added.",
+          "timestamp": "2025-10-09T15:29:20-04:00",
+          "tree_id": "9ed34db181fb1282dd50b9ddde0b93999a79f19a",
+          "url": "https://github.com/paradedb/paradedb/commit/8a3ca3d2629465260e3d38de91714d4fa3afb0a8"
+        },
+        "date": 1760039842140,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.927444,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.694935279486323, max cpu: 42.814667, count: 57936"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.62507322196043, max mem: 227.6484375, count: 57936"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.441782247889854, max cpu: 33.23442, count: 57936"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.84935943595087, max mem: 163.90234375, count: 57936"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24376,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23262.62862468931, max block_count: 26242.0, count: 57936"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.50015534382767, max segment_count: 106.0, count: 57936"
           }
         ]
       }

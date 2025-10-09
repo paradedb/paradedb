@@ -262,9 +262,9 @@
                           "v2/token_filters/overview",
                           "v2/token_filters/ascii_folding",
                           "v2/token_filters/lowercase",
-                          "v2/token_filters/remove_long",
                           "v2/token_filters/stopwords",
-                          "v2/token_filters/stemming"
+                          "v2/token_filters/stemming",
+                          "v2/token_filters/token_length"
                         ]
                       },
                       {

@@ -24,6 +24,7 @@ use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
+    token_length::TokenLengthFilter,
 };
 use anyhow::Result;
 use serde::de::{self, Deserializer};
@@ -31,12 +32,13 @@ use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    RemoveLongFilter, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
+    pub remove_short: Option<usize>,
     pub remove_long: Option<usize>,
     pub lowercase: Option<bool>,
     pub stemmer: Option<Language>,
@@ -54,7 +56,8 @@ impl SearchTokenizerFilters {
     /// text types that don't want tokenization too.
     pub const fn keyword() -> &'static Self {
         &SearchTokenizerFilters {
-            remove_long: Some(usize::MAX),
+            remove_short: None,
+            remove_long: None,
             lowercase: Some(false),
             stemmer: None,
             stopwords_language: None,
@@ -72,6 +75,14 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!(
                     "a 'remove_long' value passed to the pg_search tokenizer configuration \
                      must be of type u64, found: {remove_long:#?}"
+                )
+            })? as usize);
+        }
+        if let Some(remove_short) = value.get("remove_short") {
+            filters.remove_short = Some(remove_short.as_u64().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'remove_short' value passed to the pg_search tokenizer configuration \
+                     must be of type u64, found: {remove_short:#?}"
                 )
             })? as usize);
         }
@@ -124,6 +135,11 @@ impl SearchTokenizerFilters {
             }
         }
 
+        if let Some(value) = self.remove_short {
+            write!(buffer, "{}remove_short={value}", sep(is_empty))
+                .expect("Writing to String buffer should never fail");
+            is_empty = false;
+        }
         if let Some(value) = self.remove_long {
             write!(buffer, "{}remove_long={value}", sep(is_empty))
                 .expect("Writing to String buffer should never fail");
@@ -160,8 +176,11 @@ impl SearchTokenizerFilters {
         }
     }
 
-    fn remove_long_filter(&self) -> Option<RemoveLongFilter> {
-        self.remove_long.map(RemoveLongFilter::limit)
+    fn token_length_filter(&self) -> Option<TokenLengthFilter> {
+        match (self.remove_short, self.remove_long) {
+            (None, None) => None,
+            (remove_short, remove_long) => Some(TokenLengthFilter::new(remove_short, remove_long)),
+        }
     }
 
     fn lower_caser(&self) -> Option<LowerCaser> {
@@ -203,7 +222,7 @@ impl SearchTokenizerFilters {
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
-            .filter($filters.remove_long_filter())
+            .filter($filters.token_length_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
@@ -343,8 +362,7 @@ impl SearchTokenizer {
             SearchTokenizer::WhiteSpace(filters) => {
                 add_filters!(WhitespaceTokenizer::default(), filters)
             }
-            // this Tokenizer is deprecated because it's bugged.  The `filters.remove_long_filter()`
-            // and `filters.lower_caser()` provide defaults that do those things, but that is the
+            // this Tokenizer is deprecated because it's bugged. `filters.lower_caser()` provides defaults, but that is the
             // opposite of what the `raw` tokenizer should do.
             //
             // the decision was made to introduce the `keyword` tokenizer which does the correct thing
@@ -550,6 +568,7 @@ mod tests {
                 max_gram: 60,
                 prefix_only: true,
                 filters: SearchTokenizerFilters {
+                    remove_short: None,
                     remove_long: Some(123),
                     lowercase: Some(false),
                     stemmer: None,
@@ -572,6 +591,7 @@ mod tests {
         let tokenizer = SearchTokenizer::RegexTokenizer {
             pattern: "a+b*".to_string(),
             filters: SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: Some(100),
                 lowercase: None,
                 stemmer: None,
@@ -610,6 +630,7 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: None,
                 lowercase: None,
                 stemmer: None,
@@ -664,6 +685,7 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: None,
                 lowercase: None,
                 stemmer: None,

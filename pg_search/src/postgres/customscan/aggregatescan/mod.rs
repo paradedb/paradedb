@@ -18,6 +18,9 @@
 pub mod privdat;
 pub mod scan_state;
 
+// Re-export commonly used types
+pub use privdat::AggregateType;
+
 use std::ffi::CStr;
 
 use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
@@ -27,7 +30,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
+    AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,

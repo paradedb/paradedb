@@ -17,10 +17,13 @@
 
 use std::cell::RefCell;
 
-use crate::api::OrderByInfo;
+use crate::api::{HashMap, OrderByInfo};
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::aggregatescan::AggregateType;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -48,6 +51,10 @@ pub struct TopNScanExecState {
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
     scale_factor: f64,
+    // Window aggregates to compute
+    window_aggregates: Option<Vec<WindowAggregateInfo>>,
+    // Computed aggregate results (stored once, reused for all rows)
+    computed_aggregates: Option<HashMap<usize, pg_sys::Datum>>,
 }
 
 impl TopNScanExecState {
@@ -93,6 +100,8 @@ impl TopNScanExecState {
             chunk_size: 0,
             claimed_segments: RefCell::default(),
             scale_factor,
+            window_aggregates: None,
+            computed_aggregates: None,
         }
     }
 
@@ -149,9 +158,66 @@ impl TopNScanExecState {
             }
         }
     }
+
+    /// Compute window aggregates based on the search results
+    fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
+        let Some(window_aggs) = &self.window_aggregates else {
+            return;
+        };
+
+        pgrx::warning!("Computing {} window aggregates", window_aggs.len());
+
+        let mut results = HashMap::default();
+
+        for agg_info in window_aggs {
+            let datum = match &agg_info.agg_type {
+                AggregateType::CountAny { .. } => {
+                    // For COUNT(*) OVER (), we need to count ALL matching documents in the index
+                    // Use the search_reader to perform a full search and count all results
+                    let search_reader = state.search_reader.as_ref().unwrap();
+
+                    // Perform a full scan over all segments and count matching documents
+                    let mut total_count = 0usize;
+                    for _result in search_reader.search() {
+                        total_count += 1;
+                        check_for_interrupts!();
+                    }
+
+                    pgrx::warning!("Computing COUNT(*) OVER (): total_count={}", total_count);
+                    (total_count as i64).into_datum().unwrap()
+                }
+                _ => {
+                    pgrx::warning!("Aggregate type {:?} not yet implemented", agg_info.agg_type);
+                    pg_sys::Datum::from(0)
+                }
+            };
+
+            results.insert(agg_info.target_entry_index, datum);
+        }
+
+        self.computed_aggregates = Some(results.clone());
+        state.window_aggregate_results = Some(results);
+    }
 }
 
 impl ExecMethod for TopNScanExecState {
+    /// Initialize the exec method with data from the scan state
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Call the default init behavior first
+        self.reset(state);
+
+        // Transfer window aggregates from scan state to exec state
+        // This must happen AFTER reset() because reset() also tries to get window_aggregates
+        // from state.exec_method_type, which might be None
+        if let Some(ref window_aggs) = state.window_aggregates {
+            pgrx::warning!(
+                "TopN init: Received {} window aggregates from scan state",
+                window_aggs.len()
+            );
+            self.window_aggregates = Some(window_aggs.clone());
+        }
+    }
+
     ///
     /// Query more results.
     ///
@@ -192,6 +258,11 @@ impl ExecMethod for TopNScanExecState {
         // If we got fewer results than we requested, then the query is exhausted: there is no
         // point executing further queries.
         self.exhausted = self.search_results.original_len() < local_limit;
+
+        // Compute window aggregates if needed
+        if self.window_aggregates.is_some() && self.computed_aggregates.is_none() {
+            self.compute_window_aggregates(state);
+        }
 
         // But if we got any results at all, then the query was a success.
         self.search_results.original_len() > 0
@@ -255,9 +326,18 @@ impl ExecMethod for TopNScanExecState {
         self.search_reader = state.search_reader.clone();
         self.search_results = TopNSearchResults::empty();
 
+        // Get window aggregates from state if available
+        if let ExecMethodType::TopN {
+            window_aggregates, ..
+        } = &state.exec_method_type
+        {
+            self.window_aggregates = window_aggregates.clone();
+        }
+
         // Reset counters - excluding nresults which tracks processed results
         self.chunk_size = 0;
         self.found = 0;
         self.offset = 0;
+        self.computed_aggregates = None;
     }
 }

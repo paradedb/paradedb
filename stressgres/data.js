@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760034105036,
+  "lastUpdate": 1760034107892,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5074,6 +5074,126 @@ window.BENCHMARK_DATA = {
             "value": 146.84765625,
             "unit": "median mem",
             "extra": "avg mem: 129.0769447170992, max mem: 151.59765625, count: 55333"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60b5f95971b616bb8c197b99797555d944c3628b",
+          "message": "feat: tokenizers-as-types (#3290)\n\n## What\n\nThis PR introduces first-class tokenizer types, inline tokenization via\ncasts, stricter validation and planning around tokenizer usage, and new\nbuilder functions/operators to improve query ergonomics and execution\nplanning.\n\n### New Types\n- Tokenizer SQL types with CREATE TYPE definitions and IO functions are\ngenerated via a new macros::generate_tokenizer_sql proc-macro.\n- Tokenizer types are flagged as category “t” (tokenizer), with LIKE\ntext, collatable, and can be marked PREFERRED.\n- JSON/JSONB assignment casts to tokenizer types.\n\n### Typmods\n- Generic typmod support for tokenizer types when custom typmod is not\nprovided (TYPMOD_IN/OUT wired to generic handlers).\n- Dedicated parsing for specialized typmods (e.g., fuzzy parameters).\n- Ability to attach an alias via typmod for indexed expressions; alias\nmust be present when a tokenizer is used in an indexed expression.\n\n### Casting to TEXT[] for inline tokenization\n- Each tokenizer type supports cast to TEXT[] for immediate\ntokenization, enabling:\n  - 'text'::pdb.simple::text[]\n  - 'text'::pdb.ngram(3,5)::text[]\n  - 'text'::pdb.lindera(japanese)::text[]\n  - and similar casts for all supported tokenizer types\n- JSON/JSONB values can be assignment-cast to tokenizer types and then\nto TEXT[].\n\n### CREATE INDEX examples\n- Tokenizer casts in index definitions now require an alias typmod:\n  - (t::pdb.simple('alias=simple'))\n  - (t::pdb.ngram(3,5, 'alias=ngram'))\n  - (t::pdb.lindera(japanese, 'alias=lindera_japanese'))\n- Both direct attribute indexing and expression indexing are supported;\nwhen indexing expressions using tokenizer types, an alias is required to\nbind the field name for planning.\n- Planner can identify fields from:\n  - direct Vars,\n  - tokenizer expressions with alias,\n  - JSON path references (e.g., json_field->'a'->>'b' becomes “a.b”),\n- unaliased tokenizer expressions only when safely resolvable to a\nsingle Var and generic typmod has no alias specified.\n\n## Why\n- Provide clear, typed surface for tokenizers, improving safety,\ndiscoverability, and SQL UX.\n- Enable inline tokenization for testing, debugging, and composed SQL\nexpressions.\n- Ensure indexed expressions using tokenizers are unambiguous at plan\ntime, avoiding runtime surprises.\n- Broaden operator LHS type compatibility (text, varchar, arrays,\njson/jsonb, tokenizer types) with explicit validation and better error\nmessages.\n\n## How\n- New macros:\n  - builder_fn refactored into its own module.\n- generate_tokenizer_sql macro emits CREATE TYPE, casts, and optional\ntypmod wiring.\n- Operator planning:\n  - Expanded resolution of field names from complex nodes.\n- Enforced alias requirement for tokenizer expressions in indexes unless\nsafely resolvable.\n- Validation that LHS types are text-compatible or tokenizer-compatible.\n- Request-simplify code paths updated to carry LHS through const/exec\nrewrites and to wrap RHS with index info.\n- Builder functions:\n- Added array-based query builders (match_conjunction_array,\nmatch_disjunction_array, phrase_array).\n- Operators now have overloads to accept TEXT[], pdb.query, boost,\nfuzzy, etc., with shared support function.\n\n## Tests\n- Inline tokenization: casts of literals through various tokenizer types\nto TEXT[].\n- CREATE INDEX with tokenizer types: examples covering all tokenizers\nwith alias typmods and EXPLAIN plans using those aliases.\n- Enforcement: indexing a tokenizer expression without alias raises a\nclear error.\n- RHS tokenizer casts: @@@ does not accept tokenizer-cast RHS; &&&, |||,\n###, === do accept and are validated.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-09T14:03:50-04:00",
+          "tree_id": "142dd25a67167915628ac8b52e0056b31bb70b64",
+          "url": "https://github.com/paradedb/paradedb/commit/60b5f95971b616bb8c197b99797555d944c3628b"
+        },
+        "date": 1760034106121,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.026022983997459, max cpu: 15.80247, count: 54864"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.84800120810095, max mem: 154.61328125, count: 54864"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607761114963552, max cpu: 9.430255, count: 54864"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27,
+            "unit": "median mem",
+            "extra": "avg mem: 27.145566765091864, max mem: 29.83984375, count: 54864"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.026828783178982, max cpu: 14.784394, count: 54864"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 157.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.99954105264837, max mem: 157.05859375, count: 54864"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.448794356497859, max cpu: 4.833837, count: 54864"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.12704831777214, max mem: 155.359375, count: 54864"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.573351691523215, max cpu: 9.805924, count: 109728"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 136.0500061800543, max mem: 156.33203125, count: 109728"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27392,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27321.39342738408, max block_count: 53214.0, count: 54864"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 29,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 28.88037693205016, max segment_count: 58.0, count: 54864"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.462744984040069, max cpu: 9.430255, count: 54864"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.31602875405548, max mem: 158.515625, count: 54864"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.7706203,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.805049361695633, max cpu: 4.6153846, count: 54864"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 127.32293446636228, max mem: 151.25390625, count: 54864"
           }
         ]
       }

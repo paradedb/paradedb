@@ -2,8 +2,8 @@
 title: Token Length
 ---
 
-The token length filter automatically removes tokens that are above or below a certain threshold in bytes.
-To remove all tokens longer than a threshold, append a `remove_long` configuration to the tokenizer:
+The token length filter automatically removes tokens that are above or below a certain length in bytes.
+To remove all tokens longer than a certain length, append a `remove_long` configuration to the tokenizer:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -11,7 +11,7 @@ USING bm25 (id, (description::pdb.simple('remove_long=100')))
 WITH (key_field='id');
 ```
 
-To remove all tokens shorter than a threshold, use `remove_short`:
+To remove all tokens shorter than a length, use `remove_short`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items

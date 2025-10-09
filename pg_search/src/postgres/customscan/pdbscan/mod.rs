@@ -38,6 +38,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::hook::EXTRACTED_WINDOW_AGGREGATES;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -57,7 +58,8 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
-    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
+    self, range_table, take_extracted_window_aggregates, CustomScan, CustomScanState,
+    RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -594,10 +596,22 @@ impl CustomScan for PdbScan {
                 .try_into()
                 .expect("range table index should not be negative");
 
-            // Window aggregates have already been extracted and replaced in the planner hook
-            // Retrieve the extracted aggregates from global storage
-            let parse = (*builder.args().root).parse;
-            if let Some(window_aggs) = customscan::take_extracted_window_aggregates(parse) {
+            // Retrieve window aggregates from global storage (set by planner hook)
+            // Use a non-consuming peek first to see if they're there
+            {
+                let storage = EXTRACTED_WINDOW_AGGREGATES
+                    .lock()
+                    .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
+                if storage.is_some() {
+                    pgrx::warning!(
+                        "plan_custom_path: Window aggregates ARE in storage, retrieving..."
+                    );
+                } else {
+                    pgrx::warning!("plan_custom_path: Window aggregates NOT in storage");
+                }
+            }
+
+            if let Some(window_aggs) = take_extracted_window_aggregates() {
                 pgrx::warning!(
                     "plan_custom_path: Retrieved {} window aggregates from global storage",
                     window_aggs.len()
@@ -605,6 +619,8 @@ impl CustomScan for PdbScan {
                 builder
                     .custom_private_mut()
                     .set_window_aggregates(window_aggs);
+            } else {
+                pgrx::warning!("plan_custom_path: Failed to retrieve window aggregates");
             }
 
             let private_data = builder.custom_private();
@@ -1389,25 +1405,26 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time
-/// At this point, the WindowFunc has already been replaced with a placeholder FuncExpr (now())
+/// At this point, the WindowFunc has been replaced with paradedb.window_func(json) calls
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
 ) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
+    use crate::api::window_function::window_func_oid;
     use pgrx::PgList;
 
     let mut const_nodes = HashMap::default();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
-    let placeholder_oid = placeholder_procid();
+    let window_func_procid = window_func_oid();
 
     for agg_info in window_aggs {
         let te_idx = agg_info.target_entry_index;
 
         // Get the target entry at this index
         if let Some(te) = tlist.get_ptr(te_idx) {
-            // Check if this is our placeholder FuncExpr (now())
+            // Check if this is our window_func FuncExpr
             if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if (*funcexpr).funcid == placeholder_oid {
+                if (*funcexpr).funcid == window_func_procid {
                     // Create a placeholder Const node with the appropriate type
                     let const_node = pg_sys::makeConst(
                         agg_info.result_type_oid,
@@ -1423,7 +1440,7 @@ unsafe fn inject_window_aggregate_placeholders(
                         agg_info.result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
                     );
 
-                    // Replace the placeholder FuncExpr with our Const node
+                    // Replace the window_func FuncExpr with our Const node
                     (*te).expr = const_node.cast();
 
                     const_nodes.insert(te_idx, const_node);

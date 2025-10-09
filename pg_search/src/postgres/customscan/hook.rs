@@ -28,9 +28,11 @@ use std::sync::Mutex;
 use crate::nodecast;
 
 // Global storage for window aggregates extracted during planning
-// Key: Query pointer address, Value: Vec of extracted window aggregate info
-static EXTRACTED_WINDOW_AGGREGATES: Lazy<Mutex<HashMap<usize, Vec<WindowAggregateInfo>>>> =
-    Lazy::new(|| Mutex::new(HashMap::default()));
+// PostgreSQL may copy Query structures during planning, so we can't reliably key by Query pointer.
+// Instead, we use a simple "latest" storage since planning is single-threaded per backend.
+// The planner hook extracts and stores here, then plan_custom_path retrieves.
+pub static EXTRACTED_WINDOW_AGGREGATES: Lazy<Mutex<Option<Vec<WindowAggregateInfo>>>> =
+    Lazy::new(|| Mutex::new(None));
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -253,14 +255,16 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
         if has_window_funcs && has_search_op {
             pgrx::warning!(
-                "planner_hook: Found window functions in search query, replacing before planning"
+                "planner_hook: Found window functions in search query, extracting and storing"
             );
 
-            // Extract window functions BEFORE replacing
-            extract_window_functions(parse);
+            // Extract and store window functions for later use in plan_custom_path
+            // DON'T replace them - let PostgreSQL handle them normally, and we'll
+            // inject our handling at execution time (like aggregatescan does)
+            let _window_aggs = extract_window_functions(parse);
 
-            // Now replace the WindowFunc nodes with placeholders
-            replace_windowfuncs_in_query(parse);
+            // NO REPLACEMENT - let PostgreSQL create WindowAgg node naturally
+            // We'll handle it at the upper path level or at execution time
         }
     }
 
@@ -396,40 +400,84 @@ unsafe fn expr_contains_any_operator(
 }
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
-unsafe fn replace_windowfuncs_in_query(parse: *mut pg_sys::Query) {
+unsafe fn replace_windowfuncs_in_query(
+    parse: *mut pg_sys::Query,
+    window_aggs: &[WindowAggregateInfo],
+) {
+    use crate::api::window_function::window_func_oid;
+    use pgrx::IntoDatum;
+
     if (*parse).targetList.is_null() {
         return;
     }
 
     let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
     let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
-    let placeholder_oid = placeholder_procid();
+    let window_func_procid = window_func_oid();
     let mut replaced_count = 0;
 
-    for te in original_tlist.iter_ptr() {
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+    // Create a map from target entry index to window aggregate info for quick lookup
+    let window_agg_map: HashMap<usize, &WindowAggregateInfo> = window_aggs
+        .iter()
+        .map(|agg| (agg.target_entry_index, agg))
+        .collect();
+
+    for (idx, te) in original_tlist.iter_ptr().enumerate() {
+        if let Some(_window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Create a flat copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
-            // Create a FuncExpr that calls now() as a placeholder
-            let funcexpr = pg_sys::makeFuncExpr(
-                placeholder_oid,
-                (*window_func).wintype,
-                std::ptr::null_mut(), // no args
-                pg_sys::InvalidOid,
-                pg_sys::InvalidOid,
-                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-            );
+            // Get the window aggregate info for this target entry
+            if let Some(agg_info) = window_agg_map.get(&idx) {
+                // Serialize the window aggregate info to JSON
+                let json = serde_json::to_string(agg_info)
+                    .expect("Failed to serialize WindowAggregateInfo");
 
-            // Replace the WindowFunc with our placeholder FuncExpr
-            (*new_te).expr = funcexpr.cast();
-            new_targetlist.push(new_te);
-            replaced_count += 1;
+                // Create a Const node for the JSON string
+                let json_cstring = std::ffi::CString::new(json).expect("Invalid JSON string");
+                let json_text = pg_sys::cstring_to_text(json_cstring.as_ptr());
+                let json_datum = pg_sys::Datum::from(json_text as usize);
 
-            pgrx::warning!(
-                "planner_hook: Replaced WindowFunc at resno {} with placeholder",
-                (*te).resno
-            );
+                // Create an argument list with the JSON string
+                let mut args = PgList::<pg_sys::Node>::new();
+                let json_const = pg_sys::makeConst(
+                    pg_sys::TEXTOID,
+                    -1,
+                    pg_sys::DEFAULT_COLLATION_OID,
+                    -1,
+                    json_datum,
+                    false, // not null
+                    false, // not passed by value (text is varlena)
+                );
+                args.push(json_const.cast());
+
+                // Create a FuncExpr that calls paradedb.window_func(json)
+                let funcexpr = pg_sys::makeFuncExpr(
+                    window_func_procid,
+                    agg_info.result_type_oid,
+                    args.into_pg(),
+                    pg_sys::InvalidOid,
+                    pg_sys::InvalidOid,
+                    pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                );
+
+                // Replace the WindowFunc with our placeholder FuncExpr
+                (*new_te).expr = funcexpr.cast();
+                new_targetlist.push(new_te);
+                replaced_count += 1;
+
+                pgrx::warning!(
+                    "planner_hook: Replaced WindowFunc at resno {} with window_func(json)",
+                    (*te).resno
+                );
+            } else {
+                pgrx::warning!(
+                    "planner_hook: WARNING: No window aggregate info for index {}",
+                    idx
+                );
+                // Still copy the entry but don't replace it
+                new_targetlist.push(te);
+            }
         } else {
             // For non-WindowFunc entries, just make a flat copy
             let copied_te = pg_sys::flatCopyTargetEntry(te);
@@ -438,7 +486,7 @@ unsafe fn replace_windowfuncs_in_query(parse: *mut pg_sys::Query) {
     }
 
     pgrx::warning!(
-        "planner_hook: Replaced {} WindowFunc nodes in Query",
+        "planner_hook: Replaced {} WindowFunc nodes in Query with window_func calls",
         replaced_count
     );
     (*parse).targetList = new_targetlist.into_pg();
@@ -451,12 +499,12 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
         .expect("the `now()` function should exist")
 }
 
-/// Extract window functions
+/// Extract window functions, store in global cache, and return them for replacement
 /// This is called in the planner hook before replacing WindowFunc nodes
-unsafe fn extract_window_functions(parse: *mut pg_sys::Query) {
+unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
     use crate::postgres::customscan::pdbscan::projections::window_agg;
 
-    // Extract window aggregates (RTI doesn't matter here since we're just printing)
+    // Extract window aggregates (RTI doesn't matter here since we're just extracting)
     let window_aggs = window_agg::extract_window_aggregates(
         (*parse).targetList,
         (*parse).windowClause,
@@ -466,28 +514,104 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) {
     if window_aggs.is_empty() {
         pgrx::warning!("planner_hook: No extractable window aggregates found");
     } else {
-        // Store the extracted window aggregates in global storage
-        // Use the Query pointer address as the key
-        let query_key = parse as usize;
+        pgrx::warning!(
+            "planner_hook: Extracted {} window aggregates",
+            window_aggs.len()
+        );
+
+        // Store in global "latest" storage for retrieval in plan_custom_path
+        // (PostgreSQL may copy the Query, so we can't key by pointer)
         let mut storage = EXTRACTED_WINDOW_AGGREGATES
             .lock()
             .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-        storage.insert(query_key, window_aggs);
-        pgrx::warning!(
-            "planner_hook: Stored window aggregates for Query at {:p}",
-            parse
-        );
+        *storage = Some(window_aggs.clone());
+        pgrx::warning!("planner_hook: Stored window aggregates in global storage");
     }
+
+    window_aggs
 }
 
-/// Retrieve and remove window aggregates that were extracted during planning
-/// Returns None if no aggregates were stored for this Query
-pub unsafe fn take_extracted_window_aggregates(
-    parse: *mut pg_sys::Query,
-) -> Option<Vec<WindowAggregateInfo>> {
-    let query_key = parse as usize;
+/// Retrieve and clear window aggregates from the global storage
+/// Returns None if no aggregates were stored
+pub unsafe fn take_extracted_window_aggregates() -> Option<Vec<WindowAggregateInfo>> {
     let mut storage = EXTRACTED_WINDOW_AGGREGATES
         .lock()
         .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-    storage.remove(&query_key)
+    let result = storage.take();
+    if result.is_some() {
+        pgrx::warning!("Retrieved window aggregates from global storage");
+    }
+    result
+}
+
+/// Extract window aggregates from paradedb.window_func(json) calls in the target list
+/// This is called during custom scan planning to deserialize the window aggregate info
+/// that was embedded during the planner hook
+pub unsafe fn extract_window_aggregates_from_targetlist(
+    target_list: *mut pg_sys::List,
+) -> Vec<WindowAggregateInfo> {
+    use crate::api::window_function::window_func_oid;
+    use pgrx::FromDatum;
+
+    let mut window_aggs = Vec::new();
+    if target_list.is_null() {
+        return window_aggs;
+    }
+
+    let window_func_procid = window_func_oid();
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+    pgrx::warning!(
+        "extract_window_aggregates_from_targetlist: Scanning {} target entries, looking for funcid={}",
+        tlist.len(),
+        window_func_procid
+    );
+
+    for (idx, te) in tlist.iter_ptr().enumerate() {
+        let node_type = (*(*te).expr).type_;
+        pgrx::warning!("  Entry {}: node type={:?}", idx, node_type);
+
+        // Check if this is a FuncExpr calling window_func
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+            pgrx::warning!(
+                "  Entry {}: Found FuncExpr with funcid={}",
+                idx,
+                (*funcexpr).funcid
+            );
+            if (*funcexpr).funcid == window_func_procid {
+                // This is our window_func placeholder
+                // Extract the JSON argument
+                if !(*funcexpr).args.is_null() {
+                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                    if let Some(first_arg) = args.get_ptr(0) {
+                        if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
+                            // Extract the text datum and deserialize
+                            if !(*const_node).constisnull {
+                                let json_text = pg_sys::Datum::from((*const_node).constvalue);
+                                if let Some(json_str) = String::from_datum(json_text, false) {
+                                    match serde_json::from_str::<WindowAggregateInfo>(&json_str) {
+                                        Ok(window_agg) => {
+                                            pgrx::warning!(
+                                                "Deserialized window aggregate from target entry {}",
+                                                idx
+                                            );
+                                            window_aggs.push(window_agg);
+                                        }
+                                        Err(e) => {
+                                            pgrx::warning!(
+                                                "Failed to deserialize window aggregate: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    window_aggs
 }

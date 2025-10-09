@@ -53,6 +53,16 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=937085
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
+WARNING:  plan_custom_path: Window aggregates NOT in storage
+WARNING:  plan_custom_path: Failed to retrieve window aggregates
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -77,6 +87,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=937085
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
+WARNING:  plan_custom_path: Window aggregates NOT in storage
+WARNING:  plan_custom_path: Failed to retrieve window aggregates
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=false
  id |    name     | category | rating 
 ----+-------------+----------+--------
   1 | MacBook Pro | Laptops  |    4.8
@@ -97,7 +118,33 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-WARNING:  Found 1 window aggregates in target list
+WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=937085
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query, extracting and storing
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #3
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 3
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 1 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  plan_custom_path: Window aggregates ARE in storage, retrieving...
+WARNING:  Retrieved window aggregates from global storage
+WARNING:  plan_custom_path: Retrieved 1 window aggregates from global storage
+WARNING:  Initializing scan state with 1 window aggregates
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -125,7 +172,34 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-WARNING:  Found 1 window aggregates in target list
+WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=937085
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query, extracting and storing
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #3
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 3
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 1 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  plan_custom_path: Window aggregates ARE in storage, retrieving...
+WARNING:  Retrieved window aggregates from global storage
+WARNING:  plan_custom_path: Retrieved 1 window aggregates from global storage
+WARNING:  Initializing scan state with 1 window aggregates
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
   1 | MacBook Pro |    4.8 |           4

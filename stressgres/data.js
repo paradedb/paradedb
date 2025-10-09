@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760027309972,
+  "lastUpdate": 1760027688984,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8260,6 +8260,54 @@ window.BENCHMARK_DATA = {
             "value": 5.930076017039648,
             "unit": "median tps",
             "extra": "avg tps: 5.9706850386094175, max tps: 7.291268039371826, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de316db45e848a0bc1c1ae86f820de701030f1",
+          "message": "chore: show readable error if serving reads from hot standby (#3267)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nShow a better error message if trying to serve reads on a hot standby\nfrom ParadeDB Community, which does not support WALs -- only Enterprise\ndoes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:48:50-04:00",
+          "tree_id": "da13ba2361322103116c1d498ec45f15ad86908c",
+          "url": "https://github.com/paradedb/paradedb/commit/10de316db45e848a0bc1c1ae86f820de701030f1"
+        },
+        "date": 1760027687267,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 450.8620716613226,
+            "unit": "median tps",
+            "extra": "avg tps: 436.7395580432543, max tps: 500.2895927236247, count: 56144"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 504.2996875256933,
+            "unit": "median tps",
+            "extra": "avg tps: 502.3128412526697, max tps: 532.1571688522455, count: 56144"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 935.6104082814195,
+            "unit": "median tps",
+            "extra": "avg tps: 918.8008735809206, max tps: 1190.9604008725128, count: 56144"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.901919658789177,
+            "unit": "median tps",
+            "extra": "avg tps: 5.92632209695463, max tps: 7.21306041728651, count: 56144"
           }
         ]
       }

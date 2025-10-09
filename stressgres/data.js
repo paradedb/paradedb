@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760042107707,
+  "lastUpdate": 1760042111056,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5446,6 +5446,126 @@ window.BENCHMARK_DATA = {
             "value": 144.89453125,
             "unit": "median mem",
             "extra": "avg mem: 126.75726652669819, max mem: 149.72265625, count: 55191"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a691cd226f9b335af5591dd84e695ec4da92df3",
+          "message": "chore: Un-revert remove deprecated tokenizers (#3306)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBrings back https://github.com/paradedb/paradedb/pull/3279 which was\nreverted\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:18:45-04:00",
+          "tree_id": "9f4e6764d3c00556eadd693db305527cbf8a2342",
+          "url": "https://github.com/paradedb/paradedb/commit/0a691cd226f9b335af5591dd84e695ec4da92df3"
+        },
+        "date": 1760042109277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.939879610739733, max cpu: 14.257426, count: 54741"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.08661483737052, max mem: 156.08984375, count: 54741"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6176246281610585, max cpu: 9.495549, count: 54741"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.586710529470597, max mem: 29.72265625, count: 54741"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.973901120220771, max cpu: 14.560162, count: 54741"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.1220576641594, max mem: 155.1953125, count: 54741"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.73156624367583, max cpu: 9.257474, count: 54741"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 153.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 137.68573165851464, max mem: 153.8828125, count: 54741"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.616391139649368, max cpu: 9.619239, count: 109482"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.94517242274986, max mem: 157.09375, count: 109482"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28098,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27980.193840083302, max block_count: 53413.0, count: 54741"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.500100473137138, max segment_count: 58.0, count: 54741"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.491003918772618, max cpu: 4.83871, count: 54741"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.4342051518743, max mem: 158.26171875, count: 54741"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9197704722502467, max cpu: 4.8144436, count: 54741"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.09376063245557, max mem: 150.75390625, count: 54741"
           }
         ]
       }

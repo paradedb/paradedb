@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760005183910,
+  "lastUpdate": 1760005186520,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12586,6 +12586,114 @@ window.BENCHMARK_DATA = {
             "value": 157.27734375,
             "unit": "median mem",
             "extra": "avg mem: 155.05874475429124, max mem: 158.5078125, count: 55462"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aadb55cde7a3b88a751cfa9f4250928a07a58590",
+          "message": "feat: added aggregate FILTER support using Tantivy's FilterAggregation feature (#3240)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplements SQL `FILTER` clause support for aggregations using Tantivy's\n`FilterAggregation` feature.\n\n```sql\n-- Multiple filtered aggregates in a single query scan\nSELECT \n  COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics,\n  COUNT(*) FILTER (WHERE category @@@ 'books') AS books,\n  AVG(price) FILTER (WHERE status @@@ 'available') AS avg_available_price\nFROM products\nGROUP BY brand;\n```\n\n## Why\n\n**Before**: Computing multiple filtered aggregations required separate\nqueries (multiple index scans).\n\n**After**: Standard SQL `FILTER` syntax with single index scan,\nregardless of number of filters. Significant performance improvement for\nanalytical queries.\n\n## How\n\n### Core Changes\n\n1. Query Planning: extracted `FILTER` clauses from aggregate nodes,\ngroup identical filters for optimization\n2. Execution: used `FilterAggregation` structure for all aggregates\n(filtered and non-filtered)\n3. Result Processing: to handle nested JSON output\n4. Parallelization: supporting both SQL `FILTER` and legacy JSON API\n\n### Key Implementation Details\n\n- All aggregates wrapped in `FilterAggregation` (non-filtered use\n`MatchAllQuery`)\n- Sentinel filter ensures all `GROUP BY` groups appear (correct NULL/0\nhandling)\n- `ExprContextGuard` RAII wrapper for safe resource management\n- Cross-type numeric comparison support for multi-column `GROUP BY`\n\n### Optimization Strategy\n\nAggregates with identical filters are grouped together. Example:\n```\n3 aggregates, 2 filters → 2 filter groups → single Tantivy query with 2 FilterAggregations\n```\n\n## Tests\n\nAdded regression tests covering:\n- Simple & GROUP BY aggregations with FILTER\n- Multiple FILTER clauses\n- Multi-column GROUP BY with mixed filtered/non-filtered aggregates\n- Edge cases: empty results, NULL handling, ORDER BY preservation\n\n**Next steps**:\n - qgen tests\n - Performance benchmarking",
+          "timestamp": "2025-10-09T02:27:04-07:00",
+          "tree_id": "cedee10645583187cd9d4d8c6f356295ce57a9ae",
+          "url": "https://github.com/paradedb/paradedb/commit/aadb55cde7a3b88a751cfa9f4250928a07a58590"
+        },
+        "date": 1760005184866,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.38743709440078, max cpu: 42.687748, count: 55380"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155,
+            "unit": "median mem",
+            "extra": "avg mem: 141.01460632787106, max mem: 155.0, count: 55380"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.728214175904092, max cpu: 37.83251, count: 55380"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 110.82941643248917, max mem: 112.24609375, count: 55380"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.946415470282862, max cpu: 13.872832, count: 55380"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 143.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 123.00046123092723, max mem: 144.3515625, count: 55380"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30777,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31259.92910798122, max block_count: 63429.0, count: 55380"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8202897729023277, max cpu: 4.7105007, count: 55380"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.36617334213615, max mem: 129.0234375, count: 55380"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.77726616106898, max segment_count: 60.0, count: 55380"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.06942416382716, max cpu: 42.561577, count: 110760"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.37528753752483, max mem: 156.28515625, count: 110760"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.260699139064481, max cpu: 27.77242, count: 55380"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.53153820761105, max mem: 157.5, count: 55380"
           }
         ]
       }

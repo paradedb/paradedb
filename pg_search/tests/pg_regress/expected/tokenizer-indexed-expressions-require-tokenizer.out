@@ -23,11 +23,11 @@ CREATE INDEX idxexpr
             )
     WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxexpr') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                                                           |          | 
- id   | I64        | f      | t       | t    | f          |             |                                                           |          | 
- t    | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | lowercase
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         | record | normalizer 
+------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+--------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                                           |        | 
+ id   | I64        | f      | t       | t    | f          |             |                                                           |        | 
+ t    | Str        | f      | t       | t    | f          |             | keyword[remove_long=18446744073709551615,lowercase=false] | basic  | lowercase
 (3 rows)
 
 SELECT * FROM expr WHERE lower(t) &&& 'This is a TEST';

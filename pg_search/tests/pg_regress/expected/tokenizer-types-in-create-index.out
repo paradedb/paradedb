@@ -29,7 +29,7 @@ SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
 --------------------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
  chinese_compatible | Str        | f      | t       | f    | t          |             | chinese_compatible                                        | position | 
  ctid               | U64        | f      | t       | t    | f          |             |                                                           |          | 
- exact              | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
+ exact              | Str        | f      | t       | t    | f          |             | keyword[remove_long=18446744073709551615,lowercase=false] | basic    | raw
  id                 | I64        | f      | t       | t    | f          |             |                                                           |          | 
  jieba              | Str        | f      | t       | f    | t          |             | jieba                                                     | position | 
  lindera_chinese    | Str        | f      | t       | f    | t          |             | chinese_lindera                                           | position | 

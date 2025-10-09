@@ -89,13 +89,22 @@ pub fn search_field_config_from_type(
     apply_typmod(&mut tokenizer, typmod);
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
+
+    let (fast, fieldnorms, record) = if type_name == "exact" {
+        // non-tokenized fields get to be fast
+        (true, false, IndexRecordOption::Basic)
+    } else {
+        // all others do not
+        (false, true, IndexRecordOption::WithFreqsAndPositions)
+    };
+
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
             indexed: true,
-            fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
-            fieldnorms: true,
+            fast,
+            fieldnorms,
             tokenizer,
-            record: IndexRecordOption::WithFreqsAndPositions,
+            record,
             normalizer,
             column: None,
             expand_dots: true,
@@ -103,10 +112,10 @@ pub fn search_field_config_from_type(
     } else {
         Some(SearchFieldConfig::Text {
             indexed: true,
-            fast: type_name == "exact", // non-tokenized fields get to be fast, all others do not
-            fieldnorms: true,
+            fast,
+            fieldnorms,
             tokenizer,
-            record: IndexRecordOption::WithFreqsAndPositions,
+            record,
             normalizer,
             column: None,
         })

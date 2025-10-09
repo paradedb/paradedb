@@ -22,6 +22,7 @@ use pgrx::{
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
+use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 /// Allows the user to toggle the use of our "ParadeDB Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -42,6 +43,18 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
 static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
+static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// The scale factor for the chunk size in a TopN query.
+static TOPN_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+
+/// The maximum chunk size for a TopN query.
+static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+
+/// The maximum number of buckets that can be returned by a TermsAggregation
+static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
@@ -68,6 +81,9 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
 /// for the overall IndexScan.  That plus this help to persuade Postgres to use our IAM whenever
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
+
+static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
+static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -150,6 +166,70 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.limit_fetch_multiplier",
+        c"Multiplier for the limit in a TopN query",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        &LIMIT_FETCH_MULTIPLIER,
+        1.0,
+        100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_topn_chunk_size",
+        c"Maximum chunk size for a TopN query",
+        c"A higher value reduces the probability of a re-query for a TopN query but increases the memory usage",
+        &MAX_TOPN_CHUNK_SIZE,
+        1,
+        1_000_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.topn_retry_scale_factor",
+        c"Scale factor for the chunk size in a TopN query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        &TOPN_RETRY_SCALE_FACTOR,
+        1,
+        100,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_term_agg_buckets",
+        c"Maximum number of buckets/groups that can be returned by a terms aggregation",
+        c"Mostly used for testing. If this number is exceeded, that means the result could be truncated and the query will be cancelled.",
+        &MAX_TERM_AGG_BUCKETS,
+        1,
+        DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.global_target_segment_count",
+        c"a global target segment count override",
+        c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
+        &GLOBAL_TARGET_SEGMENT_COUNT,
+        0,
+        8192,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.global_enable_background_merging",
+        c"Enable background merging",
+        c"Enable background merging",
+        &GLOBAL_ENABLE_BACKGROUND_MERGING,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -192,6 +272,18 @@ pub fn mixed_fast_field_exec_column_threshold() -> usize {
 
 pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
+}
+
+pub fn max_topn_chunk_size() -> i32 {
+    MAX_TOPN_CHUNK_SIZE.get()
+}
+
+pub fn global_target_segment_count() -> i32 {
+    GLOBAL_TARGET_SEGMENT_COUNT.get()
+}
+
+pub fn global_enable_background_merging() -> bool {
+    GLOBAL_ENABLE_BACKGROUND_MERGING.get()
 }
 
 // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
@@ -243,6 +335,18 @@ pub fn adjust_work_mem() -> NonZeroUsize {
     );
 
     NonZeroUsize::new(wm_as_bytes).unwrap()
+}
+
+pub fn limit_fetch_multiplier() -> f64 {
+    LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn max_term_agg_buckets() -> i32 {
+    MAX_TERM_AGG_BUCKETS.get()
+}
+
+pub fn topn_retry_scale_factor() -> i32 {
+    TOPN_RETRY_SCALE_FACTOR.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::query::pdb_query::pdb::FuzzyData;
+use crate::query::pdb_query::pdb::{FuzzyData, SlopData};
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
@@ -110,6 +110,35 @@ pub mod pdb {
         })
     }
 
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub struct SlopData {
+        pub slop: u32,
+    }
+
+    impl Display for SlopData {
+        #[rustfmt::skip]
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{}",
+                self.slop,
+            )
+        }
+    }
+
+    impl From<i32> for SlopData {
+        fn from(value: i32) -> Self {
+            SlopData { slop: value as u32 }
+        }
+    }
+
+    impl From<SlopData> for i32 {
+        fn from(data: SlopData) -> Self {
+            data.slop as i32
+        }
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
@@ -130,6 +159,8 @@ pub mod pdb {
             string: String,
             #[serde(skip_serializing_if = "Option::is_none")]
             fuzzy_data: Option<FuzzyData>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            slop_data: Option<SlopData>,
         },
         Boost {
             query: Box<Query>,
@@ -271,6 +302,7 @@ impl pdb::Query {
         pdb::Query::UnclassifiedString {
             string: s.to_string(),
             fuzzy_data: None,
+            slop_data: None,
         }
     }
 
@@ -278,6 +310,15 @@ impl pdb::Query {
         pdb::Query::UnclassifiedString {
             string: s.to_string(),
             fuzzy_data: Some(fuzz),
+            slop_data: None,
+        }
+    }
+
+    pub fn unclassified_string_with_slop(s: &str, slop: SlopData) -> pdb::Query {
+        pdb::Query::UnclassifiedString {
+            string: s.to_string(),
+            fuzzy_data: None,
+            slop_data: Some(slop),
         }
     }
 
@@ -329,6 +370,24 @@ impl pdb::Query {
 
             // TODO:  we could silently ignore
             _ => panic!("query type is not compatible with fuzzy"),
+        }
+    }
+
+    pub fn apply_slop_data(&mut self, new_slop_data: Option<SlopData>) {
+        if new_slop_data.is_none() {
+            return;
+        }
+        let new_slop_data = new_slop_data.unwrap();
+        match self {
+            pdb::Query::UnclassifiedString { slop_data, .. } => {
+                *slop_data = Some(new_slop_data);
+            }
+            pdb::Query::Phrase { slop, .. } => *slop = Some(new_slop_data.slop),
+
+            pdb::Query::TokenizedPhrase { slop, .. } => *slop = Some(new_slop_data.slop),
+
+            // TODO:  we could silently ignore
+            _ => panic!("query type is not compatible with slop"),
         }
     }
 
@@ -474,6 +533,7 @@ impl InOutFuncs for pdb::Query {
                     .expect("input should be valid UTF8")
                     .to_string(),
                 fuzzy_data: None,
+                slop_data: None,
             }
         }
     }

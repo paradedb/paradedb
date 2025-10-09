@@ -38,7 +38,7 @@ fn search_with_match_conjunction(_field: &str, terms_to_tokenize: &str) -> bool 
 #[opname(pg_catalog.&&&)]
 fn search_with_match_conjunction_pdb_query(_field: &str, terms_to_tokenize: pdb::Query) -> bool {
     panic!(
-        "query is incompatible with pg_search's `&&&(field, boost)` operator: `{terms_to_tokenize:?}`"
+        "query is incompatible with pg_search's `&&&(field, pdb.query)` operator: `{terms_to_tokenize:?}`"
     )
 }
 
@@ -69,15 +69,17 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
                 }
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString { string, fuzzy_data } = query {
+                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
                         query = match_conjunction(string);
                         query.apply_fuzzy_data(fuzzy_data);
+                        query.apply_slop_data(slop_data);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost })
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
                     let mut query = match_conjunction(string);
                     query.apply_fuzzy_data(fuzzy_data);
+                    query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
 

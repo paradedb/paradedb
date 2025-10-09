@@ -21,15 +21,17 @@ use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
-use pgrx::{check_for_interrupts, pg_sys};
+use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
+use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,16 +104,26 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = index.options();
 
+        let mut segment_cnt = 0;
         let mut index_byte_size = 0;
         unsafe {
             MetaPage::open(index).segment_metas().for_each(|_, entry| {
                 if entry.visible() {
-                    index_byte_size += entry.byte_size()
+                    index_byte_size += entry.byte_size();
+                    segment_cnt += 1;
                 }
             });
         }
 
         let target_segment_count = index_options.target_segment_count();
+        if segment_cnt <= target_segment_count {
+            return Self {
+                user_configured_bg_layers: false,
+                foreground_layer_sizes: Vec::new(),
+                background_layer_sizes: Vec::new(),
+            };
+        }
+
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does
@@ -191,30 +203,25 @@ impl IndexLayerSizes {
 pub unsafe fn do_merge(
     index: &PgSearchRelation,
     style: MergeStyle,
-    current_xid: Option<pg_sys::TransactionId>,
+    current_xid: Option<pg_sys::FullTransactionId>,
+    next_xid: Option<pg_sys::FullTransactionId>,
 ) -> anyhow::Result<()> {
     let layer_sizes = IndexLayerSizes::from(index);
-
     let metadata = MetaPage::open(index);
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = style == MergeStyle::Vacuum
-        || (layer_sizes.user_configured_background_layers()
-            && { merge_lock.merge_list().is_empty() }
-            && {
-                let combined_layers = layer_sizes.combined();
-                let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
-                let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let needs_background_merge = layer_sizes.user_configured_background_layers()
+        && { merge_lock.merge_list().is_empty() }
+        && {
+            let combined_layers = layer_sizes.combined();
+            let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-                background_merge_policy.set_mergeable_segment_entries(
-                    &metadata,
-                    &merge_lock,
-                    &merger,
-                );
-                let merge_candidates = background_merge_policy.simulate();
-                !merge_candidates.is_empty()
-            });
+            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            let merge_candidates = background_merge_policy.simulate();
+            !merge_candidates.is_empty()
+        };
 
     if needs_background_merge {
         // if we need (and think we can do) a background merge then we prefer to do that
@@ -232,6 +239,7 @@ pub unsafe fn do_merge(
             cleanup_lock,
             false,
             current_xid.expect("foreground merging requires a current transaction id"),
+            next_xid.expect("foreground merging requires a next transaction id"),
         );
     }
 
@@ -242,6 +250,10 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
+    if !MetaPage::open(index).bgmerger().try_starting() {
+        return;
+    }
+
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
@@ -259,10 +271,10 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         .set_function("background_merge")
         .set_argument(BackgroundMergeArgs::new(index.oid()).into_datum())
         .set_extra(&dbname)
-        .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic()
         .is_err()
     {
+        MetaPage::open(index).bgmerger().set_stopped();
         pgrx::log!("not enough available `max_worker_processes` to launch a background merger");
     }
 }
@@ -283,7 +295,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             BackgroundWorker::get_name()
         );
 
-        let current_xid = pg_sys::GetCurrentTransactionId();
+        let current_xid = pg_sys::GetCurrentFullTransactionId();
+        let next_xid = current_xid;
         let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
         let index = PgSearchRelation::try_open(
             args.index_oid(),
@@ -298,19 +311,27 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         }
         let index = index.unwrap();
         let metadata = MetaPage::open(&index);
+        metadata.bgmerger().set_running();
+
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
         let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = metadata.acquire_merge_lock();
-        merge_index(
-            &index,
-            merge_policy,
-            merge_lock,
-            cleanup_lock,
-            true,
-            current_xid,
-        )
+
+        PgTryBuilder::new(AssertUnwindSafe(|| {
+            merge_index(
+                &index,
+                merge_policy,
+                merge_lock,
+                cleanup_lock,
+                true,
+                current_xid,
+                next_xid,
+            )
+        }))
+        .finally(|| metadata.bgmerger().set_stopped())
+        .execute();
     });
 }
 
@@ -321,7 +342,8 @@ unsafe fn merge_index(
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
     gc_after_merge: bool,
-    current_xid: pg_sys::TransactionId,
+    current_xid: pg_sys::FullTransactionId,
+    next_xid: pg_sys::FullTransactionId,
 ) {
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
@@ -367,7 +389,7 @@ unsafe fn merge_index(
                 break;
             }
             if gc_after_merge {
-                garbage_collect_index(indexrel, current_xid);
+                garbage_collect_index(indexrel, current_xid, next_xid);
                 need_gc = false;
             }
         }
@@ -382,7 +404,7 @@ unsafe fn merge_index(
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {
-            garbage_collect_index(indexrel, current_xid);
+            garbage_collect_index(indexrel, current_xid, next_xid);
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
@@ -411,7 +433,8 @@ unsafe fn merge_index(
 ///
 pub unsafe fn garbage_collect_index(
     indexrel: &PgSearchRelation,
-    current_xid: pg_sys::TransactionId,
+    current_xid: pg_sys::FullTransactionId,
+    next_xid: pg_sys::FullTransactionId,
 ) {
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
     // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
@@ -422,7 +445,7 @@ pub unsafe fn garbage_collect_index(
     // replication primary.
     let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
     let mut segment_metas = segment_metas_linked_list.atomically();
-    let entries = segment_metas.garbage_collect();
+    let entries = segment_metas.garbage_collect(next_xid);
 
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.
@@ -433,7 +456,7 @@ pub unsafe fn garbage_collect_index(
 pub fn free_entries(
     indexrel: &PgSearchRelation,
     freeable_entries: Vec<SegmentMetaEntry>,
-    current_xid: pg_sys::TransactionId,
+    current_xid: pg_sys::FullTransactionId,
 ) {
     let mut bman = BufferManager::new(indexrel);
     bman.fsm().extend_with_when_recyclable(

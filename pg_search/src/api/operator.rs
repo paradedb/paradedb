@@ -24,9 +24,11 @@ mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
+mod slop;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
+use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -164,6 +166,20 @@ pub fn fuzzy_typoid() -> pg_sys::Oid {
     }
 }
 
+pub fn slop_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.slop".into_datum()],
+        )
+        .expect("type `pg_catalog.slop` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.slop` should exist");
+        }
+        oid
+    }
+}
+
 pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(
@@ -236,13 +252,23 @@ pub unsafe fn tantivy_field_name_from_node(
                 let (var, fieldname) =
                     find_one_var_and_fieldname(VarContext::from_planner(root), node)?;
                 let (oid, _) = VarContext::from_planner(root).var_relation(var);
-                Some((oid, Some(fieldname)))
+                // Return None if we couldn't determine the relation
+                if oid == pg_sys::InvalidOid {
+                    None
+                } else {
+                    Some((oid, Some(fieldname)))
+                }
             }
         },
         pg_sys::NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
             let (oid, attname) = attname_from_var(root, var);
-            Some((oid, attname))
+            // Return None if we couldn't determine the relation (e.g., in complex nested queries)
+            if oid == pg_sys::InvalidOid {
+                None
+            } else {
+                Some((oid, attname))
+            }
         }
         _ => None,
     }
@@ -348,7 +374,7 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     opexpr.args = args.into_pg();
     opexpr.opno = anyelement_query_input_opoid();
     opexpr.opfuncid = anyelement_query_input_procoid();
-    opexpr.opresulttype = searchqueryinput_typoid();
+    opexpr.opresulttype = pg_sys::BOOLOID;
     opexpr.opretset = false;
     opexpr.opcollid = pg_sys::Oid::INVALID;
     opexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
@@ -519,6 +545,13 @@ where
                 RHSValue::PdbQuery(fuzzy.into())
             }
 
+            other if other == slop_typoid() => {
+                let slop = SlopType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs slop value must not be NULL");
+                let slop = slop_to_slop(slop, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(slop.into())
+            }
+
             other if other == pdb_proximityclause_typoid() => {
                 let prox = ProximityClause::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded proximity clause must not be NULL");
@@ -594,6 +627,10 @@ unsafe fn attname_from_var(
 ) -> (pg_sys::Oid, Option<FieldName>) {
     let (heaprelid, varattno, _) = find_var_relation(var, root);
     if (*var).varattno == 0 {
+        return (heaprelid, None);
+    }
+    // Check for InvalidOid before trying to open the relation
+    if heaprelid == pg_sys::InvalidOid {
         return (heaprelid, None);
     }
     let heaprel = PgRelation::open(heaprelid);

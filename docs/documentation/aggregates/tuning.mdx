@@ -1,0 +1,32 @@
+---
+title: Performance Tuning
+---
+
+Several settings can be tuned to improve the performance of aggregates in ParadeDB.
+
+### Configure Parallel Workers
+
+ParadeDB uses Postgres parallel workers. By default, Postgres allows two workers per parallel query.
+Increasing the number of [parallel workers](/documentation/configuration/read_throughput) allows parallel queries to use all of the available hardware on the host machine and can deliver significant
+speedups.
+
+### Run `VACUUM`
+
+`VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),
+which speeds up Postgres' visibility checks.
+
+```sql
+VACUUM mock_items;
+```
+
+If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
+
+### Run `pg_prewarm`
+
+The `pg_prewarm` extension can be used to preload data from the index into the Postgres buffer cache, which
+improves the response times of "cold" queries (i.e. the first search query after Postgres has restarted).
+
+```sql
+CREATE EXTENSION pg_prewarm;
+SELECT pg_prewarm('search_idx');
+```

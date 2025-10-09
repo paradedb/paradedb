@@ -7,18 +7,19 @@ sql = """
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET maintenance_work_mem = '8GB';
 
-CREATE OR REPLACE FUNCTION uuid_generate_v4()
+CREATE OR REPLACE FUNCTION uuid_generate()
 RETURNS uuid AS $$
 DECLARE
-    fixed_uuids uuid[] := ARRAY[
+    uuids uuid[] := ARRAY[
         '123e4567-e89b-12d3-a456-426614174000'::uuid,
         '987fcdeb-51a2-43e8-b567-890123456789'::uuid,
         'a1b2c3d4-e5f6-47a8-89b0-123456789abc'::uuid,
         'b2c3d4e5-f6a7-48b9-90c1-23456789abcd'::uuid,
-        'c3d4e5f6-a7b8-49c0-01d2-3456789abcde'::uuid
+        'c3d4e5f6-a7b8-49c0-01d2-3456789abcde'::uuid,
+        gen_random_uuid()
     ];
 BEGIN
-    RETURN fixed_uuids[floor(random() * 5 + 1)]::uuid;
+    RETURN uuids[floor(random() * 6 + 1)]::uuid;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -65,93 +66,122 @@ CREATE TABLE wide_table (
     field_4 uuid,
     text_16 varchar NOT NULL
 );
-INSERT INTO wide_table (
-    field_1,
-    field_2,
-    text_1,
-    number_1,
-    text_2,
-    text_3,
-    text_4,
-    timestamp_1,
-    timestamp_2,
-    text_5,
-    date_1,
-    time_1,
-    bool_1,
-    bool_2,
-    timestamp_3,
-    text_6,
-    bool_3,
-    json_1,
-    json_2,
-    text_7,
-    json_3,
-    text_8,
-    text_9,
-    text_10,
-    timestamp_4,
-    timestamp_5,
-    text_11,
-    text_12,
-    text_13,
-    timestamp_6,
-    timestamp_7,
-    number_2,
-    text_14,
-    text_15,
-    json_4,
-    number_3,
-    field_3,
-    field_4,
-    text_16
-)
-SELECT
-    uuid_generate_v4(),
-    uuid_generate_v4(),
-    (ARRAY['USD','EUR','GBP'])[(s % 3) + 1],
-    floor(random() * 10000)::bigint + 1,
-    (ARRAY['in','out'])[(s % 2) + 1],
-    (ARRAY[
-      'Acme Corp', 'Globex Corporation', 'Initech', 'Umbrella Corp', 'Stark Industries',
-      'Wayne Enterprises', 'Hooli', 'Wonka Industries', 'Soylent Corp', 'Tyrell Corp',
-      'Cyberdyne Systems', 'Massive Dynamic', 'Vandelay Industries', 'Gekko & Co', 'Babel Industries',
-      'Roxxon Energy', 'Gringotts', 'Pied Piper', 'Oscorp', 'Griffin, Inc.'
-    ])[(s % 20) + 1],
-    (ARRAY['VENDOR_CODE_001','VENDOR_CODE_002','VENDOR_CODE_003'])[(s % 3) + 1],
-    now(),
-    now(),
-    (ARRAY['VENDOR_001','VENDOR_002','VENDOR_003'])[(s % 3) + 1],
-    current_date,
-    current_time,
-    (ARRAY[true,false])[(s % 2) + 1],
-    (ARRAY[true,false])[(s % 2) + 1],
-    now(),
-    (ARRAY['CUSTOMER_001','CUSTOMER_002','CUSTOMER_003'])[(s % 3) + 1],
-    (ARRAY[true,false])[(s % 2) + 1],
-    (ARRAY['{"meta":"data1"}'::jsonb, '{"meta":"data2"}'::jsonb, '{"meta":"data3"}'::jsonb])[(s % 3) + 1],
-    (ARRAY['{"detail":"detail1"}'::jsonb, '{"detail":"detail2"}'::jsonb, '{"detail":"detail3"}'::jsonb])[(s % 3) + 1],
-    (ARRAY['CODE_TYPE_1','CODE_TYPE_2','CODE_TYPE_3'])[(s % 3) + 1],
-    (ARRAY['{"edi":"data1"}'::jsonb, '{"edi":"data2"}'::jsonb, '{"edi":"data3"}'::jsonb])[(s % 3) + 1],
-    (ARRAY['UNIQUE_VENDOR_001','UNIQUE_VENDOR_002','UNIQUE_VENDOR_003'])[(s % 3) + 1],
-    (ARRAY['strategy1','strategy2','strategy3'])[(s % 3) + 1],
-    (ARRAY['v1','v2','v3'])[(s % 3) + 1],
-    now(),
-    now(),
-    (ARRAY['transactable_type1','transactable_type2','transactable_type3'])[(s % 3) + 1],
-    (ARRAY['SCHEDULE_001','SCHEDULE_002','SCHEDULE_003'])[(s % 3) + 1],
-    (ARRAY['SOURCE_1','SOURCE_2','SOURCE_3'])[(s % 3) + 1],
-    now(),
-    now(),
-    0,
-    (ARRAY['UTC','EST','PST'])[(s % 3) + 1],
-    (ARRAY['PAYMENT_TYPE_1','PAYMENT_TYPE_2','PAYMENT_TYPE_3'])[(s % 3) + 1],
-    (ARRAY['{"id":"identifier1"}'::jsonb, '{"id":"identifier2"}'::jsonb, '{"id":"identifier3"}'::jsonb])[(s % 3) + 1],
-    floor(random() * 10000)::bigint + 1,
-    uuid_generate_v4(),
-    uuid_generate_v4(),
-    (ARRAY['CONNECTION_1','CONNECTION_2','CONNECTION_3'])[(s % 3) + 1]
-FROM generate_series(1, 100000) s;
+
+CREATE OR REPLACE FUNCTION insert_random_data(num_rows INTEGER)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO wide_table (
+        field_1,
+        field_2,
+        text_1,
+        number_1,
+        text_2,
+        text_3,
+        text_4,
+        timestamp_1,
+        timestamp_2,
+        text_5,
+        date_1,
+        time_1,
+        bool_1,
+        bool_2,
+        timestamp_3,
+        text_6,
+        bool_3,
+        json_1,
+        json_2,
+        text_7,
+        json_3,
+        text_8,
+        text_9,
+        text_10,
+        timestamp_4,
+        timestamp_5,
+        text_11,
+        text_12,
+        text_13,
+        timestamp_6,
+        timestamp_7,
+        number_2,
+        text_14,
+        text_15,
+        json_4,
+        number_3,
+        field_3,
+        field_4,
+        text_16
+    )
+    SELECT
+        uuid_generate(),
+        uuid_generate(),
+        'CURRENCY_' || substring(md5(random()::text), 1, 3),
+        floor(random() * 10000)::bigint + 1,
+        'direction_' || substring(md5(random()::text), 1, 4),
+        'Company ' || substring(md5(random()::text), 1, 10),
+        'VENDOR_CODE_' || substring(md5(random()::text), 1, 8),
+        now(),
+        now(),
+        'VENDOR_' || substring(md5(random()::text), 1, 8),
+        current_date,
+        current_time,
+        (ARRAY[true,false])[(s % 2) + 1],
+        (ARRAY[true,false])[(s % 2) + 1],
+        CASE WHEN random() < 0.01 THEN now() ELSE NULL END,
+        'CUSTOMER_' || substring(md5(random()::text), 1, 8),
+        (ARRAY[true,false])[(s % 2) + 1], -- Boolean generation unchanged
+        ('{"meta":"data_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        ('{"detail":"detail_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        'CODE_TYPE_' || substring(md5(random()::text), 1, 8),
+        ('{"edi":"edi_data_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        'UNIQUE_VENDOR_' || substring(md5(random()::text), 1, 8),
+        'strategy_' || substring(md5(random()::text), 1, 8),
+        'v' || floor(random() * 10 + 1),
+        now(),
+        now(),
+        'transactable_type_' || substring(md5(random()::text), 1, 8),
+        'SCHEDULE_' || substring(md5(random()::text), 1, 8),
+        'SOURCE_' || substring(md5(random()::text), 1, 8),
+        now(),
+        now(),
+        0,
+        'TIMEZONE_' || substring(md5(random()::text), 1, 3),
+        'PAYMENT_TYPE_' || substring(md5(random()::text), 1, 8),
+        ('{"id":"identifier_' || substring(md5(random()::text), 1, 10) || '"}')::jsonb,
+        floor(random() * 10000)::bigint + 1,
+        uuid_generate(),
+        uuid_generate(),
+        'CONNECTION_' || substring(md5(random()::text), 1, 8)
+    FROM generate_series(1, num_rows) s;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_random_data(num_rows INTEGER)
+RETURNS int AS $$
+DECLARE
+    max_val bigint;
+    many int;
+BEGIN
+    -- 1. Get the maximum ID value once.
+    SELECT max(id) INTO max_val FROM wide_table;
+
+    -- 2. Update rows where the ID is in a randomly generated set.
+    UPDATE wide_table
+    SET timestamp_5 = NOW()
+    WHERE id IN (
+        -- 3. Generate a distinct list of random IDs between 1 and the max ID.
+        -- We generate slightly more than needed to ensure we get a unique set
+        -- after accounting for the small chance of random duplicates.
+        SELECT DISTINCT floor(random() * max_val + 1)::bigint
+        FROM generate_series(1, num_rows * 2)
+        LIMIT num_rows
+    );
+
+    GET DIAGNOSTICS many = ROW_COUNT;
+    RETURN many;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT insert_random_data(1_000_000);
 
 CREATE INDEX wide_table_idx ON wide_table USING bm25 (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)
 WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', datetime_fields='{"date_1":{}, "timestamp_3":{}}', layer_sizes='10kb, 1MB, 100MB');
@@ -179,20 +209,55 @@ SELECT
 """
 
 [[jobs]]
+refresh_ms = 15
+title = "Single Insert"
+sql = """
+SELECT insert_random_data(1);
+"""
+
+[[jobs]]
 refresh_ms = 5
 title = "Single Update"
 sql = """
-UPDATE wide_table SET number_1 = number_1 + 1 WHERE id = 1;
+SELECT update_random_data(1);
 """
 
 [[jobs]]
 refresh_ms = 5
 title = "Bulk Update"
 sql = """
-UPDATE wide_table
-SET text_3 = CASE
-    WHEN random() < 0.5 THEN NULL
-    ELSE 'value_' || (floor(random() * 10 + 1))::text
-END
-WHERE id > 10 AND id < 1000;
+SELECT update_random_data(10);
 """
+
+[[jobs]]
+refresh_ms = 500
+title = "Top N"
+sql = """
+SELECT COUNT(*) FROM (
+    SELECT
+        *
+    FROM
+        wide_table
+    WHERE
+        wide_table.field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+        AND wide_table.bool_1 = true
+        AND 1 = 1
+        AND true
+        AND wide_table.number_3 >= '100'
+        AND wide_table.number_3 <= '900'
+        AND wide_table.timestamp_3 IS NULL
+    ORDER BY
+        wide_table.date_1 DESC,
+        wide_table.timestamp_1 DESC,
+        wide_table.id DESC
+    LIMIT 100
+);
+"""
+
+[[jobs]]
+window_height = 5
+log_columns = ["background_merging"]
+log_tps = false
+refresh_ms = 5
+title = "Background Merger"
+sql = "select count(*) background_merging from pg_stat_activity where query = 'merging';"

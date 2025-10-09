@@ -1,5 +1,6 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
@@ -178,7 +179,7 @@ impl Buffer {
         Self { pg_buffer }
     }
 
-    pub fn page(&self) -> Page {
+    pub fn page(&self) -> Page<'_> {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
             pg_page,
@@ -245,7 +246,7 @@ impl Drop for BufferMut {
 }
 
 impl BufferMut {
-    pub fn init_page(&mut self) -> PageMut {
+    pub fn init_page(&mut self) -> PageMut<'_> {
         let page_size = self.page_size();
         let page = self.page_mut();
         page.buffer.dirty = true;
@@ -260,7 +261,7 @@ impl BufferMut {
     }
 
     #[allow(dead_code)]
-    pub fn page(&self) -> Page {
+    pub fn page(&self) -> Page<'_> {
         unsafe {
             Page {
                 pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
@@ -269,7 +270,7 @@ impl BufferMut {
         }
     }
 
-    pub fn page_mut(&mut self) -> PageMut {
+    pub fn page_mut(&mut self) -> PageMut<'_> {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.inner.pg_buffer) };
         PageMut {
             buffer: self,
@@ -291,11 +292,16 @@ impl BufferMut {
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
-    pub fn return_to_fsm(self, bman: &mut BufferManager) {
+    pub fn return_to_fsm_with_when_recyclable(
+        self,
+        bman: &mut BufferManager,
+        when_recyclable: pg_sys::FullTransactionId,
+    ) {
         let blockno = self.number();
         drop(self);
 
-        bman.fsm().extend(bman, std::iter::once(blockno));
+        bman.fsm()
+            .extend_with_when_recyclable(bman, when_recyclable, std::iter::once(blockno));
     }
 }
 
@@ -608,11 +614,11 @@ impl BufferManager {
         }
     }
 
-    pub fn fsm(&mut self) -> FreeSpaceManager {
+    pub fn fsm(&mut self) -> impl FreeSpaceManager {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());
-        FreeSpaceManager::open(fsm_blockno)
+        V2FSM::open(fsm_blockno)
     }
 
     pub fn buffer_access(&self) -> &RelationBufferAccess {

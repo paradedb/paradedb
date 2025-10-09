@@ -2,28 +2,24 @@
 title: Limitations
 ---
 
-## Filtering
+## `@@@` Operator
 
-In order for ParadeDB's fast field optimizations to apply, the full text search `@@@` operator must be present and used for all predicates,
-including filters. For instance, the following two queries produce identical results, but the second query will return faster because only `@@@`, not `=`, is used.
+In order for ParadeDB to push down an aggregate, the full text search `@@@` operator must be present in the query.
 
 ```sql
--- Slow query
+-- Not pushed down
 SELECT COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes' AND rating = 5;
+WHERE rating = 5;
 
--- Fast query
+-- Pushed down
 SELECT COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[
-    paradedb.term('description', 'shoes'),
-    paradedb.term('rating', 5)
-  ]
-);
+WHERE rating = 5
+AND id @@@ paradedb.all();
 ```
 
-## Text Fast Fields
+If your query does not contain the `@@@` operator, a way to "force" aggregate pushdown is to append `AND <key_field> @@@ paradedb.all()` to the query's
+`WHERE` clause.
 
-A known limitation of our underlying search library, Tantivy, is that text fast fields are slower to return than non-text fast fields.
-Future releases will improve the speeds of text fast fields. In the meantime, we recommend using a non-text field for aggregates whenever possible. For instance,
-using `COUNT(*)` instead of `COUNT(<text_field>)`.
+## Join Support
+
+ParadeDB is currently only able to push down aggregates over a single table. JOINs are not yet pushed down but are on the [roadmap](/welcome/roadmap).

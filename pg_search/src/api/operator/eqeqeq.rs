@@ -35,19 +35,19 @@ fn search_with_term(_field: &str, term: &str) -> bool {
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
 fn search_with_term_array(_field: &str, terms: Vec<String>) -> bool {
-    panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{terms:?}`")
+    panic!("query is incompatible with pg_search's `===(field, TEXT[])` operator: `{terms:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
 fn search_with_term_pdb_query(_field: &str, term: pdb::Query) -> bool {
-    panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term:?}`")
+    panic!("query is incompatible with pg_search's `===(field, pdb.query)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
 fn search_with_term_boost(_field: &str, term: BoostType) -> bool {
-    panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term:?}`")
+    panic!("query is incompatible with pg_search's `===(field, boost)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -68,15 +68,17 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data} = query {
+                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
                         query = term_str(string);
                         query.apply_fuzzy_data(fuzzy_data);
+                        query.apply_slop_data(slop_data);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
                     let mut query = term_str(string);
                     query.apply_fuzzy_data(fuzzy_data);
+                    query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")

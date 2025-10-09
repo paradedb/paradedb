@@ -501,7 +501,7 @@ fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> 
         let merge_lock = metadata.acquire_merge_lock();
         let mut merge_list = merge_lock.merge_list();
         let before = merge_list.list();
-        merge_list.garbage_collect();
+        merge_list.garbage_collect(pg_sys::ReadNextFullTransactionId());
         let after = merge_list.list();
         drop(merge_lock);
 

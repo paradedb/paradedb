@@ -208,9 +208,9 @@ fn get_char_type(c: char) -> CharType {
             CharType::LowerCase
         }
     } else if c.is_numeric() {
-        return CharType::Numeric;
+        CharType::Numeric
     } else {
-        return CharType::Delimiter;
+        CharType::Delimiter
     }
 }
 

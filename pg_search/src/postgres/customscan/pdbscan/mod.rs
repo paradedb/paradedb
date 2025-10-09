@@ -24,7 +24,7 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -58,10 +58,11 @@ use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
+use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::find_var_relation;
-use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};
@@ -161,15 +162,26 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
+                    .snippet_generator(
+                        snippet_type.field().root(),
+                        query_to_use,
+                        std::ptr::NonNull::new(expr_context),
+                    );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
                 let max_num_chars = match snippet_type {
-                    SnippetType::Text(_, _, config) => config.max_num_chars,
-                    SnippetType::Positions(_, _) => u32::MAX as usize,
+                    SnippetType::Text(_, _, config, _) => config.max_num_chars,
+                    SnippetType::Positions(_, _, _) => u32::MAX as usize,
                 };
                 new_generator.1.set_max_num_chars(max_num_chars);
+
+                if let Some(limit) = snippet_type.limit() {
+                    new_generator.1.set_limit(limit as usize);
+                }
+                if let Some(offset) = snippet_type.offset() {
+                    new_generator.1.set_offset(offset as usize);
+                }
 
                 *generator = Some(new_generator);
             }
@@ -182,6 +194,7 @@ impl PdbScan {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn extract_all_possible_quals(
         builder: &mut CustomPathBuilder<PdbScan>,
         root: *mut pg_sys::PlannerInfo,
@@ -190,6 +203,7 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
+        attempt_pushdown: bool,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
@@ -201,6 +215,7 @@ impl PdbScan {
             indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
+            attempt_pushdown,
         );
 
         // If we couldn't push down quals, try to push down quals from the join
@@ -217,6 +232,7 @@ impl PdbScan {
                 indexrel,
                 true, // Join quals should convert external to all
                 &mut state,
+                attempt_pushdown,
             );
 
             let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
@@ -261,9 +277,21 @@ impl PdbScan {
 
         // Apply HeapExpr optimization to the base relation quals
         if let Some(ref mut q) = quals {
-            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-            let relation_oid = (*rte).relid;
-            optimize_quals_with_heap_expr(q);
+            let rtable = (*(*root).parse).rtable;
+            let rtable_size = if !rtable.is_null() {
+                PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
+            } else {
+                0
+            };
+
+            // Bounds check: rti is 1-indexed, so it must be between 1 and rtable_size
+            if rti > 0 && (rti as usize) <= rtable_size {
+                let rte = pg_sys::rt_fetch(rti, rtable);
+                let relation_oid = (*rte).relid;
+                optimize_quals_with_heap_expr(q);
+            }
+            // Skip optimization silently if RTE is out of bounds
+            // This can happen with OR EXISTS subqueries where variables reference RTEs from different contexts
         }
 
         quals.clone()
@@ -318,6 +346,52 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
+            // quick look at the target list to see if we might need to do our const projections
+            let target_list = (*(*builder.args().root).parse).targetList;
+            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
+
+            //
+            // look for quals we can support.  we do this first so that we can get out early if this
+            // isn't a query we can support.
+            //
+            // Opening the Directory and Index down below is expensive, so if we can avoid it,
+            // especially for non-SELECT (ie, UPDATE) statements, that's good
+            //
+            let is_select =
+                (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
+            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
+                &mut builder,
+                root,
+                rti,
+                restrict_info,
+                ri_type,
+                &bm25_index,
+                maybe_needs_const_projections,
+                is_select,
+            );
+
+            let Some(quals) = quals else {
+                // if we are not able to push down all of the quals, then do not propose the custom
+                // scan, as that would mean executing filtering against heap tuples (which amounts
+                // to a join, and would require more planning).
+                return None;
+            };
+
+            // Check if this is a partial index and if the query is compatible with it
+            if !bm25_index.rd_indpred.is_null() {
+                // This is a partial index - we need to check if the query can be satisfied by it
+                if !quals.is_query_compatible_with_partial_index() {
+                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                    return None;
+                }
+            }
+
+            //
+            // ===================
+            // If we make it this far, we're going to submit a path... it better be a good one!
+            // ====================
+            //
+
             // TODO: `impl Default for PrivateData` requires that many fields are in invalid
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
@@ -357,10 +431,6 @@ impl CustomScan for PdbScan {
                 None
             };
 
-            // quick look at the target list to see if we might need to do our const projections
-            let target_list = (*(*builder.args().root).parse).targetList;
-            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
@@ -386,35 +456,6 @@ impl CustomScan for PdbScan {
                 .collect(),
             );
             let maybe_ff = custom_private.maybe_ff();
-
-            //
-            // look for quals we can support
-            //
-            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
-                &mut builder,
-                root,
-                rti,
-                restrict_info,
-                ri_type,
-                &bm25_index,
-                maybe_needs_const_projections,
-            );
-
-            let Some(quals) = quals else {
-                // if we are not able to push down all of the quals, then do not propose the custom
-                // scan, as that would mean executing filtering against heap tuples (which amounts
-                // to a join, and would require more planning).
-                return None;
-            };
-
-            // Check if this is a partial index and if the query is compatible with it
-            if !bm25_index.rd_indpred.is_null() {
-                // This is a partial index - we need to check if the query can be satisfied by it
-                if !quals.is_query_compatible_with_partial_index() {
-                    // The query cannot be satisfied by this partial index, fall back to heap scan
-                    return None;
-                }
-            }
 
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
@@ -453,14 +494,7 @@ impl CustomScan for PdbScan {
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
                 let pathkeys = topn_pathkey_info.pathkeys().unwrap();
-                // we can only (currently) do const projections if the first sort field is a score,
-                // because we currently discard all but the first sort field, and so will not
-                // produce a valid Score value. see TopNSearchResults.
-                let orderby_supported = !maybe_needs_const_projections
-                    || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
-                if orderby_supported {
-                    custom_private.set_maybe_orderby_info(Some(pathkeys));
-                }
+                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
@@ -590,7 +624,7 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert((rti as Varno, (*var).varattno), attname);
                 }
             }
 
@@ -615,6 +649,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 &indexrel,
                 &base_query,
+                true,
             );
 
             builder
@@ -624,6 +659,11 @@ impl CustomScan for PdbScan {
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);
+
+            builder
+                .custom_private_mut()
+                .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
+
             builder.build()
         }
     }
@@ -736,6 +776,9 @@ impl CustomScan for PdbScan {
             .map(|field| (field, None))
             .collect();
 
+            builder.custom_state().ambulkdelete_epoch =
+                builder.custom_private().ambulkdelete_epoch();
+
             assign_exec_method(&mut builder);
 
             builder.build()
@@ -774,6 +817,9 @@ impl CustomScan for PdbScan {
                     state.custom_state().invisible_tuple_count as u64,
                     None,
                 );
+                if let Some(explain_data) = &state.custom_state().parallel_explain_data {
+                    explainer.add_json("Parallel Workers", &explain_data.workers);
+                }
             }
         }
 
@@ -818,7 +864,7 @@ impl CustomScan for PdbScan {
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
-                    state.custom_state().query_count as u64,
+                    state.custom_state().total_query_count().try_into().unwrap(),
                     None,
                 );
             }
@@ -853,12 +899,14 @@ impl CustomScan for PdbScan {
                 return;
             }
 
-            // setup the structures we need to do mvcc checking
+            // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =
                 Some(VisibilityChecker::with_rel_and_snap(
                     state.custom_state().heaprel(),
                     pg_sys::GetActiveSnapshot(),
                 ));
+            state.custom_state_mut().doc_from_heap_state =
+                Some(HeapFetchState::new(state.custom_state().heaprel()));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -883,6 +931,7 @@ impl CustomScan for PdbScan {
                 // make a new one and swap some pointers around
 
                 // hold onto the planstate's current ExprContext
+                // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
                 let planstate = state.planstate();
                 let stdecontext = (*planstate).ps_ExprContext;
 
@@ -974,13 +1023,18 @@ impl CustomScan for PdbScan {
                                 (*const_score_node).constisnull = false;
                             }
 
+                            // TODO: We go _back_ to the heap to get snippet information here
+                            // inside of `make_snippet` and `get_snippet_positions`. It's possible
+                            // that we could use a wider tuple slot to fetch the extra columns that
+                            // we need during our initial lookup above (but then we'd need to copy
+                            // into the correctly shaped slot for this scan).
                             if state.custom_state().need_snippets() {
                                 per_tuple_context.switch_to(|_| {
                                     for (snippet_type, const_snippet_nodes) in
                                         &state.custom_state().const_snippet_nodes
                                     {
                                         match snippet_type {
-                                            SnippetType::Text(_, _, config) => {
+                                            SnippetType::Text(_, _, config, _) => {
                                                 let snippet = state
                                                     .custom_state()
                                                     .make_snippet(ctid, snippet_type);
@@ -1056,11 +1110,17 @@ impl CustomScan for PdbScan {
         }
     }
 
-    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if let Some(parallel_state) = state.custom_state().parallel_state {
+            state.custom_state_mut().parallel_explain_data =
+                Some(unsafe { (*parallel_state).explain_data() });
+        }
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
+        drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
@@ -1142,6 +1202,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
+
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,
@@ -1372,7 +1433,7 @@ where
             // Check if this is a lower function
             else if let Some(var) = is_lower_func(expr.cast(), rti) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid != pg_sys::Oid::INVALID {
+                if heaprelid != pg_sys::InvalidOid {
                     let heaprel =
                         PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
@@ -1392,7 +1453,7 @@ where
             else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
                 if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
                     let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid != pg_sys::Oid::INVALID {
+                    if heaprelid != pg_sys::InvalidOid {
                         let heaprel =
                             PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                         let tupdesc = heaprel.tuple_desc();
@@ -1410,20 +1471,17 @@ where
                 }
             }
             // Check if this is a regular Var (column reference)
-            else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
+            else if let Some((var, field_name)) = find_one_var_and_fieldname(
+                VarContext::from_planner(root),
+                expr as *mut pg_sys::Node,
+            ) {
+                let (heaprelid, _, _) = find_var_relation(var, root);
                 if heaprelid != pg_sys::Oid::INVALID {
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if regular_sortability_check(&search_field) {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                found_valid_member = true;
-                                break;
-                            }
+                    if let Some(search_field) = schema.search_field(field_name.root()) {
+                        if regular_sortability_check(&search_field) {
+                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                            found_valid_member = true;
+                            break;
                         }
                     }
                 }

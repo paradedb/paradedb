@@ -44,6 +44,7 @@ pub struct SearchTokenizerFilters {
     pub stemmer: Option<Language>,
     pub stopwords_language: Option<Language>,
     pub stopwords: Option<Vec<String>>,
+    pub ascii_folding: Option<bool>,
 }
 
 impl SearchTokenizerFilters {
@@ -59,6 +60,7 @@ impl SearchTokenizerFilters {
             stemmer: None,
             stopwords_language: None,
             stopwords: None,
+            ascii_folding: None,
         }
     }
 
@@ -98,6 +100,12 @@ impl SearchTokenizerFilters {
         if let Some(stopwords) = value.get("stopwords") {
             filters.stopwords = Some(serde_json::from_value(stopwords.clone()).map_err(|_| {
                 anyhow::anyhow!("stopwords tokenizer requires a valid 'stopwords' field")
+            })?);
+        }
+
+        if let Some(ascii_folding) = value.get("ascii_folding") {
+            filters.ascii_folding = Some(ascii_folding.as_bool().ok_or_else(|| {
+                anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
             })?);
         }
 
@@ -162,6 +170,11 @@ impl SearchTokenizerFilters {
             is_empty = false;
         }
 
+        if let Some(value) = self.ascii_folding {
+            write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
+
         if is_empty {
             "".into()
         } else {
@@ -196,6 +209,13 @@ impl SearchTokenizerFilters {
         self.stopwords
             .as_ref()
             .map(|stop_words| StopWordFilter::remove(stop_words.clone()))
+    }
+
+    fn ascii_folding(&self) -> Option<AsciiFoldingFilter> {
+        match self.ascii_folding {
+            Some(true) => Some(AsciiFoldingFilter), // Only enable if explicitly requested.
+            _ => None,
+        }
     }
 }
 
@@ -377,6 +397,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
 
@@ -398,6 +419,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             // Deprecated, use `raw` with `lowercase` filter instead
@@ -408,6 +430,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::WhiteSpace(filters) => Some(
@@ -417,6 +440,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::RegexTokenizer { pattern, filters } => Some(
@@ -426,6 +450,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::Ngram {
@@ -443,6 +468,7 @@ impl SearchTokenizer {
                 .filter(filters.stemmer())
                 .filter(filters.stopwords_language())
                 .filter(filters.stopwords())
+                .filter(filters.ascii_folding())
                 .build(),
             ),
             SearchTokenizer::ChineseCompatible(filters) => Some(
@@ -452,6 +478,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::SourceCode(filters) => Some(
@@ -462,6 +489,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::ChineseLindera(filters) => Some(
@@ -471,6 +499,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::JapaneseLindera(filters) => Some(
@@ -480,6 +509,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::KoreanLindera(filters) => Some(
@@ -499,6 +529,7 @@ impl SearchTokenizer {
                     .filter(Stemmer::new(Language::English))
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             // Deprecated, use `stemmer` filter instead
@@ -519,6 +550,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::Jieba(filters) => Some(
@@ -528,6 +560,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
         }
@@ -666,6 +699,7 @@ mod tests {
             stemmer: None,
             stopwords_language: None,
             stopwords: None,
+            ascii_folding: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -696,6 +730,7 @@ mod tests {
                     stemmer: None,
                     stopwords_language: None,
                     stopwords: None,
+                    ascii_folding: None,
                 }
             }
         );
@@ -716,6 +751,7 @@ mod tests {
                 stemmer: None,
                 stopwords_language: None,
                 stopwords: None,
+                ascii_folding: None,
             },
         };
 
@@ -756,6 +792,7 @@ mod tests {
                     "花朵".to_string(),
                     "公园".to_string()
                 ]),
+                ascii_folding: None,
             })
         );
 
@@ -804,6 +841,7 @@ mod tests {
                 stemmer: None,
                 stopwords_language: Some(Language::English),
                 stopwords: None,
+                ascii_folding: None,
             })
         );
 

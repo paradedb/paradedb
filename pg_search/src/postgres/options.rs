@@ -22,6 +22,7 @@ use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use std::cell::{Ref, RefCell};
 
+use crate::gucs::{global_enable_background_merging, global_target_segment_count};
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
@@ -303,10 +304,19 @@ impl BM25IndexOptions {
     }
 
     pub fn background_layer_sizes(&self) -> Vec<u64> {
+        if !global_enable_background_merging() {
+            return vec![];
+        }
+
         self.options_data().background_layer_sizes()
     }
 
     pub fn target_segment_count(&self) -> usize {
+        let global_tsc = global_target_segment_count();
+        if global_tsc != 0 {
+            return global_tsc as usize;
+        }
+
         self.options_data()
             .target_segment_count()
             .map(|count| count as usize)
@@ -340,49 +350,49 @@ impl BM25IndexOptions {
         }
     }
 
-    pub fn text_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn text_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.text.borrow().is_none() {
             *self.lazy.text.borrow_mut() = Some(self.options_data().text_configs());
         }
         self.lazy.text.borrow()
     }
 
-    pub fn numeric_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn numeric_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.numeric.borrow().is_none() {
             *self.lazy.numeric.borrow_mut() = Some(self.options_data().numeric_configs());
         }
         self.lazy.numeric.borrow()
     }
 
-    pub fn datetime_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn datetime_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.datetime.borrow().is_none() {
             *self.lazy.datetime.borrow_mut() = Some(self.options_data().datetime_configs());
         }
         self.lazy.datetime.borrow()
     }
 
-    pub fn boolean_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn boolean_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.boolean.borrow().is_none() {
             *self.lazy.boolean.borrow_mut() = Some(self.options_data().boolean_configs());
         }
         self.lazy.boolean.borrow()
     }
 
-    pub fn json_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn json_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.json.borrow().is_none() {
             *self.lazy.json.borrow_mut() = Some(self.options_data().json_configs());
         }
         self.lazy.json.borrow()
     }
 
-    pub fn range_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn range_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.range.borrow().is_none() {
             *self.lazy.range.borrow_mut() = Some(self.options_data().range_configs());
         }
         self.lazy.range.borrow()
     }
 
-    pub fn inet_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn inet_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.inet.borrow().is_none() {
             *self.lazy.inet.borrow_mut() = Some(self.options_data().inet_configs());
         }
@@ -400,7 +410,13 @@ impl BM25IndexOptions {
         }
 
         if field_name.root() == data.key_field_name()?.root() {
-            return self.get_field_type(field_name).map(key_field_config);
+            return match self.text_config().as_ref().unwrap().get(field_name) {
+                // if the key_field is TEXT then we'll use the config for it
+                config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
+
+                // otherwise we'll use the default config for key_fields in general
+                _ => self.get_field_type(field_name).map(key_field_config),
+            };
         }
 
         self.text_config()
@@ -539,7 +555,7 @@ impl BM25IndexOptions {
         None
     }
 
-    pub fn attributes(&self) -> Ref<HashMap<FieldName, ExtractedFieldAttribute>> {
+    pub fn attributes(&self) -> Ref<'_, HashMap<FieldName, ExtractedFieldAttribute>> {
         if self.lazy.attributes.borrow().is_empty() {
             *self.lazy.attributes.borrow_mut() = unsafe { extract_field_attributes(self.indexrel) };
         }

@@ -295,3 +295,9 @@ pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
 }
+
+impl OrderByInfo {
+    pub fn is_score(&self) -> bool {
+        matches!(self.feature, OrderByFeature::Score)
+    }
+}

@@ -20,6 +20,7 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::query::SearchQueryInput;
 
 pub struct Explainer {
@@ -44,11 +45,20 @@ impl Explainer {
     }
 
     pub fn add_query(&mut self, query: &SearchQueryInput) {
-        let mut json_value = serde_json::to_value(query).expect("query should serialize to json");
-        cleanup_variabilities_from_tantivy_query(&mut json_value);
-        let updated_json_query =
-            serde_json::to_string(&json_value).expect("updated query should serialize to json");
-        self.add_text("Tantivy Query", &updated_json_query);
+        self.add_explainable("Tantivy Query", query);
+    }
+
+    /// Add an explainable object to the output
+    pub fn add_explainable<T: ExplainFormat>(&mut self, key: &str, value: &T) {
+        self.add_text(key, value.explain_format());
+    }
+
+    pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {
+        self.add_text(
+            key,
+            serde_json::to_string(&value)
+                .unwrap_or_else(|e| panic!("{key} should serialize to json: {e}")),
+        );
     }
 
     pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {
@@ -108,38 +118,5 @@ impl Explainer {
         unsafe {
             pg_sys::ExplainPropertyList(key.as_pg_cstr(), values.as_mut_ptr(), self.state.as_ptr())
         }
-    }
-}
-
-/// Remove the oid from the with_index object
-/// This helps to reduce the variability of the explain output used in regression tests
-fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Value) {
-    match json_value {
-        serde_json::Value::Object(obj) => {
-            // Check if this is a "with_index" object and remove its "oid" if present
-            if obj.contains_key("with_index") {
-                if let Some(with_index) = obj.get_mut("with_index") {
-                    if let Some(with_index_obj) = with_index.as_object_mut() {
-                        with_index_obj.remove("oid");
-                    }
-                }
-            }
-
-            // Remove any field named "postgres_expression"
-            obj.remove("postgres_expression");
-
-            // Recursively process all values in the object
-            for (_, value) in obj.iter_mut() {
-                cleanup_variabilities_from_tantivy_query(value);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            // Recursively process all elements in the array
-            for item in arr.iter_mut() {
-                cleanup_variabilities_from_tantivy_query(item);
-            }
-        }
-        // Base cases: primitive values don't need processing
-        _ => {}
     }
 }

@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Aggregate Custom Scan (Non-GROUP BY) Functionality
 -- =====================================================================
--- This file tests aggregate functions (COUNT, SUM, AVG, MIN, MAX) 
+-- This file tests aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 -- without GROUP BY clauses for the aggregate custom scan feature.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -31,7 +31,7 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Winter jacket warm', 4, 'Clothing', 129.99, true),
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 
-CREATE INDEX products_idx ON products 
+CREATE INDEX products_idx ON products
 USING bm25 (id, description, rating, category, price)
 WITH (
     key_field='id',
@@ -71,10 +71,10 @@ SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
 
 -- Test 1.6: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price) 
+SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
 FROM products WHERE description @@@ 'laptop';
 
-SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price) 
+SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
 FROM products WHERE description @@@ 'laptop';
 
 -- =====================================================================
@@ -135,12 +135,12 @@ SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (
 
 -- Test 2.3: Complex contradictory conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), SUM(price) 
-FROM products 
+SELECT COUNT(*), SUM(price)
+FROM products
 WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
 
-SELECT COUNT(*), SUM(price) 
-FROM products 
+SELECT COUNT(*), SUM(price)
+FROM products
 WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
 
 -- =====================================================================
@@ -164,7 +164,7 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
     (200, 2000000, 20, 199.99, 2.5, 6.28318, 'test2'),
     (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
 
-CREATE INDEX type_test_idx ON type_test 
+CREATE INDEX type_test_idx ON type_test
 USING bm25 (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
     key_field='id',
@@ -181,24 +181,24 @@ WITH (
 
 -- Test 3.1: Aggregates on different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     SUM(int_val), AVG(int_val), MIN(int_val), MAX(int_val),
     SUM(bigint_val), AVG(bigint_val), MIN(bigint_val), MAX(bigint_val),
     SUM(smallint_val), AVG(smallint_val), MIN(smallint_val), MAX(smallint_val),
     SUM(numeric_val), AVG(numeric_val), MIN(numeric_val), MAX(numeric_val),
     SUM(float_val), AVG(float_val), MIN(float_val), MAX(float_val),
     SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
-FROM type_test 
+FROM type_test
 WHERE text_val @@@ 'test1 OR test2';
 
-SELECT 
+SELECT
     SUM(int_val), AVG(int_val), MIN(int_val), MAX(int_val),
     SUM(bigint_val), AVG(bigint_val), MIN(bigint_val), MAX(bigint_val),
     SUM(smallint_val), AVG(smallint_val), MIN(smallint_val), MAX(smallint_val),
     SUM(numeric_val), AVG(numeric_val), MIN(numeric_val), MAX(numeric_val),
     SUM(float_val), AVG(float_val), MIN(float_val), MAX(float_val),
     SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
-FROM type_test 
+FROM type_test
 WHERE text_val @@@ 'test1 OR test2';
 
 -- =====================================================================
@@ -208,22 +208,22 @@ WHERE text_val @@@ 'test1 OR test2';
 -- Test 4.1: DISTINCT aggregates (should fall back to PostgreSQL)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
-FROM products 
+FROM products
 WHERE description @@@ 'laptop';
 
 SELECT COUNT(DISTINCT category), SUM(price)
-FROM products 
+FROM products
 WHERE description @@@ 'laptop';
 
 -- Test 4.2: Aggregate on non-fast field (should fall back)
 -- Note: description field is not marked as "fast" in the index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
-FROM products 
+FROM products
 WHERE category @@@ 'Electronics';
 
 SELECT AVG(LENGTH(description))
-FROM products 
+FROM products
 WHERE category @@@ 'Electronics';
 
 -- =====================================================================
@@ -233,24 +233,64 @@ WHERE category @@@ 'Electronics';
 -- Test 6.1: Complex boolean WHERE clauses with aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price), AVG(rating)
-FROM products 
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+FROM products
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
   AND (rating >= 4 OR category @@@ 'Electronics');
 
 SELECT COUNT(*), SUM(price), AVG(rating)
-FROM products 
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+FROM products
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
   AND (rating >= 4 OR category @@@ 'Electronics');
 
 -- Test 6.2: Nested boolean expressions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
-FROM products 
+FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard');
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
-FROM products 
+FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard');
+
+-- =====================================================================
+-- SECTION 7: COALESCE Null Values
+-- =====================================================================
+
+INSERT INTO products (description, rating, category, price, in_stock) VALUES
+    (NULL, NULL, NULL, NULL, NULL);
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
+FROM products
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
+FROM products
+WHERE id @@@ paradedb.all();
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
+FROM products
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
+FROM products
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
+FROM products;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
+FROM products
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
+FROM products
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
+FROM products;
 
 -- =====================================================================
 -- Cleanup

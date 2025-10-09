@@ -57,7 +57,7 @@ impl PendingSegment {
             document,
         })?;
 
-        if self.opstamp % 100000 == 0 {
+        if self.opstamp.is_multiple_of(100000) {
             pgrx::debug2!(
                 "writer: added document {}, mem_usage: {}",
                 self.opstamp,
@@ -88,13 +88,6 @@ impl PendingSegment {
 pub struct IndexWriterConfig {
     pub memory_budget: NonZeroUsize,
     pub max_docs_per_segment: Option<u32>,
-}
-
-/// We want SerialIndexWriter to return a struct like SegmentMeta that implements Deserialize
-#[derive(serde::Serialize, serde::Deserialize, Debug, Hash, Clone, PartialEq, Eq)]
-pub struct CommittedSegment {
-    pub segment_id: SegmentId,
-    pub max_doc: u32,
 }
 
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.

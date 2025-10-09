@@ -20,6 +20,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
@@ -31,6 +32,8 @@ pub struct Bm25ScanState {
     results: Option<MultiSegmentSearchResults>,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
+    #[allow(dead_code)]
+    ambulkdelete_epoch: u32,
 }
 
 #[pg_guard]
@@ -102,6 +105,8 @@ pub extern "C-unwind" fn amrescan(
         };
     }
 
+    let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
+
     // Create the index and scan state
     let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
         if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
@@ -150,6 +155,7 @@ pub extern "C-unwind" fn amrescan(
                 key_field_oid: PgOid::from(
                     (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid,
                 ),
+                ambulkdelete_epoch,
             }
         } else {
             Bm25ScanState {
@@ -158,6 +164,7 @@ pub extern "C-unwind" fn amrescan(
                 results,
                 itup: (vec![], vec![]),
                 key_field_oid: PgOid::Invalid,
+                ambulkdelete_epoch,
             }
         };
 

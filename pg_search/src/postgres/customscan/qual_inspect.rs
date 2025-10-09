@@ -484,12 +484,12 @@ pub unsafe fn extract_quals(
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
+    attempt_pushdown: bool,
 ) -> Option<Qual> {
     if node.is_null() {
         return None;
     }
 
-    let schema = indexrel.schema().ok()?;
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
@@ -501,6 +501,7 @@ pub unsafe fn extract_quals(
                 indexrel,
                 convert_external_to_special_qual,
                 state,
+                attempt_pushdown,
             )?;
             if quals.len() == 1 {
                 quals.pop()
@@ -525,6 +526,7 @@ pub unsafe fn extract_quals(
                 indexrel,
                 convert_external_to_special_qual,
                 state,
+                attempt_pushdown,
             )
         }
 
@@ -537,6 +539,7 @@ pub unsafe fn extract_quals(
             indexrel,
             convert_external_to_special_qual,
             state,
+            attempt_pushdown,
         ),
 
         pg_sys::NodeTag::T_ScalarArrayOpExpr => opexpr(
@@ -548,6 +551,7 @@ pub unsafe fn extract_quals(
             indexrel,
             convert_external_to_special_qual,
             state,
+            attempt_pushdown,
         ),
 
         pg_sys::NodeTag::T_BoolExpr => {
@@ -562,6 +566,7 @@ pub unsafe fn extract_quals(
                 indexrel,
                 convert_external_to_special_qual,
                 state,
+                attempt_pushdown,
             )?;
 
             match (*boolexpr).boolop {
@@ -580,7 +585,7 @@ pub unsafe fn extract_quals(
                     return None;
                 }
 
-                if let Some(search_field) = schema.search_field(field.attname()) {
+                if let Some(search_field) = indexrel.schema().ok()?.search_field(field.attname()) {
                     if search_field.is_fast() {
                         // This is an indexed boolean field, create proper pushdown qual
                         // T_Var alone represents "field = true"
@@ -602,7 +607,9 @@ pub unsafe fn extract_quals(
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             // TODO(@mdashti): we can use if-let chains here
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), indexrel) {
-                if let Some(search_field) = schema.search_field(field.attname().root()) {
+                if let Some(search_field) =
+                    indexrel.schema().ok()?.search_field(field.attname().root())
+                {
                     if search_field.is_fast() {
                         if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                             return Some(Qual::PushdownIsNotNull { field });
@@ -674,6 +681,7 @@ unsafe fn list(
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
+    attempt_pushdown: bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
@@ -687,6 +695,7 @@ unsafe fn list(
             indexrel,
             convert_external_to_special_qual,
             state,
+            attempt_pushdown,
         )?)
     }
 
@@ -703,6 +712,7 @@ unsafe fn opexpr(
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
+    attempt_pushdown: bool,
 ) -> Option<Qual> {
     let args = opexpr.args();
     let mut lhs = args.get_ptr(0)?;
@@ -728,6 +738,7 @@ unsafe fn opexpr(
             lhs,
             rhs,
             convert_external_to_special_qual,
+            attempt_pushdown,
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
@@ -745,6 +756,7 @@ unsafe fn opexpr(
                     lhs,
                     rhs,
                     convert_external_to_special_qual,
+                    attempt_pushdown,
                 );
             }
 
@@ -770,9 +782,10 @@ unsafe fn opexpr(
             lhs,
             rhs,
             convert_external_to_special_qual,
+            attempt_pushdown,
         ),
 
-        _ => {
+        _ if attempt_pushdown => {
             // it doesn't use our operator.
             // we'll try to convert it into a pushdown
             try_pushdown(
@@ -784,6 +797,8 @@ unsafe fn opexpr(
                 convert_external_to_special_qual,
             )
         }
+
+        _ => None,
     }
 }
 
@@ -799,6 +814,7 @@ unsafe fn node_opexpr(
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
     convert_external_to_special_qual: bool,
+    attempt_pushdown: bool,
 ) -> Option<Qual> {
     while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
@@ -838,7 +854,7 @@ unsafe fn node_opexpr(
                 } else {
                     return None;
                 }
-            } else {
+            } else if attempt_pushdown {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
                 return try_pushdown(
@@ -849,6 +865,8 @@ unsafe fn node_opexpr(
                     state,
                     convert_external_to_special_qual,
                 );
+            } else {
+                return None;
             }
         }
     }
@@ -875,7 +893,7 @@ unsafe fn node_opexpr(
                 None
             }
         }
-    } else {
+    } else if attempt_pushdown {
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
         try_pushdown(
@@ -886,6 +904,8 @@ unsafe fn node_opexpr(
             state,
             convert_external_to_special_qual,
         )
+    } else {
+        None
     }
 }
 
@@ -1073,6 +1093,7 @@ pub unsafe fn extract_join_predicates(
     pdbopoid: pg_sys::Oid,
     indexrel: &PgSearchRelation,
     base_query: &SearchQueryInput,
+    attempt_pushdown: bool,
 ) -> Option<SearchQueryInput> {
     // Only look at the current relation's join clauses
     if (*root).simple_rel_array.is_null()
@@ -1111,6 +1132,7 @@ pub unsafe fn extract_join_predicates(
                 indexrel,
                 true,
                 &mut qual_extract_state,
+                attempt_pushdown,
             ) {
                 if qual_extract_state.uses_our_operator {
                     // Convert qual to SearchQueryInput and return the entire expression

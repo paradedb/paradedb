@@ -6,11 +6,21 @@ There are two ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-host
 
 ## Self-Hosted ParadeDB
 
-For hobby environments, [ParadeDB Community](https://github.com/paradedb/paradedb) can be deployed as a [Docker image](/deploy/self-hosted/docker),
+For hobby, development, or staging environments, [ParadeDB Community](https://github.com/paradedb/paradedb) can be deployed as a [Docker image](/deploy/self-hosted/docker),
 inside [Kubernetes](/deploy/self-hosted/kubernetes), or as an [extension](/deploy/self-hosted/extension) inside an existing self-hosted Postgres.
 
 For production environments, we recommend deploying the [ParadeDB Enterprise](/deploy/enterprise) binary inside Kubernetes. This unlocks support for
 [logical replication](/deploy/self-hosted/logical-replication) and [high availability](/deploy/self-hosted/high-availability), which must be configured separately.
+
+<Note>
+Running ParadeDB Community in a production application that serves paying customers is discouraged.
+
+This is because ParadeDB Community [does not have write-ahead log (WAL) support](/deploy/enterprise). Without WALs, data can be lost or corrupted if
+the server crashes or restarts, which would necessitate a reindex and incur downtime for your application. For more details, see [guarantees](/welcome/guarantees#aci-d).
+
+When you are ready to deploy in ParadeDB to production, [contact us](mailto:sales@paradedb.com) for access to ParadeDB Enterprise, which has WAL support.
+
+</Note>
 
 ## ParadeDB BYOC
 

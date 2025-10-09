@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760004506750,
+  "lastUpdate": 1760004510022,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9064,6 +9064,108 @@ window.BENCHMARK_DATA = {
             "value": 155.84375,
             "unit": "median mem",
             "extra": "avg mem: 168.599842484311, max mem: 215.7421875, count: 56170"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aadb55cde7a3b88a751cfa9f4250928a07a58590",
+          "message": "feat: added aggregate FILTER support using Tantivy's FilterAggregation feature (#3240)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplements SQL `FILTER` clause support for aggregations using Tantivy's\n`FilterAggregation` feature.\n\n```sql\n-- Multiple filtered aggregates in a single query scan\nSELECT \n  COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics,\n  COUNT(*) FILTER (WHERE category @@@ 'books') AS books,\n  AVG(price) FILTER (WHERE status @@@ 'available') AS avg_available_price\nFROM products\nGROUP BY brand;\n```\n\n## Why\n\n**Before**: Computing multiple filtered aggregations required separate\nqueries (multiple index scans).\n\n**After**: Standard SQL `FILTER` syntax with single index scan,\nregardless of number of filters. Significant performance improvement for\nanalytical queries.\n\n## How\n\n### Core Changes\n\n1. Query Planning: extracted `FILTER` clauses from aggregate nodes,\ngroup identical filters for optimization\n2. Execution: used `FilterAggregation` structure for all aggregates\n(filtered and non-filtered)\n3. Result Processing: to handle nested JSON output\n4. Parallelization: supporting both SQL `FILTER` and legacy JSON API\n\n### Key Implementation Details\n\n- All aggregates wrapped in `FilterAggregation` (non-filtered use\n`MatchAllQuery`)\n- Sentinel filter ensures all `GROUP BY` groups appear (correct NULL/0\nhandling)\n- `ExprContextGuard` RAII wrapper for safe resource management\n- Cross-type numeric comparison support for multi-column `GROUP BY`\n\n### Optimization Strategy\n\nAggregates with identical filters are grouped together. Example:\n```\n3 aggregates, 2 filters → 2 filter groups → single Tantivy query with 2 FilterAggregations\n```\n\n## Tests\n\nAdded regression tests covering:\n- Simple & GROUP BY aggregations with FILTER\n- Multiple FILTER clauses\n- Multi-column GROUP BY with mixed filtered/non-filtered aggregates\n- Edge cases: empty results, NULL handling, ORDER BY preservation\n\n**Next steps**:\n - qgen tests\n - Performance benchmarking",
+          "timestamp": "2025-10-09T02:27:04-07:00",
+          "tree_id": "cedee10645583187cd9d4d8c6f356295ce57a9ae",
+          "url": "https://github.com/paradedb/paradedb/commit/aadb55cde7a3b88a751cfa9f4250928a07a58590"
+        },
+        "date": 1760004508351,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.31173901417238614, max background_merging: 1.0, count: 56095"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.792988898419552, max cpu: 9.504951, count: 56095"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.435424558784206, max mem: 20.00390625, count: 56095"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.52270264876536, max cpu: 27.826086, count: 56095"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 165.64310983320706, max mem: 166.83203125, count: 56095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67581,
+            "unit": "median block_count",
+            "extra": "avg block_count: 68480.95889116677, max block_count: 74830.0, count: 56095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 91.48799358231571, max segment_count: 192.0, count: 56095"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.248704832259567, max cpu: 32.55814, count: 56095"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 172.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 178.7709085869953, max mem: 226.12109375, count: 56095"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.959135984731526, max cpu: 27.745665, count: 56095"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.59719644130493, max mem: 162.359375, count: 56095"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.024330132788755, max cpu: 33.20158, count: 56095"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.97955219660844, max mem: 214.9296875, count: 56095"
           }
         ]
       }

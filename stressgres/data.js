@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760045392961,
+  "lastUpdate": 1760045395797,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12520,6 +12520,108 @@ window.BENCHMARK_DATA = {
             "value": 155.82421875,
             "unit": "median mem",
             "extra": "avg mem: 169.15054634553633, max mem: 215.31640625, count: 56366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42671fe0df806d6033d837f7b058b0b6f81b187d",
+          "message": "chore: Remove default `255` byte \"remove long\" filter setting (#3288)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA 255 byte \"remove long\" setting was applied to all text fields.\n\nThis was wrong for text fast fields -- any text longer than 255 bytes\nwas being silently dropped. And it's confusing to document for non fast\ntext fields, we should be preserving the tokens and let the user opt\ninto it rather than doing it by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:49:35-04:00",
+          "tree_id": "c1ccc15293d114edb6d9d98bc04d99512d1a539d",
+          "url": "https://github.com/paradedb/paradedb/commit/42671fe0df806d6033d837f7b058b0b6f81b187d"
+        },
+        "date": 1760045394051,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.32821497120921306, max background_merging: 1.0, count: 56268"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7903135653209965, max cpu: 9.590409, count: 56268"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 16.625,
+            "unit": "median mem",
+            "extra": "avg mem: 16.586051768989478, max mem: 19.86328125, count: 56268"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.629779256475542, max cpu: 28.346458, count: 56268"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.84175431917342, max mem: 169.1953125, count: 56268"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59246.5,
+            "unit": "median block_count",
+            "extra": "avg block_count: 61099.15758512831, max block_count: 75873.0, count: 56268"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 92.13334399658775, max segment_count: 193.0, count: 56268"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.874815680777173, max cpu: 28.318584, count: 56268"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 170.375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.89254702384125, max mem: 170.375, count: 56268"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9604449993418775, max cpu: 27.906979, count: 56268"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 165.11963206496142, max mem: 168.0546875, count: 56268"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.919515946346174, max cpu: 33.07087, count: 56268"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 169.19430553056355, max mem: 215.33203125, count: 56268"
           }
         ]
       }

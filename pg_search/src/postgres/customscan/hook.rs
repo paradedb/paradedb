@@ -292,10 +292,7 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
         pgrx::warning!("query_has_search_operator: jointree is not null");
         if !(*jointree).quals.is_null() {
             pgrx::warning!("query_has_search_operator: quals is not null, checking...");
-            if expr_contains_any_operator(
-                (*jointree).quals as *mut pg_sys::Node,
-                &[searchqueryinput_opno, text_opno],
-            ) {
+            if expr_contains_any_operator((*jointree).quals, &[searchqueryinput_opno, text_opno]) {
                 pgrx::warning!("query_has_search_operator: Found @@@ in WHERE clause");
                 return true;
             }
@@ -309,10 +306,7 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     // Check HAVING clause
     if !(*parse).havingQual.is_null() {
         pgrx::warning!("query_has_search_operator: Checking HAVING clause");
-        if expr_contains_any_operator(
-            (*parse).havingQual as *mut pg_sys::Node,
-            &[searchqueryinput_opno, text_opno],
-        ) {
+        if expr_contains_any_operator((*parse).havingQual, &[searchqueryinput_opno, text_opno]) {
             pgrx::warning!("query_has_search_operator: Found @@@ in HAVING clause");
             return true;
         }

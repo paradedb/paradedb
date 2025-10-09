@@ -19,12 +19,11 @@ use std::cell::RefCell;
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
-use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    WindowAggregateInfo, WindowAggregateType,
-};
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -170,18 +169,18 @@ impl TopNScanExecState {
 
         for agg_info in window_aggs {
             let datum = match &agg_info.agg_type {
-                WindowAggregateType::CountStar => {
+                AggregateType::CountAny { .. } => {
                     // For COUNT(*), we need to count ALL matching documents, not just the TopN
                     // For now, we'll use the search_results count as an approximation
                     // TODO: Implement proper full-scan counting
                     let count = self.search_results.original_len() as i64;
                     pgrx::warning!("Computing COUNT(*) OVER (): {}", count);
-                    unsafe { count.into_datum().unwrap() }
+                    count.into_datum().unwrap()
                 }
                 _ => {
                     // TODO: Implement other aggregate types
                     pgrx::warning!("Aggregate type {:?} not yet implemented", agg_info.agg_type);
-                    unsafe { pg_sys::Datum::from(0) }
+                    pg_sys::Datum::from(0)
                 }
             };
 

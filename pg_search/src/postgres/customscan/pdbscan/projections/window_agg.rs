@@ -15,41 +15,67 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::OrderByInfo;
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::AggregateType;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
 /// Information about a window aggregate to compute during TopN execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WindowAggregateInfo {
-    /// The aggregate type (COUNT, SUM, AVG, MIN, MAX)
-    pub agg_type: WindowAggregateType,
+    /// The aggregate type (reuses existing AggregateType from aggregatescan)
+    /// This includes COUNT, SUM, AVG, MIN, MAX with optional filter support
+    pub agg_type: AggregateType,
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
     /// Result type OID for the aggregate
     pub result_type_oid: pg_sys::Oid,
+    /// Window specification (PARTITION BY, ORDER BY, frame clause)
+    pub window_spec: WindowSpecification,
 }
 
-/// Type of window aggregate
+/// Window specification from the OVER clause
+/// Note: FILTER clause is stored in AggregateType.filter, not here
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum WindowAggregateType {
-    /// COUNT(*) - count all documents
-    CountStar,
-    /// COUNT(field) - count non-null values
-    Count { field: String },
-    /// SUM(field) - sum of field values
-    Sum { field: String },
-    /// AVG(field) - average of field values
-    Avg { field: String },
-    /// MIN(field) - minimum field value
-    Min { field: String },
-    /// MAX(field) - maximum field value
-    Max { field: String },
+pub struct WindowSpecification {
+    /// PARTITION BY columns (empty if no partitioning)
+    pub partition_by: Vec<String>,
+    /// ORDER BY specification (None if no ordering)
+    /// Reuses existing OrderByInfo structure from api module
+    pub order_by: Option<Vec<OrderByInfo>>,
+    /// Window frame clause (None if default)
+    pub frame_clause: Option<FrameClause>,
+}
+
+/// Window frame clause
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FrameClause {
+    pub frame_type: FrameType,
+    pub start_bound: FrameBound,
+    pub end_bound: Option<FrameBound>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FrameType {
+    Rows,
+    Range,
+    Groups,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FrameBound {
+    UnboundedPreceding,
+    Preceding(i64),
+    CurrentRow,
+    Following(i64),
+    UnboundedFollowing,
 }
 
 /// Extract window aggregates from the target list
 ///
 /// Supports standard aggregate window functions (COUNT, SUM, AVG, MIN, MAX)
+/// Only extracts window functions that we can handle (simple aggregates over entire result set)
 /// Returns single scalar values (INT8, FLOAT8)
 pub unsafe fn extract_window_aggregates(
     target_list: *mut pg_sys::List,
@@ -60,12 +86,33 @@ pub unsafe fn extract_window_aggregates(
 
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+            // Extract window specification
+            let window_spec = extract_window_specification(window_func);
+
+            // Check if we can handle this window function
+            if !can_handle_window_spec(&window_spec) {
+                pgrx::warning!(
+                    "Cannot handle window function at index {}: {:?}",
+                    idx,
+                    window_spec
+                );
+                continue;
+            }
+
             // Check for standard aggregate functions
-            if let Some((agg_type, result_oid)) = extract_standard_aggregate(window_func) {
+            if let Some((agg_type, result_oid)) =
+                extract_standard_aggregate(window_func, &window_spec)
+            {
+                pgrx::warning!(
+                    "Extracted window aggregate at index {}: {:?}",
+                    idx,
+                    agg_type
+                );
                 window_aggs.push(WindowAggregateInfo {
                     agg_type,
                     target_entry_index: idx,
                     result_type_oid: result_oid,
+                    window_spec,
                 });
             }
         }
@@ -74,12 +121,24 @@ pub unsafe fn extract_window_aggregates(
     window_aggs
 }
 
+/// Check if we can handle this window specification
+/// For now, we only support simple aggregates over the entire result set:
+/// - No PARTITION BY
+/// - No ORDER BY  
+/// - No frame clause
+///
+///   Note: FILTER clause is handled separately in AggregateType
+unsafe fn can_handle_window_spec(spec: &WindowSpecification) -> bool {
+    spec.partition_by.is_empty() && spec.order_by.is_none() && spec.frame_clause.is_none()
+}
+
 /// Extract standard aggregate function (COUNT, SUM, AVG, MIN, MAX)
 ///
-/// Returns: (WindowAggregateType, result_type_oid)
+/// Returns: (AggregateType, result_type_oid)
 unsafe fn extract_standard_aggregate(
     window_func: *mut pg_sys::WindowFunc,
-) -> Option<(WindowAggregateType, pg_sys::Oid)> {
+    _window_spec: &WindowSpecification,
+) -> Option<(AggregateType, pg_sys::Oid)> {
     // Verify empty window specification (no PARTITION BY, no ORDER BY)
     if !is_empty_window_clause(window_func) {
         return None;
@@ -88,6 +147,15 @@ unsafe fn extract_standard_aggregate(
     let funcoid = (*window_func).winfnoid;
     let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
 
+    // Extract FILTER clause if present
+    let filter = if !(*window_func).aggfilter.is_null() {
+        // TODO: Convert filter expression to SearchQueryInput
+        // For now, we don't support FILTER clauses
+        return None;
+    } else {
+        None
+    };
+
     // Get function name to identify the aggregate
     let funcname = get_function_name(funcoid)?;
 
@@ -95,45 +163,102 @@ unsafe fn extract_standard_aggregate(
         "count" => {
             if args.is_empty() || is_count_star_arg(args.get_ptr(0)?) {
                 // COUNT(*) - count all documents
-                Some((WindowAggregateType::CountStar, pg_sys::INT8OID))
+                Some((AggregateType::CountAny { filter }, pg_sys::INT8OID))
             } else {
                 // COUNT(field) - count non-null values
                 let field = extract_field_name(args.get_ptr(0)?)?;
-                Some((WindowAggregateType::Count { field }, pg_sys::INT8OID))
+                Some((
+                    AggregateType::Count {
+                        field,
+                        missing: None,
+                        filter,
+                    },
+                    pg_sys::INT8OID,
+                ))
             }
         }
         "sum" => {
             let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((WindowAggregateType::Sum { field }, pg_sys::FLOAT8OID))
+            Some((
+                AggregateType::Sum {
+                    field,
+                    missing: None,
+                    filter,
+                },
+                pg_sys::FLOAT8OID,
+            ))
         }
         "avg" => {
             let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((WindowAggregateType::Avg { field }, pg_sys::FLOAT8OID))
+            Some((
+                AggregateType::Avg {
+                    field,
+                    missing: None,
+                    filter,
+                },
+                pg_sys::FLOAT8OID,
+            ))
         }
         "min" => {
             let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((WindowAggregateType::Min { field }, pg_sys::FLOAT8OID))
+            Some((
+                AggregateType::Min {
+                    field,
+                    missing: None,
+                    filter,
+                },
+                pg_sys::FLOAT8OID,
+            ))
         }
         "max" => {
             let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((WindowAggregateType::Max { field }, pg_sys::FLOAT8OID))
+            Some((
+                AggregateType::Max {
+                    field,
+                    missing: None,
+                    filter,
+                },
+                pg_sys::FLOAT8OID,
+            ))
         }
         _ => None,
     }
 }
 
-/// Check if window clause is empty (no PARTITION BY, no ORDER BY)
-unsafe fn is_empty_window_clause(window_func: *mut pg_sys::WindowFunc) -> bool {
-    // Window functions for aggregates should have empty PARTITION BY and ORDER BY
-    // This ensures they compute over the entire result set
+/// Extract window specification from a WindowFunc node
+/// Note: FILTER clause is extracted separately and stored in AggregateType
+unsafe fn extract_window_specification(
+    window_func: *mut pg_sys::WindowFunc,
+) -> WindowSpecification {
+    // Get the WindowClause from winref (if it exists)
+    // winref is an index into the query's windowClause list
     let winref = (*window_func).winref;
+
     if winref == 0 {
-        return true;
+        // No window clause - means empty OVER ()
+        return WindowSpecification {
+            partition_by: Vec::new(),
+            order_by: None,
+            frame_clause: None,
+        };
     }
 
-    // TODO: Actually check the WindowClause to verify it's empty
-    // For now, we'll assume it's correct if winref is set
-    true
+    // TODO: To fully extract PARTITION BY, ORDER BY, and frame clauses,
+    // we would need access to the Query's windowClause list via the PlannerInfo
+    // For now, we'll return a minimal specification
+    // This will need to be enhanced when we pass the root pointer through
+
+    WindowSpecification {
+        partition_by: Vec::new(),
+        order_by: None,
+        frame_clause: None,
+    }
+}
+
+/// Check if window clause is empty (no PARTITION BY, no ORDER BY)
+unsafe fn is_empty_window_clause(window_func: *mut pg_sys::WindowFunc) -> bool {
+    let spec = extract_window_specification(window_func);
+    can_handle_window_spec(&spec)
 }
 
 /// Check if this is a COUNT(*) argument (NULL constant)

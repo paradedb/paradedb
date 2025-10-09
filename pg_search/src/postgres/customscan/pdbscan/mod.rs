@@ -1402,7 +1402,7 @@ unsafe fn inject_window_aggregate_placeholders(
     use pgrx::PgList;
 
     let mut const_nodes = HashMap::default();
-    let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     let placeholder_oid = placeholder_procid();
 
     for agg_info in window_aggs {

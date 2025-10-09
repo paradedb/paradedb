@@ -18,12 +18,19 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
+use std::sync::Mutex;
 
 use crate::nodecast;
+
+// Global storage for window aggregates extracted during planning
+// Key: Query pointer address, Value: Vec of extracted window aggregate info
+static EXTRACTED_WINDOW_AGGREGATES: Lazy<Mutex<HashMap<usize, Vec<WindowAggregateInfo>>>> =
+    Lazy::new(|| Mutex::new(HashMap::default()));
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -248,6 +255,11 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
             pgrx::warning!(
                 "planner_hook: Found window functions in search query, replacing before planning"
             );
+
+            // Extract window functions BEFORE replacing
+            extract_window_functions(parse);
+
+            // Now replace the WindowFunc nodes with placeholders
             replace_windowfuncs_in_query(parse);
         }
     }
@@ -437,4 +449,45 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
     use pgrx::IntoDatum;
     pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
         .expect("the `now()` function should exist")
+}
+
+/// Extract window functions
+/// This is called in the planner hook before replacing WindowFunc nodes
+unsafe fn extract_window_functions(parse: *mut pg_sys::Query) {
+    use crate::postgres::customscan::pdbscan::projections::window_agg;
+
+    // Extract window aggregates (RTI doesn't matter here since we're just printing)
+    let window_aggs = window_agg::extract_window_aggregates(
+        (*parse).targetList,
+        (*parse).windowClause,
+        1, // dummy RTI
+    );
+
+    if window_aggs.is_empty() {
+        pgrx::warning!("planner_hook: No extractable window aggregates found");
+    } else {
+        // Store the extracted window aggregates in global storage
+        // Use the Query pointer address as the key
+        let query_key = parse as usize;
+        let mut storage = EXTRACTED_WINDOW_AGGREGATES
+            .lock()
+            .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
+        storage.insert(query_key, window_aggs);
+        pgrx::warning!(
+            "planner_hook: Stored window aggregates for Query at {:p}",
+            parse
+        );
+    }
+}
+
+/// Retrieve and remove window aggregates that were extracted during planning
+/// Returns None if no aggregates were stored for this Query
+pub unsafe fn take_extracted_window_aggregates(
+    parse: *mut pg_sys::Query,
+) -> Option<Vec<WindowAggregateInfo>> {
+    let query_key = parse as usize;
+    let mut storage = EXTRACTED_WINDOW_AGGREGATES
+        .lock()
+        .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
+    storage.remove(&query_key)
 }

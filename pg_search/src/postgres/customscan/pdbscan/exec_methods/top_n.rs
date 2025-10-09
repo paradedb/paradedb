@@ -165,20 +165,28 @@ impl TopNScanExecState {
             return;
         };
 
+        pgrx::warning!("Computing {} window aggregates", window_aggs.len());
+
         let mut results = HashMap::default();
 
         for agg_info in window_aggs {
             let datum = match &agg_info.agg_type {
                 AggregateType::CountAny { .. } => {
-                    // For COUNT(*), we need to count ALL matching documents, not just the TopN
-                    // For now, we'll use the search_results count as an approximation
-                    // TODO: Implement proper full-scan counting
-                    let count = self.search_results.original_len() as i64;
-                    pgrx::warning!("Computing COUNT(*) OVER (): {}", count);
-                    count.into_datum().unwrap()
+                    // For COUNT(*) OVER (), we need to count ALL matching documents in the index
+                    // Use the search_reader to perform a full search and count all results
+                    let search_reader = state.search_reader.as_ref().unwrap();
+
+                    // Perform a full scan over all segments and count matching documents
+                    let mut total_count = 0usize;
+                    for _result in search_reader.search() {
+                        total_count += 1;
+                        check_for_interrupts!();
+                    }
+
+                    pgrx::warning!("Computing COUNT(*) OVER (): total_count={}", total_count);
+                    (total_count as i64).into_datum().unwrap()
                 }
                 _ => {
-                    // TODO: Implement other aggregate types
                     pgrx::warning!("Aggregate type {:?} not yet implemented", agg_info.agg_type);
                     pg_sys::Datum::from(0)
                 }
@@ -193,6 +201,23 @@ impl TopNScanExecState {
 }
 
 impl ExecMethod for TopNScanExecState {
+    /// Initialize the exec method with data from the scan state
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Call the default init behavior first
+        self.reset(state);
+
+        // Transfer window aggregates from scan state to exec state
+        // This must happen AFTER reset() because reset() also tries to get window_aggregates
+        // from state.exec_method_type, which might be None
+        if let Some(ref window_aggs) = state.window_aggregates {
+            pgrx::warning!(
+                "TopN init: Received {} window aggregates from scan state",
+                window_aggs.len()
+            );
+            self.window_aggregates = Some(window_aggs.clone());
+        }
+    }
+
     ///
     /// Query more results.
     ///

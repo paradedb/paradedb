@@ -594,21 +594,14 @@ impl CustomScan for PdbScan {
                 .try_into()
                 .expect("range table index should not be negative");
 
+            // Window aggregates have already been extracted and replaced in the planner hook
+            // Retrieve the extracted aggregates from global storage
             let parse = (*builder.args().root).parse;
-            let window_aggs = projections::window_agg::extract_window_aggregates(
-                (*parse).targetList,
-                rti as pg_sys::Index,
-            );
-            if !window_aggs.is_empty() {
+            if let Some(window_aggs) = customscan::take_extracted_window_aggregates(parse) {
                 pgrx::warning!(
-                    "Found {} window aggregates in Query's target list",
+                    "plan_custom_path: Retrieved {} window aggregates from global storage",
                     window_aggs.len()
                 );
-
-                // Replace WindowFunc nodes in the Query's targetlist with placeholders
-                // This must happen BEFORE the planner creates a WindowAgg node
-                replace_windowfuncs_in_query_target_list(parse);
-
                 builder
                     .custom_private_mut()
                     .set_window_aggregates(window_aggs);
@@ -1024,11 +1017,13 @@ impl CustomScan for PdbScan {
                             }
                         };
 
-                        if !state.custom_state().need_scores()
-                            && !state.custom_state().need_snippets()
-                        {
+                        let needs_special_projection = state.custom_state().need_scores()
+                            || state.custom_state().need_snippets()
+                            || state.custom_state().window_aggregate_results.is_some();
+
+                        if !needs_special_projection {
                             //
-                            // we don't need scores or snippets
+                            // we don't need scores, snippets, or window aggregates
                             // do the projection and return
                             //
 

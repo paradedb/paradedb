@@ -36,23 +36,23 @@ CREATE OR REPLACE FUNCTION fsm_info(index regclass) RETURNS TABLE(xid xid, fsm_b
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work
 --
 
-DROP OPERATOR IF EXISTS pg_catalog."&&&"(text, text);
-DROP OPERATOR IF EXISTS pg_catalog."&&&"(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog."&&&"(text, fuzzy);
-DROP OPERATOR IF EXISTS pg_catalog."|||"(text, text);
-DROP OPERATOR IF EXISTS pg_catalog."|||"(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog."|||"(text, fuzzy);
-DROP OPERATOR IF EXISTS pg_catalog."###"(text, text);
-DROP OPERATOR IF EXISTS pg_catalog."###"(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog."==="(text, text);
-DROP OPERATOR IF EXISTS pg_catalog."==="(text, text[]);
-DROP OPERATOR IF EXISTS pg_catalog."==="(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog."==="(text, fuzzy);
-DROP OPERATOR IF EXISTS pg_catalog."###"(text, slop);
-DROP OPERATOR IF EXISTS pg_catalog."&&&"(text, pdb.query);
-DROP OPERATOR IF EXISTS pg_catalog."==="(text, pdb.query);
-DROP OPERATOR IF EXISTS pg_catalog."|||"(text, pdb.query);
-DROP OPERATOR IF EXISTS pg_catalog."###"(text, pdb.query);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, text);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, boost);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, text);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, boost);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, text);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, boost);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, text);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, text[]);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, boost);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, slop);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, pdb.query);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, pdb.query);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, pdb.query);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, pdb.query);
 /* </end connected objects> */
 
 /* <begin connected objects> */

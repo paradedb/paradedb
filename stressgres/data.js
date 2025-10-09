@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760028369248,
+  "lastUpdate": 1760028703871,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11752,6 +11752,60 @@ window.BENCHMARK_DATA = {
             "value": 18.05687380041391,
             "unit": "median tps",
             "extra": "avg tps: 18.110108308124772, max tps: 21.520612474909388, count: 55530"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d66fbeefb193965a576f504a7f578024eeee5e7",
+          "message": "feat: standardize EXPLAIN output formatting with ExplainFormat trait (#3268)\n\n## Summary\n\nThis PR introduces the `ExplainFormat` trait to standardize how objects\nare formatted for PostgreSQL `EXPLAIN` output across the codebase. This\neliminates duplicate implementations and ensures consistent,\ndeterministic output for regression tests.\n\n## Changes\n\n- `ExplainFormat` trait: common interface for formatting objects for\nEXPLAIN output\n- `cleanup_json_for_explain()`: Removes non-deterministic data (OIDs,\npointers) from JSON for consistent test output\n- `format_for_explain()`: Convenience function for serializable objects\n\n### Refactoring\n- Removed duplicated formatting functions:\n- Deprecated `SearchQueryInput::canonical_query_string()` (now uses\n`ExplainFormat`)\n- Deprecated standalone `cleanup_variabilities_from_tantivy_query()`\n(now uses `cleanup_json_for_explain()`)\n\n- Implemented `ExplainFormat` for:\n  - `SearchQueryInput` - query formatting\n  - `AggregateType` - aggregate formatting with FILTER clauses\n\n- Updated `Explainer`:\n- New `add_explainable()` method accepts any `ExplainFormat` implementor\n  - Simplified `add_query()` to use the new trait",
+          "timestamp": "2025-10-09T09:00:38-07:00",
+          "tree_id": "3376b11c73acc94fb95af94e2ff1048b3579e3da",
+          "url": "https://github.com/paradedb/paradedb/commit/3d66fbeefb193965a576f504a7f578024eeee5e7"
+        },
+        "date": 1760028702142,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.96172751856302,
+            "unit": "median tps",
+            "extra": "avg tps: 38.961431504754174, max tps: 39.374511409699636, count: 55406"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.3557945338036,
+            "unit": "median tps",
+            "extra": "avg tps: 267.9728273663208, max tps: 2743.6306363834533, count: 55406"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.00042812574,
+            "unit": "median tps",
+            "extra": "avg tps: 1022.4665401482862, max tps: 1047.8391031487267, count: 55406"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 123.79084125339148,
+            "unit": "median tps",
+            "extra": "avg tps: 158.62505208082962, max tps: 821.5378276375758, count: 110812"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.59887436395127,
+            "unit": "median tps",
+            "extra": "avg tps: 19.646072795475497, max tps: 22.446591869983596, count: 55406"
           }
         ]
       }

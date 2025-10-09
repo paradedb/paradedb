@@ -598,3 +598,120 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     Ok(())
 }
+
+#[rstest]
+async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
+    // Primary Postgres setup + insert data
+    let postgresql_conf = "
+        listen_addresses = 'localhost'
+        wal_level = replica
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+        # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
+    ";
+    let pg_hba_conf = "
+        host replication all 127.0.0.1/32 md5
+        host replication all ::1/128 md5
+    ";
+    let source_postgres = EphemeralPostgres::new(Some(postgresql_conf), Some(pg_hba_conf));
+    let mut source_conn = source_postgres.connection().await?;
+    let source_port = source_postgres.port;
+    let source_username = "replicator";
+
+    // Create a replication user and slot on primary
+    format!("CREATE USER {source_username} WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass'")
+        .execute(&mut source_conn);
+    "SELECT pg_create_physical_replication_slot('wal_receiver_1');".execute(&mut source_conn);
+
+    // Install pg_search on primary and create a test table
+    "CREATE EXTENSION pg_search".execute(&mut source_conn);
+    "CREATE TABLE items (
+        id SERIAL PRIMARY KEY,
+        description TEXT,
+        category TEXT,
+        created_at TIMESTAMP
+    )"
+    .execute(&mut source_conn);
+
+    // Insert initial data
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Red running shoes', 'Footwear', NOW()),
+        ('Blue sports shoes', 'Footwear', NOW()),
+        ('Wireless headphones', 'Electronics', NOW()),
+        ('4K television', 'Electronics', NOW())"
+        .execute(&mut source_conn);
+
+    // Create a bm25 index on the items table
+    "
+    CREATE INDEX items_search_idx ON items
+    USING bm25 (id, description, category)
+    WITH (key_field = 'id');
+    "
+    .execute(&mut source_conn);
+
+    // Verify that searching on the primary works
+    let source_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut source_conn);
+    assert_eq!(source_results.len(), 2);
+
+    // Set up the standby using pg_basebackup
+    let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
+    let target_tempdir_path = target_tempdir.keep();
+
+    // Permissions for the --pgdata directory passed to pg_basebackup
+    // should be u=rwx (0700) or u=rwx,g=rx (0750)
+    std::fs::set_permissions(
+        target_tempdir_path.as_path(),
+        std::fs::Permissions::from_mode(0o700),
+    )?;
+
+    let pg_basebackup = EphemeralPostgres::pg_basebackup_path();
+    run_cmd!(
+        $pg_basebackup
+        --pgdata $target_tempdir_path
+        --host localhost
+        --port $source_port
+        --username $source_username
+        -Fp -Xs -P -R
+        &> /dev/null
+    )
+    .expect("Failed to run pg_basebackup for standby setup");
+
+    // Start the standby also with pg_search preloaded
+    let standby_config = "
+        shared_preload_libraries = 'pg_search'
+        hot_standby = on
+        hot_standby_feedback = true
+        primary_slot_name = wal_receiver_1
+    ";
+
+    let standby_postgres = EphemeralPostgres::new_from_initialized(
+        target_tempdir_path.as_path(),
+        Some(standby_config),
+        None,
+    );
+    let mut standby_conn = standby_postgres.connection().await?;
+
+    // Wait for the standby to catch up
+    // The fetch_retry helper is used in previous tests; you can adapt a similar approach here.
+    "SELECT description FROM items ORDER BY id".fetch_retry::<(String,)>(
+        &mut standby_conn,
+        60,
+        1000,
+        |result| !result.is_empty(),
+    );
+
+    // Test that the correct error is returned when trying to read from a standby
+    let result = "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
+        .fetch_result::<(i32,)>(&mut standby_conn);
+
+    match result {
+        Err(err) => assert!(err.to_string().contains("Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community")),
+        _ => {
+            panic!("physical replication should not be supported on ParadeDB Community {:?}", result);
+        }
+    }
+
+    Ok(())
+}

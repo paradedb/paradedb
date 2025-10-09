@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760020617211,
+  "lastUpdate": 1760026274088,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1576,6 +1576,72 @@ window.BENCHMARK_DATA = {
             "value": 105.2166599174218,
             "unit": "median tps",
             "extra": "avg tps: 117.6741701824473, max tps: 868.5886216627739, count: 55278"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de316db45e848a0bc1c1ae86f820de701030f1",
+          "message": "chore: show readable error if serving reads from hot standby (#3267)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nShow a better error message if trying to serve reads on a hot standby\nfrom ParadeDB Community, which does not support WALs -- only Enterprise\ndoes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:48:50-04:00",
+          "tree_id": "da13ba2361322103116c1d498ec45f15ad86908c",
+          "url": "https://github.com/paradedb/paradedb/commit/10de316db45e848a0bc1c1ae86f820de701030f1"
+        },
+        "date": 1760026272362,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 802.7851531092294,
+            "unit": "median tps",
+            "extra": "avg tps: 802.0809429871015, max tps: 830.7804063261957, count: 55244"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3373.1194693350317,
+            "unit": "median tps",
+            "extra": "avg tps: 3352.962452308601, max tps: 3465.0260998830695, count: 55244"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 795.3496358331345,
+            "unit": "median tps",
+            "extra": "avg tps: 794.6724483845253, max tps: 812.3486380117605, count: 55244"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 685.7220155305373,
+            "unit": "median tps",
+            "extra": "avg tps: 685.8331295800623, max tps: 694.9742088391125, count: 55244"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1762.70001804689,
+            "unit": "median tps",
+            "extra": "avg tps: 1751.143361583798, max tps: 1771.9696117937729, count: 110488"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1317.0611996247899,
+            "unit": "median tps",
+            "extra": "avg tps: 1308.79154632135, max tps: 1324.9404589034777, count: 55244"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 96.95779900255818,
+            "unit": "median tps",
+            "extra": "avg tps: 114.66593552179417, max tps: 957.793855943973, count: 55244"
           }
         ]
       }

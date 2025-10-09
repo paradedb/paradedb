@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760026615884,
+  "lastUpdate": 1760026618634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4702,6 +4702,126 @@ window.BENCHMARK_DATA = {
             "value": 147.6953125,
             "unit": "median mem",
             "extra": "avg mem: 129.349500200248, max mem: 151.24609375, count: 55244"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d66fbeefb193965a576f504a7f578024eeee5e7",
+          "message": "feat: standardize EXPLAIN output formatting with ExplainFormat trait (#3268)\n\n## Summary\n\nThis PR introduces the `ExplainFormat` trait to standardize how objects\nare formatted for PostgreSQL `EXPLAIN` output across the codebase. This\neliminates duplicate implementations and ensures consistent,\ndeterministic output for regression tests.\n\n## Changes\n\n- `ExplainFormat` trait: common interface for formatting objects for\nEXPLAIN output\n- `cleanup_json_for_explain()`: Removes non-deterministic data (OIDs,\npointers) from JSON for consistent test output\n- `format_for_explain()`: Convenience function for serializable objects\n\n### Refactoring\n- Removed duplicated formatting functions:\n- Deprecated `SearchQueryInput::canonical_query_string()` (now uses\n`ExplainFormat`)\n- Deprecated standalone `cleanup_variabilities_from_tantivy_query()`\n(now uses `cleanup_json_for_explain()`)\n\n- Implemented `ExplainFormat` for:\n  - `SearchQueryInput` - query formatting\n  - `AggregateType` - aggregate formatting with FILTER clauses\n\n- Updated `Explainer`:\n- New `add_explainable()` method accepts any `ExplainFormat` implementor\n  - Simplified `add_query()` to use the new trait",
+          "timestamp": "2025-10-09T09:00:38-07:00",
+          "tree_id": "3376b11c73acc94fb95af94e2ff1048b3579e3da",
+          "url": "https://github.com/paradedb/paradedb/commit/3d66fbeefb193965a576f504a7f578024eeee5e7"
+        },
+        "date": 1760026616931,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.965658486118034, max cpu: 15.571776, count: 55056"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 155.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.93139549106817, max mem: 155.68359375, count: 55056"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.494429703827133, max cpu: 9.421001, count: 55056"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.458372072299113, max mem: 32.31640625, count: 55056"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.949577426547825, max cpu: 14.769231, count: 55056"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.93751936948289, max mem: 154.3046875, count: 55056"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.452981959421791, max cpu: 4.83871, count: 55056"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.6091566853522, max mem: 154.83984375, count: 55056"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552995060480621, max cpu: 9.805924, count: 110112"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.20816294573933, max mem: 157.0546875, count: 110112"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28175,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27795.07063716943, max block_count: 54271.0, count: 55056"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 29,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 28.695437372856727, max segment_count: 58.0, count: 55056"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.448954448007664, max cpu: 7.637232, count: 55056"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.02161769096466, max mem: 158.09765625, count: 55056"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.7988529095202161, max cpu: 4.7151275, count: 55056"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.11082551175167, max mem: 153.109375, count: 55056"
           }
         ]
       }

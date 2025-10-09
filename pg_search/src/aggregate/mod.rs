@@ -34,7 +34,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, Groupin
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::ExprContextGuard;
+use crate::postgres::utils::{sort_json_keys, ExprContextGuard};
 use crate::query::QueryContext;
 use crate::query::SearchQueryInput;
 
@@ -334,8 +334,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                     limit,
                     offset,
                 };
-
-                build_aggregation_query(&qctx, &qparams)
+                build_aggregation_query_from_search_input(&qctx, &qparams)
                     .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
             }
         };
@@ -462,7 +461,7 @@ pub fn execute_aggregation(
 
     let qctx = QueryContext::new(&schema, &reader, index, standalone_context);
 
-    let aggregations = build_aggregation_query(&qctx, qparams)?;
+    let aggregations = build_aggregation_query_from_search_input(&qctx, qparams)?;
 
     // Determine if we can use parallel execution
     let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
@@ -665,25 +664,46 @@ pub fn execute_aggregate_json(
     )
 }
 
-/// Build Tantivy aggregations with consistent FilterAggregation structure
-/// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
-/// This ensures result processing is unified and simple
-fn build_aggregation_query(
+/// Build Tantivy aggregations from SearchQueryInput (execution path)
+pub fn build_aggregation_query_from_search_input(
     qctx: &QueryContext,
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
-    let mut result = HashMap::new();
+    // Convert base query to FilterAggregation
     let base_query_tantivy = SearchQueryInput::to_tantivy_query(qctx, Some(qparams.base_query))?;
+    let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
+
+    // Convert filter queries to FilterAggregations
+    let filter_aggregations: Vec<FilterAggregation> = qparams
+        .aggregate_types
+        .iter()
+        .map(|agg| {
+            SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())
+                .map(FilterAggregation::new_with_query)
+                .unwrap_or_else(|_| FilterAggregation::new("*".to_string()))
+        })
+        .collect();
+
+    build_aggregation_query(base_filter, filter_aggregations, qparams)
+}
+
+/// Build Tantivy aggregations with consistent FilterAggregation structure
+/// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
+/// This ensures result processing is unified and simple
+///
+/// Accepts pre-constructed `FilterAggregation` objects, allowing this function to be used:
+/// - At execution time: with `FilterAggregation::new_with_query(query)`
+/// - At planning/EXPLAIN time: with `FilterAggregation::new("*".to_string())` (serializable)
+pub fn build_aggregation_query(
+    base_filter: FilterAggregation,
+    filter_aggregations: Vec<FilterAggregation>,
+    qparams: &AggQueryParams,
+) -> Result<Aggregations, Box<dyn Error>> {
+    let mut result = HashMap::new();
 
     // Build nested terms structure if we have grouping columns
     let nested_terms = if !qparams.grouping_columns.is_empty() {
-        Some(build_nested_terms(
-            qparams.grouping_columns,
-            qparams.orderby_info,
-            HashMap::new(),
-            qparams.limit,
-            qparams.offset,
-        )?)
+        Some(build_nested_terms(qparams, HashMap::new())?)
     } else {
         None
     };
@@ -693,26 +713,22 @@ fn build_aggregation_query(
     result.insert(
         "filter_sentinel".to_string(),
         Aggregation {
-            agg: AggregationVariants::Filter(FilterAggregation::new_with_query(base_query_tantivy)),
+            agg: AggregationVariants::Filter(base_filter),
             sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
         },
     );
 
     // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
     for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
-        let query = SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())?;
+        let filter_agg = filter_aggregations
+            .get(idx)
+            .ok_or_else(|| format!("Missing filter aggregation for aggregate {}", idx))?;
         let base = AggregateType::to_tantivy_agg(agg)?;
 
         let sub_aggs = if nested_terms.is_some() {
             // GROUP BY: filter -> grouped -> buckets -> metric
             let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(
-                qparams.grouping_columns,
-                qparams.orderby_info,
-                metric_leaf,
-                qparams.limit,
-                qparams.offset,
-            )?
+            build_nested_terms(qparams, metric_leaf)?
         } else {
             // No GROUP BY: filter -> filtered_agg (metric)
             HashMap::from([("filtered_agg".to_string(), base)])
@@ -721,7 +737,7 @@ fn build_aggregation_query(
         result.insert(
             format!("filter_{idx}"),
             Aggregation {
-                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(query)),
+                agg: AggregationVariants::Filter(filter_agg.clone()),
                 sub_aggregation: Aggregations::from(sub_aggs),
             },
         );
@@ -730,21 +746,39 @@ fn build_aggregation_query(
     Ok(Aggregations::from(result))
 }
 
+/// Build aggregation JSON for EXPLAIN output (no QueryContext needed)
+/// Uses query strings ("*") instead of Query objects, making the output serializable
+pub fn build_aggregation_json_for_explain(
+    qparams: &AggQueryParams,
+) -> Result<String, Box<dyn Error>> {
+    // Use serializable FilterAggregations with query strings
+    let base_filter = FilterAggregation::new("*".to_string());
+    let filter_aggregations: Vec<FilterAggregation> = qparams
+        .aggregate_types
+        .iter()
+        .map(|_| FilterAggregation::new("*".to_string()))
+        .collect();
+
+    let aggregations = build_aggregation_query(base_filter, filter_aggregations, qparams)?;
+
+    // Serialize to JSON and sort keys for deterministic output
+    let mut json_value = serde_json::to_value(&aggregations)?;
+    sort_json_keys(&mut json_value);
+    Ok(serde_json::to_string(&json_value)?)
+}
+
 /// Build nested TermsAggregations from innermost to outermost
 /// Returns map with "grouped" key containing the outermost terms aggregation
 fn build_nested_terms(
-    grouping_columns: &[GroupingColumn],
-    orderby_info: &[OrderByInfo],
+    qparams: &AggQueryParams,
     leaf_aggs: HashMap<String, Aggregation>,
-    limit: &Option<u32>,
-    offset: &Option<u32>,
 ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
     let mut current = leaf_aggs;
     let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
-    for column in grouping_columns.iter().rev() {
+    for column in qparams.grouping_columns.iter().rev() {
         // Find ORDER BY info for this column
-        let orderby = orderby_info.iter().find(|info| {
+        let orderby = qparams.orderby_info.iter().find(|info| {
             if let OrderByFeature::Field(field_name) = &info.feature {
                 field_name == &FieldName::from(column.field_name.clone())
             } else {
@@ -753,8 +787,8 @@ fn build_nested_terms(
         });
 
         // Calculate size based on LIMIT/OFFSET
-        let size = if let Some(limit) = limit {
-            (limit + offset.unwrap_or(0)).min(max_term_agg_buckets)
+        let size = if let Some(limit) = qparams.limit {
+            (limit + qparams.offset.unwrap_or(0)).min(max_term_agg_buckets)
         } else {
             max_term_agg_buckets
         };

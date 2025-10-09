@@ -38,8 +38,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (now())
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
@@ -49,7 +49,8 @@ LIMIT 5;
            Applies to Aggregates: COUNT(*)
            Group By: metadata.category
            Limit: 5
-(9 rows)
+           Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":5,"size":5}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":5,"size":5}}},"filter":"*"}}
+(10 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single

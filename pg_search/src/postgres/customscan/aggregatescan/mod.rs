@@ -20,8 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::execute_aggregation;
-use crate::aggregate::AggQueryParams;
+use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -571,6 +570,20 @@ fn explain_execution_strategy(
         }
     };
 
+    // Helper to build aggregation definition JSON (for no-filter cases)
+    // Uses the shared function from aggregate module to avoid duplication
+    let build_aggregate_json = || -> Option<String> {
+        let qparams = AggQueryParams {
+            base_query: &state.custom_state().query,
+            aggregate_types: &state.custom_state().aggregate_types,
+            grouping_columns: &state.custom_state().grouping_columns,
+            orderby_info: &state.custom_state().orderby_info,
+            limit: &state.custom_state().limit,
+            offset: &state.custom_state().offset,
+        };
+        build_aggregation_json_for_explain(&qparams).ok()
+    };
+
     // Helper to show base query + all aggregates (no filters case)
     let explain_no_filters = |explainer: &mut Explainer| {
         explainer.add_query(&state.custom_state().query);
@@ -581,6 +594,11 @@ fn explain_execution_strategy(
         );
         add_group_by(explainer);
         add_limit_offset(explainer);
+
+        // Add aggregate definition for no-filter cases (can be built without QueryContext)
+        if let Some(agg_def) = build_aggregate_json() {
+            explainer.add_text("  Aggregate Definition", agg_def);
+        }
     };
 
     if filter_groups.is_empty() {

@@ -444,7 +444,13 @@ impl SearchTokenizer {
                 add_filters!(ChineseTokenizer, filters)
             }
             SearchTokenizer::SourceCode(filters) => {
-                add_filters!(CodeTokenizer::default(), filters)
+                // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
+                // if it's not explicitly set
+                if filters.ascii_folding().is_none() {
+                    add_filters!(CodeTokenizer::default(), filters, AsciiFoldingFilter)
+                } else {
+                    add_filters!(CodeTokenizer::default(), filters)
+                }
             }
             SearchTokenizer::ChineseLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {

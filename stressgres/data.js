@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760004510022,
+  "lastUpdate": 1760005183910,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10294,6 +10294,60 @@ window.BENCHMARK_DATA = {
             "value": 18.20814794114385,
             "unit": "median tps",
             "extra": "avg tps: 18.186996034850637, max tps: 18.77313718759106, count: 55462"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aadb55cde7a3b88a751cfa9f4250928a07a58590",
+          "message": "feat: added aggregate FILTER support using Tantivy's FilterAggregation feature (#3240)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplements SQL `FILTER` clause support for aggregations using Tantivy's\n`FilterAggregation` feature.\n\n```sql\n-- Multiple filtered aggregates in a single query scan\nSELECT \n  COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics,\n  COUNT(*) FILTER (WHERE category @@@ 'books') AS books,\n  AVG(price) FILTER (WHERE status @@@ 'available') AS avg_available_price\nFROM products\nGROUP BY brand;\n```\n\n## Why\n\n**Before**: Computing multiple filtered aggregations required separate\nqueries (multiple index scans).\n\n**After**: Standard SQL `FILTER` syntax with single index scan,\nregardless of number of filters. Significant performance improvement for\nanalytical queries.\n\n## How\n\n### Core Changes\n\n1. Query Planning: extracted `FILTER` clauses from aggregate nodes,\ngroup identical filters for optimization\n2. Execution: used `FilterAggregation` structure for all aggregates\n(filtered and non-filtered)\n3. Result Processing: to handle nested JSON output\n4. Parallelization: supporting both SQL `FILTER` and legacy JSON API\n\n### Key Implementation Details\n\n- All aggregates wrapped in `FilterAggregation` (non-filtered use\n`MatchAllQuery`)\n- Sentinel filter ensures all `GROUP BY` groups appear (correct NULL/0\nhandling)\n- `ExprContextGuard` RAII wrapper for safe resource management\n- Cross-type numeric comparison support for multi-column `GROUP BY`\n\n### Optimization Strategy\n\nAggregates with identical filters are grouped together. Example:\n```\n3 aggregates, 2 filters → 2 filter groups → single Tantivy query with 2 FilterAggregations\n```\n\n## Tests\n\nAdded regression tests covering:\n- Simple & GROUP BY aggregations with FILTER\n- Multiple FILTER clauses\n- Multi-column GROUP BY with mixed filtered/non-filtered aggregates\n- Edge cases: empty results, NULL handling, ORDER BY preservation\n\n**Next steps**:\n - qgen tests\n - Performance benchmarking",
+          "timestamp": "2025-10-09T02:27:04-07:00",
+          "tree_id": "cedee10645583187cd9d4d8c6f356295ce57a9ae",
+          "url": "https://github.com/paradedb/paradedb/commit/aadb55cde7a3b88a751cfa9f4250928a07a58590"
+        },
+        "date": 1760005182229,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.5102253130389,
+            "unit": "median tps",
+            "extra": "avg tps: 38.540275391499854, max tps: 38.98406402264946, count: 55380"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.00748832929958,
+            "unit": "median tps",
+            "extra": "avg tps: 275.3524486491984, max tps: 2998.0583220344683, count: 55380"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1081.2646225302842,
+            "unit": "median tps",
+            "extra": "avg tps: 1076.5581097756565, max tps: 1087.7965604134222, count: 55380"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 116.9286687948204,
+            "unit": "median tps",
+            "extra": "avg tps: 154.85548185811763, max tps: 827.5655239080183, count: 110760"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.889678959779484,
+            "unit": "median tps",
+            "extra": "avg tps: 19.021723783451204, max tps: 22.108739927136494, count: 55380"
           }
         ]
       }

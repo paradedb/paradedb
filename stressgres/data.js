@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760042111056,
+  "lastUpdate": 1760042817010,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6568,6 +6568,42 @@ window.BENCHMARK_DATA = {
             "value": 5.403278879609921,
             "unit": "median tps",
             "extra": "avg tps: 4.879570871816216, max tps: 5.994573583848789, count: 57936"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a691cd226f9b335af5591dd84e695ec4da92df3",
+          "message": "chore: Un-revert remove deprecated tokenizers (#3306)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBrings back https://github.com/paradedb/paradedb/pull/3279 which was\nreverted\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:18:45-04:00",
+          "tree_id": "9f4e6764d3c00556eadd693db305527cbf8a2342",
+          "url": "https://github.com/paradedb/paradedb/commit/0a691cd226f9b335af5591dd84e695ec4da92df3"
+        },
+        "date": 1760042815222,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.076046533666444,
+            "unit": "median tps",
+            "extra": "avg tps: 6.919726485626815, max tps: 10.705611438140446, count: 57486"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.387167509703353,
+            "unit": "median tps",
+            "extra": "avg tps: 4.844074682916303, max tps: 5.9629250199122215, count: 57486"
           }
         ]
       }

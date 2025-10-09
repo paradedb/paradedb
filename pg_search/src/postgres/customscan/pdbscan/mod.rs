@@ -164,7 +164,7 @@ impl PdbScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field().root(),
-                        query_to_use.clone(),
+                        query_to_use,
                         std::ptr::NonNull::new(expr_context),
                     );
 
@@ -931,6 +931,7 @@ impl CustomScan for PdbScan {
                 // make a new one and swap some pointers around
 
                 // hold onto the planstate's current ExprContext
+                // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
                 let planstate = state.planstate();
                 let stdecontext = (*planstate).ps_ExprContext;
 

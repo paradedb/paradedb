@@ -373,7 +373,7 @@ impl SearchIndexReader {
 
     fn make_query(
         &self,
-        search_query_input: SearchQueryInput,
+        search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
     ) -> Box<dyn Query> {
         search_query_input
@@ -430,7 +430,7 @@ impl SearchIndexReader {
     pub fn snippet_generator(
         &self,
         field_name: impl AsRef<str> + Display,
-        query: SearchQueryInput,
+        query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
     ) -> (tantivy::schema::Field, SnippetGenerator) {
         let search_field = self

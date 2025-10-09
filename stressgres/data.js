@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760030625698,
+  "lastUpdate": 1760030628520,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7432,6 +7432,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.99112441391719, max segment_count: 105.0, count: 57799"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76c4decb23962ae948fff00b4b64958c5b631bbf",
+          "message": "feat: support logical replication in community (#3264)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUntil now, logical replication has been an enterprise-only feature. We\nhave made the decision to move it to community, which allows anyone to\nrun ParadeDB as a logical replica of a primary Postgres.\n\nNote: Logical replication is only supported for Postgres 17 and newer.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:11:49-04:00",
+          "tree_id": "85d200bc61f1a460e3f621edae3ca55e6a027145",
+          "url": "https://github.com/paradedb/paradedb/commit/76c4decb23962ae948fff00b4b64958c5b631bbf"
+        },
+        "date": 1760030626802,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.235904924694537, max cpu: 42.772278, count: 57317"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 225.14115644682207, max mem: 227.23046875, count: 57317"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.447017678408866, max cpu: 33.300297, count: 57317"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.25,
+            "unit": "median mem",
+            "extra": "avg mem: 160.33271678777675, max mem: 162.046875, count: 57317"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24660,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23497.110769928644, max block_count: 26258.0, count: 57317"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.9111781844828, max segment_count: 106.0, count: 57317"
           }
         ]
       }

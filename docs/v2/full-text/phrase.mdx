@@ -34,10 +34,8 @@ This query returns:
 
 ```csv
      description     | rating | category
----
-
-------------------+--------+----------
-Sleek running shoes | 5 | Footwear
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
 (1 row)
 ```
 
@@ -72,4 +70,14 @@ To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the m
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'shoes running'::slop(2);
+```
+
+## Custom Query Tokenization
+
+Like the [match](/v2/full-text/match#custom-query-tokenization) query, the phrase query supports custom query tokenization.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes'::pdb.whitespace;
 ```

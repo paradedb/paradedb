@@ -43,15 +43,12 @@ WITH (key_field='id');
 ```
 
 <Note>
-As a general rule of thumb, any columns that you want to filter, `COUNT`, `GROUP BY`, or `ORDER BY` as part of a full text query should be added to the index for faster
+As a general rule of thumb, any columns that you want to filter, `GROUP BY`, `ORDER BY`, or aggregate as part of a full text query should be added to the index for faster
 performance.
 </Note>
 
 <Note>
-  Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
-  which should be the name of a column that will function as a row's unique
-  identifier within the index. Additionally, the `key_field` must be the first field
-  in the list of columns. See [choosing a key field](/documentation/indexing/create_index#choosing-a-key-field) for more details.
+  Note the mandatory `key_field` option. See [choosing a key field](/v2/indexing/create_index#choosing-a-key-field) for more details.
 </Note>
 
 ## Match Query

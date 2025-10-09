@@ -9,19 +9,27 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (metadata->>'color'))
+USING bm25 (id, ((metadata->>'color')::pdb.ngram(2, 3)))
 WITH (key_field='id');
+SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
+----------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
+ ctid     | U64        | f      | t       | t    | f          |             |                                            |          | 
+ id       | I64        | f      | t       | t    | f          |             |                                            |          | 
+ metadata | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
+(3 rows)
+
 EXPLAIN SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=10.01..10.02 rows=1 width=8)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=0)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=10.02..10.03 rows=1 width=8)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=0)
          Table: mock_items
          Index: search_idx
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_1","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata","query_string":"white","lenient":null,"conjunction_mode":null}}}}
 (8 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';

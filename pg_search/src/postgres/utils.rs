@@ -225,6 +225,7 @@ pub unsafe fn extract_field_attributes(
                             .name()
                             .to_string();
 
+                        let mut inner_expression = var as *mut pg_sys::Node;
                         if let Some(coerce) =
                             nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
                         {
@@ -234,10 +235,17 @@ pub unsafe fn extract_field_attributes(
                                     normalizer = Some(SearchNormalizer::Lowercase);
                                 }
                             }
+                        } else if let Some(relabel) =
+                            nodecast!(RelabelType, T_RelabelType, expression.unwrap())
+                        {
+                            if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
+                                inner_expression = (*relabel).arg.cast();
+                            }
                         }
+
                         attname = Some(heap_attname);
                         expression = None;
-                        inner_typoid = (*var).vartype;
+                        inner_typoid = pg_sys::exprType(inner_expression.cast());
                     }
                 }
 

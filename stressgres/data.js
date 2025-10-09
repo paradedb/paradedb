@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760040571026,
+  "lastUpdate": 1760041253467,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13210,6 +13210,60 @@ window.BENCHMARK_DATA = {
             "value": 17.577474069207295,
             "unit": "median tps",
             "extra": "avg tps: 17.716533406443546, max tps: 19.53935400952367, count: 55656"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a3ca3d2629465260e3d38de91714d4fa3afb0a8",
+          "message": "feat: support the `stopwords_language` typmod property (#3299)\n\n## What\n\nThis adds back in support for the language-specific built-in list of\nstopwords, using `stopwords_language=xxx`.\n\n## Why\n\nStopwords are pretty useful!\n\n## How\n\n## Tests\n\nA regression test has been added.",
+          "timestamp": "2025-10-09T15:29:20-04:00",
+          "tree_id": "9ed34db181fb1282dd50b9ddde0b93999a79f19a",
+          "url": "https://github.com/paradedb/paradedb/commit/8a3ca3d2629465260e3d38de91714d4fa3afb0a8"
+        },
+        "date": 1760041251687,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.498958949667774,
+            "unit": "median tps",
+            "extra": "avg tps: 35.94105517275748, max tps: 38.786916486336594, count: 55349"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.68069489579514,
+            "unit": "median tps",
+            "extra": "avg tps: 273.38092898587763, max tps: 2797.3884119745117, count: 55349"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1030.989098177154,
+            "unit": "median tps",
+            "extra": "avg tps: 1024.7127178264204, max tps: 1074.8992735893326, count: 55349"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.95227993101082,
+            "unit": "median tps",
+            "extra": "avg tps: 155.16327617591315, max tps: 876.2573068169821, count: 110698"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.74604499517084,
+            "unit": "median tps",
+            "extra": "avg tps: 17.948542239703546, max tps: 22.552508893694643, count: 55349"
           }
         ]
       }

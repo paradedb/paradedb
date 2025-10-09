@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760043952105,
+  "lastUpdate": 1760044246712,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13882,6 +13882,60 @@ window.BENCHMARK_DATA = {
             "value": 17.74604499517084,
             "unit": "median tps",
             "extra": "avg tps: 17.948542239703546, max tps: 22.552508893694643, count: 55349"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a691cd226f9b335af5591dd84e695ec4da92df3",
+          "message": "chore: Un-revert remove deprecated tokenizers (#3306)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBrings back https://github.com/paradedb/paradedb/pull/3279 which was\nreverted\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:18:45-04:00",
+          "tree_id": "9f4e6764d3c00556eadd693db305527cbf8a2342",
+          "url": "https://github.com/paradedb/paradedb/commit/0a691cd226f9b335af5591dd84e695ec4da92df3"
+        },
+        "date": 1760044244878,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.50780931504109,
+            "unit": "median tps",
+            "extra": "avg tps: 37.49839901646159, max tps: 40.330613348713925, count: 55468"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 78.43676312451018,
+            "unit": "median tps",
+            "extra": "avg tps: 135.67015083962983, max tps: 2996.6761921452967, count: 55468"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1045.224537120444,
+            "unit": "median tps",
+            "extra": "avg tps: 1041.368056993773, max tps: 1050.7427035792646, count: 55468"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.3735351796524,
+            "unit": "median tps",
+            "extra": "avg tps: 106.52902566874623, max tps: 843.0504240446952, count: 110936"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.26399771670459,
+            "unit": "median tps",
+            "extra": "avg tps: 17.973180087745124, max tps: 21.115627646107075, count: 55468"
           }
         ]
       }

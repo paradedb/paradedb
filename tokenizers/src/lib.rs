@@ -22,14 +22,10 @@ pub mod icu;
 pub mod lindera;
 pub mod manager;
 
-use tantivy::tokenizer::{
-    LowerCaser, RawTokenizer, RemoveLongFilter, TextAnalyzer, TokenizerManager,
-};
+use tantivy::tokenizer::{LowerCaser, RawTokenizer, TextAnalyzer, TokenizerManager};
 use tracing::debug;
 
 pub use manager::{SearchNormalizer, SearchTokenizer};
-
-pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
 pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
@@ -50,12 +46,9 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> Toke
 }
 
 pub fn create_normalizer_manager() -> TokenizerManager {
-    let raw_tokenizer = TextAnalyzer::builder(RawTokenizer::default())
-        .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-        .build();
+    let raw_tokenizer = TextAnalyzer::builder(RawTokenizer::default()).build();
     let lower_case_tokenizer = TextAnalyzer::builder(RawTokenizer::default())
         .filter(LowerCaser)
-        .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
         .build();
     let tokenizer_manager = TokenizerManager::new();
     tokenizer_manager.register("raw", raw_tokenizer);

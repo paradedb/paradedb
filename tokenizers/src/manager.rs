@@ -24,7 +24,6 @@ use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
-    DEFAULT_REMOVE_TOKEN_LENGTH,
 };
 use anyhow::Result;
 use serde::de::{self, Deserializer};
@@ -185,8 +184,7 @@ impl SearchTokenizerFilters {
     }
 
     fn remove_long_filter(&self) -> Option<RemoveLongFilter> {
-        let limit = self.remove_long.unwrap_or(DEFAULT_REMOVE_TOKEN_LENGTH);
-        Some(RemoveLongFilter::limit(limit))
+        self.remove_long.map(RemoveLongFilter::limit)
     }
 
     fn lower_caser(&self) -> Option<LowerCaser> {

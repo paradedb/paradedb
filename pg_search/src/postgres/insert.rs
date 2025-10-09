@@ -352,13 +352,13 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
 }
 
 pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
-    match mode {
+    let created_segment = match mode {
         InsertMode::Immutable(mode) => insertcleanup_immutable(mode),
         InsertMode::Mutable(mode) => unsafe { insertcleanup_mutable(&state.indexrel, mode) },
         InsertMode::Completed => {
             panic!("insertcleanup was called twice.");
         }
-    }
+    };
 
     /*
      * Recompute VACUUM XID boundaries.
@@ -376,23 +376,26 @@ pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
             .expect("index should belong to a heap relation");
         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
 
-        do_merge(
-            &state.indexrel,
-            MergeStyle::Insert,
-            Some(pg_sys::GetCurrentFullTransactionId()),
-            Some(pg_sys::ReadNextFullTransactionId()),
-        )
-        .expect("should be able to merge");
+        if created_segment {
+            do_merge(
+                &state.indexrel,
+                MergeStyle::Insert,
+                Some(pg_sys::GetCurrentFullTransactionId()),
+                Some(pg_sys::ReadNextFullTransactionId()),
+            )
+            .expect("should be able to merge");
+        }
     }
 }
 
-fn insertcleanup_immutable(mode: InsertModeImmutable) {
+fn insertcleanup_immutable(mode: InsertModeImmutable) -> bool {
     mode.writer
         .commit()
         .expect("must be able to commit inserts in insertcleanup");
+    true
 }
 
-unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMutable) {
+unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMutable) -> bool {
     let entries = mode
         .ctids
         .into_iter()
@@ -411,18 +414,22 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
         },
     );
 
-    // If we didn't find an existing mutable segment, create a new one.
     // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
     // `Result`.
-    if inserted.is_err() {
-        let (content, mut items) = SegmentMetaEntryMutable::create(indexrel);
-        items.add_items(&entries, None);
-        let entry = SegmentMetaEntry::new_mutable(
-            SegmentId::generate_random(),
-            entries.len().try_into().unwrap(),
-            pg_sys::InvalidTransactionId,
-            content,
-        );
-        segment_metas.add_items(&[entry], None);
+    if inserted.is_ok() {
+        return false;
     }
+
+    // If we didn't find an existing mutable segment, create a new one.
+    let (content, mut items) = SegmentMetaEntryMutable::create(indexrel);
+    items.add_items(&entries, None);
+    let entry = SegmentMetaEntry::new_mutable(
+        SegmentId::generate_random(),
+        entries.len().try_into().unwrap(),
+        pg_sys::InvalidTransactionId,
+        content,
+    );
+    segment_metas.add_items(&[entry], None);
+
+    true
 }

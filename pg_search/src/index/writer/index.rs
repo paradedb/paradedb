@@ -157,6 +157,9 @@ impl SerialIndexWriter {
     }
 
     /// Create a SerialIndexWriter for a single in-memory segment.
+    ///
+    /// NOTE: To guarantee a single segment, no memory limit is applied. The number of documents
+    /// written to this instance must therefore be independently bounded by the caller.
     pub fn in_memory(
         index_relation: &PgSearchRelation,
         segment_id: SegmentId,
@@ -167,7 +170,7 @@ impl SerialIndexWriter {
         let mut index = Index::create(directory, schema.clone().into(), IndexSettings::default())?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
-        // We bound the input size instead.
+        // We bound the input size instead: see the method doc.
         let memory_budget = NonZeroUsize::new(usize::MAX).unwrap();
         let config = IndexWriterConfig {
             memory_budget,

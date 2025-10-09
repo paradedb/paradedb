@@ -245,14 +245,14 @@ pub unsafe extern "C-unwind" fn amoptions(
             offset: offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
         },
         pg_sys::relopt_parse_elt {
-            optname: "mutable_segment_rows".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
-        },
-        pg_sys::relopt_parse_elt {
             optname: "background_layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, background_layer_sizes_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "mutable_segment_rows".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -609,8 +609,8 @@ struct BM25IndexOptionsData {
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
-    mutable_segment_rows: i32,
     background_layer_sizes_offset: i32,
+    mutable_segment_rows: i32,
 }
 
 impl BM25IndexOptionsData {

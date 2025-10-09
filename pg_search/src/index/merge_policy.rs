@@ -67,6 +67,18 @@ impl MergePolicy for LayeredMergePolicy {
 
         let mut candidates = Vec::new();
         let mut merged_segments = HashSet::default();
+
+        // aggressively convert any mutable segments into immutable ones
+        for (segment_id, segment_meta_entry) in &self.mergeable_segments {
+            if segment_meta_entry.is_mutable() {
+                if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
+                {
+                    candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                    merged_segments.insert(segment_meta.id());
+                }
+            }
+        }
+
         let mut layer_sizes = self.layer_sizes.clone();
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
@@ -128,7 +140,19 @@ impl MergePolicy for LayeredMergePolicy {
         // remove short candidate lists
         'outer: while !candidates.is_empty() {
             for i in 0..candidates.len() {
-                if candidates[i].1 .0.len() < self.min_merge_count {
+                let candidate_segments = &candidates[i].1 .0;
+                if candidate_segments.len() == 1 {
+                    // this is a single-segment candidate, which we allow for mutable segments
+                    let segment_id = &candidate_segments[0];
+                    if let Some(entry) = self.mergeable_segments.get(segment_id) {
+                        if entry.is_mutable() {
+                            // it's a mutable segment conversion, keep it
+                            continue;
+                        }
+                    }
+                }
+
+                if candidate_segments.len() < self.min_merge_count {
                     candidates.remove(i);
                     continue 'outer;
                 }
@@ -316,6 +340,7 @@ mod tests {
     use super::*;
     use crate::postgres::storage::block::{
         DeleteEntry, FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable,
+        SegmentMetaEntryMutable,
     };
     use pgrx::pg_sys;
     use pgrx::prelude::*;
@@ -355,6 +380,42 @@ mod tests {
             pg_sys::InvalidTransactionId,
             immutable,
         )
+    }
+
+    fn create_mutable_segment_meta_entry(
+        num_docs: u32,
+        num_deleted_docs: u32,
+        frozen: bool,
+    ) -> SegmentMetaEntry {
+        let segment_id = SegmentId::generate_random();
+        let max_doc = num_docs + num_deleted_docs;
+
+        let content = SegmentMetaEntryMutable {
+            header_block: pg_sys::InvalidBlockNumber,
+            num_deleted_docs,
+            frozen,
+        };
+
+        SegmentMetaEntry::new_mutable(segment_id, max_doc, pg_sys::InvalidTransactionId, content)
+    }
+
+    #[pg_test]
+    fn test_layered_merge_policy_eagerly_merges_mutable_segment() {
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        // min_merge_count is 2 by default, but the single mutable segment should still be merged
+        let segments = vec![create_mutable_segment_meta_entry(100, 0, false)];
+        let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
+
+        policy.set_mergeable_segments_for_test(segments);
+        let candidates = policy.simulate();
+
+        // We expect one candidate for converting the mutable segment
+        assert_eq!(candidates.len(), 1);
+        let candidate_ids: Vec<_> = candidates[0].0.to_vec();
+
+        // The candidate should contain only our single mutable segment
+        assert_eq!(candidate_ids.len(), 1);
+        assert_eq!(candidate_ids[0], segment_ids[0]);
     }
 
     #[pg_test]

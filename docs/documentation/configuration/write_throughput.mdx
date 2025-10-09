@@ -48,3 +48,20 @@ SET work_mem = 64MB;
 ```
 
 Since many write operations can be running concurrently, this value should be raised more conservatively than `maintenance_work_mem`.
+
+## Enable mutable segments
+
+The `mutable_segment_rows` setting enables use of a mutable segment, which buffers the rows written to the index in order to amortize the cost of indexing them.
+
+```sql
+ALTER INDEX search_idx SET (mutable_segment_rows = 1000);
+```
+
+Setting `mutable_segment_rows` to a value greater than 0 will cause that many rows to be cheaply buffered at write time, and to instead be
+indexed at read time (i.e. during `SELECT` statements). This can significantly increase the number of writes that an index can sustain,
+at the cost of a proportional decrease in read throughput.
+
+<Note>
+  The content of the mutable segment is indexed and held in memory at read time,
+  so large `mutable_segment_rows` values are not advised.
+</Note>

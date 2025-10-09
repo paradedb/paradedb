@@ -3,7 +3,7 @@ use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryContent, SegmentMetaEntryImmutable,
+    SegmentMetaEntryImmutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -297,26 +297,7 @@ pub unsafe fn save_new_metas(
         // the metas `linked_list` for each one, where the fake entry is configured such that it's
         // immediately considered recyclable.  This will allow for a future garbage collection to
         // properly delete the blocks associated with the orphaned file
-        let fake_entries = orphaned_deletes_files
-            .into_iter()
-            .map(|old_entry| match old_entry.content {
-                SegmentMetaEntryContent::Immutable(old_content) => {
-                    SegmentMetaEntry::new_immutable(
-                        SegmentId::from_bytes([0; 16]), // all zeros
-                        old_entry.max_doc(),
-                        pg_sys::FrozenTransactionId, // immediately recyclable
-                        old_content,
-                    )
-                }
-                SegmentMetaEntryContent::Mutable(_) => {
-                    // TODO: See the comment in `SegmentMetaEntry::freeable_blocks`: ideally
-                    // orphaned deletes would be impossible for a mutable segment at the type
-                    // level.
-                    todo!("orphaned_deletes_files");
-                }
-            })
-            .collect::<Vec<_>>();
-        linked_list.add_items(&fake_entries, None);
+        linked_list.add_items(&orphaned_deletes_files, None);
     }
 
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
@@ -367,7 +348,7 @@ pub unsafe fn load_metas(
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
 
                     // mergeable can see any that are known to be mergeable
-                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.is_mergeable(indexrel))
             );
             if !accept {
                 return;

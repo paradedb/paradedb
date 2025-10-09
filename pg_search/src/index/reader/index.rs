@@ -827,6 +827,11 @@ impl SearchIndexReader {
         }
     }
 
+    /// Given an estimate of the total number of rows in the relation, return an estimate of the
+    /// number of rows which will be matched by the configured query.
+    ///
+    /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
+    /// to contain exactly 0 or 1 Segment.
     pub fn estimate_docs(&self, total_docs: f64) -> usize {
         match self.searcher.segment_readers().len() {
             1 => {}

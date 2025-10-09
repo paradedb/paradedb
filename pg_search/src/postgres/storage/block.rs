@@ -144,7 +144,6 @@ pub enum MutableSegmentEntry {
     Remove(u64),
 }
 
-// TODO: Probably not bincode?
 impl From<MutableSegmentEntry> for PgItem {
     fn from(val: MutableSegmentEntry) -> Self {
         let mut buf = pgrx::StringInfo::new();
@@ -237,8 +236,8 @@ pub struct DeleteEntry {
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntryMutable {
-    header_block: pg_sys::BlockNumber,
-    num_deleted_docs: u32,
+    pub header_block: pg_sys::BlockNumber,
+    pub num_deleted_docs: u32,
     // Once a mutable segment reaches a configurable size threshold, it is frozen, and becomes
     // mergeable.
     pub frozen: bool,
@@ -399,6 +398,10 @@ impl SegmentMetaEntry {
         self.header.max_doc
     }
 
+    pub fn is_mutable(&self) -> bool {
+        matches!(&self.content, SegmentMetaEntryContent::Mutable(_))
+    }
+
     /// If this is a mutable segment which is not frozen, add the given items; otherwise, return an
     /// error.
     pub fn mutable_add_items(
@@ -521,6 +524,19 @@ impl SegmentMetaEntry {
         }
     }
 
+    pub unsafe fn is_mergeable(&self, indexrel: &PgSearchRelation) -> bool {
+        // mergeable if we haven't deleted it, and if it isn't a mutable segment which is still
+        // receiving writes.
+        let immutable_or_mergable = |content| match content {
+            SegmentMetaEntryContent::Mutable(content) => {
+                content.frozen || indexrel.options().mutable_segment_rows().is_none()
+            }
+            SegmentMetaEntryContent::Immutable(_) => true,
+        };
+
+        !self.is_deleted() && immutable_or_mergable(self.content)
+    }
+
     pub fn as_tantivy(&self) -> tantivy::index::InnerSegmentMeta {
         let (max_doc, deletes) = match self.content {
             SegmentMetaEntryContent::Immutable(content) => {
@@ -547,14 +563,20 @@ impl SegmentMetaEntry {
         }
     }
 
-    /// If this entry already has DeleteEntry, clone the entire entry and return it. Finally,
+    /// If this entry already has DeleteEntry, return an "orphaned deletes" clone. Finally,
     /// replace the deletes with the given DeleteEntry.
     pub fn replace_deletes(&mut self, delete: DeleteEntry) -> Option<Self> {
-        let cloned = *self;
+        let max_doc = self.max_doc();
         match &mut self.content {
             SegmentMetaEntryContent::Immutable(content) => {
                 let result = if content.delete.is_some() {
-                    Some(cloned)
+                    // Create an "orphaned deletes" clone of the segment.
+                    Some(SegmentMetaEntry::new_immutable(
+                        SegmentId::from_bytes([0; 16]), // all zeros
+                        max_doc,
+                        pg_sys::FrozenTransactionId, // immediately recyclable
+                        *content,
+                    ))
                 } else {
                     None
                 };
@@ -562,10 +584,10 @@ impl SegmentMetaEntry {
                 result
             }
             SegmentMetaEntryContent::Mutable(_) => {
-                // FIXME: See `delete.rs`: this codepath is not reachable, but we adjust the
+                // FIXME: See `delete.rs`: this codepath is not reachable, but we should adjust the
                 // interface of `save_new_metas` to do the delete replacement more directly
                 // to improve type safety.
-                todo!("replace_deletes");
+                unreachable!("replace_deletes for a mutable segment");
             }
         }
     }
@@ -765,8 +787,6 @@ pub trait MVCCEntry {
     unsafe fn visible(&self) -> bool;
 
     unsafe fn recyclable(&self, bman: &mut BufferManager) -> bool;
-
-    unsafe fn mergeable(&self) -> bool;
 }
 
 impl MVCCEntry for SegmentMetaEntry {
@@ -788,13 +808,6 @@ impl MVCCEntry for SegmentMetaEntry {
 
         // and there's no pin on our pintest buffer, assuming we have a valid buffer
         && (self.pintest_blockno() == pg_sys::InvalidBlockNumber || bman.get_buffer_for_cleanup_conditional(self.pintest_blockno()).is_some())
-    }
-
-    unsafe fn mergeable(&self) -> bool {
-        // mergeable if we haven't deleted it, and if it isn't a mutable segment which is still
-        // receiving writes.
-        !self.is_deleted()
-            && !matches!(self.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen)
     }
 }
 

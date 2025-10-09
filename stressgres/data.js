@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760032023899,
+  "lastUpdate": 1760032026728,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14962,6 +14962,114 @@ window.BENCHMARK_DATA = {
             "value": 158.80859375,
             "unit": "median mem",
             "extra": "avg mem: 156.89401679477402, max mem: 161.453125, count: 55406"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76c4decb23962ae948fff00b4b64958c5b631bbf",
+          "message": "feat: support logical replication in community (#3264)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUntil now, logical replication has been an enterprise-only feature. We\nhave made the decision to move it to community, which allows anyone to\nrun ParadeDB as a logical replica of a primary Postgres.\n\nNote: Logical replication is only supported for Postgres 17 and newer.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:11:49-04:00",
+          "tree_id": "85d200bc61f1a460e3f621edae3ca55e6a027145",
+          "url": "https://github.com/paradedb/paradedb/commit/76c4decb23962ae948fff00b4b64958c5b631bbf"
+        },
+        "date": 1760032024986,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.341366577372035, max cpu: 46.421665, count: 55529"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 158.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 156.90356404423815, max mem: 158.5859375, count: 55529"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.636974998628827, max cpu: 27.934044, count: 55529"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 110.54716531845972, max mem: 111.796875, count: 55529"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.968453678104203, max cpu: 13.9265, count: 55529"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 144.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 123.45053443358425, max mem: 144.80078125, count: 55529"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30865,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31395.351059806588, max block_count: 63933.0, count: 55529"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.491951030577943, max cpu: 4.660194, count: 55529"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 100.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.44493256057646, max mem: 127.81640625, count: 55529"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.617515172252336, max segment_count: 55.0, count: 55529"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.991881080572098, max cpu: 27.961164, count: 111058"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.6152082414144, max mem: 156.40625, count: 111058"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.11337700424907, max cpu: 27.906979, count: 55529"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.62556523111797, max mem: 158.4921875, count: 55529"
           }
         ]
       }

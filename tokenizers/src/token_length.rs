@@ -20,22 +20,13 @@
 //! use tantivy::tokenizer::*;
 //!
 //! let mut tokenizer = TextAnalyzer::builder(SimpleTokenizer::default())
-//!   .filter(RemoveLongFilter::limit(5))
+//!   .filter(TokenLengthFilter::new(Some(5), Some(20)))
 //!   .build();
-//!
-//! let mut stream = tokenizer.token_stream("toolong nice");
-//! // because `toolong` is more than 5 characters, it is filtered
-//! // out of the token stream.
-//! assert_eq!(stream.next().unwrap().text, "nice");
-//! assert!(stream.next().is_none());
 //! ```
 use tantivy::tokenizer::{Token, TokenFilter, TokenStream, Tokenizer};
 
-/// `RemoveLongFilter` removes tokens that are longer
-/// than a given number of bytes (in UTF-8 representation).
-///
-/// It is especially useful when indexing unconstrained content.
-/// e.g. Mail containing base-64 encoded pictures etc.
+/// `TokenLengthFilter` removes tokens that are longer
+/// than a given number of bytes or shorter than a given number of bytes (in UTF-8 representation).
 #[derive(Clone)]
 pub struct TokenLengthFilter {
     min: Option<usize>,
@@ -43,7 +34,7 @@ pub struct TokenLengthFilter {
 }
 
 impl TokenLengthFilter {
-    /// Creates a `TokenLengthFilter` given a limit in bytes of the UTF-8 representation.
+    /// Creates a `TokenLengthFilter` given a minimum and maximum number of bytes of the UTF-8 representation.
     pub fn new(min: Option<usize>, max: Option<usize>) -> TokenLengthFilter {
         TokenLengthFilter { min, max }
     }

@@ -36,14 +36,15 @@ WITH (
 -- Test 1.1: COUNT(*) aggregate (already supported)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
  count 
@@ -54,14 +55,15 @@ SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
 -- Test 1.2: SUM aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: SUM(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
    sum   
@@ -72,14 +74,15 @@ SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
 -- Test 1.3: AVG aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"avg":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: AVG(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
        avg        
@@ -90,14 +93,15 @@ SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
 -- Test 1.4: MIN aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MIN(price) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"min":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: MIN(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"min":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MIN(price) FROM products WHERE description @@@ 'laptop';
   min   
@@ -108,14 +112,15 @@ SELECT MIN(price) FROM products WHERE description @@@ 'laptop';
 -- Test 1.5: MAX aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"max":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: MAX(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"max":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
    max   
@@ -127,14 +132,15 @@ SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
 FROM products WHERE description @@@ 'laptop';
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"price"}},"3":{"min":{"field":"price"}},"4":{"max":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":null}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"min":{"field":"price","missing":null}}},"filter":"*"},"filter_4":{"aggs":{"filtered_agg":{"max":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
 FROM products WHERE description @@@ 'laptop';
@@ -149,14 +155,15 @@ FROM products WHERE description @@@ 'laptop';
 -- Test 2.1: Empty result set behavior
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
  count 
@@ -172,8 +179,9 @@ SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: SUM(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
  sum 
@@ -189,8 +197,9 @@ SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"avg":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: AVG(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
  avg 
@@ -206,8 +215,9 @@ SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"min":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: MIN(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"min":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
  min 
@@ -223,8 +233,9 @@ SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"max":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: MAX(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"max":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
  max 
@@ -241,8 +252,9 @@ SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (cat
    Output: now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
  count 
@@ -258,8 +270,9 @@ SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (c
    Output: now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: SUM(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
  sum 
@@ -275,8 +288,9 @@ SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (
    Output: now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"avg":{"field":"rating"}}}
-(5 rows)
+     Applies to Aggregates: AVG(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"avg":{"field":"rating","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
  avg 
@@ -292,8 +306,9 @@ SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (des
    Output: now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"min":{"field":"price"}}}
-(5 rows)
+     Applies to Aggregates: MIN(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"min":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
  min 
@@ -309,8 +324,9 @@ SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (
    Output: now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"max":{"field":"rating"}}}
-(5 rows)
+     Applies to Aggregates: MAX(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"max":{"field":"rating","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
  max 
@@ -329,8 +345,9 @@ WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
    Output: now(), now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), SUM(price)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), SUM(price)
 FROM products
@@ -383,14 +400,15 @@ SELECT
     SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
 FROM type_test
 WHERE text_val @@@ 'test1 OR test2';
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.type_test
    Output: now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now(), now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_val","query_string":"test1 OR test2","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"sum":{"field":"int_val"}},"1":{"avg":{"field":"int_val"}},"2":{"min":{"field":"int_val"}},"3":{"max":{"field":"int_val"}},"4":{"sum":{"field":"bigint_val"}},"5":{"avg":{"field":"bigint_val"}},"6":{"min":{"field":"bigint_val"}},"7":{"max":{"field":"bigint_val"}},"8":{"sum":{"field":"smallint_val"}},"9":{"avg":{"field":"smallint_val"}},"10":{"min":{"field":"smallint_val"}},"11":{"max":{"field":"smallint_val"}},"12":{"sum":{"field":"numeric_val"}},"13":{"avg":{"field":"numeric_val"}},"14":{"min":{"field":"numeric_val"}},"15":{"max":{"field":"numeric_val"}},"16":{"sum":{"field":"float_val"}},"17":{"avg":{"field":"float_val"}},"18":{"min":{"field":"float_val"}},"19":{"max":{"field":"float_val"}},"20":{"sum":{"field":"double_val"}},"21":{"avg":{"field":"double_val"}},"22":{"min":{"field":"double_val"}},"23":{"max":{"field":"double_val"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: SUM(int_val), AVG(int_val), MIN(int_val), MAX(int_val), SUM(bigint_val), AVG(bigint_val), MIN(bigint_val), MAX(bigint_val), SUM(smallint_val), AVG(smallint_val), MIN(smallint_val), MAX(smallint_val), SUM(numeric_val), AVG(numeric_val), MIN(numeric_val), MAX(numeric_val), SUM(float_val), AVG(float_val), MIN(float_val), MAX(float_val), SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"sum":{"field":"int_val","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"avg":{"field":"int_val","missing":null}}},"filter":"*"},"filter_10":{"aggs":{"filtered_agg":{"min":{"field":"smallint_val","missing":null}}},"filter":"*"},"filter_11":{"aggs":{"filtered_agg":{"max":{"field":"smallint_val","missing":null}}},"filter":"*"},"filter_12":{"aggs":{"filtered_agg":{"sum":{"field":"numeric_val","missing":null}}},"filter":"*"},"filter_13":{"aggs":{"filtered_agg":{"avg":{"field":"numeric_val","missing":null}}},"filter":"*"},"filter_14":{"aggs":{"filtered_agg":{"min":{"field":"numeric_val","missing":null}}},"filter":"*"},"filter_15":{"aggs":{"filtered_agg":{"max":{"field":"numeric_val","missing":null}}},"filter":"*"},"filter_16":{"aggs":{"filtered_agg":{"sum":{"field":"float_val","missing":null}}},"filter":"*"},"filter_17":{"aggs":{"filtered_agg":{"avg":{"field":"float_val","missing":null}}},"filter":"*"},"filter_18":{"aggs":{"filtered_agg":{"min":{"field":"float_val","missing":null}}},"filter":"*"},"filter_19":{"aggs":{"filtered_agg":{"max":{"field":"float_val","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"min":{"field":"int_val","missing":null}}},"filter":"*"},"filter_20":{"aggs":{"filtered_agg":{"sum":{"field":"double_val","missing":null}}},"filter":"*"},"filter_21":{"aggs":{"filtered_agg":{"avg":{"field":"double_val","missing":null}}},"filter":"*"},"filter_22":{"aggs":{"filtered_agg":{"min":{"field":"double_val","missing":null}}},"filter":"*"},"filter_23":{"aggs":{"filtered_agg":{"max":{"field":"double_val","missing":null}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"int_val","missing":null}}},"filter":"*"},"filter_4":{"aggs":{"filtered_agg":{"sum":{"field":"bigint_val","missing":null}}},"filter":"*"},"filter_5":{"aggs":{"filtered_agg":{"avg":{"field":"bigint_val","missing":null}}},"filter":"*"},"filter_6":{"aggs":{"filtered_agg":{"min":{"field":"bigint_val","missing":null}}},"filter":"*"},"filter_7":{"aggs":{"filtered_agg":{"max":{"field":"bigint_val","missing":null}}},"filter":"*"},"filter_8":{"aggs":{"filtered_agg":{"sum":{"field":"smallint_val","missing":null}}},"filter":"*"},"filter_9":{"aggs":{"filtered_agg":{"avg":{"field":"smallint_val","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT
     SUM(int_val), AVG(int_val), MIN(int_val), MAX(int_val),
@@ -481,8 +499,9 @@ WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
    Output: now(), now(), now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"avg":{"field":"rating","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), SUM(price), AVG(rating)
 FROM products
@@ -498,14 +517,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard');
-                                                                                                                                                           QUERY PLAN                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"avg":{"field":"price"}},"2":{"min":{"field":"rating"}},"3":{"max":{"field":"rating"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"min":{"field":"rating","missing":null}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"rating","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
@@ -524,14 +544,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
 WHERE id @@@ paradedb.all();
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"avg":{"field":"price"}},"2":{"min":{"field":"rating"}},"3":{"max":{"field":"rating"}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"min":{"field":"rating","missing":null}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"rating","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
@@ -545,14 +566,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
 WHERE id @@@ paradedb.all();
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"avg":{"field":"price","missing":0.0}},"2":{"min":{"field":"rating","missing":0.0}},"3":{"max":{"field":"rating","missing":0.0}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":0.0}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"min":{"field":"rating","missing":0.0}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"rating","missing":0.0}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
@@ -573,14 +595,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products
 WHERE id @@@ paradedb.all();
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"avg":{"field":"price","missing":1.0}},"2":{"min":{"field":"rating","missing":1.0}},"3":{"max":{"field":"rating","missing":1.0}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), AVG(price), MIN(rating), MAX(rating)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"avg":{"field":"price","missing":1.0}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"min":{"field":"rating","missing":1.0}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"rating","missing":1.0}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products

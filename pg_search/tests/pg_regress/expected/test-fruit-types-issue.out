@@ -46,14 +46,16 @@ SELECT name, SUM(price), MAX(rating), AVG(age)
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
    Output: name, now(), now(), now()
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"max":{"field":"rating"}},"agg_2":{"avg":{"field":"age"}}}}}
-(5 rows)
+     Applies to Aggregates: SUM(price), MAX(rating), AVG(age)
+     Group By: name
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_1":{"aggs":{"grouped":{"aggs":{"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_2":{"aggs":{"grouped":{"aggs":{"2":{"avg":{"field":"age","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"}}
+(7 rows)
 
 -- execute the failing query
 SELECT name, SUM(price), MAX(rating), AVG(age) 
@@ -77,14 +79,16 @@ SELECT name, COUNT(*), SUM(price), MAX(rating)
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
    Output: name, now(), now(), now()
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"max":{"field":"rating"}}}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), SUM(price), MAX(rating)
+     Group By: name
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_1":{"aggs":{"grouped":{"aggs":{"1":{"sum":{"field":"price","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_2":{"aggs":{"grouped":{"aggs":{"2":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"}}
+(7 rows)
 
 SELECT name, COUNT(*), SUM(price), MAX(rating) 
 FROM users 
@@ -104,14 +108,16 @@ SELECT name, COUNT(*), MAX(rating), AVG(age)
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
    Output: name, now(), now(), now()
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":65000,"segment_size":65000},"aggs":{"agg_1":{"max":{"field":"rating"}},"agg_2":{"avg":{"field":"age"}}}}}
-(5 rows)
+     Applies to Aggregates: COUNT(*), MAX(rating), AVG(age)
+     Group By: name
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_1":{"aggs":{"grouped":{"aggs":{"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_2":{"aggs":{"grouped":{"aggs":{"2":{"avg":{"field":"age","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"name","segment_size":65000,"size":65000}}},"filter":"*"}}
+(7 rows)
 
 SELECT name, COUNT(*), MAX(rating), AVG(age) 
 FROM users 

@@ -45,6 +45,7 @@ use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
 };
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
@@ -59,7 +60,7 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
-/// Sentinel key for aggregates without FILTER clauses  
+/// Sentinel key for aggregates without FILTER clauses
 /// Used to group non-filtered aggregates together during query optimization
 const NO_FILTER_KEY: &str = "NO_FILTER";
 
@@ -391,9 +392,15 @@ impl CustomScan for AggregateScan {
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
+            let planstate = state.planstate();
             // TODO: Opening of the index could be deduped between custom scans: see
             // `PdbScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
+
+            state
+                .custom_state_mut()
+                .init_expr_context(estate, planstate);
+            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
         }
     }
 
@@ -964,8 +971,15 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 }
 
 fn execute(
-    state: &CustomScanStateWrapper<AggregateScan>,
+    state: &mut CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
+    let planstate = state.planstate();
+    let expr_context = state.runtime_context;
+
+    state
+        .custom_state_mut()
+        .prepare_query_for_execution(planstate, expr_context);
+
     let qparams = AggQueryParams {
         base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
         aggregate_types: &state.custom_state().aggregate_types,
@@ -997,6 +1011,24 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
+
+impl SolvePostgresExpressions for AggregateScanState {
+    fn has_heap_filters(&mut self) -> bool {
+        self.query.has_heap_filters()
+    }
+
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.query.has_postgres_expressions()
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.query.init_postgres_expressions(planstate);
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.query.solve_postgres_expressions(expr_context);
+    }
+}
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(

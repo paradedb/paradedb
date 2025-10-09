@@ -322,9 +322,10 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                         other => panic!("unknown stemmer: {other}"),
                     }
                 }),
-            // TODO: handle stopwords
-            stopwords_language: None,
-            stopwords: None,
+            stopwords_language: value
+                .get("stopwords_language")
+                .and_then(|p| p.as_language().ok()),
+            stopwords: None, // TODO: handle stopwords list in a new way we haven't done up to this point
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
         }

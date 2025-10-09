@@ -57,11 +57,11 @@ There are many [available tokenizers](/v2/tokenizers/available_tokenizers) to ch
 
 ## Token Filters
 
-After tokens are created, [token filters](/v2/token_filters) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
+After tokens are created, [token filters](/v2/token_filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.ngram(2,3,'stemmer=english')), category)
+USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
 ```

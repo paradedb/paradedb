@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760028026540,
+  "lastUpdate": 1760028029283,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10360,6 +10360,108 @@ window.BENCHMARK_DATA = {
             "value": 155.515625,
             "unit": "median mem",
             "extra": "avg mem: 168.92022842489848, max mem: 215.3671875, count: 56144"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d66fbeefb193965a576f504a7f578024eeee5e7",
+          "message": "feat: standardize EXPLAIN output formatting with ExplainFormat trait (#3268)\n\n## Summary\n\nThis PR introduces the `ExplainFormat` trait to standardize how objects\nare formatted for PostgreSQL `EXPLAIN` output across the codebase. This\neliminates duplicate implementations and ensures consistent,\ndeterministic output for regression tests.\n\n## Changes\n\n- `ExplainFormat` trait: common interface for formatting objects for\nEXPLAIN output\n- `cleanup_json_for_explain()`: Removes non-deterministic data (OIDs,\npointers) from JSON for consistent test output\n- `format_for_explain()`: Convenience function for serializable objects\n\n### Refactoring\n- Removed duplicated formatting functions:\n- Deprecated `SearchQueryInput::canonical_query_string()` (now uses\n`ExplainFormat`)\n- Deprecated standalone `cleanup_variabilities_from_tantivy_query()`\n(now uses `cleanup_json_for_explain()`)\n\n- Implemented `ExplainFormat` for:\n  - `SearchQueryInput` - query formatting\n  - `AggregateType` - aggregate formatting with FILTER clauses\n\n- Updated `Explainer`:\n- New `add_explainable()` method accepts any `ExplainFormat` implementor\n  - Simplified `add_query()` to use the new trait",
+          "timestamp": "2025-10-09T09:00:38-07:00",
+          "tree_id": "3376b11c73acc94fb95af94e2ff1048b3579e3da",
+          "url": "https://github.com/paradedb/paradedb/commit/3d66fbeefb193965a576f504a7f578024eeee5e7"
+        },
+        "date": 1760028027586,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.3147637269733915, max background_merging: 1.0, count: 56185"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.748468847571059, max cpu: 9.648242, count: 56185"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 18.763268735538844, max mem: 22.19140625, count: 56185"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5863926505149655, max cpu: 27.988338, count: 56185"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 165.98046589948385, max mem: 167.08984375, count: 56185"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67974,
+            "unit": "median block_count",
+            "extra": "avg block_count: 68624.1138204147, max block_count: 75026.0, count: 56185"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 91.50504583073774, max segment_count: 192.0, count: 56185"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.041917024923468, max cpu: 28.346458, count: 56185"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 165.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.05068043906292, max mem: 169.484375, count: 56185"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9837635573694685, max cpu: 27.87996, count: 56185"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.95510645634957, max mem: 165.1796875, count: 56185"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.854532528944773, max cpu: 33.667336, count: 56185"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.52189822127792, max mem: 215.33203125, count: 56185"
           }
         ]
       }

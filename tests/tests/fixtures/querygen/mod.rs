@@ -21,7 +21,7 @@ pub mod opexprgen;
 pub mod pagegen;
 pub mod wheregen;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Write};
 
 use futures::executor::block_on;
 use proptest::prelude::*;
@@ -110,6 +110,7 @@ impl Column {
         self
     }
 
+    /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
         self
@@ -125,7 +126,11 @@ pub fn generated_queries_setup(
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
-    let mut setup_sql = String::new();
+    let seed_sql = format!("SET seed TO {};\n", rand::rng().random_range(-1.0..=1.0));
+    seed_sql.as_str().execute(conn);
+
+    let mut setup_sql = seed_sql;
+
     let column_definitions = columns_def
         .iter()
         .map(|col| {
@@ -303,17 +308,27 @@ impl PgGucs {
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
 
-        format!(
-            r#"
-            SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};
-            SET paradedb.enable_custom_scan TO {custom_scan};
-            SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};
-            SET paradedb.enable_filter_pushdown TO {filter_pushdown};
-            SET enable_seqscan TO {seqscan};
-            SET enable_indexscan TO {indexscan};
-            SET max_parallel_workers TO {max_parallel_workers};
-            "#
+        let mut gucs = String::with_capacity(512);
+        writeln!(
+            gucs,
+            "SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
         )
+        .unwrap();
+        writeln!(gucs, "SET paradedb.enable_custom_scan TO {custom_scan};").unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_filter_pushdown TO {filter_pushdown};"
+        )
+        .unwrap();
+        writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
+        writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
+        writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
+        gucs
     }
 }
 
@@ -406,33 +421,29 @@ pub fn handle_compare_error(
         r#"
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
-
+--
 -- Prerequisites: Ensure pg_search extension is available
 CREATE EXTENSION IF NOT EXISTS pg_search;
-
+--
 -- Table and index setup
 {setup_sql}
-
+--
 -- Default GUCs:
 {default_gucs}
-
+--
 -- PostgreSQL query:
-{pg_query}
-
+{pg_query};
+--
 -- Set GUCs to match the failing test case
 {gucs_sql}
-
+--
 -- BM25 query:
-{bm25_query}
-
--- Original error:
--- {error_msg}
-
--- To debug further, you can also try:
-SET paradedb.enable_aggregate_custom_scan = off;
-{bm25_query}
-
+{bm25_query};
+--
 -- ==== END REPRODUCTION SCRIPT ====
+
+Original error:
+{error_msg}
 "#,
         failure_type = failure_type,
         setup_sql = setup_sql,

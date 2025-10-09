@@ -156,9 +156,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION update_random_data(num_rows INTEGER)
-RETURNS VOID AS $$
+RETURNS int AS $$
 DECLARE
     max_val bigint;
+    many int;
 BEGIN
     -- 1. Get the maximum ID value once.
     SELECT max(id) INTO max_val FROM wide_table;
@@ -174,6 +175,9 @@ BEGIN
         FROM generate_series(1, num_rows * 2)
         LIMIT num_rows
     );
+
+    GET DIAGNOSTICS many = ROW_COUNT;
+    RETURN many;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -249,3 +253,11 @@ SELECT COUNT(*) FROM (
     LIMIT 100
 );
 """
+
+[[jobs]]
+window_height = 5
+log_columns = ["background_merging"]
+log_tps = false
+refresh_ms = 5
+title = "Background Merger"
+sql = "select count(*) background_merging from pg_stat_activity where query = 'merging';"

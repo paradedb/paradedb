@@ -79,11 +79,7 @@ pub fn builder_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 fn build_function(item_fn: &ItemFn) -> Result<proc_macro2::TokenStream, syn::Error> {
     let mod_name = Ident::new(
-        &format!("_{}", {
-            let mut uuid = uuid::Uuid::new_v4().as_simple().to_string();
-            uuid.truncate(6);
-            uuid
-        }),
+        &format!("_{}", uuid::Uuid::new_v4().as_simple()),
         item_fn.span(),
     );
 

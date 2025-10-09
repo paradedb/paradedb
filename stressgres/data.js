@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760026618634,
+  "lastUpdate": 1760026970775,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5644,6 +5644,42 @@ window.BENCHMARK_DATA = {
             "value": 5.318290758162173,
             "unit": "median tps",
             "extra": "avg tps: 4.789417259901786, max tps: 5.866205986180852, count: 57762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10de316db45e848a0bc1c1ae86f820de701030f1",
+          "message": "chore: show readable error if serving reads from hot standby (#3267)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nShow a better error message if trying to serve reads on a hot standby\nfrom ParadeDB Community, which does not support WALs -- only Enterprise\ndoes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:48:50-04:00",
+          "tree_id": "da13ba2361322103116c1d498ec45f15ad86908c",
+          "url": "https://github.com/paradedb/paradedb/commit/10de316db45e848a0bc1c1ae86f820de701030f1"
+        },
+        "date": 1760026969041,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.331127217663745,
+            "unit": "median tps",
+            "extra": "avg tps: 7.103752889065395, max tps: 11.059626921695273, count: 57908"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3389796751584475,
+            "unit": "median tps",
+            "extra": "avg tps: 4.795253689049697, max tps: 5.96039262851367, count: 57908"
           }
         ]
       }

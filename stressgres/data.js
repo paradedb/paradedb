@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760030628520,
+  "lastUpdate": 1760031346420,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8638,6 +8638,54 @@ window.BENCHMARK_DATA = {
             "value": 6.161724021693378,
             "unit": "median tps",
             "extra": "avg tps: 6.159650141744148, max tps: 7.701814931148162, count: 56185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76c4decb23962ae948fff00b4b64958c5b631bbf",
+          "message": "feat: support logical replication in community (#3264)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUntil now, logical replication has been an enterprise-only feature. We\nhave made the decision to move it to community, which allows anyone to\nrun ParadeDB as a logical replica of a primary Postgres.\n\nNote: Logical replication is only supported for Postgres 17 and newer.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T11:11:49-04:00",
+          "tree_id": "85d200bc61f1a460e3f621edae3ca55e6a027145",
+          "url": "https://github.com/paradedb/paradedb/commit/76c4decb23962ae948fff00b4b64958c5b631bbf"
+        },
+        "date": 1760031344661,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 453.26371466597584,
+            "unit": "median tps",
+            "extra": "avg tps: 438.53451914378905, max tps: 498.89007302022475, count: 56363"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 497.4972618593686,
+            "unit": "median tps",
+            "extra": "avg tps: 497.3759005928959, max tps: 528.912248082609, count: 56363"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 937.8283936352115,
+            "unit": "median tps",
+            "extra": "avg tps: 919.3399287595115, max tps: 1184.9564974582713, count: 56363"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.981264458903263,
+            "unit": "median tps",
+            "extra": "avg tps: 6.011015113747198, max tps: 7.326085900291267, count: 56363"
           }
         ]
       }

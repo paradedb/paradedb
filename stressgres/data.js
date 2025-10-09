@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760043949314,
+  "lastUpdate": 1760043952105,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5632,6 +5632,126 @@ window.BENCHMARK_DATA = {
             "value": 148.07421875,
             "unit": "median mem",
             "extra": "avg mem: 128.09376063245557, max mem: 150.75390625, count: 54741"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42671fe0df806d6033d837f7b058b0b6f81b187d",
+          "message": "chore: Remove default `255` byte \"remove long\" filter setting (#3288)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA 255 byte \"remove long\" setting was applied to all text fields.\n\nThis was wrong for text fast fields -- any text longer than 255 bytes\nwas being silently dropped. And it's confusing to document for non fast\ntext fields, we should be preserving the tokens and let the user opt\ninto it rather than doing it by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-09T16:49:35-04:00",
+          "tree_id": "c1ccc15293d114edb6d9d98bc04d99512d1a539d",
+          "url": "https://github.com/paradedb/paradedb/commit/42671fe0df806d6033d837f7b058b0b6f81b187d"
+        },
+        "date": 1760043950331,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9725779773220244, max cpu: 19.611849, count: 55220"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 155.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.55467604015755, max mem: 155.5078125, count: 55220"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576705927333484, max cpu: 9.458128, count: 55220"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.41415410799982, max mem: 30.57421875, count: 55220"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.962292507468425, max cpu: 14.708885, count: 55220"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.1176804147048, max mem: 155.0390625, count: 55220"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581378965793792, max cpu: 4.738401, count: 55220"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.98127772998913, max mem: 155.109375, count: 55220"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579046695012843, max cpu: 9.514371, count: 110440"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 136.77350696645237, max mem: 158.171875, count: 110440"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27771,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27815.249040202823, max block_count: 54994.0, count: 55220"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 29,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.020608475190148, max segment_count: 58.0, count: 55220"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5703929352470585, max cpu: 9.430255, count: 55220"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 134.8971477725462, max mem: 156.80078125, count: 55220"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7117953940682646, max cpu: 4.6966734, count: 55220"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 128.17314824508784, max mem: 151.6875, count: 55220"
           }
         ]
       }

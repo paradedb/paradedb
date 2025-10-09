@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760026277005,
+  "lastUpdate": 1760026615884,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1642,6 +1642,72 @@ window.BENCHMARK_DATA = {
             "value": 96.95779900255818,
             "unit": "median tps",
             "extra": "avg tps: 114.66593552179417, max tps: 957.793855943973, count: 55244"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d66fbeefb193965a576f504a7f578024eeee5e7",
+          "message": "feat: standardize EXPLAIN output formatting with ExplainFormat trait (#3268)\n\n## Summary\n\nThis PR introduces the `ExplainFormat` trait to standardize how objects\nare formatted for PostgreSQL `EXPLAIN` output across the codebase. This\neliminates duplicate implementations and ensures consistent,\ndeterministic output for regression tests.\n\n## Changes\n\n- `ExplainFormat` trait: common interface for formatting objects for\nEXPLAIN output\n- `cleanup_json_for_explain()`: Removes non-deterministic data (OIDs,\npointers) from JSON for consistent test output\n- `format_for_explain()`: Convenience function for serializable objects\n\n### Refactoring\n- Removed duplicated formatting functions:\n- Deprecated `SearchQueryInput::canonical_query_string()` (now uses\n`ExplainFormat`)\n- Deprecated standalone `cleanup_variabilities_from_tantivy_query()`\n(now uses `cleanup_json_for_explain()`)\n\n- Implemented `ExplainFormat` for:\n  - `SearchQueryInput` - query formatting\n  - `AggregateType` - aggregate formatting with FILTER clauses\n\n- Updated `Explainer`:\n- New `add_explainable()` method accepts any `ExplainFormat` implementor\n  - Simplified `add_query()` to use the new trait",
+          "timestamp": "2025-10-09T09:00:38-07:00",
+          "tree_id": "3376b11c73acc94fb95af94e2ff1048b3579e3da",
+          "url": "https://github.com/paradedb/paradedb/commit/3d66fbeefb193965a576f504a7f578024eeee5e7"
+        },
+        "date": 1760026614146,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 812.1764988824855,
+            "unit": "median tps",
+            "extra": "avg tps: 811.8195482487636, max tps: 891.470662215888, count: 55056"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3257.998990027062,
+            "unit": "median tps",
+            "extra": "avg tps: 3235.355110939877, max tps: 3275.575160981034, count: 55056"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 809.5715266576117,
+            "unit": "median tps",
+            "extra": "avg tps: 807.9921203539053, max tps: 812.6064014181399, count: 55056"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 724.326124560979,
+            "unit": "median tps",
+            "extra": "avg tps: 719.8185856215694, max tps: 728.0897181288522, count: 55056"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1706.7889291058373,
+            "unit": "median tps",
+            "extra": "avg tps: 1698.7616865394477, max tps: 1715.002146427832, count: 110112"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1306.7052058341415,
+            "unit": "median tps",
+            "extra": "avg tps: 1295.160695411694, max tps: 1311.0901723974002, count: 55056"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 152.4695451795151,
+            "unit": "median tps",
+            "extra": "avg tps: 198.45327502788433, max tps: 1075.9525677070053, count: 55056"
           }
         ]
       }

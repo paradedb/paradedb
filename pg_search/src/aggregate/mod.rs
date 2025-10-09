@@ -674,17 +674,16 @@ pub fn build_aggregation_query_from_search_input(
     let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
 
     // Convert filter queries to FilterAggregations
-    let filter_aggregations: Vec<FilterAggregation> = qparams
+    let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = qparams
         .aggregate_types
         .iter()
         .map(|agg| {
             SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())
                 .map(FilterAggregation::new_with_query)
-                .unwrap_or_else(|_| FilterAggregation::new("*".to_string()))
         })
         .collect();
 
-    build_aggregation_query(base_filter, filter_aggregations, qparams)
+    build_aggregation_query(base_filter, filter_aggregations?, qparams)
 }
 
 /// Build Tantivy aggregations with consistent FilterAggregation structure

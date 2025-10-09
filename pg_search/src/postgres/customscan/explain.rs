@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(
             value,
             json!([
-                { "name": "a" },
+                { "oid": 123, "name": "a" },
                 { "value": "b" }
             ])
         );

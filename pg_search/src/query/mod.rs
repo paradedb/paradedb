@@ -28,6 +28,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::postgres::utils::ExprContextGuard;
@@ -482,6 +483,12 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
         }
         // Base cases: primitive values don't need processing
         _ => {}
+    }
+}
+
+impl ExplainFormat for SearchQueryInput {
+    fn explain_format(&self) -> String {
+        format_for_explain(self)
     }
 }
 

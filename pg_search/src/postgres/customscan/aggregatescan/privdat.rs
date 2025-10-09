@@ -17,6 +17,7 @@
 
 use crate::api::{AsCStr, OrderByInfo};
 use crate::nodecast;
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -130,7 +131,9 @@ impl AggregateType {
         };
 
         match self.filter_expr() {
-            Some(filter) => format!("{base} FILTER (WHERE {})", filter.canonical_query_string()),
+            Some(filter) => {
+                format!("{base} FILTER (WHERE {})", filter.explain_format())
+            }
             None => base,
         }
     }
@@ -141,6 +144,12 @@ impl AggregateType {
             .map(|&idx| aggregate_types[idx].format_aggregate())
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+impl ExplainFormat for AggregateType {
+    fn explain_format(&self) -> String {
+        self.format_aggregate()
     }
 }
 

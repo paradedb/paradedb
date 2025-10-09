@@ -648,10 +648,11 @@ pub fn execute_aggregate_json(
         if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
             return merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit);
         }
-        // If parallel execution failed, fall through to sequential
+        // If parallel worker launch failed (launch_parallel_process! returned None),
+        // fall back to sequential execution
     }
 
-    // Sequential execution (or fallback from parallel)
+    // Sequential execution (or fallback if parallel workers couldn't be launched)
     execute_sequential(
         agg_req,
         query,

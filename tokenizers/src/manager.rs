@@ -446,13 +446,16 @@ impl SearchTokenizer {
             SearchTokenizer::SourceCode(filters) => {
                 add_filters!(CodeTokenizer::default(), filters)
             }
-            SearchTokenizer::ChineseLindera(filters) => {
+            SearchTokenizer::ChineseLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
                 add_filters!(LinderaChineseTokenizer::default(), filters)
             }
-            SearchTokenizer::JapaneseLindera(filters) => {
+            SearchTokenizer::JapaneseLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
                 add_filters!(LinderaJapaneseTokenizer::default(), filters)
             }
-            SearchTokenizer::KoreanLindera(filters) => {
+            SearchTokenizer::KoreanLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
                 add_filters!(LinderaKoreanTokenizer::default(), filters)
             }
             #[cfg(feature = "icu")]
@@ -461,6 +464,9 @@ impl SearchTokenizer {
             }
             SearchTokenizer::Jieba(filters) => {
                 add_filters!(tantivy_jieba::JiebaTokenizer {}, filters)
+            }
+            SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
+                panic!("LinderaStyle::Unspecified is not supported")
             }
         };
 

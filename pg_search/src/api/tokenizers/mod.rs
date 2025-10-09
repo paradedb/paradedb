@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::typmod::{
-    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod, lookup_stemmed_typmod,
+    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod,
 };
 use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
 use once_cell::sync::Lazy;
@@ -136,12 +136,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *prefix_only = ngram_typmod.prefix_only;
             *filters = ngram_typmod.filters;
         }
-        SearchTokenizer::Stem { language, filters } => {
-            let stemmed_typmod =
-                lookup_stemmed_typmod(typmod).expect("typmod lookup should not fail");
-            *language = stemmed_typmod.language;
-            *filters = stemmed_typmod.filters;
-        }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
             let regex_typmod = lookup_regex_typmod(typmod).expect("typmod lookup should not fail");
             *pattern = regex_typmod.pattern.to_string();
@@ -158,8 +152,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         #[allow(deprecated)]
         SearchTokenizer::Raw(filters)
         | SearchTokenizer::Default(filters)
-        | SearchTokenizer::EnStem(filters)
-        | SearchTokenizer::Lowercase(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)

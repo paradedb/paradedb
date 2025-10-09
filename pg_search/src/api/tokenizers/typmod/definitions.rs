@@ -17,7 +17,6 @@
 
 use crate::api::tokenizers::typmod;
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod};
-use tantivy::tokenizer::Language;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 
 pub struct GenericTypmod {
@@ -86,21 +85,6 @@ pub fn lookup_regex_typmod(typmod: i32) -> typmod::Result<RegexTypmod> {
         .ok_or(typmod::Error::MissingKey("pattern"))??;
 
     Ok(RegexTypmod { pattern, filters })
-}
-
-pub struct StemmedTypmod {
-    pub language: Language,
-    pub filters: SearchTokenizerFilters,
-}
-
-pub fn lookup_stemmed_typmod(typmod: i32) -> typmod::Result<StemmedTypmod> {
-    let parsed = load_typmod(typmod)?;
-    let filters = SearchTokenizerFilters::from(&parsed);
-    let language = parsed
-        .try_get("language", 0)
-        .map(|p| p.as_language())
-        .ok_or(typmod::Error::MissingKey("language"))??;
-    Ok(StemmedTypmod { language, filters })
 }
 
 pub struct LinderaTypmod {

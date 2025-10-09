@@ -189,14 +189,15 @@ SELECT
     MAX(views) AS max_views
 FROM filter_agg_test
 WHERE status @@@ 'available';
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now()
    Index: filter_agg_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MAX(views)
-(5 rows)
+     Aggregate Definition: {"filter_0":{"aggs":{"filtered_agg":{"value_count":{"field":"ctid","missing":null}}},"filter":"*"},"filter_1":{"aggs":{"filtered_agg":{"sum":{"field":"price","missing":null}}},"filter":"*"},"filter_2":{"aggs":{"filtered_agg":{"avg":{"field":"rating","missing":null}}},"filter":"*"},"filter_3":{"aggs":{"filtered_agg":{"max":{"field":"views","missing":null}}},"filter":"*"},"filter_sentinel":{"filter":"*"}}
+(6 rows)
 
 -- Test 2.2: All aggregates have SAME filter (single query optimization)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

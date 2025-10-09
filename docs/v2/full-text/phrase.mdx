@@ -1,5 +1,7 @@
 ---
 title: Phrase
+noindex: true
+canonical: https://docs.paradedb.com/documentation/full-text/phrase
 ---
 
 Phrase queries work exactly like [match conjunction](/v2/full-text/match#match-conjunction), but are more strict in that they require the
@@ -32,8 +34,10 @@ This query returns:
 
 ```csv
      description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
+---
+
+------------------+--------+----------
+Sleek running shoes | 5 | Footwear
 (1 row)
 ```
 

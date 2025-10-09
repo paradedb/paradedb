@@ -51,18 +51,15 @@
                             "group": "Index Tuning",
                             "pages": [
                               "documentation/configuration/overview",
-                              "documentation/configuration/index",
-                              "documentation/configuration/index_size",
-                              "documentation/configuration/segment_count",
-                              "documentation/configuration/segment_size",
-                              "documentation/configuration/write",
-                              "documentation/configuration/parallel"
+                              "documentation/configuration/index_build",
+                              "documentation/configuration/write_throughput",
+                              "documentation/configuration/read_throughput"
                             ]
                           },
                           {
-                            "group": "Index Settings",
+                            "group": "Feature Flags",
                             "pages": [
-                              "documentation/configuration/scan"
+                              "documentation/configuration/custom_scan"
                             ]
                           }
                         ]
@@ -454,10 +451,55 @@
     "posthog": {
       "apiKey": "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
       "apiHost": "https://app.posthog.com"
-    },
-    "koala": {
-      "publicApiKey": "pk_05f8f4ec527669d1e8f88783a4dccdf37407"
     }
+  },
+  "seo": {
+    "metatags": {
+      "robots": "index, follow",
+      "charset": "UTF-8",
+      "viewport": "width=device-width, initial-scale=1.0",
+      "description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
+      "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
+      "author": "ParadeDB",
+      "googlebot": "index, follow",
+      "google": "notranslate",
+      "generator": "Mintlify",
+      "theme-color": "#000000",
+      "color-scheme": "light dark",
+      "canonical": "https://docs.paradedb.com",
+      "referrer": "origin",
+      "refresh": "30",
+      "rating": "general",
+      "revisit-after": "7 days",
+      "language": "en",
+      "copyright": "ParadeDB, Inc. 2025",
+      "reply-to": "support@paradedb.com",
+      "distribution": "global",
+      "coverage": "Worldwide",
+      "category": "Technology",
+      "target": "all",
+      "HandheldFriendly": "True",
+      "MobileOptimized": "320",
+      "apple-mobile-web-app-capable": "yes",
+      "apple-mobile-web-app-status-bar-style": "black",
+      "apple-mobile-web-app-title": "ParadeDB Docs",
+      "application-name": "ParadeDB Docs",
+      "og:title": "ParadeDB Docs",
+      "og:type": "website",
+      "og:url": "https://docs.paradedb.com",
+      "og:image": "https://www.paradedb.com/opengraph-image.png",
+      "og:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
+      "og:site_name": "ParadeDB Docs",
+      "og:locale": "en_US",
+      "twitter:card": "summary_large_image",
+      "twitter:site": "@paradedb",
+      "twitter:creator": "@paradedb",
+      "twitter:title": "ParadeDB Docs",
+      "twitter:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres.",
+      "twitter:image": "https://www.paradedb.com/twitter-image.png",
+      "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
+    },
+    "indexing": "navigable"
   },
   "redirects": [
     {

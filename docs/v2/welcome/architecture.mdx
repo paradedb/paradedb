@@ -1,5 +1,7 @@
 ---
 title: Architecture
+noindex: true
+canonical: https://docs.paradedb.com/welcome/architecture
 ---
 
 ParadeDB introduces modern query execution paths and data structures, optimized for high-ingest search and analytics workloads, to Postgres.
@@ -156,7 +158,7 @@ ORDER BY rating LIMIT 5;
 
 <Note>
   Parallelization also depends on the [number of available
-  workers](/documentation/configuration/parallel).
+  workers](/documentation/configuration/read_throughput).
 </Note>
 
 Parallel workers are another reason why the BM25 index is significantly faster than Postgres' native text search and aggregates,

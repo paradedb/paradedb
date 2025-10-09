@@ -27,6 +27,7 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 
@@ -67,6 +68,30 @@ impl Drop for ExprContextGuard {
 impl Default for ExprContextGuard {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Recursively sort all object keys in JSON for deterministic output
+pub fn sort_json_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // Collect entries, sort by key, and rebuild
+            let sorted: BTreeMap<String, serde_json::Value> = map
+                .iter()
+                .map(|(k, v)| {
+                    let mut v = v.clone();
+                    sort_json_keys(&mut v);
+                    (k.clone(), v)
+                })
+                .collect();
+            *map = sorted.into_iter().collect();
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                sort_json_keys(item);
+            }
+        }
+        _ => {}
     }
 }
 

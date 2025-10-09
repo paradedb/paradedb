@@ -134,11 +134,19 @@ jobs:
       - name: Initialize cargo-pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      - name: Fetch and Checkout PR Head
+      - name: Fetch and Checkout PR Head (PR) or Pushed Commit (push)
         run: |
+          set -euo pipefail
           git checkout .
-          git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head:${{ github.event.pull_request.head.ref }}
-          git checkout ${{ github.event.pull_request.head.ref }}
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head:${{ github.event.pull_request.head.ref }}
+            git checkout ${{ github.event.pull_request.head.ref }}
+          else
+            # For push (and other non-PR events), use the exact commit that triggered the workflow
+            git fetch origin ${{ github.sha }}:commit-${{ github.sha }}
+            git checkout commit-${{ github.sha }}
+          fi
 
       - name: Compile & install pg_search
         working-directory: pg_search/

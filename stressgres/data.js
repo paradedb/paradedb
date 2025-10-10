@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760117433313,
+  "lastUpdate": 1760117958082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2566,6 +2566,72 @@ window.BENCHMARK_DATA = {
             "value": 111.261886710388,
             "unit": "median tps",
             "extra": "avg tps: 116.16071282753391, max tps: 581.5768098185674, count: 55228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4",
+          "message": "feat: allow `text[]::pdb.fuzzy/slop/boost` casts on the rhs of some operators (#3317)\n\n# Ticket(s) Closed\n\n- Closes #3297 \n\n## What\n\nThis enables the ability to use `TEXT[]`s on the rhs of `===`, `&&&`,\n`|||`, and `###` where the first three can be cast to `::pdb.fuzzy` and\nthe latter (phrase operator) can be cast to `::pdb.slop`.\n\nAllows for queries like:\n\n```sql\nSELECT * FROM regress.mock_items WHERE description === ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;\nSELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);\n```\n\n## Why\n\n## How\n\n## Tests\n\nregression tests for fuzzy and slop have been updated.",
+          "timestamp": "2025-10-10T13:22:56-04:00",
+          "tree_id": "8d56deef9895e4426664a371708fd8b6c7b46ff2",
+          "url": "https://github.com/paradedb/paradedb/commit/b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4"
+        },
+        "date": 1760117956215,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 803.5555802672638,
+            "unit": "median tps",
+            "extra": "avg tps: 803.119975340232, max tps: 894.3168683364755, count: 55308"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3346.2924017896166,
+            "unit": "median tps",
+            "extra": "avg tps: 3331.076966209133, max tps: 3408.2874827779233, count: 55308"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 798.8683699253978,
+            "unit": "median tps",
+            "extra": "avg tps: 798.2362157094047, max tps: 931.4463523201953, count: 55308"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 693.8768714203065,
+            "unit": "median tps",
+            "extra": "avg tps: 689.493255766435, max tps: 708.3505239511414, count: 55308"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1724.9889690692262,
+            "unit": "median tps",
+            "extra": "avg tps: 1725.092799370958, max tps: 1759.430342420974, count: 110616"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1298.2295581537455,
+            "unit": "median tps",
+            "extra": "avg tps: 1285.9242647562542, max tps: 1304.60680147432, count: 55308"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 182.17500917609547,
+            "unit": "median tps",
+            "extra": "avg tps: 206.7795238877881, max tps: 1042.2572791248374, count: 55308"
           }
         ]
       }

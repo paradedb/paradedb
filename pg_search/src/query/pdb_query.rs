@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::query::pdb_query::pdb::{FuzzyData, SlopData};
+use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
@@ -29,12 +29,13 @@ use serde_json::Value;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
-    BooleanQuery, BoostQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
-    PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, Query, QueryParser, RangeQuery,
-    RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, ExistsQuery,
+    FastFieldRangeQuery, FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery,
+    Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
+    TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
-use tantivy::{Score, Searcher, Term};
+use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
 #[pg_extern(immutable, parallel_safe)]
@@ -139,10 +140,19 @@ pub mod pdb {
         }
     }
 
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    pub enum ScoreAdjustStyle {
+        Boost(tantivy::Score),
+        Const(tantivy::Score),
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
     pub enum Query {
+        All,
+        Empty,
+
         /// This is instantiated in places where a string literal is used
         /// as the right-hand-side of one of our operators.  For example, in
         ///
@@ -181,9 +191,9 @@ pub mod pdb {
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
         },
-        Boost {
+        ScoreAdjusted {
             query: Box<Query>,
-            boost: Option<tantivy::Score>,
+            score: Option<ScoreAdjustStyle>,
         },
         Exists,
         FastFieldRangeWeight {
@@ -454,6 +464,9 @@ impl pdb::Query {
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
+            pdb::Query::All => Box::new(AllQuery),
+            pdb::Query::Empty => Box::new(EmptyQuery),
+
             pdb::Query::UnclassifiedString { .. } => {
                 // this would indicate a problem with the various operator SUPPORT functions failing
                 // to convert the UnclassifiedString into the pdb::Query variant they require
@@ -469,13 +482,13 @@ impl pdb::Query {
                 )
             }
             pdb::Query::Exists => exists(field, searcher),
-            pdb::Query::Boost { query, boost } => boost_query(
+            pdb::Query::ScoreAdjusted { query, score } => score_adjust_query(
                 field,
                 schema,
                 parser,
                 searcher,
                 *query,
-                boost.expect("boost value should have been set"),
+                score.expect("score adjustment value should have been set"),
             )?,
             pdb::Query::FastFieldRangeWeight {
                 lower_bound,
@@ -621,18 +634,19 @@ impl InOutFuncs for pdb::Query {
     }
 }
 
-fn boost_query<QueryParserCtor: Fn() -> QueryParser>(
+fn score_adjust_query<QueryParserCtor: Fn() -> QueryParser>(
     field: FieldName,
     schema: &SearchIndexSchema,
     parser: &QueryParserCtor,
     searcher: &Searcher,
     query: pdb::Query,
-    boost: Score,
-) -> anyhow::Result<Box<BoostQuery>> {
-    Ok(Box::new(BoostQuery::new(
-        query.into_tantivy_query(field, schema, parser, searcher)?,
-        boost,
-    )))
+    score: ScoreAdjustStyle,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let query = query.into_tantivy_query(field, schema, parser, searcher)?;
+    match score {
+        ScoreAdjustStyle::Boost(boost) => Ok(Box::new(BoostQuery::new(query, boost))),
+        ScoreAdjustStyle::Const(score) => Ok(Box::new(ConstScoreQuery::new(query, score))),
+    }
 }
 
 fn proximity(

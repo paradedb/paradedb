@@ -21,27 +21,27 @@ use crate::query::pdb_query::pdb::ScoreAdjustStyle;
 use crate::query::proximity::ProximityClause;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
-/// [`BoostType`] is a user-facing type used in SQL queries to indicate that should boost a query
-/// predicate's score.  The "boost" value is a multiplier so users should watch out for zero (`0`).
+/// [`ConstType`] is a user-facing type used in SQL queries to indicate that should const a query
+/// predicate's score.  The "const" value is a multiplier so users should watch out for zero (`0`).
 ///
-/// While there's no indication on the Rust type, [`BoostType`] wants a Postgres type modifier (typmod)
-/// when constructed so that a [`pdb::Query::Boost { boost: $typemod, query }`] can be constructed.
+/// While there's no indication on the Rust type, [`ConstType`] wants a Postgres type modifier (typmod)
+/// when constructed so that a [`pdb::Query::Const { const: $typemod, query }`] can be constructed.
 ///
 /// Users would use this type like so:
 ///
 /// ```sql
-/// SELECT * FROM t WHERE body @@@ 'beer'::boost(3);
+/// SELECT * FROM t WHERE body @@@ 'beer'::const(3);
 /// ```
 ///
-/// It's up to individual operators to decide if/how they support [`BoostType`]
+/// It's up to individual operators to decide if/how they support [`ConstType`]
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct BoostType(pdb::Query);
+pub struct ConstType(pdb::Query);
 
 // Contains all the boilerplate required by pgrx to make a custom type from scratch
 mod sql_datum_support {
-    use crate::api::operator::boost::BoostType;
-    use crate::api::operator::boost_typoid;
+    use crate::api::operator::const_score::ConstType;
+    use crate::api::operator::const_typoid;
     use crate::query::pdb_query::pdb;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
@@ -50,10 +50,10 @@ mod sql_datum_support {
     };
     use pgrx::{pg_sys, FromDatum, IntoDatum};
 
-    impl From<BoostType> for pdb::Query {
-        fn from(value: BoostType) -> Self {
+    impl From<ConstType> for pdb::Query {
+        fn from(value: ConstType) -> Self {
             match value.0 {
-                boost @ pdb::Query::ScoreAdjusted { .. } => boost,
+                const_ @ pdb::Query::ScoreAdjusted { .. } => const_,
                 other => pdb::Query::ScoreAdjusted {
                     query: Box::new(other),
                     score: None,
@@ -62,37 +62,37 @@ mod sql_datum_support {
         }
     }
 
-    impl IntoDatum for BoostType {
+    impl IntoDatum for ConstType {
         fn into_datum(self) -> Option<pg_sys::Datum> {
             self.0.into_datum()
         }
 
         fn type_oid() -> pg_sys::Oid {
-            boost_typoid()
+            const_typoid()
         }
     }
 
-    impl FromDatum for BoostType {
+    impl FromDatum for ConstType {
         unsafe fn from_polymorphic_datum(
             datum: pg_sys::Datum,
             is_null: bool,
             typoid: pg_sys::Oid,
         ) -> Option<Self> {
-            pdb::Query::from_polymorphic_datum(datum, is_null, typoid).map(BoostType)
+            pdb::Query::from_polymorphic_datum(datum, is_null, typoid).map(ConstType)
         }
     }
 
-    unsafe impl SqlTranslatable for BoostType {
+    unsafe impl SqlTranslatable for ConstType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("pdb.boost".into()))
+            Ok(SqlMapping::As("pdb.const".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("pdb.boost".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.const".into())))
         }
     }
 
-    unsafe impl BoxRet for BoostType {
+    unsafe impl BoxRet for ConstType {
         unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {
             match self.into_datum() {
                 Some(datum) => unsafe { fcinfo.return_raw_datum(datum) },
@@ -101,7 +101,7 @@ mod sql_datum_support {
         }
     }
 
-    unsafe impl<'fcx> ArgAbi<'fcx> for BoostType {
+    unsafe impl<'fcx> ArgAbi<'fcx> for ConstType {
         unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
             let index = arg.index();
             unsafe {
@@ -116,9 +116,9 @@ mod sql_datum_support {
     }
 }
 
-// [`BoostType`]'s SQL type definition and necessary functions to support creating
+// [`ConstType`]'s SQL type definition and necessary functions to support creating
 mod typedef {
-    use crate::api::operator::boost::BoostType;
+    use crate::api::operator::const_score::ConstType;
     use crate::api::operator::f16_typmod::{
         deserialize_i32_to_f32, serialize_f32_to_i32, TYPMOD_BOUNDS,
     };
@@ -131,26 +131,26 @@ mod typedef {
     extension_sql!(
         r#"
             CREATE SCHEMA IF NOT EXISTS pdb;
-            CREATE TYPE pdb.boost;
+            CREATE TYPE pdb.const;
         "#,
-        name = "BoostType_shell",
-        creates = [Type(BoostType)]
+        name = "ConstType_shell",
+        creates = [Type(ConstType)]
     );
 
     #[pg_extern(immutable, parallel_safe)]
-    fn boost_in(input: &CStr, _typoid: pg_sys::Oid, typmod: i32) -> BoostType {
+    fn const_in(input: &CStr, _typoid: pg_sys::Oid, typmod: i32) -> ConstType {
         let query =
             pdb::Query::unclassified_string(input.to_str().expect("input must not be NULL"));
-        BoostType(pdb::Query::ScoreAdjusted {
+        ConstType(pdb::Query::ScoreAdjusted {
             query: Box::new(query),
             score: (typmod != -1)
                 .then(|| deserialize_i32_to_f32(typmod))
-                .map(ScoreAdjustStyle::Boost),
+                .map(ScoreAdjustStyle::Const),
         })
     }
 
     #[pg_extern(immutable, parallel_safe)]
-    fn boost_out(input: BoostType) -> CString {
+    fn const_out(input: ConstType) -> CString {
         query_out(input.0)
     }
 
@@ -161,73 +161,73 @@ mod typedef {
     /// We clamp the user-provided value to `[-2048.0..2028.0]` to avoid confusion around precision
     /// loss of larger integers, due to the nature of 16 bit floats.
     #[pg_extern(immutable, parallel_safe)]
-    fn boost_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
+    fn const_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
         assert!(typmod_parts.len() == 1);
-        let boost_str = typmod_parts
+        let const_str = typmod_parts
             .get(0)
             .unwrap()
             .expect("typmod cstring must not be NULL");
-        let boost_f32 = f32::from_str(boost_str.to_str().unwrap())
-            .unwrap_or_else(|_| panic!("invalid boost value: {}", boost_str.to_str().unwrap()));
+        let const_f32 = f32::from_str(const_str.to_str().unwrap())
+            .unwrap_or_else(|_| panic!("invalid const value: {}", const_str.to_str().unwrap()));
 
-        let boost = boost_f32.clamp(TYPMOD_BOUNDS.0, TYPMOD_BOUNDS.1);
-        serialize_f32_to_i32(boost)
+        let const_ = const_f32.clamp(TYPMOD_BOUNDS.0, TYPMOD_BOUNDS.1);
+        serialize_f32_to_i32(const_)
     }
 
     #[pg_extern(immutable, parallel_safe)]
-    fn boost_typmod_out(typmod: i32) -> CString {
-        let boost = deserialize_i32_to_f32(typmod);
-        CString::from_str(&boost.to_string()).unwrap()
+    fn const_typmod_out(typmod: i32) -> CString {
+        let const_ = deserialize_i32_to_f32(typmod);
+        CString::from_str(&const_.to_string()).unwrap()
     }
 
     extension_sql!(
         r#"
-            CREATE TYPE pdb.boost (
-                INPUT = boost_in,
-                OUTPUT = boost_out,
+            CREATE TYPE pdb.const (
+                INPUT = const_in,
+                OUTPUT = const_out,
                 INTERNALLENGTH = VARIABLE,
                 LIKE = text,
-                TYPMOD_IN = boost_typmod_in,
-                TYPMOD_OUT = boost_typmod_out
+                TYPMOD_IN = const_typmod_in,
+                TYPMOD_OUT = const_typmod_out
             );
         "#,
-        name = "BoostType_final",
+        name = "ConstType_final",
         requires = [
-            "BoostType_shell",
-            boost_in,
-            boost_out,
-            boost_typmod_in,
-            boost_typmod_out
+            "ConstType_shell",
+            const_in,
+            const_out,
+            const_typmod_in,
+            const_typmod_out
         ]
     );
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> BoostType {
-    let boost = deserialize_i32_to_f32(typmod);
-    BoostType(pdb::Query::ScoreAdjusted {
+pub fn query_to_const(input: pdb::Query, typmod: i32, _is_explicit: bool) -> ConstType {
+    let const_ = deserialize_i32_to_f32(typmod);
+    ConstType(pdb::Query::ScoreAdjusted {
         query: Box::new(input),
-        score: Some(ScoreAdjustStyle::Boost(boost)),
+        score: Some(ScoreAdjustStyle::Const(const_)),
     })
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn text_array_to_boost(array: Vec<String>, typmod: i32, _is_explicit: bool) -> BoostType {
-    let boost = deserialize_i32_to_f32(typmod);
+fn text_array_to_const(array: Vec<String>, typmod: i32, _is_explicit: bool) -> ConstType {
+    let const_ = deserialize_i32_to_f32(typmod);
     let query = pdb::Query::UnclassifiedArray {
         array,
         fuzzy_data: None,
         slop_data: None,
     };
-    BoostType(pdb::Query::ScoreAdjusted {
+    ConstType(pdb::Query::ScoreAdjusted {
         query: Box::new(query),
-        score: Some(ScoreAdjustStyle::Boost(boost)),
+        score: Some(ScoreAdjustStyle::Const(const_)),
     })
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn prox_to_boost(input: ProximityClause, typmod: i32, _is_explicit: bool) -> BoostType {
-    let boost = deserialize_i32_to_f32(typmod);
+fn prox_to_const(input: ProximityClause, typmod: i32, _is_explicit: bool) -> ConstType {
+    let const_ = deserialize_i32_to_f32(typmod);
 
     let prox = if let ProximityClause::Proximity {
         left,
@@ -244,14 +244,14 @@ fn prox_to_boost(input: ProximityClause, typmod: i32, _is_explicit: bool) -> Boo
         panic!("invalid ProximityClause variant: {input:?}")
     };
 
-    BoostType(pdb::Query::ScoreAdjusted {
+    ConstType(pdb::Query::ScoreAdjusted {
         query: Box::new(prox),
-        score: Some(ScoreAdjustStyle::Boost(boost)),
+        score: Some(ScoreAdjustStyle::Const(const_)),
     })
 }
 
 #[pg_cast(implicit, immutable, parallel_safe)]
-fn boost_to_query(input: BoostType) -> pdb::Query {
+fn const_to_query(input: ConstType) -> pdb::Query {
     input.0
 }
 
@@ -263,40 +263,40 @@ fn boost_to_query(input: BoostType) -> pdb::Query {
 /// In our case, a simple expression like:
 ///
 /// ```sql
-/// SELECT 'foo'::boost(3);
+/// SELECT 'foo'::const(3);
 /// ```
 ///
-/// Will first go through the `boost_in` function with a `-1` typmod, and then Postgres will call
-/// the `typmod_in`/`typmod_out` functions defined for [`BoostType`], then pass that output value
+/// Will first go through the `const_in` function with a `-1` typmod, and then Postgres will call
+/// the `typmod_in`/`typmod_out` functions defined for [`ConstType`], then pass that output value
 /// to this function so that we can apply it.  Fun!
 #[pg_extern(immutable, parallel_safe)]
-pub fn boost_to_boost(input: BoostType, typmod: i32, _is_explicit: bool) -> BoostType {
-    let new_boost = deserialize_i32_to_f32(typmod);
+pub fn const_to_const(input: ConstType, typmod: i32, _is_explicit: bool) -> ConstType {
+    let new_const = deserialize_i32_to_f32(typmod);
     let mut query = input.0;
     if let pdb::Query::ScoreAdjusted { score, .. } = &mut query {
-        *score = Some(ScoreAdjustStyle::Boost(new_boost));
-        BoostType(query)
+        *score = Some(ScoreAdjustStyle::Const(new_const));
+        ConstType(query)
     } else {
-        BoostType(pdb::Query::ScoreAdjusted {
+        ConstType(pdb::Query::ScoreAdjusted {
             query: Box::new(query),
-            score: Some(ScoreAdjustStyle::Boost(new_boost)),
+            score: Some(ScoreAdjustStyle::Const(new_const)),
         })
     }
 }
 
 extension_sql!(
     r#"
-        CREATE CAST (text[] AS pdb.boost) WITH FUNCTION text_array_to_boost(text[], integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pdb.query AS pdb.boost) WITH FUNCTION query_to_boost(pdb.query, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pdb.proximityclause AS pdb.boost) WITH FUNCTION prox_to_boost(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pdb.boost AS pdb.boost) WITH FUNCTION boost_to_boost(pdb.boost, integer, boolean) AS IMPLICIT;
+        CREATE CAST (text[] AS pdb.const) WITH FUNCTION text_array_to_const(text[], integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.query AS pdb.const) WITH FUNCTION query_to_const(pdb.query, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.proximityclause AS pdb.const) WITH FUNCTION prox_to_const(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, integer, boolean) AS IMPLICIT;
     "#,
-    name = "cast_to_boost",
+    name = "cast_to_const",
     requires = [
-        query_to_boost,
-        prox_to_boost,
-        boost_to_boost,
-        text_array_to_boost,
-        "BoostType_final"
+        query_to_const,
+        prox_to_const,
+        const_to_const,
+        text_array_to_const,
+        "ConstType_final"
     ]
 );

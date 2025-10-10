@@ -67,7 +67,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field.unwrap(), query)
                 }
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
+                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
                     assert!(field.is_some());
                     let mut query = *query;
                     if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
@@ -75,7 +75,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field.unwrap(), pdb::Query::Boost { query: Box::new(query), boost })
+                    to_search_query_input(field.unwrap(), pdb::Query::ScoreAdjusted { query: Box::new(query), score })
                 }
                 RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());

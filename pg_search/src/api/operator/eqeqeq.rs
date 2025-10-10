@@ -69,7 +69,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
             match term {
                 RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
+                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
                     let mut query = *query;
                     if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
                         query = term_str(string);
@@ -80,7 +80,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost })
+                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score })
                 }
                 RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
                     let mut query = term_str(string);

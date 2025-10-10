@@ -79,7 +79,7 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, phrase_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
                     let mut query = *query;
                     if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
                         query = phrase_string(string);
@@ -88,7 +88,7 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                         query = phrase_array(array);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
                 }
                 RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, slop_data, ..}) => {
                     let mut query = phrase_string(string);

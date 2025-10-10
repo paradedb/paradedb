@@ -18,6 +18,7 @@
 mod andandand;
 mod atatat;
 mod boost;
+mod const_score;
 mod eqeqeq;
 mod fuzzy;
 mod hashhashhash;
@@ -152,6 +153,18 @@ pub fn boost_typoid() -> pg_sys::Oid {
                 .expect("type `pdb.boost` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `pdb.boost` should exist");
+        }
+        oid
+    }
+}
+
+pub fn const_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.const".into_datum()])
+                .expect("type `pdb.const` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pdb.const` should exist");
         }
         oid
     }
@@ -714,3 +727,48 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
         searchqueryinput::query_input_support,
     ]
 );
+
+mod f16_typmod {
+    // we clamp the user-provided typmod bounds to this so that we're sure they'll fit after being
+    // converted to an f16 without accuracy loss on integer values
+    pub(in crate::api::operator) const TYPMOD_BOUNDS: (f32, f32) = (-2048.0, 2048.0);
+
+    /// Serialize an f32 to a non‑negative i32 by first converting to f16.
+    /// Panics if val is NaN/Inf or out of f16’s representable range.
+    pub fn serialize_f32_to_i32(val: f32) -> i32 {
+        assert!(
+            val.is_finite() && val >= TYPMOD_BOUNDS.0 && val <= TYPMOD_BOUNDS.1,
+            "only 16 bit floats in the range [{}..{}] are supported",
+            TYPMOD_BOUNDS.0,
+            TYPMOD_BOUNDS.1
+        );
+        let half: half::f16 = half::f16::from_f32(val);
+        let bits: u16 = half.to_bits();
+        bits as i32 // in [0, 0xFFFF], always >= 0
+    }
+
+    /// Deserialize the i32 back to a f32 via f16.
+    /// Panics if encoded is outside [0, 65535].
+    pub fn deserialize_i32_to_f32(encoded: i32) -> f32 {
+        assert!(
+            (0..=u16::MAX as i32).contains(&encoded),
+            "invalid typemod `{encoded}`: must be between 0 and {}",
+            u16::MAX
+        );
+
+        let bits: u16 = encoded as u16;
+        let half = half::f16::from_bits(bits);
+        half.to_f32()
+    }
+
+    #[test]
+    fn roundtrip() {
+        use proptest::proptest;
+
+        proptest!(|(typmod in TYPMOD_BOUNDS.0 as i32..TYPMOD_BOUNDS.1 as i32)| {
+            let encoded = serialize_f32_to_i32(typmod as f32);
+            let decoded = deserialize_i32_to_f32(encoded) as i32;
+            assert!(typmod == decoded, "typmod={typmod}, decoded={decoded}");
+        });
+    }
+}

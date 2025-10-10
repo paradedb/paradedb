@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::boost::f16_typmod::deserialize_i32_to_f32;
+use crate::api::operator::f16_typmod::deserialize_i32_to_f32;
 use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::pdb::ScoreAdjustStyle;
 use crate::query::proximity::ProximityClause;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
@@ -52,10 +53,10 @@ mod sql_datum_support {
     impl From<BoostType> for pdb::Query {
         fn from(value: BoostType) -> Self {
             match value.0 {
-                boost @ pdb::Query::Boost { .. } => boost,
-                other => pdb::Query::Boost {
+                boost @ pdb::Query::ScoreAdjusted { .. } => boost,
+                other => pdb::Query::ScoreAdjusted {
                     query: Box::new(other),
-                    boost: None,
+                    score: None,
                 },
             }
         }
@@ -117,17 +118,15 @@ mod sql_datum_support {
 
 // [`BoostType`]'s SQL type definition and necessary functions to support creating
 mod typedef {
-    use crate::api::operator::boost::f16_typmod::{deserialize_i32_to_f32, serialize_f32_to_i32};
     use crate::api::operator::boost::BoostType;
+    use crate::api::operator::f16_typmod::{
+        deserialize_i32_to_f32, serialize_f32_to_i32, TYPMOD_BOUNDS,
+    };
     use crate::query::pdb_query::pdb;
-    use crate::query::pdb_query::pdb::query_out;
+    use crate::query::pdb_query::pdb::{query_out, ScoreAdjustStyle};
     use pgrx::{extension_sql, pg_extern, pg_sys, Array};
     use std::ffi::{CStr, CString};
     use std::str::FromStr;
-
-    // we clamp the user-provided typmod bounds to this so that we're sure they'll fit after being
-    // converted to an f16 without accuracy loss on integer values
-    pub(super) const TYPMOD_BOUNDS: (f32, f32) = (-2048.0, 2048.0);
 
     extension_sql!(
         r#"
@@ -142,9 +141,11 @@ mod typedef {
     fn boost_in(input: &CStr, _typoid: pg_sys::Oid, typmod: i32) -> BoostType {
         let query =
             pdb::Query::unclassified_string(input.to_str().expect("input must not be NULL"));
-        BoostType(pdb::Query::Boost {
+        BoostType(pdb::Query::ScoreAdjusted {
             query: Box::new(query),
-            boost: (typmod != -1).then(|| deserialize_i32_to_f32(typmod)),
+            score: (typmod != -1)
+                .then(|| deserialize_i32_to_f32(typmod))
+                .map(ScoreAdjustStyle::Boost),
         })
     }
 
@@ -204,9 +205,9 @@ mod typedef {
 #[pg_extern(immutable, parallel_safe)]
 pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
-    BoostType(pdb::Query::Boost {
+    BoostType(pdb::Query::ScoreAdjusted {
         query: Box::new(input),
-        boost: Some(boost),
+        score: Some(ScoreAdjustStyle::Boost(boost)),
     })
 }
 
@@ -218,9 +219,9 @@ fn text_array_to_boost(array: Vec<String>, typmod: i32, _is_explicit: bool) -> B
         fuzzy_data: None,
         slop_data: None,
     };
-    BoostType(pdb::Query::Boost {
+    BoostType(pdb::Query::ScoreAdjusted {
         query: Box::new(query),
-        boost: Some(boost),
+        score: Some(ScoreAdjustStyle::Boost(boost)),
     })
 }
 
@@ -243,9 +244,9 @@ fn prox_to_boost(input: ProximityClause, typmod: i32, _is_explicit: bool) -> Boo
         panic!("invalid ProximityClause variant: {input:?}")
     };
 
-    BoostType(pdb::Query::Boost {
+    BoostType(pdb::Query::ScoreAdjusted {
         query: Box::new(prox),
-        boost: Some(boost),
+        score: Some(ScoreAdjustStyle::Boost(boost)),
     })
 }
 
@@ -272,13 +273,13 @@ fn boost_to_query(input: BoostType) -> pdb::Query {
 pub fn boost_to_boost(input: BoostType, typmod: i32, _is_explicit: bool) -> BoostType {
     let new_boost = deserialize_i32_to_f32(typmod);
     let mut query = input.0;
-    if let pdb::Query::Boost { boost, .. } = &mut query {
-        *boost = Some(new_boost);
+    if let pdb::Query::ScoreAdjusted { score, .. } = &mut query {
+        *score = Some(ScoreAdjustStyle::Boost(new_boost));
         BoostType(query)
     } else {
-        BoostType(pdb::Query::Boost {
+        BoostType(pdb::Query::ScoreAdjusted {
             query: Box::new(query),
-            boost: Some(new_boost),
+            score: Some(ScoreAdjustStyle::Boost(new_boost)),
         })
     }
 }
@@ -299,46 +300,3 @@ extension_sql!(
         "BoostType_final"
     ]
 );
-
-mod f16_typmod {
-    use crate::api::operator::boost::typedef::TYPMOD_BOUNDS;
-
-    /// Serialize an f32 to a non‑negative i32 by first converting to f16.
-    /// Panics if val is NaN/Inf or out of f16’s representable range.
-    pub fn serialize_f32_to_i32(val: f32) -> i32 {
-        assert!(
-            val.is_finite() && val >= TYPMOD_BOUNDS.0 && val <= TYPMOD_BOUNDS.1,
-            "only 16 bit floats in the range [{}..{}] are supported",
-            TYPMOD_BOUNDS.0,
-            TYPMOD_BOUNDS.1
-        );
-        let half: half::f16 = half::f16::from_f32(val);
-        let bits: u16 = half.to_bits();
-        bits as i32 // in [0, 0xFFFF], always >= 0
-    }
-
-    /// Deserialize the i32 back to a f32 via f16.
-    /// Panics if encoded is outside [0, 65535].
-    pub fn deserialize_i32_to_f32(encoded: i32) -> f32 {
-        assert!(
-            (0..=u16::MAX as i32).contains(&encoded),
-            "invalid typemod `{encoded}`: must be between 0 and {}",
-            u16::MAX
-        );
-
-        let bits: u16 = encoded as u16;
-        let half = half::f16::from_bits(bits);
-        half.to_f32()
-    }
-
-    #[test]
-    fn roundtrip() {
-        use proptest::proptest;
-
-        proptest!(|(typmod in TYPMOD_BOUNDS.0 as i32..TYPMOD_BOUNDS.1 as i32)| {
-            let encoded = serialize_f32_to_i32(typmod as f32);
-            let decoded = deserialize_i32_to_f32(encoded) as i32;
-            assert!(typmod == decoded, "typmod={typmod}, decoded={decoded}");
-        });
-    }
-}

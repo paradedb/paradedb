@@ -88,3 +88,47 @@ impl PostgresExpression {
         }
     }
 }
+
+pub trait SolvePostgresExpressions {
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState);
+    fn has_heap_filters(&mut self) -> bool;
+    fn has_postgres_expressions(&mut self) -> bool;
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext);
+
+    unsafe fn init_expr_context(
+        &mut self,
+        estate: *mut pg_sys::EState,
+        planstate: *mut pg_sys::PlanState,
+    ) {
+        if self.has_postgres_expressions() || self.has_heap_filters() {
+            // we have some runtime Postgres expressions/sub-queries that need to be evaluated
+            //
+            // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
+            // make a new one and swap some pointers around
+
+            // hold onto the planstate's current ExprContext
+            // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
+            let stdecontext = (*planstate).ps_ExprContext;
+
+            // assign a new one
+            pg_sys::ExecAssignExprContext(estate, planstate);
+
+            // and restore our planstate's original ExprContext
+            (*planstate).ps_ExprContext = stdecontext;
+        }
+    }
+
+    fn init_search_query_input(&mut self) {}
+
+    fn prepare_query_for_execution(
+        &mut self,
+        planstate: *mut pg_sys::PlanState,
+        expr_context: *mut pg_sys::ExprContext,
+    ) {
+        self.init_search_query_input();
+        if self.has_postgres_expressions() {
+            self.init_postgres_expressions(planstate);
+            self.solve_postgres_expressions(expr_context);
+        }
+    }
+}

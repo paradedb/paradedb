@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760106821336,
+  "lastUpdate": 1760106824437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9310,6 +9310,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.75452681333195, max segment_count: 106.0, count: 57546"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d83f2888d60760ce3ab8c71ac24749d018604ce7",
+          "message": "feat: Introduce `TokenLengthFilter` (#3309)\n\n# Ticket(s) Closed\n\n- Closes #3280 \n\n## What\n\nIntroduces a `TokenLengthFilter`, which is like Tantivy's\n`RemoveLongFilter` but has a min and max threshold. This enables a new\nfilter, `remove_short`, which removes tokens below a certain byte\nthreshold.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T09:38:04-04:00",
+          "tree_id": "51697ab88c096b3ab284e210fec8ec1eb9b425c4",
+          "url": "https://github.com/paradedb/paradedb/commit/d83f2888d60760ce3ab8c71ac24749d018604ce7"
+        },
+        "date": 1760106822624,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.05379314598194, max cpu: 42.72997, count: 57806"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 225.57054448554217, max mem: 228.0078125, count: 57806"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.44749923102865, max cpu: 33.103447, count: 57806"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 162.10513168507595, max mem: 163.65234375, count: 57806"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24451,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23335.973722450955, max block_count: 26355.0, count: 57806"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.85530913745978, max segment_count: 106.0, count: 57806"
           }
         ]
       }

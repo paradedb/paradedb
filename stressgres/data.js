@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760109429746,
+  "lastUpdate": 1760109432646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10342,6 +10342,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.70980569993372, max segment_count: 107.0, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "051f1c91e005cf94328dff488aaa4ba9b9b89703",
+          "message": "feat: Introduce `AlphaNumOnly` filter (#3315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA new filter that removes tokens containing non ASCII letters and\ndigits.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T10:48:38-04:00",
+          "tree_id": "95691fe3913334da5c80c710f3451542e0fa7327",
+          "url": "https://github.com/paradedb/paradedb/commit/051f1c91e005cf94328dff488aaa4ba9b9b89703"
+        },
+        "date": 1760109430798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.991098,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.003099367836473, max cpu: 43.373497, count: 57352"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.96434463924535, max mem: 228.43359375, count: 57352"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.46950269254096, max cpu: 33.136093, count: 57352"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.48469552609325, max mem: 164.51171875, count: 57352"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24343,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23212.530304087042, max block_count: 25941.0, count: 57352"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.21805691170317, max segment_count: 105.0, count: 57352"
           }
         ]
       }

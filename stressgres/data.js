@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760111095467,
+  "lastUpdate": 1760115948290,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2500,6 +2500,72 @@ window.BENCHMARK_DATA = {
             "value": 142.07717321885005,
             "unit": "median tps",
             "extra": "avg tps: 184.60730951890568, max tps: 935.164135333213, count: 55186"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a76307ca857dcc777e216b9b95fa4475ebd4660b",
+          "message": "chore: rename `pdb.exact` to `pdb.literal` (#3318)\n\n## What\n\nRenames the new `pdb.exact` tokenizer to `pdb.literal`.\n\n## Why\n\nI think `literal` makes a lot more sense and is a generally more common\nway to describe a static value and this is our only opportunity to\nchange it before we release.\n\n## How\n\nThe power of search and replace\n\n## Tests\n\nA number of regression tests and their outputs needed to be adjusted",
+          "timestamp": "2025-10-10T12:49:27-04:00",
+          "tree_id": "0f09e5973f3d1e67f1b8ccd627d5ca4d4c0c28ba",
+          "url": "https://github.com/paradedb/paradedb/commit/a76307ca857dcc777e216b9b95fa4475ebd4660b"
+        },
+        "date": 1760115946283,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 799.3015535011077,
+            "unit": "median tps",
+            "extra": "avg tps: 798.2460450292457, max tps: 862.9877279845423, count: 55228"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3374.812249729257,
+            "unit": "median tps",
+            "extra": "avg tps: 3341.642549786506, max tps: 3393.7716734952137, count: 55228"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 777.5056265621789,
+            "unit": "median tps",
+            "extra": "avg tps: 777.1829021757075, max tps: 870.3597375011609, count: 55228"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 680.9511898168586,
+            "unit": "median tps",
+            "extra": "avg tps: 679.5797154570491, max tps: 718.1736720404525, count: 55228"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1723.7270092005733,
+            "unit": "median tps",
+            "extra": "avg tps: 1708.5448352367262, max tps: 1738.0937671160143, count: 110456"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1272.5962440668397,
+            "unit": "median tps",
+            "extra": "avg tps: 1268.2127529395193, max tps: 1289.1451927462488, count: 55228"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 111.261886710388,
+            "unit": "median tps",
+            "extra": "avg tps: 116.16071282753391, max tps: 581.5768098185674, count: 55228"
           }
         ]
       }

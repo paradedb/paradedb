@@ -16,19 +16,19 @@ Fuzziness is supported for [match](/v2/full-text/match) and [term](/v2/full-text
 -- Fuzzy match disjunction
 SELECT id, description
 FROM mock_items
-WHERE description ||| 'runing shose'::fuzzy(2)
+WHERE description ||| 'runing shose'::pdb.fuzzy(2)
 LIMIT 5;
 
 -- Fuzzy match conjunction
 SELECT id, description
 FROM mock_items
-WHERE description &&& 'runing shose'::fuzzy(2)
+WHERE description &&& 'runing shose'::pdb.fuzzy(2)
 LIMIT 5;
 
 -- Fuzzy Term
 SELECT id, description
 FROM mock_items
-WHERE description === 'shose'::fuzzy(2)
+WHERE description === 'shose'::pdb.fuzzy(2)
 LIMIT 5;
 ```
 
@@ -57,7 +57,7 @@ To treat the query string as a prefix, set the second argument of `fuzzy` to eit
 ```sql
 SELECT id, description
 FROM mock_items
-WHERE description === 'rann'::fuzzy(1, t)
+WHERE description === 'rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
@@ -71,7 +71,7 @@ For instance, the following query means "find all documents containing the fuzzy
 ```sql
 SELECT id, description
 FROM mock_items
-WHERE description &&& 'slee rann'::fuzzy(1, t)
+WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
@@ -83,7 +83,7 @@ cost of a transposition to `1`:
 ```sql
 SELECT id, description
 FROM mock_items
-WHERE description === 'shose'::fuzzy(1, f, t)
+WHERE description === 'shose'::pdb.fuzzy(1, f, t)
 LIMIT 5;
 ```
 

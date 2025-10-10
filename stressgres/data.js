@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760116680057,
+  "lastUpdate": 1760117430435,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12454,6 +12454,54 @@ window.BENCHMARK_DATA = {
             "value": 6.065483012998717,
             "unit": "median tps",
             "extra": "avg tps: 6.070900257528507, max tps: 7.53451762187297, count: 56170"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a76307ca857dcc777e216b9b95fa4475ebd4660b",
+          "message": "chore: rename `pdb.exact` to `pdb.literal` (#3318)\n\n## What\n\nRenames the new `pdb.exact` tokenizer to `pdb.literal`.\n\n## Why\n\nI think `literal` makes a lot more sense and is a generally more common\nway to describe a static value and this is our only opportunity to\nchange it before we release.\n\n## How\n\nThe power of search and replace\n\n## Tests\n\nA number of regression tests and their outputs needed to be adjusted",
+          "timestamp": "2025-10-10T12:49:27-04:00",
+          "tree_id": "0f09e5973f3d1e67f1b8ccd627d5ca4d4c0c28ba",
+          "url": "https://github.com/paradedb/paradedb/commit/a76307ca857dcc777e216b9b95fa4475ebd4660b"
+        },
+        "date": 1760117428643,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 460.1710859250719,
+            "unit": "median tps",
+            "extra": "avg tps: 447.0214764549932, max tps: 508.51790684155117, count: 56196"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 489.08703445960435,
+            "unit": "median tps",
+            "extra": "avg tps: 483.15808697815686, max tps: 507.27012499592087, count: 56196"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 941.3636819759945,
+            "unit": "median tps",
+            "extra": "avg tps: 917.8030902239178, max tps: 1189.1743970155742, count: 56196"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.917247974431455,
+            "unit": "median tps",
+            "extra": "avg tps: 5.94373875674955, max tps: 7.565429846994628, count: 56196"
           }
         ]
       }

@@ -1364,3 +1364,82 @@ AS 'MODULE_PATHNAME', 'jsonb_to_ngram_wrapper';
 
 CREATE CAST (json AS pdb.ngram) WITH FUNCTION pdb.json_to_ngram AS ASSIGNMENT;
 CREATE CAST (jsonb AS pdb.ngram) WITH FUNCTION pdb.jsonb_to_ngram AS ASSIGNMENT;
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- creates:
+--   Type(pg_search::api::tokenizers::definitions::pdb::Raw)
+            CREATE TYPE pdb.raw;
+CREATE OR REPLACE FUNCTION pdb.raw_in(cstring) RETURNS pdb.raw AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.raw_out(pdb.raw) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.raw_send(pdb.raw) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.raw_recv(internal) RETURNS pdb.raw AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.raw (
+                INPUT = pdb.raw_in,
+                OUTPUT = pdb.raw_out,
+                SEND = pdb.raw_send,
+                RECEIVE = pdb.raw_recv,
+                COLLATABLE = true,
+                CATEGORY = 't', -- 't' is for tokenizer
+                PREFERRED = false,
+                LIKE = text
+            );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   generic_typmod_in
+--   generic_typmod_out
+--   raw_definition
+ALTER TYPE pdb.raw SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::tokenize_raw
+CREATE  FUNCTION pdb."tokenize_raw"(
+	"s" pdb.raw /* pg_search::api::tokenizers::definitions::pdb::Raw */
+) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'tokenize_raw_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   raw_definition
+--   tokenize_raw
+CREATE CAST (pdb.raw AS TEXT[]) WITH FUNCTION pdb.tokenize_raw AS IMPLICIT;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::jsonb_to_raw
+-- requires:
+--   tokenize_raw
+CREATE  FUNCTION pdb."jsonb_to_raw"(
+	"jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
+) RETURNS pdb.raw /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Raw> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'jsonb_to_raw_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::json_to_raw
+-- requires:
+--   tokenize_raw
+CREATE  FUNCTION pdb."json_to_raw"(
+	"json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
+) RETURNS pdb.raw /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Raw> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'json_to_raw_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   raw_definition
+--   json_to_raw
+--   jsonb_to_raw
+        CREATE CAST (json AS pdb.raw) WITH FUNCTION pdb.json_to_raw AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.raw) WITH FUNCTION pdb.jsonb_to_raw AS ASSIGNMENT;

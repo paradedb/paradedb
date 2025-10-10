@@ -264,11 +264,6 @@ macro_rules! add_filters {
 pub enum SearchTokenizer {
     Default(SearchTokenizerFilters),
     Keyword,
-
-    #[deprecated(
-        since = "0.15.17",
-        note = "use the `SearchTokenizer::Keyword` variant instead"
-    )]
     Raw(SearchTokenizerFilters),
     WhiteSpace(SearchTokenizerFilters),
     RegexTokenizer {
@@ -379,12 +374,6 @@ impl SearchTokenizer {
             SearchTokenizer::WhiteSpace(filters) => {
                 add_filters!(WhitespaceTokenizer::default(), filters)
             }
-            // this Tokenizer is deprecated because it's bugged. `filters.lower_caser()` provides defaults, but that is the
-            // opposite of what the `raw` tokenizer should do.
-            //
-            // the decision was made to introduce the `keyword` tokenizer which does the correct thing
-            // that is, doesn't mutate the input tokens
-            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => {
                 add_filters!(RawTokenizer::default(), filters)
             }

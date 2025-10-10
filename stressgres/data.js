@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760126200351,
+  "lastUpdate": 1760126487490,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20482,6 +20482,60 @@ window.BENCHMARK_DATA = {
             "value": 18.513549879877644,
             "unit": "median tps",
             "extra": "avg tps: 18.58273831835045, max tps: 19.31331335710659, count: 55436"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "722f1c4094a56dce00cf6388bc73b31176c03474",
+          "message": "chore: add `const`, `pdb.all` and `pdb.empty` [v2 API] (#3323)\n\n# Ticket(s) Closed\n\n- Closes #3301 (except for the MLT and disjunction_max points)\n\n## What\n\n- Add two new functions, `pdb.all()` and `pdb.empty()` to mirror what's\nalready in the `paradedb` schema.\n- Add a new `::pdb.const` type that works exactly the same as\n`::pdb.boost` but applies a constant score instead.\n\n## Why\n\nGeneral cleanup and consistency.\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T15:06:00-04:00",
+          "tree_id": "55ec131cec74c7b31e9de1508f1850c2bd8ce742",
+          "url": "https://github.com/paradedb/paradedb/commit/722f1c4094a56dce00cf6388bc73b31176c03474"
+        },
+        "date": 1760126485726,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.90433470829823,
+            "unit": "median tps",
+            "extra": "avg tps: 37.183654811372, max tps: 41.243610781309954, count: 55467"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 251.46511775415323,
+            "unit": "median tps",
+            "extra": "avg tps: 287.426533688291, max tps: 2958.615381151023, count: 55467"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1000.3947236266308,
+            "unit": "median tps",
+            "extra": "avg tps: 1005.3402277832826, max tps: 1038.412596023667, count: 55467"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.2937432141141,
+            "unit": "median tps",
+            "extra": "avg tps: 156.33359692181642, max tps: 872.2914028801925, count: 110934"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.25537912620074,
+            "unit": "median tps",
+            "extra": "avg tps: 19.535910009961786, max tps: 23.77652067790506, count: 55467"
           }
         ]
       }

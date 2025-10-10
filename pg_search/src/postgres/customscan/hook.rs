@@ -253,7 +253,23 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 
             if let Some(path) = path_result {
                 pgrx::warning!("  Created custom path for window aggregates");
+                
+                // Debug: check what paths exist on output_rel before and after
+                let pathlist = PgList::<pg_sys::Path>::from_pg((*output_rel).pathlist);
+                pgrx::warning!("  output_rel has {} existing paths before add_path", pathlist.len());
+                for (i, existing_path) in pathlist.iter_ptr().enumerate() {
+                    pgrx::warning!("    Path {}: type={:?}, cost={}", 
+                        i, (*existing_path).type_, (*existing_path).total_cost);
+                }
+                
                 add_path(output_rel, path);
+                
+                let pathlist_after = PgList::<pg_sys::Path>::from_pg((*output_rel).pathlist);
+                pgrx::warning!("  output_rel has {} paths after add_path", pathlist_after.len());
+                for (i, existing_path) in pathlist_after.iter_ptr().enumerate() {
+                    pgrx::warning!("    Path {} after: type={:?}, cost={}", 
+                        i, (*existing_path).type_, (*existing_path).total_cost);
+                }
             } else {
                 pgrx::warning!("  Could not create custom path for window aggregates");
             }

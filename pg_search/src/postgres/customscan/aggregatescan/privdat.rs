@@ -436,6 +436,7 @@ pub struct GroupingColumn {
 pub enum TargetListEntry {
     GroupingColumn(usize), // Index into grouping_columns vec
     Aggregate(usize),      // Index into aggregate_types vec
+    PassThrough,           // For window functions - pass through from base scan
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

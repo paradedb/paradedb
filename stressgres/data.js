@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760121738631,
+  "lastUpdate": 1760121742070,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7678,6 +7678,126 @@ window.BENCHMARK_DATA = {
             "value": 145.6640625,
             "unit": "median mem",
             "extra": "avg mem: 124.8055932398512, max mem: 150.4140625, count: 55376"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6f91a97a4055077ce0f6eacb06290cb8699379c",
+          "message": "perf: Introduce a mutable segment type (#3203)\n\n## What\n\nIntroduce an optional mutable segment type containing only a list of\nctids, which are then indexed at read time.\n\n## Why\n\nParadeDB excels at batch inserts, but for single-row INSERT/UPDATE\nstatements, we currently create single-document Tantivy segments.\n\nThese tiny segments have a few problems:\n\n- They consist of up to 8 \"files\" which are represented as\n`LinkedBytesList`s: the minimum overhead of each file is two Postgres\nblocks (one for the content, and one for a random-access index). Many of\nthose blocks will be mostly-empty for a single document segment.\n- They increase write amplification. For example: starting from a 1kb\nsegment means that it takes two merges/compactions to get to 100kb,\nrepresenting a 3x write amplification to write 100kb of data.\n- They require very rapid updates to the `SegmentMetaEntry`s list: all\ninserts insert a new entry, and frequent inserts mean more frequent\nmerges which also mutate that list.\n- Tantivy indexing is relatively fast, but is especially optimized to\noperate as a batch process: a single document index technically doesn't\nactually need many of the structures that it contains (there is no need\nfor a DocId because all storage could be boolean, etc).\n\n## How\n\nA mutable segment is read-time indexed when it is loaded (in `mvcc.rs`),\nand up to `mutable_segment_rows` rows are inserted into each mutable\nsegment. Mutable segments are disabled by default, but\n`mutable_segment_rows=1000` results in no change to Top-N performance on\nthe `wide-table` benchmark, and three times faster insert / update\nperformance.\n\n`SegmentMetaEntry` is bincoded to be stored in the `LinkedItemList` of\nentries: to introduce a second variant, we convert a field which became\n`SegmentMetaEntry::_unused` in version `0.15.18` into a tag. The`\n_unused` field [was previously used to store an xmin\nvalue](http://github.com/paradedb/paradedb/pull/2487). We treat previous\nlegal values of that tag as representing the legacy encoding.\n\nThe insert path defaults to allowing up to `mutable_segment_rows`\ninserts to be made into a mutable segment. If more than\n`mutable_segment_rows` inserts arrive in the same `aminsert`, we switch\nto creating immutable segments for the remainder of that `aminsert`.",
+          "timestamp": "2025-10-10T11:24:19-07:00",
+          "tree_id": "3f09dacf09a775b76929cda9047d4abf4c7c8e78",
+          "url": "https://github.com/paradedb/paradedb/commit/b6f91a97a4055077ce0f6eacb06290cb8699379c"
+        },
+        "date": 1760121740267,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.868778767224074, max cpu: 14.215202, count: 55349"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.8203872388164, max mem: 155.12109375, count: 55349"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552044069415633, max cpu: 9.275363, count: 55349"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.576773349563677, max mem: 31.2421875, count: 55349"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8511418516050275, max cpu: 13.9265, count: 55349"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.62639378365012, max mem: 155.51171875, count: 55349"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.45313762146041, max cpu: 4.743083, count: 55349"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 156.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.9402238381678, max mem: 156.53125, count: 55349"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671856488112998, max cpu: 9.476802, count: 110698"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.68220035451182, max mem: 157.44921875, count: 110698"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28405,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28482.24466566695, max block_count: 55065.0, count: 55349"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.40448788596, max segment_count: 58.0, count: 55349"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.64108699894105, max cpu: 9.248554, count: 55349"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.05331164237384, max mem: 158.95703125, count: 55349"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.314845865250212, max cpu: 4.6511626, count: 55349"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 128.1130753830241, max mem: 152.59375, count: 55349"
           }
         ]
       }

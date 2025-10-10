@@ -84,6 +84,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
+static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -230,6 +231,17 @@ pub fn init() {
         GucContext::Sighup,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.global_mutable_segment_rows",
+        c"a global mutable segment rows override",
+        c"Setting this to a non-zero value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
+        &GLOBAL_MUTABLE_SEGMENT_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -347,6 +359,15 @@ pub fn max_term_agg_buckets() -> i32 {
 
 pub fn topn_retry_scale_factor() -> i32 {
     TOPN_RETRY_SCALE_FACTOR.get()
+}
+
+pub fn global_mutable_segment_rows() -> Option<NonZeroUsize> {
+    let value = GLOBAL_MUTABLE_SEGMENT_ROWS.get();
+    if value > 0 {
+        NonZeroUsize::new(value as usize)
+    } else {
+        None
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

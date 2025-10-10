@@ -58,13 +58,13 @@ use std::ops::{Deref, DerefMut};
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
 // +-------------------------------------------------------------+
 
-pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
+pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone> {
     pub header_blockno: pg_sys::BlockNumber,
     bman: BufferManager,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedList for LinkedItemList<T> {
     fn get_header_blockno(&self) -> pg_sys::BlockNumber {
         self.header_blockno
     }
@@ -84,7 +84,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub fn open(indexrel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
             header_blockno,
@@ -190,7 +190,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         true
     }
 
-    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T> {
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T>
+    where
+        T: MVCCEntry,
+    {
         // Delete all items that are definitely dead
         self.retain(when_recyclable, |bman, entry| {
             if entry.recyclable(bman) {
@@ -201,13 +204,33 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         })
     }
 
-    ///
+    /// Return the freeable blocks of this list, including the header block.
+    pub fn freeable_blocks(self) -> impl Iterator<Item = pg_sys::BlockNumber> {
+        unsafe {
+            let (blockno, _) = self.get_start_blockno();
+            std::iter::once(self.header_blockno)
+                .chain(Self::freeable_blocks_without_header(self.bman, blockno))
+        }
+    }
+
+    unsafe fn freeable_blocks_without_header(
+        bman: BufferManager,
+        start_blockno: pg_sys::BlockNumber,
+    ) -> impl Iterator<Item = pg_sys::BlockNumber> {
+        let mut blockno = start_blockno;
+        std::iter::from_fn(move || {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+            let freeable_blockno = blockno;
+            let buffer = bman.get_buffer(blockno);
+            blockno = buffer.page().next_blockno();
+            Some(freeable_blockno)
+        })
+    }
+
     /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
     /// the list of removed entries.
-    ///
-    /// Note that this method will necessarily write WAL entries for every buffer in the list,
-    /// because it must acquire each buffer as mutable.
-    ///
     pub unsafe fn retain(
         &mut self,
         when_recyclable: pg_sys::FullTransactionId,
@@ -273,9 +296,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         recycled_entries
     }
 
-    ///
     /// Visit each entry, without mutating entries or the list structure.
-    ///
     pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
         let (mut blockno, mut buffer) = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
@@ -293,6 +314,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
+    /// Adds the given items to the list.
     pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
         let mut buffer = if let Some(buffer) = buffer {
             buffer
@@ -329,21 +351,86 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
+    /// Removes the first item which matches the given comparison function.
     pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
-        let (entry, blockno, offsetno) = self.lookup_ex(cmp)?;
+        // Acquire and hold a shared lock on the header for the entire operation, preventing the
+        // list from being swapped out from under us by atomically between our read locks and
+        // our write locks.
+        let _header_lock = self.bman.get_buffer(self.header_blockno);
 
-        let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
-        let mut page = buffer.page_mut();
-        page.delete_item(offsetno);
+        loop {
+            // Search while holding read locks.
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
 
-        Ok(entry)
+            // Acquire a write lock (a cleanup lock in particular, because we're shortening the
+            // page), and double check that we're still looking at the correct item.
+            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
+            let mut page = buffer.page_mut();
+            match page.deserialize_item::<T>(offsetno) {
+                Some((item, _)) if cmp(&item) => {
+                    page.delete_item(offsetno);
+
+                    return Ok(item);
+                }
+                _ => {
+                    // The page was mutated before we could acquire our cleanup lock. Continue to
+                    // retry.
+                    continue;
+                }
+            }
+        }
     }
 
-    #[allow(dead_code)]
+    /// Updates the first item which matches the given comparison function.
+    ///
+    /// The update function must result in an item which serializes to the same size as the input.
+    /// TODO: We don't have any use cases for supporting changed sizes, but it's possible to add
+    /// it.
+    pub unsafe fn update_item<Cmp: Fn(&T) -> bool, Update: FnOnce(&mut T)>(
+        &mut self,
+        cmp: Cmp,
+        update: Update,
+    ) -> Result<()> {
+        // Acquire and hold a shared lock on the header for the entire operation, preventing the
+        // list from being swapped out from under us by atomically between our read locks and
+        // our write locks.
+        let _header_lock = self.bman.get_buffer(self.header_blockno);
+
+        loop {
+            // Search while holding read locks.
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
+
+            // Acquire a write lock, and double check that we're still looking at the correct item.
+            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let mut page = buffer.page_mut();
+            match page.deserialize_item::<T>(offsetno) {
+                Some((mut item, old_size)) if cmp(&item) => {
+                    // We've confirmed that we've found the right item: now update it.
+                    update(&mut item);
+
+                    let PgItem(pg_item, size) = item.into();
+                    assert_eq!(old_size, size, "`update_item` does not support updating items in ways which change their sizes.");
+                    let replaced = page.replace_item(offsetno, pg_item, size);
+                    // This should not be possible because we checked that the size did not change,
+                    // but confirm it anyway.
+                    assert!(replaced, "Failed to replace item.");
+                    return Ok(());
+                }
+                _ => {
+                    // The page was mutated before we could acquire our cleanup lock. Continue to
+                    // retry.
+                    continue;
+                }
+            }
+        }
+    }
+
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
         self.lookup_ex(cmp).map(|(t, _, _)| t)
     }
 
+    /// NOTE: It is not safe to make a mutation based on the result of this method without
+    /// double checking that it is still accurate under a write lock.
     pub unsafe fn lookup_ex<Cmp: Fn(&T) -> bool>(
         &self,
         cmp: Cmp,
@@ -463,12 +550,12 @@ pub enum RetainItem<T> {
     Retain,
 }
 
-pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
+pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone> {
     original: Option<(&'s mut LinkedItemList<T>, BufferMut)>,
     cloned: LinkedItemList<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Deref for AtomicGuard<'_, T> {
     type Target = LinkedItemList<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -476,19 +563,19 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for Atomi
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> DerefMut for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> DerefMut for AtomicGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cloned
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
     pub fn commit(mut self) {
         let (original, mut original_header_lock) =
             self.original.take().expect("Cannot commit twice!");
 
         // Update our header page to point to the new start block, and return the old one.
-        let mut blockno = {
+        let start_blockno = {
             // The metadata from the cloned header is the one we want to become the new header for everyone
             let cloned_header_metadata = self
                 .cloned
@@ -511,16 +598,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         };
 
         // And then collect our old contents, which are no longer reachable.
-        let recyclable_blocks = std::iter::from_fn(move || {
-            if blockno == pg_sys::InvalidBlockNumber {
-                return None;
-            }
-            let recyclable_blockno = blockno;
-            let buffer = original.bman.get_buffer(blockno);
-            blockno = buffer.page().next_blockno();
-            Some(recyclable_blockno)
-        })
-        .chain(std::iter::once(self.cloned.header_blockno));
+        let recyclable_blocks = unsafe {
+            LinkedItemList::<T>::freeable_blocks_without_header(
+                original.bman.clone(),
+                start_blockno,
+            )
+            .chain(std::iter::once(self.cloned.header_blockno))
+        };
         self.bman.fsm().extend_with_when_recyclable(
             &mut self.bman,
             unsafe { pg_sys::ReadNextFullTransactionId() },
@@ -529,7 +613,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T> {
     fn drop(&mut self) {
         if self.original.is_none() {
             // We committed successfully.
@@ -554,13 +638,12 @@ mod tests {
     use crate::api::HashSet;
     use pgrx::prelude::*;
     use tantivy::index::SegmentId;
-    use uuid::Uuid;
 
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry};
+    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable};
 
     fn random_segment_id() -> SegmentId {
-        SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
+        SegmentId::generate_random()
     }
 
     fn linked_list_block_numbers(
@@ -586,18 +669,24 @@ mod tests {
         let delete_xid = pg_sys::FrozenTransactionId;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
-        let entries_to_delete = vec![SegmentMetaEntry {
-            segment_id: random_segment_id(),
-            xmax: delete_xid,
-            postings: Some(make_fake_postings(&indexrel)),
-            ..Default::default()
-        }];
-        let entries_to_keep = vec![SegmentMetaEntry {
-            segment_id: random_segment_id(),
-            xmax: pg_sys::InvalidTransactionId,
-            postings: Some(make_fake_postings(&indexrel)),
-            ..Default::default()
-        }];
+        let entries_to_delete = vec![SegmentMetaEntry::new_immutable(
+            random_segment_id(),
+            0,
+            delete_xid,
+            SegmentMetaEntryImmutable {
+                postings: Some(make_fake_postings(&indexrel)),
+                ..Default::default()
+            },
+        )];
+        let entries_to_keep = vec![SegmentMetaEntry::new_immutable(
+            random_segment_id(),
+            0,
+            pg_sys::InvalidTransactionId,
+            SegmentMetaEntryImmutable {
+                postings: Some(make_fake_postings(&indexrel)),
+                ..Default::default()
+            },
+        )];
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
@@ -606,10 +695,10 @@ mod tests {
         });
 
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
+            .lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
             .is_err());
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_keep[0].segment_id)
+            .lookup(|entry| entry.segment_id() == entries_to_keep[0].segment_id())
             .is_ok());
     }
 
@@ -625,15 +714,20 @@ mod tests {
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries = (1..2000)
-                .map(|i| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: if i % 10 == 0 {
-                        deleted_xid
-                    } else {
-                        not_deleted_xid
-                    },
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|i| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        if i % 10 == 0 {
+                            deleted_xid
+                        } else {
+                            not_deleted_xid
+                        },
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
 
@@ -643,11 +737,13 @@ mod tests {
             });
 
             for entry in entries {
-                if entry.xmax == not_deleted_xid {
-                    assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
+                if entry.xmax() == not_deleted_xid {
+                    assert!(list
+                        .lookup(|el| el.segment_id() == entry.segment_id())
+                        .is_ok());
                 } else {
                     assert!(list
-                        .lookup_ex(|el| el.segment_id == entry.segment_id)
+                        .lookup_ex(|el| el.segment_id() == entry.segment_id())
                         .is_err());
                 }
             }
@@ -656,31 +752,46 @@ mod tests {
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries_1 = (1..500)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        not_deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
             list.add_items(&entries_1, None);
 
             let entries_2 = (1..1000)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
             list.add_items(&entries_2, None);
 
             let entries_3 = (1..500)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        not_deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
 
@@ -693,13 +804,13 @@ mod tests {
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
-                    if entry.xmax == not_deleted_xid {
+                    if entry.xmax() == not_deleted_xid {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
                             .is_ok());
                     } else {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
                             .is_err());
                     }
                 }
@@ -719,11 +830,16 @@ mod tests {
         // Add 2000 entries.
         let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
         let entries = (1..2000)
-            .map(|_| SegmentMetaEntry {
-                segment_id: random_segment_id(),
-                xmax: pg_sys::InvalidTransactionId,
-                postings: Some(make_fake_postings(&indexrel)),
-                ..Default::default()
+            .map(|_| {
+                SegmentMetaEntry::new_immutable(
+                    random_segment_id(),
+                    0,
+                    pg_sys::InvalidTransactionId,
+                    SegmentMetaEntryImmutable {
+                        postings: Some(make_fake_postings(&indexrel)),
+                        ..Default::default()
+                    },
+                )
             })
             .collect::<Vec<_>>();
 

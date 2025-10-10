@@ -22,6 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::options::BM25IndexOptions;
+pub use crate::postgres::utils::FieldSource;
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -172,7 +173,9 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
 #[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
+    pub source: FieldSource,
     pub base_oid: PgOid,
+    pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
 }
@@ -274,12 +277,14 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
+            let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
             for (
                 attname,
                 ExtractedFieldAttribute {
                     attno,
+                    source,
                     tantivy_type,
                     inner_typoid,
                     ..
@@ -305,6 +310,7 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
+                    let is_key_field = key_field_name == *search_field.field_name();
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
@@ -313,7 +319,9 @@ impl SearchIndexSchema {
                         search_field,
                         CategorizedFieldData {
                             attno: *attno,
+                            source: *source,
                             base_oid,
+                            is_key_field,
                             is_array,
                             is_json,
                         },

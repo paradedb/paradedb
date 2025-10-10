@@ -5,47 +5,37 @@ use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
 
-/// Helper function to verify that a query plan uses ParadeDB's custom scan operator
-/// This checks if the plan node is either:
-/// 1. A "Custom Scan" node directly, or
-/// 2. A "Gather" node with a "Custom Scan" child node
+/// Helper function to verify that a query plan uses ParadeDB's custom scan operator.
+/// It recursively searches the plan and asserts that exactly one "Custom Scan" node is found.
 #[track_caller]
 fn verify_custom_scan(plan: &Value, description: &str) {
-    let plan_node = plan
-        .pointer("/0/Plan/Plans/0")
-        .unwrap_or_else(|| panic!("Could not find plan node in: {plan:?}"))
-        .as_object()
-        .unwrap();
+    fn find_custom_scan_nodes<'a>(plan_node: &'a Value, nodes: &mut Vec<&'a Value>) {
+        if let Some(obj) = plan_node.as_object() {
+            if let Some("Custom Scan") = obj.get("Node Type").and_then(Value::as_str) {
+                nodes.push(plan_node);
+            }
 
-    let node_type = plan_node
-        .get("Node Type")
-        .unwrap_or_else(|| panic!("Could not find Node Type in plan node"))
-        .as_str()
-        .unwrap();
-
-    if node_type == "Custom Scan" {
-        assert_eq!("Custom Scan", node_type, "{description}");
-    } else {
-        assert_eq!(
-            "Gather", node_type,
-            "Expected either Custom Scan or Gather but got {node_type}"
-        );
-        let child_node = plan_node
-            .get("Plans")
-            .unwrap_or_else(|| panic!("Could not find child plans in Gather node"))
-            .as_array()
-            .unwrap()
-            .first()
-            .unwrap()
-            .as_object()
-            .unwrap();
-
-        assert_eq!(
-            "Custom Scan",
-            child_node.get("Node Type").unwrap().as_str().unwrap(),
-            "Child node of Gather should be Custom Scan for {description}"
-        );
+            if let Some(plans) = obj.get("Plans").and_then(Value::as_array) {
+                for child_plan in plans {
+                    find_custom_scan_nodes(child_plan, nodes);
+                }
+            }
+        }
     }
+
+    let root_plan_node = plan
+        .pointer("/0/Plan")
+        .unwrap_or_else(|| panic!("Could not find plan node in: {plan:?}"));
+
+    let mut custom_scan_nodes = Vec::new();
+    find_custom_scan_nodes(root_plan_node, &mut custom_scan_nodes);
+
+    assert_eq!(
+        1,
+        custom_scan_nodes.len(),
+        "Expected to find exactly one Custom Scan node for '{description}', but found {}. Plan: {plan:#?}",
+        custom_scan_nodes.len()
+    );
 }
 
 #[rstest]

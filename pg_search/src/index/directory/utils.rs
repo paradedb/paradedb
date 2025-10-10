@@ -3,16 +3,15 @@ use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
+    SegmentMetaEntryImmutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use tantivy::index::SegmentComponent;
 use tantivy::{
-    index::{DeleteMeta, IndexSettings, InnerSegmentMeta, SegmentId, SegmentMetaInventory},
+    index::{IndexSettings, SegmentId, SegmentMetaInventory},
     schema::Schema,
     IndexMeta,
 };
@@ -117,25 +116,26 @@ pub unsafe fn save_new_metas(
             let created_segment = incoming_segments.get(id).unwrap();
             let mut files = new_files.remove(id)?;
 
-            let meta_entry = SegmentMetaEntry {
-                segment_id: *id,
-                max_doc: created_segment.max_doc(),
-                _unused: pg_sys::InvalidTransactionId,
-                xmax: pg_sys::InvalidTransactionId,
-                postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
-                positions: files.remove(&SegmentComponent::Positions).map(|e| e.0),
-                fast_fields: files.remove(&SegmentComponent::FastFields).map(|e| e.0),
-                field_norms: files.remove(&SegmentComponent::FieldNorms).map(|e| e.0),
-                terms: files.remove(&SegmentComponent::Terms).map(|e| e.0),
-                store: files.remove(&SegmentComponent::Store).map(|e| e.0),
-                temp_store: files.remove(&SegmentComponent::TempStore).map(|e| e.0),
-                delete: files
-                    .remove(&SegmentComponent::Delete)
-                    .map(|(file_entry, _)| DeleteEntry {
-                        file_entry,
-                        num_deleted_docs: created_segment.num_deleted_docs(),
-                    }),
-            };
+            let meta_entry = SegmentMetaEntry::new_immutable(
+                *id,
+                created_segment.max_doc(),
+                pg_sys::InvalidTransactionId,
+                SegmentMetaEntryImmutable {
+                    postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
+                    positions: files.remove(&SegmentComponent::Positions).map(|e| e.0),
+                    fast_fields: files.remove(&SegmentComponent::FastFields).map(|e| e.0),
+                    field_norms: files.remove(&SegmentComponent::FieldNorms).map(|e| e.0),
+                    terms: files.remove(&SegmentComponent::Terms).map(|e| e.0),
+                    store: files.remove(&SegmentComponent::Store).map(|e| e.0),
+                    temp_store: files.remove(&SegmentComponent::TempStore).map(|e| e.0),
+                    delete: files
+                        .remove(&SegmentComponent::Delete)
+                        .map(|(file_entry, _)| DeleteEntry {
+                            file_entry,
+                            num_deleted_docs: created_segment.num_deleted_docs(),
+                        }),
+                },
+            );
 
             Some(meta_entry)
         })
@@ -160,7 +160,7 @@ pub unsafe fn save_new_metas(
 
             let existing_segment = incoming_segments.get(id).unwrap();
             let (mut meta_entry, blockno, _) = linked_list
-                .lookup_ex(|entry| entry.segment_id == *id)
+                .lookup_ex(|entry| entry.segment_id() == *id)
                 .unwrap_or_else(|e| {
                     panic!("segment id `{id}` should be in the segment meta linked list:  {e}")
                 });
@@ -168,16 +168,14 @@ pub unsafe fn save_new_metas(
                 .remove(&SegmentComponent::Delete)
                 .unwrap_or_else(|| panic!("missing new delete file for segment_id `{id}`"));
 
-            if meta_entry.delete.is_some() {
-                // remember the old delete_entry for future action
-                orphaned_deletes_files.push(meta_entry);
-            }
-
-            // replace (or set new) the delete_entry
-            meta_entry.delete = Some(DeleteEntry {
+            let deletes = DeleteEntry {
                 file_entry: new_delete_entry,
                 num_deleted_docs: existing_segment.num_deleted_docs(),
-            });
+            };
+            if let Some(old_entry) = meta_entry.replace_deletes(deletes) {
+                // remember the old delete_entry for future action
+                orphaned_deletes_files.push(old_entry);
+            }
 
             Some((meta_entry, blockno))
         })
@@ -193,7 +191,7 @@ pub unsafe fn save_new_metas(
         .into_iter()
         .map(|id| {
             let (mut meta_entry, blockno, _) = linked_list
-                .lookup_ex(|entry| entry.segment_id == *id)
+                .lookup_ex(|entry| entry.segment_id() == *id)
                 .unwrap_or_else(|e| {
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });
@@ -204,20 +202,15 @@ pub unsafe fn save_new_metas(
             assert!(pg_sys::IsTransactionState());
 
             assert!(
-                meta_entry.xmax == pg_sys::InvalidTransactionId,
+                meta_entry.xmax() == pg_sys::InvalidTransactionId,
                 "SegmentMetaEntry {} should not already be deleted",
-                meta_entry.segment_id
+                meta_entry.segment_id()
             );
 
             // deleted segments belong to a transaction that is known to not be in progress
             // and so when we mark them as deleted, it'll be with a transaction that is known to
             // not be in progress, the FrozenTransactionId.
-            //
-            // NB:  I think we could instead set `meta_entry.xmax = meta_entry.xmin` because the xmin
-            // is also know to not be in progress anymore, but using FrozenTransactionId is nice as
-            // it makes it clear when inspecting the segment meta entries list how this segment
-            // got marked deleted
-            meta_entry.xmax = pg_sys::FrozenTransactionId;
+            meta_entry.set_xmax(pg_sys::FrozenTransactionId);
 
             (meta_entry, blockno)
         })
@@ -243,16 +236,16 @@ pub unsafe fn save_new_metas(
 
     // delete old entries and their corresponding files -- happens only as the result of a merge
     for (entry, blockno) in &deleted_entries {
-        assert!(entry.xmax == pg_sys::FrozenTransactionId);
+        assert!(entry.xmax() == pg_sys::FrozenTransactionId);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
         let Some(offno) =
-            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id == entry.segment_id)
+            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id() == entry.segment_id())
         else {
             panic!(
                 "DELETE:  could not find SegmentMetaEntry for segment_id `{}` on block #{blockno}",
-                entry.segment_id
+                entry.segment_id()
             );
         };
 
@@ -269,11 +262,11 @@ pub unsafe fn save_new_metas(
         let mut buffer = linked_list.bman_mut().get_buffer_mut(blockno);
         let mut page = buffer.page_mut();
         let Some(offno) =
-            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id == entry.segment_id)
+            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id() == entry.segment_id())
         else {
             panic!(
                 "MODIFY:  could not find SegmentMetaEntry for segment_id `{}` on block #{blockno}",
-                entry.segment_id
+                entry.segment_id()
             );
         };
 
@@ -301,18 +294,10 @@ pub unsafe fn save_new_metas(
 
     if !orphaned_deletes_files.is_empty() {
         // if we have orphaned ".deletes" files, what we do with them is add a new, fake entry to
-        // the metas `linked_ist` for each one, where the fake entry is configured such that it's
+        // the metas `linked_list` for each one, where the fake entry is configured such that it's
         // immediately considered recyclable.  This will allow for a future garbage collection to
         // properly delete the blocks associated with the orphaned file
-        let fake_entries = orphaned_deletes_files
-            .into_iter()
-            .map(|old_entry| SegmentMetaEntry {
-                segment_id: SegmentId::from_bytes([0; 16]), // all zeros
-                xmax: pg_sys::FrozenTransactionId,          // immediately recyclable
-                ..old_entry
-            })
-            .collect::<Vec<_>>();
-        linked_list.add_items(&fake_entries, None);
+        linked_list.add_items(&orphaned_deletes_files, None);
     }
 
     // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
@@ -354,16 +339,16 @@ pub unsafe fn load_metas(
             // nobody sees recyclable segments
             let accept = !entry.recyclable(bman) && (
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id()))
 
                     // vacuum sees everything that hasn't been deleted by a merge
-                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
 
                     // a snapshot or ::LargestSegment can see any that are visible in its snapshot
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
 
                     // mergeable can see any that are known to be mergeable
-                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.is_mergeable(indexrel))
             );
             if !accept {
                 return;
@@ -389,17 +374,8 @@ pub unsafe fn load_metas(
 
             if need_entry {
                 pin_cushion.push(bman, &entry);
-                let inner_segment_meta = InnerSegmentMeta {
-                    max_doc: entry.max_doc,
-                    segment_id: entry.segment_id,
-                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                        num_deleted_docs: delete_entry.num_deleted_docs,
-                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                    }),
-                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-                };
 
-                alive_segments.push(inner_segment_meta.track(inventory));
+                alive_segments.push(entry.as_tantivy().track(inventory));
                 alive_entries.push(entry);
 
                 opstamp = opstamp.max(Some(entry.opstamp()));
@@ -426,7 +402,7 @@ pub unsafe fn load_metas(
                 // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
                 //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
                 let missing = only_these
-                    .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
+                    .difference(&alive_entries.iter().map(|s| s.segment_id()).collect())
                     .cloned()
                     .collect::<HashSet<SegmentId>>();
                 let found = only_these.difference(&missing).collect::<HashSet<_>>();
@@ -442,7 +418,7 @@ pub unsafe fn load_metas(
                 // exact expected segments.
                 let actual = alive_entries
                     .iter()
-                    .map(|s| s.segment_id)
+                    .map(|s| s.segment_id())
                     .collect::<HashSet<_>>();
                 assert_eq!(
                     &actual, only_these,

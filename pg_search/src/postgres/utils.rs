@@ -217,11 +217,20 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum FieldSource {
+    Heap { attno: usize },
+    Expression { att_idx: usize },
+}
+
 /// Represents the metadata extracted from an index attribute
 #[derive(Debug)]
 pub struct ExtractedFieldAttribute {
     /// its ordinal position in the index attribute list
     pub attno: usize,
+
+    /// its source in the heap: either a heap attno, or an expression index
+    pub source: FieldSource,
 
     /// its original Postgres type OID
     pub pg_type: PgOid,
@@ -243,15 +252,18 @@ pub unsafe fn extract_field_attributes(
     let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
     let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
-    let mut expressions_iter = expressions.iter_ptr();
+    let mut expressions_iter = expressions.iter_ptr().enumerate();
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid, att_typmod, expression, inner_typoid, normalizer) =
+        let (attname, attribute_type_oid, att_typmod, source, expression, inner_typoid, normalizer) =
             if heap_attno == 0 {
                 // Is an expression.
-                let Some(expression) = expressions_iter.next() else {
+                let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
+                };
+                let source = FieldSource::Expression {
+                    att_idx: expression_idx,
                 };
                 let node = expression.cast();
 
@@ -319,19 +331,20 @@ pub unsafe fn extract_field_attributes(
                     attname,
                     typoid,
                     typmod,
+                    source,
                     expression,
                     inner_typoid,
                     normalizer,
                 )
             } else {
                 // Is a field -- get the field name from the heap relation.
-                let att = heap_tupdesc
-                    .get(heap_attno as usize - 1)
-                    .expect("attribute should exist");
+                let attno = (heap_attno - 1) as usize;
+                let att = heap_tupdesc.get(attno).expect("attribute should exist");
                 (
                     att.name().to_owned(),
                     att.type_oid().value(),
                     att.type_mod(),
+                    FieldSource::Heap { attno },
                     None,
                     att.type_oid().value(),
                     None,
@@ -359,6 +372,7 @@ pub unsafe fn extract_field_attributes(
             attname.into(),
             ExtractedFieldAttribute {
                 attno: attno as usize,
+                source,
                 pg_type,
                 tantivy_type,
                 inner_typoid,
@@ -383,28 +397,32 @@ pub unsafe fn deparse_expr(heaprel: &PgSearchRelation, expr: Option<*mut pg_sys:
     CStr::from_ptr(deparsed).to_string_lossy().into_owned()
 }
 
-pub unsafe fn row_to_search_document(
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    key_field_name: &FieldName,
-    categorized_fields: &Vec<(SearchField, CategorizedFieldData)>,
+pub unsafe fn row_to_search_document<'a>(
+    categorized_fields: impl Iterator<
+        Item = (
+            pg_sys::Datum,
+            bool,
+            &'a SearchField,
+            &'a CategorizedFieldData,
+        ),
+    >,
     document: &mut tantivy::TantivyDocument,
 ) -> Result<(), IndexError> {
     for (
+        datum,
+        isnull,
         search_field,
         CategorizedFieldData {
-            attno,
             base_oid,
+            is_key_field,
             is_array,
             is_json,
+            ..
         },
     ) in categorized_fields
     {
-        let datum = *values.add(*attno);
-        let isnull = *isnull.add(*attno);
-
-        if isnull && key_field_name == search_field.field_name() {
-            return Err(IndexError::KeyIdNull(key_field_name.to_string()));
+        if isnull && *is_key_field {
+            return Err(IndexError::KeyIdNull(search_field.field_name().to_string()));
         }
 
         if isnull {
@@ -420,10 +438,8 @@ pub unsafe fn row_to_search_document(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            document.add_field_value(
-                search_field.field(),
-                &OwnedValue::from(TantivyValue::try_from_datum(datum, *base_oid)?),
-            );
+            let tv = TantivyValue::try_from_datum(datum, *base_oid)?;
+            document.add_field_value(search_field.field(), &OwnedValue::from(tv));
         }
     }
     Ok(())

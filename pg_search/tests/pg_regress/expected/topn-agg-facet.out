@@ -219,13 +219,13 @@ WARNING:  Injected Const node for window aggregate at index 3
 WARNING:  Computing 1 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x11d035e78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14981e278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x11d035e78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14981e278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x11d035e78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14981e278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -424,25 +424,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Avg { field: "field_7", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x10e01b688
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149826a88
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10e01b0f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498264f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x10e01b638
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826a38
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x10e01b688
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149826a88
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10e01b0f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498264f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x10e01b638
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826a38
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x10e01b688
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149826a88
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10e01b0f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498264f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x10e01b638
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826a38
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | total_count | total_price | avg_rating 
 ----+-------------+--------+-------+-------------+-------------+------------
@@ -792,19 +792,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x11880a3e8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149825be8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x11880a940
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x11880a3e8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x11880a940
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826140
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x11880a3e8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149825be8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x11880a940
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826140
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149825be8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149826140
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | min_price | max_price 
 ----+-------------+--------+-------+-----------+-----------
@@ -1536,14 +1536,14 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x11d03fa58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x149054858
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x11d03ff98
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x149054d98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x11d03fa58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x149054858
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x11d03ff98
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x149054d98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
 ----+-------------+----------+-------+-------+--------+-------+-------------+-------------
@@ -1702,22 +1702,1810 @@ WARNING:  Injected Const node for window aggregate at index 4
 WARNING:  Computing 1 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10c819c78
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054a78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10c819c78
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054a78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10c819c78
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054a78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x10c819c78
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054a78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating | price | total_count 
 ----+-------------+--------+-------+-------------
   1 | MacBook Pro |    4.8 |  2499 |           4
   5 | ASUS ROG    |    4.7 |  1899 |           4
 (2 rows)
+
+-- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
+\echo 'Test 18: TopN with category facet (value facet pattern)'
+Test 18: TopN with category facet (value facet pattern)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, category, rating, (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, category, rating, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+WARNING:  TopN init: Received 2 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
+WARNING:    Target list has 6 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:  Computing 2 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149053de8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054340
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149053de8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054340
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149053de8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054340
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+ id |    name     | category | rating | total_results | category_count 
+----+-------------+----------+--------+---------------+----------------
+  1 | MacBook Pro | Laptops  |    4.8 |             4 |              4
+  5 | ASUS ROG    | Laptops  |    4.7 |             4 |              4
+  3 | ThinkPad X1 | Laptops  |    4.5 |             4 |              4
+(3 rows)
+
+-- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
+\echo 'Test 19: TopN with price range buckets'
+Test 19: TopN with price range buckets
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END as price_bucket,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END) as bucket_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, price, CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END as price_bucket,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END) as bucket_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+WARNING:  TopN init: Received 2 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
+WARNING:    Target list has 7 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:  Computing 2 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054d98
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1490552f0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054d98
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1490552f0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054d98
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1490552f0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149054d98
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1490552f0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+ id |    name     | price | price_bucket | total_results | bucket_count 
+----+-------------+-------+--------------+---------------+--------------
+  1 | MacBook Pro |  2499 | Premium      |             4 |            4
+  5 | ASUS ROG    |  1899 | Premium      |             4 |            4
+  3 | ThinkPad X1 |  1599 | Premium      |             4 |            4
+  4 | HP Spectre  |  1399 | Mid-range    |             4 |            4
+(4 rows)
+
+-- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
+\echo 'Test 20: TopN with multiple facets (brand + price range)'
+Test 20: TopN with multiple facets (brand + price range)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    AVG(price) OVER (PARTITION BY brand) as avg_brand_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 6 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 6
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 3 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced 3 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 3 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 3 window aggregates
+                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, brand, price, (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":6,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, brand, price, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":6,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    AVG(price) OVER (PARTITION BY brand) as avg_brand_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 6 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 6
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 3 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced 3 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 3 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 3 window aggregates
+WARNING:  TopN init: Received 3 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 3 window aggregates
+WARNING:    Target list has 8 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:    Looking for window agg at te_idx=6
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 6
+WARNING:  Computing 3 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Aggregate type Avg { field: "field_6", missing: None, filter: None } not yet implemented
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+ id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
+----+-------------+--------+-------+---------------+-------------+-----------------
+  1 | MacBook Pro | Apple  |  2499 |             4 |           4 |               0
+  5 | ASUS ROG    | ASUS   |  1899 |             4 |           4 |               0
+  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           4 |               0
+(3 rows)
+
+-- Test 21: Facet with aggregates - MIN/MAX price per category
+\echo 'Test 21: TopN with MIN/MAX aggregates per category'
+Test 21: TopN with MIN/MAX aggregates per category
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category,
+    price,
+    COUNT(*) OVER () as total_results,
+    MIN(price) OVER (PARTITION BY category) as category_min_price,
+    MAX(price) OVER (PARTITION BY category) as category_max_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: MIN(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 6 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: MAX(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 6
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 3 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced 3 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 3 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 3 window aggregates
+                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, category, price, (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Min":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":5,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Max":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":6,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, category, price, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Min":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":5,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Max":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":6,"result_type_oid":701,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    category,
+    price,
+    COUNT(*) OVER () as total_results,
+    MIN(price) OVER (PARTITION BY category) as category_min_price,
+    MAX(price) OVER (PARTITION BY category) as category_max_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: MIN(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 6 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: MAX(field_6)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 6
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 3 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced 3 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 3 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 3 window aggregates
+WARNING:  TopN init: Received 3 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 3 window aggregates
+WARNING:    Target list has 8 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:    Looking for window agg at te_idx=6
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 6
+WARNING:  Computing 3 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
+WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 3 results
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149054680
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490540d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149054630
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+ id |    name     | category | price | total_results | category_min_price | category_max_price 
+----+-------------+----------+-------+---------------+--------------------+--------------------
+  1 | MacBook Pro | Laptops  |  2499 |             4 |                  0 |                  0
+  5 | ASUS ROG    | Laptops  |  1899 |             4 |                  0 |                  0
+  3 | ThinkPad X1 | Laptops  |  1599 |             4 |                  0 |                  0
+(3 rows)
+
+-- Test 22: Boolean facet - In-stock availability
+\echo 'Test 22: TopN with boolean facet (in_stock)'
+Test 22: TopN with boolean facet (in_stock)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    in_stock,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #3
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 3
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 4 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 4 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, in_stock, (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":3,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, in_stock, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":3,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    in_stock,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #3
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 3
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 4 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 4 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+WARNING:  TopN init: Received 2 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
+WARNING:    Target list has 6 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=3
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 3
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:  Computing 2 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149053f68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490544a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149053f68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490544a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149053f68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490544a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+ id |    name     | in_stock | total_results | stock_count 
+----+-------------+----------+---------------+-------------
+  1 | MacBook Pro | t        |             4 |           4
+  5 | ASUS ROG    | t        |             4 |           4
+  3 | ThinkPad X1 | t        |             4 |           4
+(3 rows)
+
+-- Test 23: Popularity facet - Sales volume buckets
+\echo 'Test 23: TopN with sales volume facets'
+Test 23: TopN with sales volume facets
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    sales,
+    CASE 
+        WHEN sales < 100 THEN 'Low'
+        WHEN sales < 150 THEN 'Medium'
+        ELSE 'High'
+    END as sales_volume,
+    COUNT(*) OVER () as total_results,
+    SUM(sales) OVER () as total_sales
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: SUM(field_9)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 5
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"target_entry_index":5,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"target_entry_index":5,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    sales,
+    CASE 
+        WHEN sales < 100 THEN 'Low'
+        WHEN sales < 150 THEN 'Medium'
+        ELSE 'High'
+    END as sales_volume,
+    COUNT(*) OVER () as total_results,
+    SUM(sales) OVER () as total_sales
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: SUM(field_9)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 5
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+WARNING:  TopN init: Received 2 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
+WARNING:    Target list has 7 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:  Computing 2 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033998
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14a033ef0
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033998
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14a033ef0
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033998
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14a033ef0
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+ id |    name     | sales | sales_volume | total_results | total_sales 
+----+-------------+-------+--------------+---------------+-------------
+  1 | MacBook Pro |   150 | High         |             4 |           0
+  5 | ASUS ROG    |    90 | Low          |             4 |           0
+  3 | ThinkPad X1 |   180 | High         |             4 |           0
+(3 rows)
+
+-- Test 24: Rating histogram - Rating distribution
+\echo 'Test 24: TopN with rating distribution histogram'
+Test 24: TopN with rating distribution histogram
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END as rating_tier,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END) as tier_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":4,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":5,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END as rating_tier,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END) as tier_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #4
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 4
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 5 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #5
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 5
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 2 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 6 with window_func(json)
+WARNING:  planner_hook: Replaced 2 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 2 window aggregates
+WARNING:  TopN init: Received 2 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
+WARNING:    Target list has 6 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=4
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 4
+WARNING:    Looking for window agg at te_idx=5
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 5
+WARNING:  Computing 2 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033818
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14a033d70
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033818
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14a033d70
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033818
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14a033d70
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14a033818
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14a033d70
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+ id |    name     | rating |     rating_tier     | total_results | tier_count 
+----+-------------+--------+---------------------+---------------+------------
+  1 | MacBook Pro |    4.8 | Excellent (4.7+)    |             4 |          4
+  5 | ASUS ROG    |    4.7 | Excellent (4.7+)    |             4 |          4
+  3 | ThinkPad X1 |    4.5 | Very Good (4.5-4.7) |             4 |          4
+  4 | HP Spectre  |    4.4 | Good (4.0-4.5)      |             4 |          4
+(4 rows)
+
+-- Test 25: Complete faceting scenario - Combining all facet types
+\echo 'Test 25: Complete e-commerce faceting (brand, price, rating, stock)'
+Test 25: Complete e-commerce faceting (brand, price, rating, stock)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    rating,
+    in_stock,
+    -- Overall metrics
+    COUNT(*) OVER () as total_results,
+    AVG(price) OVER () as avg_price,
+    AVG(rating) OVER () as avg_rating,
+    -- Brand facets
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    -- Price range facets
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1500 THEN 'Under $1500'
+        ELSE '$1500+'
+    END) as price_range_count,
+    -- Stock facets
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 6
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #7
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_6)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 7
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #8
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_7)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 8
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 9 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #9
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 9
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 10 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #10
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 10
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 11 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #11
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 11
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 6 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 8 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 9 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 10 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 11 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 12 with window_func(json)
+WARNING:  planner_hook: Replaced 6 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 6 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_7", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 6 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 6 window aggregates
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, brand, price, rating, in_stock, (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":6,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":7,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"target_entry_index":8,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":9,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":10,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":11,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, brand, price, rating, in_stock, paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":6,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"target_entry_index":7,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"target_entry_index":8,"result_type_oid":701,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":9,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":10,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"agg_type":{"CountAny":{"filter":null}},"target_entry_index":11,"result_type_oid":20,"window_spec":{"partition_by":["partition_col_0"],"order_by":null,"frame_clause":null}}'::text), CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    rating,
+    in_stock,
+    -- Overall metrics
+    COUNT(*) OVER () as total_results,
+    AVG(price) OVER () as avg_price,
+    AVG(rating) OVER () as avg_rating,
+    -- Brand facets
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    -- Price range facets
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1500 THEN 'Under $1500'
+        ELSE '$1500+'
+    END) as price_range_count,
+    -- Stock facets
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+WARNING:  query_has_window_functions: Found window functions in current query
+WARNING:  query_has_search_operator: Looking for opno=968988 or 968981
+WARNING:  query_has_search_operator: jointree is not null
+WARNING:  query_has_search_operator: quals is not null, checking...
+WARNING:  expr_contains_operator: Checking node type=T_OpExpr
+WARNING:  expr_contains_operator: Found OpExpr with opno=968981
+WARNING:  expr_contains_operator: MATCH! Found target operator
+WARNING:  query_has_search_operator: Found @@@ in WHERE clause
+WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
+WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #6
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 6
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #7
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_6)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 7
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #8
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: AVG(field_7)
+WARNING:  PARTITION BY: (none - aggregate over entire result set)
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 701
+WARNING:  Target Entry Index: 8
+WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 9 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #9
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 9
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 10 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #10
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 10
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Extracted window spec: partition_by=["partition_col_0"], order_by=None, frame_clause=None
+WARNING:  Window function at index 11 extracted but cannot be executed yet: WindowSpecification { partition_by: ["partition_col_0"], order_by: None, frame_clause: None }
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  EXTRACTED WINDOW FUNCTION #11
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  Aggregate Type: COUNT(*)
+WARNING:  PARTITION BY:
+WARNING:    [0] partition_col_0
+WARNING:  ORDER BY: (none)
+WARNING:  FRAME: (default)
+WARNING:  Result Type OID: 20
+WARNING:  Target Entry Index: 11
+WARNING:  ⚠️  CAN EXECUTE: No - extracted but not yet supported
+WARNING:     Will fall back to PostgreSQL's WindowAgg if not replaced
+WARNING:  ═══════════════════════════════════════════════════════════
+WARNING:  planner_hook: Extracted 6 window aggregates
+WARNING:  planner_hook: Stored window aggregates in global storage
+WARNING:  planner_hook: Replaced WindowFunc at resno 7 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 8 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 9 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 10 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 11 with window_func(json)
+WARNING:  planner_hook: Replaced WindowFunc at resno 12 with window_func(json)
+WARNING:  planner_hook: Replaced 6 WindowFunc nodes in Query with window_func calls
+WARNING:  replace_windowfuncs_recursively: Replaced 6 WindowFunc nodes in current query
+WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_7", missing: None, filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
+WARNING:  plan_custom_path: Found 6 window aggregates, storing in PrivateData
+WARNING:  Initializing scan state with 6 window aggregates
+WARNING:  TopN init: Received 6 window aggregates from scan state
+WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
+WARNING:  inject_placeholders: Starting
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 7: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 8: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 9: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 10: FuncExpr with funcid=969070
+WARNING:    inject_placeholders: Entry 11: FuncExpr with funcid=969070
+WARNING:  inject_window_aggregate_placeholders: Processing 6 window aggregates
+WARNING:    Target list has 13 entries
+WARNING:    window_func_procid = 969070
+WARNING:    Looking for window agg at te_idx=6
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 6
+WARNING:    Looking for window agg at te_idx=7
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 7
+WARNING:    Looking for window agg at te_idx=8
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 8
+WARNING:    Looking for window agg at te_idx=9
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 9
+WARNING:    Looking for window agg at te_idx=10
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 10
+WARNING:    Looking for window agg at te_idx=11
+WARNING:      Found TargetEntry: type=T_FuncExpr
+WARNING:      Found FuncExpr with funcid=969070
+WARNING:      MATCH! Creating Const node
+WARNING:  Injected Const node for window aggregate at index 11
+WARNING:  Computing 6 window aggregates
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Aggregate type Avg { field: "field_6", missing: None, filter: None } not yet implemented
+WARNING:  Aggregate type Avg { field: "field_7", missing: None, filter: None } not yet implemented
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Computing COUNT(*) OVER (): total_count=4
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x14982aa38
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x14982a998
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x14982aad8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x14982aa88
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x14982a458
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x14982a9e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x14982aa38
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x14982a998
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x14982aad8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x14982aa88
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x14982a458
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x14982a9e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x14982aa38
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x14982a998
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x14982aad8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x14982aa88
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x14982a458
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x14982a9e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+ id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
+----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------
+  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 |         0 |          0 |           4 |                 4 |           4
+  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 |         0 |          0 |           4 |                 4 |           4
+  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 |         0 |          0 |           4 |                 4 |           4
+(3 rows)
 
 -- Cleanup
 DROP TABLE products CASCADE;

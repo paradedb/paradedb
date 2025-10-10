@@ -383,5 +383,293 @@ SELECT * FROM (
 ORDER BY price DESC
 LIMIT 2;
 
+-- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
+\echo 'Test 18: TopN with category facet (value facet pattern)'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
+\echo 'Test 19: TopN with price range buckets'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END as price_bucket,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END) as bucket_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+
+SELECT 
+    id,
+    name,
+    price,
+    CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END as price_bucket,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1000 THEN 'Budget'
+        WHEN price < 1500 THEN 'Mid-range'
+        ELSE 'Premium'
+    END) as bucket_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+
+-- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
+\echo 'Test 20: TopN with multiple facets (brand + price range)'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    AVG(price) OVER (PARTITION BY brand) as avg_brand_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    AVG(price) OVER (PARTITION BY brand) as avg_brand_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 21: Facet with aggregates - MIN/MAX price per category
+\echo 'Test 21: TopN with MIN/MAX aggregates per category'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category,
+    price,
+    COUNT(*) OVER () as total_results,
+    MIN(price) OVER (PARTITION BY category) as category_min_price,
+    MAX(price) OVER (PARTITION BY category) as category_max_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    category,
+    price,
+    COUNT(*) OVER () as total_results,
+    MIN(price) OVER (PARTITION BY category) as category_min_price,
+    MAX(price) OVER (PARTITION BY category) as category_max_price
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 22: Boolean facet - In-stock availability
+\echo 'Test 22: TopN with boolean facet (in_stock)'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    in_stock,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    in_stock,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 23: Popularity facet - Sales volume buckets
+\echo 'Test 23: TopN with sales volume facets'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    sales,
+    CASE 
+        WHEN sales < 100 THEN 'Low'
+        WHEN sales < 150 THEN 'Medium'
+        ELSE 'High'
+    END as sales_volume,
+    COUNT(*) OVER () as total_results,
+    SUM(sales) OVER () as total_sales
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    sales,
+    CASE 
+        WHEN sales < 100 THEN 'Low'
+        WHEN sales < 150 THEN 'Medium'
+        ELSE 'High'
+    END as sales_volume,
+    COUNT(*) OVER () as total_results,
+    SUM(sales) OVER () as total_sales
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 24: Rating histogram - Rating distribution
+\echo 'Test 24: TopN with rating distribution histogram'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END as rating_tier,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END) as tier_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+
+SELECT 
+    id,
+    name,
+    rating,
+    CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END as rating_tier,
+    COUNT(*) OVER () as total_results,
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN rating >= 4.7 THEN 'Excellent (4.7+)'
+        WHEN rating >= 4.5 THEN 'Very Good (4.5-4.7)'
+        WHEN rating >= 4.0 THEN 'Good (4.0-4.5)'
+        ELSE 'Fair (<4.0)'
+    END) as tier_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+
+-- Test 25: Complete faceting scenario - Combining all facet types
+\echo 'Test 25: Complete e-commerce faceting (brand, price, rating, stock)'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    rating,
+    in_stock,
+    -- Overall metrics
+    COUNT(*) OVER () as total_results,
+    AVG(price) OVER () as avg_price,
+    AVG(rating) OVER () as avg_rating,
+    -- Brand facets
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    -- Price range facets
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1500 THEN 'Under $1500'
+        ELSE '$1500+'
+    END) as price_range_count,
+    -- Stock facets
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    brand,
+    price,
+    rating,
+    in_stock,
+    -- Overall metrics
+    COUNT(*) OVER () as total_results,
+    AVG(price) OVER () as avg_price,
+    AVG(rating) OVER () as avg_rating,
+    -- Brand facets
+    COUNT(*) OVER (PARTITION BY brand) as brand_count,
+    -- Price range facets
+    COUNT(*) OVER (PARTITION BY CASE 
+        WHEN price < 1500 THEN 'Under $1500'
+        ELSE '$1500+'
+    END) as price_range_count,
+    -- Stock facets
+    COUNT(*) OVER (PARTITION BY in_stock) as stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Cleanup
 DROP TABLE products CASCADE;

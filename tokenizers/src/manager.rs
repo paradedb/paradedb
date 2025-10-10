@@ -243,11 +243,11 @@ macro_rules! add_filters {
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
             .filter($filters.stopwords())
-            .filter($filters.alpha_num_only())
             .filter($filters.ascii_folding())
             $(
                 .filter($extra_filter)
             )*
+            .filter($filters.alpha_num_only())
             .build()
     }};
 }

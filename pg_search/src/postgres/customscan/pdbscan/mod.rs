@@ -1062,12 +1062,32 @@ impl CustomScan for PdbScan {
                             if let Some(agg_results) =
                                 &state.custom_state().window_aggregate_results
                             {
+                                pgrx::warning!(
+                                    "Setting window aggregate values in projection: {} results",
+                                    agg_results.len()
+                                );
                                 for (te_idx, datum) in agg_results {
                                     if let Some(const_node) =
                                         state.custom_state().const_window_agg_nodes.get(te_idx)
                                     {
+                                        pgrx::warning!(
+                                            "  Setting te_idx={}: datum={:?}, const_node addr={:p}",
+                                            te_idx,
+                                            datum,
+                                            *const_node
+                                        );
                                         (**const_node).constvalue = *datum;
                                         (**const_node).constisnull = false;
+                                        pgrx::warning!(
+                                            "  After set: constvalue={:?}, constisnull={}",
+                                            (**const_node).constvalue,
+                                            (**const_node).constisnull
+                                        );
+                                    } else {
+                                        pgrx::warning!(
+                                            "  No const_node found for te_idx={}",
+                                            te_idx
+                                        );
                                     }
                                 }
                             }
@@ -1371,7 +1391,6 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     // forced projection we must do later.
     let planstate = state.planstate();
 
-    use crate::api::window_function::window_func_oid;
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
@@ -1380,7 +1399,6 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
         state.custom_state().snippet_positions_funcoid,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
-        window_func_oid(),
     );
 
     // Now inject window aggregate placeholders
@@ -1410,14 +1428,27 @@ unsafe fn inject_window_aggregate_placeholders(
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     let window_func_procid = window_func_oid();
 
+    pgrx::warning!(
+        "inject_window_aggregate_placeholders: Processing {} window aggregates",
+        window_aggs.len()
+    );
+    pgrx::warning!("  Target list has {} entries", tlist.len());
+    pgrx::warning!("  window_func_procid = {}", window_func_procid);
+
     for agg_info in window_aggs {
         let te_idx = agg_info.target_entry_index;
+        pgrx::warning!("  Looking for window agg at te_idx={}", te_idx);
 
         // Get the target entry at this index
         if let Some(te) = tlist.get_ptr(te_idx) {
+            let node_type = (*(*te).expr).type_;
+            pgrx::warning!("    Found TargetEntry: type={:?}", node_type);
+
             // Check if this is our window_func FuncExpr
             if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                pgrx::warning!("    Found FuncExpr with funcid={}", (*funcexpr).funcid);
                 if (*funcexpr).funcid == window_func_procid {
+                    pgrx::warning!("    MATCH! Creating Const node");
                     // Create a placeholder Const node with the appropriate type
                     let const_node = pg_sys::makeConst(
                         agg_info.result_type_oid,

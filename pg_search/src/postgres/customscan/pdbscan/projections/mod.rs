@@ -204,7 +204,6 @@ pub unsafe fn inject_placeholders(
     snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-    window_func_procid: pg_sys::Oid,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -228,20 +227,7 @@ pub unsafe fn inject_placeholders(
                 return Some(data.const_score_node.cast());
             }
 
-            // Replace window_func(json) with now() placeholder
-            if (*funcexpr).funcid == data.window_func_procid {
-                pgrx::warning!("inject_placeholders: Replacing window_func(json) with now()");
-                // Create a now() FuncExpr as placeholder
-                let now_funcexpr = pg_sys::makeFuncExpr(
-                    placeholder_procid(),
-                    (*funcexpr).funcresulttype,
-                    PgList::<pg_sys::Node>::new().into_pg(),
-                    pg_sys::InvalidOid,
-                    pg_sys::InvalidOid,
-                    pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                );
-                return Some(now_funcexpr.cast());
-            }
+            // Note: We DON'T replace window_func(json) here - that's handled by inject_window_aggregate_placeholders
 
             if (*funcexpr).funcid == data.snippet_funcoid
                 || (*funcexpr).funcid == data.snippet_positions_funcoid
@@ -319,21 +305,24 @@ pub unsafe fn inject_placeholders(
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
         const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
-
-        window_func_procid: pg_sys::Oid,
     }
 
-    pgrx::warning!("inject_placeholders: Starting with window_func_procid={}", window_func_procid);
-    
+    // Debug: check what's in the targetlist before walking
+    pgrx::warning!("inject_placeholders: Starting");
+
     // Debug: check what's in the targetlist before walking
     let tlist_check = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     for (idx, te) in tlist_check.iter_ptr().enumerate() {
         let node_type = (*(*te).expr).type_;
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            pgrx::warning!("  inject_placeholders: Entry {}: FuncExpr with funcid={}", idx, (*funcexpr).funcid);
+            pgrx::warning!(
+                "  inject_placeholders: Entry {}: FuncExpr with funcid={}",
+                idx,
+                (*funcexpr).funcid
+            );
         }
     }
-    
+
     let mut data = Data {
         rti,
 
@@ -353,8 +342,6 @@ pub unsafe fn inject_placeholders(
         attname_lookup,
         snippet_generators,
         const_snippet_nodes: Default::default(),
-
-        window_func_procid,
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
     (

@@ -1517,3 +1517,186 @@ AS 'MODULE_PATHNAME', 'json_to_literal_normalized_wrapper';
 --   jsonb_to_literal_normalized
         CREATE CAST (json AS pdb.literal_normalized) WITH FUNCTION pdb.json_to_literal_normalized AS ASSIGNMENT;
 CREATE CAST (jsonb AS pdb.literal_normalized) WITH FUNCTION pdb.jsonb_to_literal_normalized AS ASSIGNMENT;
+
+
+--
+-- pdb.all() and pdb.empty()
+--
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/pdb.rs:36
+-- pg_search::api::builder_fns::pdb::pdb::empty
+CREATE  FUNCTION pdb."empty"() RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'pdb_empty_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/pdb.rs:31
+-- pg_search::api::builder_fns::pdb::pdb::all
+CREATE  FUNCTION pdb."all"() RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'pdb_all_wrapper';
+/* </end connected objects> */
+
+
+--
+-- the ::pdb.const type, akin to ::pdb.boost
+--
+
+CREATE TYPE pdb.const;
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:140
+-- pg_search::api::operator::const_score::typedef::const_in
+CREATE  FUNCTION "const_in"(
+    "input" cstring, /* &core::ffi::c_str::CStr */
+    "_typoid" oid, /* pgrx_pg_sys::submodules::oids::Oid */
+    "typmod" INT /* i32 */
+) RETURNS pdb.const /* pg_search::api::operator::const_score::ConstType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_in_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:152
+-- pg_search::api::operator::const_score::typedef::const_out
+CREATE  FUNCTION "const_out"(
+    "input" pdb.const /* pg_search::api::operator::const_score::ConstType */
+) RETURNS cstring /* alloc::ffi::c_str::CString */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_out_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:272
+-- pg_search::api::operator::const_score::const_to_const
+CREATE  FUNCTION "const_to_const"(
+    "input" pdb.const, /* pg_search::api::operator::const_score::ConstType */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS pdb.const /* pg_search::api::operator::const_score::ConstType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_to_const_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:163
+-- pg_search::api::operator::const_score::typedef::const_typmod_in
+CREATE  FUNCTION "const_typmod_in"(
+    "typmod_parts" cstring[] /* pgrx::datum::array::Array<&core::ffi::c_str::CStr> */
+) RETURNS INT /* i32 */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_typmod_in_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:177
+-- pg_search::api::operator::const_score::typedef::const_typmod_out
+CREATE  FUNCTION "const_typmod_out"(
+    "typmod" INT /* i32 */
+) RETURNS cstring /* alloc::ffi::c_str::CString */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_typmod_out_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:183
+-- requires:
+--   ConstType_shell
+--   const_in
+--   const_out
+--   const_typmod_in
+--   const_typmod_out
+
+
+CREATE TYPE pdb.const (
+                          INPUT = const_in,
+                          OUTPUT = const_out,
+                          INTERNALLENGTH = VARIABLE,
+                          LIKE = text,
+                          TYPMOD_IN = const_typmod_in,
+                          TYPMOD_OUT = const_typmod_out
+                      );
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:214
+-- pg_search::api::operator::const_score::text_array_to_const
+CREATE  FUNCTION "text_array_to_const"(
+    "array" TEXT[], /* alloc::vec::Vec<alloc::string::String> */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS pdb.const /* pg_search::api::operator::const_score::ConstType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'text_array_to_const_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:205
+-- pg_search::api::operator::const_score::query_to_const
+CREATE  FUNCTION "query_to_const"(
+    "input" pdb.Query, /* pg_search::query::pdb_query::pdb::Query */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS pdb.const /* pg_search::api::operator::const_score::ConstType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'query_to_const_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:253
+-- pg_search::api::operator::const_score::const_to_query
+CREATE  FUNCTION "const_to_query"(
+    "input" pdb.const /* pg_search::api::operator::const_score::ConstType */
+) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'const_to_query_wrapper';
+-- pg_search/src/api/operator/const_score.rs:253
+-- pg_search::api::operator::const_score::const_to_query
+CREATE CAST (
+    pdb.const /* pg_search::api::operator::const_score::ConstType */
+    AS
+    pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    )
+    WITH FUNCTION const_to_query AS IMPLICIT;
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:228
+-- pg_search::api::operator::const_score::prox_to_const
+CREATE  FUNCTION "prox_to_const"(
+    "input" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS pdb.const /* pg_search::api::operator::const_score::ConstType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'prox_to_const_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/const_score.rs:287
+-- requires:
+--   query_to_const
+--   prox_to_const
+--   const_to_const
+--   text_array_to_const
+--   ConstType_final
+
+
+CREATE CAST (text[] AS pdb.const) WITH FUNCTION text_array_to_const(text[], integer, boolean) AS ASSIGNMENT;
+CREATE CAST (pdb.query AS pdb.const) WITH FUNCTION query_to_const(pdb.query, integer, boolean) AS ASSIGNMENT;
+CREATE CAST (pdb.proximityclause AS pdb.const) WITH FUNCTION prox_to_const(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
+CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, integer, boolean) AS IMPLICIT;

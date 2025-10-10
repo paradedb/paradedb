@@ -21,6 +21,7 @@ pub mod code;
 pub mod icu;
 pub mod lindera;
 pub mod manager;
+pub mod token_length;
 
 use tantivy::tokenizer::{LowerCaser, RawTokenizer, TextAnalyzer, TokenizerManager};
 use tracing::debug;

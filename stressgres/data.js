@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760125015714,
+  "lastUpdate": 1760125461255,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2896,6 +2896,72 @@ window.BENCHMARK_DATA = {
             "value": 100.21336659557927,
             "unit": "median tps",
             "extra": "avg tps: 134.37866665750855, max tps: 779.2410192472531, count: 54491"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e17d61bda58030142da91a0daeba3b94eec0f572",
+          "message": "chore: move the `more_like_this` functions to the `pdb` schema (#3325)\n\n# Ticket(s) Closed\n\n- Part of #3301\n\n## What\n\nMove the various `more_like_this` functions over to the `pdb` schema.\n\n## Why\n\n@rebasedming told me to\n\n## Tests\n\nTests updated",
+          "timestamp": "2025-10-10T15:28:01-04:00",
+          "tree_id": "69144d775a862e0661ec991ed82443aecb99ac47",
+          "url": "https://github.com/paradedb/paradedb/commit/e17d61bda58030142da91a0daeba3b94eec0f572"
+        },
+        "date": 1760125459320,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 782.8208873538193,
+            "unit": "median tps",
+            "extra": "avg tps: 782.9175997890281, max tps: 822.484686877289, count: 55307"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3259.916619466576,
+            "unit": "median tps",
+            "extra": "avg tps: 3235.2573926033037, max tps: 3394.1924379984407, count: 55307"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 780.3477862747267,
+            "unit": "median tps",
+            "extra": "avg tps: 778.835036784401, max tps: 831.3723585258854, count: 55307"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 637.809351184076,
+            "unit": "median tps",
+            "extra": "avg tps: 639.2633164048322, max tps: 709.366488005193, count: 55307"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1713.3771678639032,
+            "unit": "median tps",
+            "extra": "avg tps: 1700.3444103226775, max tps: 1722.8467740720848, count: 110614"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1281.022414075665,
+            "unit": "median tps",
+            "extra": "avg tps: 1271.3334710954157, max tps: 1289.9203348473723, count: 55307"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 101.58138019195034,
+            "unit": "median tps",
+            "extra": "avg tps: 124.37901058058118, max tps: 1006.6296629602563, count: 55307"
           }
         ]
       }

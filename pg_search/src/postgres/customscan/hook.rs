@@ -255,16 +255,21 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
         if has_window_funcs && has_search_op {
             pgrx::warning!(
-                "planner_hook: Found window functions in search query, extracting and storing"
+                "planner_hook: Found window functions in search query - replacing with window_func(json)"
             );
 
-            // Extract and store window functions for later use in plan_custom_path
-            // DON'T replace them - let PostgreSQL handle them normally, and we'll
-            // inject our handling at execution time (like aggregatescan does)
-            let _window_aggs = extract_window_functions(parse);
+            // Extract window functions
+            let window_aggs = extract_window_functions(parse);
 
-            // NO REPLACEMENT - let PostgreSQL create WindowAgg node naturally
-            // We'll handle it at the upper path level or at execution time
+            if !window_aggs.is_empty() {
+                // Replace WindowFunc nodes with window_func(json) placeholders
+                // This allows PdbScan to handle them at the base relation level
+                replace_windowfuncs_in_query(parse, &window_aggs);
+                pgrx::warning!(
+                    "planner_hook: Replaced {} WindowFunc nodes with window_func(json)",
+                    window_aggs.len()
+                );
+            }
         }
     }
 
@@ -493,7 +498,7 @@ unsafe fn replace_windowfuncs_in_query(
 }
 
 /// Get the Oid of the now() function to use as a placeholder
-unsafe fn placeholder_procid() -> pg_sys::Oid {
+pub unsafe fn placeholder_procid() -> pg_sys::Oid {
     use pgrx::IntoDatum;
     pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
         .expect("the `now()` function should exist")

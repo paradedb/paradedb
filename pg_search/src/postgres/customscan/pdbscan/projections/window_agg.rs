@@ -589,3 +589,77 @@ fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
         .as_ref()
         .map(|_| "WHERE (filter expression)".to_string())
 }
+
+/// Extract window_func(json) calls from the processed target list at planning time
+/// Similar to uses_scores/uses_snippets, this walks the expression tree to find our placeholders
+pub unsafe fn extract_window_func_calls(
+    node: *mut pg_sys::Node,
+    window_func_procid: pg_sys::Oid,
+) -> Vec<WindowAggregateInfo> {
+    use pgrx::pg_guard;
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ffi::CStr;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let context = data.cast::<Context>();
+            if (*funcexpr).funcid == (*context).window_func_procid {
+                // Found a window_func(json) call - deserialize it
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                if let Some(json_arg) = args.get_ptr(0) {
+                    if let Some(const_node) = nodecast!(Const, T_Const, json_arg) {
+                        if !(*const_node).constisnull {
+                            let json_datum = (*const_node).constvalue;
+                            let json_varlena = json_datum.cast_mut_ptr::<pg_sys::varlena>();
+                            let json_varlena_detoasted =
+                                pg_sys::pg_detoast_datum(json_varlena.cast());
+                            let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
+                            let json_str =
+                                CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
+
+                            match serde_json::from_str::<WindowAggregateInfo>(json_str) {
+                                Ok(info) => {
+                                    pgrx::warning!(
+                                        "extract_window_func_calls: Found window aggregate: {:?}",
+                                        info.agg_type
+                                    );
+                                    (*context).window_aggs.push(info);
+                                }
+                                Err(e) => {
+                                    pgrx::warning!(
+                                        "extract_window_func_calls: Failed to deserialize: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Context {
+        window_func_procid: pg_sys::Oid,
+        window_aggs: Vec<WindowAggregateInfo>,
+    }
+
+    let mut context = Context {
+        window_func_procid,
+        window_aggs: Vec::new(),
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.window_aggs
+}

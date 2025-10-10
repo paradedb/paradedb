@@ -38,7 +38,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::hook::EXTRACTED_WINDOW_AGGREGATES;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -58,8 +57,7 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
-    self, range_table, take_extracted_window_aggregates, CustomScan, CustomScanState,
-    RelPathlistHookArgs,
+    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -588,42 +586,35 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_target_list_len(Some(tlist.len()));
 
-            // Detect window aggregates in the Query's target list
-            let rti: i32 = builder
-                .custom_private()
+            // Extract window_func(json) calls from processed_tlist using expression tree walker
+            // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
+            use crate::api::window_function::window_func_oid;
+            use crate::postgres::customscan::pdbscan::projections::window_agg::extract_window_func_calls;
+
+            let window_func_procid = window_func_oid();
+            let processed_tlist = (*builder.args().root).processed_tlist;
+
+            pgrx::warning!("plan_custom_path: Extracting window_func calls from processed_tlist");
+            let window_aggregates =
+                extract_window_func_calls(processed_tlist.cast(), window_func_procid);
+
+            if !window_aggregates.is_empty() {
+                pgrx::warning!(
+                    "plan_custom_path: Found {} window aggregates, storing in PrivateData",
+                    window_aggregates.len()
+                );
+                builder
+                    .custom_private_mut()
+                    .set_window_aggregates(window_aggregates);
+            }
+
+            let private_data = builder.custom_private();
+            let rti = private_data
                 .range_table_index()
                 .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
 
-            // Retrieve window aggregates from global storage (set by planner hook)
-            // Use a non-consuming peek first to see if they're there
-            {
-                let storage = EXTRACTED_WINDOW_AGGREGATES
-                    .lock()
-                    .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-                if storage.is_some() {
-                    pgrx::warning!(
-                        "plan_custom_path: Window aggregates ARE in storage, retrieving..."
-                    );
-                } else {
-                    pgrx::warning!("plan_custom_path: Window aggregates NOT in storage");
-                }
-            }
-
-            if let Some(window_aggs) = take_extracted_window_aggregates() {
-                pgrx::warning!(
-                    "plan_custom_path: Retrieved {} window aggregates from global storage",
-                    window_aggs.len()
-                );
-                builder
-                    .custom_private_mut()
-                    .set_window_aggregates(window_aggs);
-            } else {
-                pgrx::warning!("plan_custom_path: Failed to retrieve window aggregates");
-            }
-
-            let private_data = builder.custom_private();
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
@@ -1380,6 +1371,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     // forced projection we must do later.
     let planstate = state.planstate();
 
+    use crate::api::window_function::window_func_oid;
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
@@ -1388,6 +1380,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
         state.custom_state().snippet_positions_funcoid,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
+        window_func_oid(),
     );
 
     // Now inject window aggregate placeholders

@@ -19,13 +19,13 @@ use pgrx::prelude::*;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
 
 /// Internal placeholder function for window aggregates
-/// 
+///
 /// This function is used as a replacement for WindowFunc nodes during planning.
 /// The JSON parameter contains the serialized WindowAggregateInfo that will be
 /// deserialized during custom scan planning.
 ///
 /// Users should never call this directly - it's injected by the planner hook.
-#[pg_extern(immutable, parallel_safe, name = "window_func")]
+#[pg_extern(volatile, parallel_safe, name = "window_func")]
 pub fn window_func_placeholder(window_aggregate_json: &str) -> i64 {
     // This is just a placeholder that should never actually execute
     // If it does execute, it means our custom scan didn't intercept it
@@ -45,4 +45,3 @@ pub fn window_func_oid() -> pg_sys::Oid {
         .expect("the `paradedb.window_func` function should exist")
     }
 }
-

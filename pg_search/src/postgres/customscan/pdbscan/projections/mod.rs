@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::{placeholder_procid, score_funcoid};
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
@@ -204,6 +204,7 @@ pub unsafe fn inject_placeholders(
     snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    window_func_procid: pg_sys::Oid,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -225,6 +226,21 @@ pub unsafe fn inject_placeholders(
 
             if (*funcexpr).funcid == data.score_funcoid {
                 return Some(data.const_score_node.cast());
+            }
+
+            // Replace window_func(json) with now() placeholder
+            if (*funcexpr).funcid == data.window_func_procid {
+                pgrx::warning!("inject_placeholders: Replacing window_func(json) with now()");
+                // Create a now() FuncExpr as placeholder
+                let now_funcexpr = pg_sys::makeFuncExpr(
+                    placeholder_procid(),
+                    (*funcexpr).funcresulttype,
+                    PgList::<pg_sys::Node>::new().into_pg(),
+                    pg_sys::InvalidOid,
+                    pg_sys::InvalidOid,
+                    pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                );
+                return Some(now_funcexpr.cast());
             }
 
             if (*funcexpr).funcid == data.snippet_funcoid
@@ -303,8 +319,21 @@ pub unsafe fn inject_placeholders(
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
         const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
+
+        window_func_procid: pg_sys::Oid,
     }
 
+    pgrx::warning!("inject_placeholders: Starting with window_func_procid={}", window_func_procid);
+    
+    // Debug: check what's in the targetlist before walking
+    let tlist_check = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    for (idx, te) in tlist_check.iter_ptr().enumerate() {
+        let node_type = (*(*te).expr).type_;
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+            pgrx::warning!("  inject_placeholders: Entry {}: FuncExpr with funcid={}", idx, (*funcexpr).funcid);
+        }
+    }
+    
     let mut data = Data {
         rti,
 
@@ -324,6 +353,8 @@ pub unsafe fn inject_placeholders(
         attname_lookup,
         snippet_generators,
         const_snippet_nodes: Default::default(),
+
+        window_func_procid,
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
     (

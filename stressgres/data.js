@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760122522609,
+  "lastUpdate": 1760122693339,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9418,6 +9418,42 @@ window.BENCHMARK_DATA = {
             "value": 5.354999251418588,
             "unit": "median tps",
             "extra": "avg tps: 4.840626837022456, max tps: 5.930620191604375, count: 57323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b418256789178eb01453f8d5c7edcdd5eeee9aa",
+          "message": "feat: Introduce literal normalized tokenizer (#3320)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLike the literal tokenizer, but allows for filters.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T14:27:59-04:00",
+          "tree_id": "d66f7ec22ec5a7715c949894c2cc19ff8914cb07",
+          "url": "https://github.com/paradedb/paradedb/commit/4b418256789178eb01453f8d5c7edcdd5eeee9aa"
+        },
+        "date": 1760122691425,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.276144220648234,
+            "unit": "median tps",
+            "extra": "avg tps: 7.06504765759392, max tps: 10.98302578651718, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.33216749939797,
+            "unit": "median tps",
+            "extra": "avg tps: 4.823831516040341, max tps: 5.908013111416877, count: 57787"
           }
         ]
       }

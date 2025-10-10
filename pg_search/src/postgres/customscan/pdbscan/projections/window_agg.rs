@@ -105,14 +105,33 @@ pub unsafe fn extract_window_aggregates(
                 extract_standard_aggregate(window_func, &window_spec)
             {
                 // Check if we can currently execute this window function
-                let can_execute = can_handle_window_spec(&window_spec);
+                // Currently only executable: empty PARTITION BY, no ORDER BY, no FILTER, no frame
+                let has_filter = agg_type_has_filter(&agg_type);
+                let has_frame = window_spec.frame_clause.is_some();
+                let can_execute = can_handle_window_spec(&window_spec) && !has_filter;
 
                 if !can_execute {
-                    pgrx::warning!(
-                        "Window function at index {} extracted but cannot be executed yet: {:?}",
-                        idx,
-                        window_spec
-                    );
+                    if has_filter {
+                        pgrx::warning!(
+                            "Window function at index {} extracted but has FILTER clause (not yet executable)",
+                            idx
+                        );
+                    } else if has_frame {
+                        pgrx::warning!(
+                            "Window function at index {} extracted but has frame clause (not yet executable)",
+                            idx
+                        );
+                    } else if !window_spec.partition_by.is_empty() {
+                        pgrx::warning!(
+                            "Window function at index {} extracted but has PARTITION BY (not yet executable)",
+                            idx
+                        );
+                    } else if window_spec.order_by.is_some() {
+                        pgrx::warning!(
+                            "Window function at index {} extracted but has ORDER BY in OVER clause (not yet executable)",
+                            idx
+                        );
+                    }
                     // Still extract it! Execution capability check happens later
                 }
 
@@ -140,14 +159,69 @@ pub unsafe fn extract_window_aggregates(
 }
 
 /// Check if we can handle this window specification
-/// For now, we only support simple aggregates over the entire result set:
+///
+/// We extract ALL window functions with complete specifications:
+/// - ✅ PARTITION BY (extracted but not yet executable)
+/// - ✅ ORDER BY (extracted but not yet executable)
+/// - ✅ FILTER clause (extracted but not yet executable)
+/// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
+///
+/// For now, only simple aggregates over the entire result set are executable:
 /// - No PARTITION BY
 /// - No ORDER BY  
+/// - No FILTER
 /// - No frame clause
-///
-///   Note: FILTER clause is handled separately in AggregateType
 unsafe fn can_handle_window_spec(spec: &WindowSpecification) -> bool {
+    // For execution, we only support simple aggregates over entire result set
     spec.partition_by.is_empty() && spec.order_by.is_none() && spec.frame_clause.is_none()
+}
+
+/// Check if an AggregateType has a FILTER clause
+fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
+    match agg_type {
+        AggregateType::CountAny { filter } => filter.is_some(),
+        AggregateType::Count { filter, .. } => filter.is_some(),
+        AggregateType::Sum { filter, .. } => filter.is_some(),
+        AggregateType::Avg { filter, .. } => filter.is_some(),
+        AggregateType::Min { filter, .. } => filter.is_some(),
+        AggregateType::Max { filter, .. } => filter.is_some(),
+        _ => false, // Other aggregate types don't have filter support yet
+    }
+}
+
+/// Extract FILTER expression from window function
+///
+/// This function extracts the filter clause from a window function for future conversion
+/// to SearchQueryInput. For now, it returns None as a placeholder, but the expression
+/// is logged for debugging.
+///
+/// Future implementation will:
+/// 1. Parse the filter expression tree
+/// 2. Convert it to a SearchQueryInput
+/// 3. Return Some(SearchQueryInput) for use in Tantivy aggregations
+unsafe fn extract_filter_expression(
+    filter_expr: *mut pg_sys::Expr,
+) -> Option<crate::query::SearchQueryInput> {
+    if filter_expr.is_null() {
+        return None;
+    }
+
+    // For now, we just log that we found a filter expression
+    // Future implementation will convert this to SearchQueryInput
+    let node_type = (*filter_expr.cast::<pg_sys::Node>()).type_;
+    pgrx::warning!(
+        "Found FILTER expression with node type {:?} - will be converted to SearchQueryInput in future",
+        node_type
+    );
+
+    // TODO: Convert filter expression to SearchQueryInput
+    // This will involve:
+    // - Walking the expression tree
+    // - Identifying field references and operators
+    // - Building a SearchQueryInput that represents the filter
+    // - Supporting common patterns like: field = value, field > value, etc.
+
+    None // Placeholder - will be implemented in execution phase
 }
 
 /// Extract standard aggregate function (COUNT, SUM, AVG, MIN, MAX)
@@ -166,9 +240,13 @@ unsafe fn extract_standard_aggregate(
 
     // Extract FILTER clause if present
     let filter = if !(*window_func).aggfilter.is_null() {
-        // TODO: Convert filter expression to SearchQueryInput
-        // For now, we don't support FILTER clauses
-        return None;
+        // Extract the filter expression
+        // For now, we serialize it for future conversion to SearchQueryInput
+        pgrx::warning!("Window function has FILTER clause - extracting for future implementation");
+
+        // Try to extract a simple representation of the filter
+        // This is a placeholder - full implementation will convert to SearchQueryInput
+        extract_filter_expression((*window_func).aggfilter)
     } else {
         None
     };

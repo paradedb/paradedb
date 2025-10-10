@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108857311,
+  "lastUpdate": 1760109429746,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8272,6 +8272,42 @@ window.BENCHMARK_DATA = {
             "value": 5.29114661747357,
             "unit": "median tps",
             "extra": "avg tps: 4.791956842244101, max tps: 5.869127958691501, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "051f1c91e005cf94328dff488aaa4ba9b9b89703",
+          "message": "feat: Introduce `AlphaNumOnly` filter (#3315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA new filter that removes tokens containing non ASCII letters and\ndigits.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T10:48:38-04:00",
+          "tree_id": "95691fe3913334da5c80c710f3451542e0fa7327",
+          "url": "https://github.com/paradedb/paradedb/commit/051f1c91e005cf94328dff488aaa4ba9b9b89703"
+        },
+        "date": 1760109427881,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.122407838488622,
+            "unit": "median tps",
+            "extra": "avg tps: 6.941542332592037, max tps: 10.739632989220251, count: 57352"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.301163559611039,
+            "unit": "median tps",
+            "extra": "avg tps: 4.786083239467398, max tps: 5.867411979699043, count: 57352"
           }
         ]
       }

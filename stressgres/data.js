@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760110880548,
+  "lastUpdate": 1760111092433,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17284,6 +17284,60 @@ window.BENCHMARK_DATA = {
             "value": 17.813388256406775,
             "unit": "median tps",
             "extra": "avg tps: 18.096220731726433, max tps: 22.427279154862973, count: 55389"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8269d4ed9b0f6101d4627bc72eb008026312fdac",
+          "message": "chore: relocate `fuzzy`, `slop`, `boost` types to the `pdb` schema (#3316)\n\n# Ticket(s) Closed\n\n- Closes #3281\n\n## What\n\nThis relocates the `fuzzy`, `slop`, and `boost` types from `pg_catalog`\nto our `pdb` schema.\n\n🚨This will be a breaking change for any existing queries that cast the\nrhs of one of our operators to one of these types. They'll need to be\nrewritten as `::pdb.fuzzy`.\n\n## Why\n\nPutting them in `pg_catalog` was a mistake and inconsistent with our\nother SQL UX work.\n\n## How\n\n## Tests\n\nExisting tests (and docs) have been updated.",
+          "timestamp": "2025-10-10T10:51:05-04:00",
+          "tree_id": "4a988e0eff7dab9eec493a7ab5f16feb53bb4929",
+          "url": "https://github.com/paradedb/paradedb/commit/8269d4ed9b0f6101d4627bc72eb008026312fdac"
+        },
+        "date": 1760111090315,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.90153733681384,
+            "unit": "median tps",
+            "extra": "avg tps: 36.93379166616985, max tps: 37.40994862082467, count: 55451"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.87629941750967,
+            "unit": "median tps",
+            "extra": "avg tps: 280.76512295390415, max tps: 2849.892873365094, count: 55451"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1067.9771761957047,
+            "unit": "median tps",
+            "extra": "avg tps: 1063.188970343061, max tps: 1075.8285652771428, count: 55451"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.17845949125278,
+            "unit": "median tps",
+            "extra": "avg tps: 157.92501770845317, max tps: 874.8825166442754, count: 110902"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.364842095066887,
+            "unit": "median tps",
+            "extra": "avg tps: 18.633428649789888, max tps: 21.709950530765955, count: 55451"
           }
         ]
       }

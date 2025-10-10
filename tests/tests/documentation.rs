@@ -1797,7 +1797,7 @@ fn specialized_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.more_like_this(
+    WHERE id @@@ pdb.more_like_this(
       document_id => 3,
       min_term_frequency => 1
     );
@@ -1808,7 +1808,7 @@ fn specialized_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.more_like_this(
+    WHERE id @@@ pdb.more_like_this(
       document_fields => '{"description": "shoes"}',
       min_doc_frequency => 0,
       max_doc_frequency => 100,

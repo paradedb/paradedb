@@ -1700,3 +1700,10 @@ CREATE CAST (text[] AS pdb.const) WITH FUNCTION text_array_to_const(text[], inte
 CREATE CAST (pdb.query AS pdb.const) WITH FUNCTION query_to_const(pdb.query, integer, boolean) AS ASSIGNMENT;
 CREATE CAST (pdb.proximityclause AS pdb.const) WITH FUNCTION prox_to_const(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
 CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, integer, boolean) AS IMPLICIT;
+
+--
+-- move the more_like_this functions over to the pdb schema
+--
+ALTER FUNCTION paradedb."more_like_this"() SET SCHEMA pdb;
+ALTER FUNCTION paradedb."more_like_this"(TEXT,INT, INT, INT, INT, INT, INT, real, TEXT[]) SET SCHEMA pdb;
+ALTER FUNCTION paradedb."more_like_this"(anyelement, INT, INT, INT, INT, INT, INT, real, TEXT[] ) SET SCHEMA pdb;

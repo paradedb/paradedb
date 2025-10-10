@@ -1522,7 +1522,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     // Test more_like_this with aliased field 'taste' (original 'flavour')
     let rows: Vec<(i32, String, String)> = r#"
     SELECT id, flavour, description FROM test_more_like_this_alias
-    WHERE id @@@ paradedb.more_like_this(
+    WHERE id @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
         document_fields => '{"taste": "banana"}'

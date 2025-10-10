@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760121742070,
+  "lastUpdate": 1760121953631,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2764,6 +2764,72 @@ window.BENCHMARK_DATA = {
             "value": 93.66873692237861,
             "unit": "median tps",
             "extra": "avg tps: 121.69958340590681, max tps: 799.7824591711055, count: 55349"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b418256789178eb01453f8d5c7edcdd5eeee9aa",
+          "message": "feat: Introduce literal normalized tokenizer (#3320)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLike the literal tokenizer, but allows for filters.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T14:27:59-04:00",
+          "tree_id": "d66f7ec22ec5a7715c949894c2cc19ff8914cb07",
+          "url": "https://github.com/paradedb/paradedb/commit/4b418256789178eb01453f8d5c7edcdd5eeee9aa"
+        },
+        "date": 1760121951828,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 775.593217887072,
+            "unit": "median tps",
+            "extra": "avg tps: 776.4190100122979, max tps: 872.7155006720598, count: 55373"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3366.3319854633564,
+            "unit": "median tps",
+            "extra": "avg tps: 3333.3577204342846, max tps: 3378.242121370587, count: 55373"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 784.3045032477227,
+            "unit": "median tps",
+            "extra": "avg tps: 784.1066233358874, max tps: 863.7800271869365, count: 55373"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 685.2698048514924,
+            "unit": "median tps",
+            "extra": "avg tps: 682.7910265746793, max tps: 710.752453345007, count: 55373"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1670.5362261027367,
+            "unit": "median tps",
+            "extra": "avg tps: 1680.4237803446833, max tps: 1728.1176685485914, count: 110746"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1265.4010048382718,
+            "unit": "median tps",
+            "extra": "avg tps: 1257.5698899071097, max tps: 1276.1564644211312, count: 55373"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 92.94641739976713,
+            "unit": "median tps",
+            "extra": "avg tps: 107.07221790707916, max tps: 1025.8409331049127, count: 55373"
           }
         ]
       }

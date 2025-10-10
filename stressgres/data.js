@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760126967896,
+  "lastUpdate": 1760127689395,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20686,6 +20686,60 @@ window.BENCHMARK_DATA = {
             "value": 19.25537912620074,
             "unit": "median tps",
             "extra": "avg tps: 19.535910009961786, max tps: 23.77652067790506, count: 55467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e17d61bda58030142da91a0daeba3b94eec0f572",
+          "message": "chore: move the `more_like_this` functions to the `pdb` schema (#3325)\n\n# Ticket(s) Closed\n\n- Part of #3301\n\n## What\n\nMove the various `more_like_this` functions over to the `pdb` schema.\n\n## Why\n\n@rebasedming told me to\n\n## Tests\n\nTests updated",
+          "timestamp": "2025-10-10T15:28:01-04:00",
+          "tree_id": "69144d775a862e0661ec991ed82443aecb99ac47",
+          "url": "https://github.com/paradedb/paradedb/commit/e17d61bda58030142da91a0daeba3b94eec0f572"
+        },
+        "date": 1760127687597,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.85181846625716,
+            "unit": "median tps",
+            "extra": "avg tps: 36.16055117886135, max tps: 40.781834297706375, count: 55360"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.42691721728792,
+            "unit": "median tps",
+            "extra": "avg tps: 282.7818242156307, max tps: 3073.516044983161, count: 55360"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1040.4595949091336,
+            "unit": "median tps",
+            "extra": "avg tps: 1036.6599213102006, max tps: 1050.0532411948172, count: 55360"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 114.04019578223719,
+            "unit": "median tps",
+            "extra": "avg tps: 154.99165593068523, max tps: 833.1181446045372, count: 110720"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.427472118636597,
+            "unit": "median tps",
+            "extra": "avg tps: 18.65186261068383, max tps: 22.69090076046058, count: 55360"
           }
         ]
       }

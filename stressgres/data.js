@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760121956593,
+  "lastUpdate": 1760122519763,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9382,6 +9382,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3392847817256825,
             "unit": "median tps",
             "extra": "avg tps: 4.831281492339187, max tps: 5.910762809187777, count: 57515"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6f91a97a4055077ce0f6eacb06290cb8699379c",
+          "message": "perf: Introduce a mutable segment type (#3203)\n\n## What\n\nIntroduce an optional mutable segment type containing only a list of\nctids, which are then indexed at read time.\n\n## Why\n\nParadeDB excels at batch inserts, but for single-row INSERT/UPDATE\nstatements, we currently create single-document Tantivy segments.\n\nThese tiny segments have a few problems:\n\n- They consist of up to 8 \"files\" which are represented as\n`LinkedBytesList`s: the minimum overhead of each file is two Postgres\nblocks (one for the content, and one for a random-access index). Many of\nthose blocks will be mostly-empty for a single document segment.\n- They increase write amplification. For example: starting from a 1kb\nsegment means that it takes two merges/compactions to get to 100kb,\nrepresenting a 3x write amplification to write 100kb of data.\n- They require very rapid updates to the `SegmentMetaEntry`s list: all\ninserts insert a new entry, and frequent inserts mean more frequent\nmerges which also mutate that list.\n- Tantivy indexing is relatively fast, but is especially optimized to\noperate as a batch process: a single document index technically doesn't\nactually need many of the structures that it contains (there is no need\nfor a DocId because all storage could be boolean, etc).\n\n## How\n\nA mutable segment is read-time indexed when it is loaded (in `mvcc.rs`),\nand up to `mutable_segment_rows` rows are inserted into each mutable\nsegment. Mutable segments are disabled by default, but\n`mutable_segment_rows=1000` results in no change to Top-N performance on\nthe `wide-table` benchmark, and three times faster insert / update\nperformance.\n\n`SegmentMetaEntry` is bincoded to be stored in the `LinkedItemList` of\nentries: to introduce a second variant, we convert a field which became\n`SegmentMetaEntry::_unused` in version `0.15.18` into a tag. The`\n_unused` field [was previously used to store an xmin\nvalue](http://github.com/paradedb/paradedb/pull/2487). We treat previous\nlegal values of that tag as representing the legacy encoding.\n\nThe insert path defaults to allowing up to `mutable_segment_rows`\ninserts to be made into a mutable segment. If more than\n`mutable_segment_rows` inserts arrive in the same `aminsert`, we switch\nto creating immutable segments for the remainder of that `aminsert`.",
+          "timestamp": "2025-10-10T11:24:19-07:00",
+          "tree_id": "3f09dacf09a775b76929cda9047d4abf4c7c8e78",
+          "url": "https://github.com/paradedb/paradedb/commit/b6f91a97a4055077ce0f6eacb06290cb8699379c"
+        },
+        "date": 1760122517891,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.152133033462967,
+            "unit": "median tps",
+            "extra": "avg tps: 6.969012868048309, max tps: 10.806247186687624, count: 57323"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.354999251418588,
+            "unit": "median tps",
+            "extra": "avg tps: 4.840626837022456, max tps: 5.930620191604375, count: 57323"
           }
         ]
       }

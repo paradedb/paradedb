@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760110385452,
+  "lastUpdate": 1760110877619,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17230,6 +17230,60 @@ window.BENCHMARK_DATA = {
             "value": 19.069561601313683,
             "unit": "median tps",
             "extra": "avg tps: 19.159331292687472, max tps: 20.96626036000956, count: 55446"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "051f1c91e005cf94328dff488aaa4ba9b9b89703",
+          "message": "feat: Introduce `AlphaNumOnly` filter (#3315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA new filter that removes tokens containing non ASCII letters and\ndigits.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T10:48:38-04:00",
+          "tree_id": "95691fe3913334da5c80c710f3451542e0fa7327",
+          "url": "https://github.com/paradedb/paradedb/commit/051f1c91e005cf94328dff488aaa4ba9b9b89703"
+        },
+        "date": 1760110875798,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.98942319305369,
+            "unit": "median tps",
+            "extra": "avg tps: 37.01277153713214, max tps: 37.77987449659534, count: 55389"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.62062947279526,
+            "unit": "median tps",
+            "extra": "avg tps: 270.38634193655287, max tps: 2895.8773488127035, count: 55389"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1041.8616817736101,
+            "unit": "median tps",
+            "extra": "avg tps: 1037.5307020669745, max tps: 1062.7473354646984, count: 55389"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.00718749549905,
+            "unit": "median tps",
+            "extra": "avg tps: 156.46246479872875, max tps: 868.066139221789, count: 110778"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.813388256406775,
+            "unit": "median tps",
+            "extra": "avg tps: 18.096220731726433, max tps: 22.427279154862973, count: 55389"
           }
         ]
       }

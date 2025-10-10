@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760106107064,
+  "lastUpdate": 1760106821336,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7420,6 +7420,42 @@ window.BENCHMARK_DATA = {
             "value": 5.2919328312205485,
             "unit": "median tps",
             "extra": "avg tps: 4.791438768084217, max tps: 5.850292206317029, count: 57546"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d83f2888d60760ce3ab8c71ac24749d018604ce7",
+          "message": "feat: Introduce `TokenLengthFilter` (#3309)\n\n# Ticket(s) Closed\n\n- Closes #3280 \n\n## What\n\nIntroduces a `TokenLengthFilter`, which is like Tantivy's\n`RemoveLongFilter` but has a min and max threshold. This enables a new\nfilter, `remove_short`, which removes tokens below a certain byte\nthreshold.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T09:38:04-04:00",
+          "tree_id": "51697ab88c096b3ab284e210fec8ec1eb9b425c4",
+          "url": "https://github.com/paradedb/paradedb/commit/d83f2888d60760ce3ab8c71ac24749d018604ce7"
+        },
+        "date": 1760106819566,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.492949254958827,
+            "unit": "median tps",
+            "extra": "avg tps: 7.261016900736693, max tps: 11.291454913804746, count: 57806"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.298945536955759,
+            "unit": "median tps",
+            "extra": "avg tps: 4.774129174443633, max tps: 5.913477813990884, count: 57806"
           }
         ]
       }

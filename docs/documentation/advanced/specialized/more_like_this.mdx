@@ -18,7 +18,7 @@ All other parameters are compatible with both `document_id` and `document_fields
 -- document_id
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.more_like_this(
+WHERE id @@@ pdb.more_like_this(
   document_id => 3,
   min_term_frequency => 1
 );
@@ -26,7 +26,7 @@ WHERE id @@@ paradedb.more_like_this(
 -- document_fields
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.more_like_this(
+WHERE id @@@ pdb.more_like_this(
 document_fields => '{"description": "shoes"}',
 min_doc_frequency => 0,
 max_doc_frequency => 100,

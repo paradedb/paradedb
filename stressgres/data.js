@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760104611369,
+  "lastUpdate": 1760104614244,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9028,6 +9028,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.57995526977915, max segment_count: 104.0, count: 57232"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98baf4ce05a4907c305bcbb28438d5fcc6025f09",
+          "message": "chore: Remove dead code in `tokenizers/src/manager.rs` (#3310)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T09:28:36-04:00",
+          "tree_id": "ae706715e3523d0f2bca3de4c17c19661812c2c8",
+          "url": "https://github.com/paradedb/paradedb/commit/98baf4ce05a4907c305bcbb28438d5fcc6025f09"
+        },
+        "date": 1760104612460,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.260321984732457, max cpu: 42.72997, count: 57546"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.524475664034, max mem: 229.18359375, count: 57546"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.530474925651887, max cpu: 33.333336, count: 57546"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.46359739653929, max mem: 164.125, count: 57546"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24691,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23380.121815591006, max block_count: 26238.0, count: 57546"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.75452681333195, max segment_count: 106.0, count: 57546"
           }
         ]
       }

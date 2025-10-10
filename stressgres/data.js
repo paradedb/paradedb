@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760118146573,
+  "lastUpdate": 1760118683213,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8752,6 +8752,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3663639519939075,
             "unit": "median tps",
             "extra": "avg tps: 4.855261171016816, max tps: 5.963618056501618, count: 57354"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4",
+          "message": "feat: allow `text[]::pdb.fuzzy/slop/boost` casts on the rhs of some operators (#3317)\n\n# Ticket(s) Closed\n\n- Closes #3297 \n\n## What\n\nThis enables the ability to use `TEXT[]`s on the rhs of `===`, `&&&`,\n`|||`, and `###` where the first three can be cast to `::pdb.fuzzy` and\nthe latter (phrase operator) can be cast to `::pdb.slop`.\n\nAllows for queries like:\n\n```sql\nSELECT * FROM regress.mock_items WHERE description === ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;\nSELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);\n```\n\n## Why\n\n## How\n\n## Tests\n\nregression tests for fuzzy and slop have been updated.",
+          "timestamp": "2025-10-10T13:22:56-04:00",
+          "tree_id": "8d56deef9895e4426664a371708fd8b6c7b46ff2",
+          "url": "https://github.com/paradedb/paradedb/commit/b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4"
+        },
+        "date": 1760118681318,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.265633894489575,
+            "unit": "median tps",
+            "extra": "avg tps: 7.085766012002478, max tps: 11.154187357855914, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.2892776014884175,
+            "unit": "median tps",
+            "extra": "avg tps: 4.779233442713954, max tps: 5.820865916696082, count: 57538"
           }
         ]
       }

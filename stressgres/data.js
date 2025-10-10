@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108741665,
+  "lastUpdate": 1760108744642,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10060,6 +10060,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.77595495464183, max segment_count: 109.0, count: 57542"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec9ff340a70f67a810bbd68f1032786a6a70171f",
+          "message": "fix: allow the RHS of `@@@` to support `pdb.query` at runtime (#3308)\n\n# Ticket(s) Closed\n\n- Closes #3300\n\n## What\n\nThis allows the rhs of `@@@` to support a `pdb.query` at runtime\n\n## Why\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T10:37:24-04:00",
+          "tree_id": "5e8a7b39c086133de1e3b584061cf342da72a619",
+          "url": "https://github.com/paradedb/paradedb/commit/ec9ff340a70f67a810bbd68f1032786a6a70171f"
+        },
+        "date": 1760108742776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.853102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.58980981434119, max cpu: 42.857143, count: 57334"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.2333017930024, max mem: 227.1953125, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.491448768435287, max cpu: 33.366436, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.09621874400443, max mem: 161.30078125, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24582,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23324.58092929152, max block_count: 26054.0, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.70980569993372, max segment_count: 107.0, count: 57334"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760123993384,
+  "lastUpdate": 1760124170508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19714,6 +19714,60 @@ window.BENCHMARK_DATA = {
             "value": 18.176835263354093,
             "unit": "median tps",
             "extra": "avg tps: 18.48251425898338, max tps: 22.027848648913462, count: 55412"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b418256789178eb01453f8d5c7edcdd5eeee9aa",
+          "message": "feat: Introduce literal normalized tokenizer (#3320)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLike the literal tokenizer, but allows for filters.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T14:27:59-04:00",
+          "tree_id": "d66f7ec22ec5a7715c949894c2cc19ff8914cb07",
+          "url": "https://github.com/paradedb/paradedb/commit/4b418256789178eb01453f8d5c7edcdd5eeee9aa"
+        },
+        "date": 1760124168636,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.930495535460906,
+            "unit": "median tps",
+            "extra": "avg tps: 37.93314761165231, max tps: 38.277393204738495, count: 55436"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.3567335310346,
+            "unit": "median tps",
+            "extra": "avg tps: 278.6337269921395, max tps: 2840.6196173391286, count: 55436"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1002.1912137300886,
+            "unit": "median tps",
+            "extra": "avg tps: 998.982792603991, max tps: 1038.6303889069115, count: 55436"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 117.61762669210569,
+            "unit": "median tps",
+            "extra": "avg tps: 155.94347620273217, max tps: 860.6052785097537, count: 110872"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.513549879877644,
+            "unit": "median tps",
+            "extra": "avg tps: 18.58273831835045, max tps: 19.31331335710659, count: 55436"
           }
         ]
       }

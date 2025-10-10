@@ -28,7 +28,6 @@ use crate::{
 use anyhow::Result;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
@@ -111,28 +110,6 @@ impl SearchTokenizerFilters {
         }
 
         Ok(filters)
-    }
-
-    fn to_json_value(&self, enclosing: &mut serde_json::Value) {
-        let enclosing = enclosing.as_object_mut().expect("object value");
-        if let Some(value) = self.remove_long {
-            let v = serde_json::Value::Number(value.into());
-            enclosing.insert("remove_long".to_string(), v);
-        }
-        if let Some(value) = self.lowercase {
-            let v = serde_json::Value::Bool(value);
-            enclosing.insert("lowercase".to_string(), v);
-        }
-
-        if let Some(stopwords) = self.stopwords.as_ref() {
-            let v = serde_json::Value::Array(
-                stopwords
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            );
-            enclosing.insert("stopwords".to_string(), v);
-        }
     }
 
     fn name_suffix(&self) -> String {
@@ -243,8 +220,7 @@ macro_rules! add_filters {
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
 //
-// Ensure that new variants are added to the `to_json_value` and
-// `from_json_value` methods. We don't use serde_json to ser/de the
+// Ensure that new variants are added to `from_json_value`. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -298,54 +274,6 @@ impl Default for SearchTokenizer {
 }
 
 impl SearchTokenizer {
-    pub fn to_json_value(&self) -> serde_json::Value {
-        let mut json = match self {
-            SearchTokenizer::Default(_filters) => json!({ "type": "default" }),
-            SearchTokenizer::Keyword => json!({ "type": "keyword" }),
-            #[allow(deprecated)]
-            SearchTokenizer::Raw(_filters) => json!({ "type": "raw" }),
-            SearchTokenizer::WhiteSpace(_filters) => json!({ "type": "whitespace" }),
-            SearchTokenizer::RegexTokenizer {
-                pattern,
-                filters: _,
-            } => {
-                json!({ "type": "regex", "pattern": pattern })
-            }
-            SearchTokenizer::ChineseCompatible(_filters) => json!({ "type": "chinese_compatible" }),
-            SearchTokenizer::SourceCode(_filters) => json!({ "type": "source_code" }),
-            SearchTokenizer::Ngram {
-                min_gram,
-                max_gram,
-                prefix_only,
-                filters: _,
-            } => json!({
-                "type": "ngram",
-                "min_gram": min_gram,
-                "max_gram": max_gram,
-                "prefix_only": prefix_only,
-            }),
-            SearchTokenizer::ChineseLindera(_filters) => json!({ "type": "chinese_lindera" }),
-            SearchTokenizer::JapaneseLindera(_filters) => json!({ "type": "japanese_lindera" }),
-            SearchTokenizer::KoreanLindera(_filters) => json!({ "type": "korean_lindera" }),
-            #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
-            SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
-            SearchTokenizer::Lindera(style, _filters) => match style {
-                LinderaLanguage::Unspecified => {
-                    panic!("LinderaStyle::Unspecified is not supported")
-                }
-                LinderaLanguage::Chinese => json!({ "type": "chinese_lindera" }),
-                LinderaLanguage::Japanese => json!({ "type": "japanese_lindera" }),
-                LinderaLanguage::Korean => json!({ "type": "korean_lindera" }),
-            },
-        };
-
-        // Serialize filters to the enclosing json object.
-        self.filters().to_json_value(&mut json);
-
-        json
-    }
-
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         // We use the `type` field of a JSON object to distinguish the tokenizer variant.
         // Deserialized in this "tagged enum" fashion is not supported by bincode, which

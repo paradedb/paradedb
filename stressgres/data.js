@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760117958082,
+  "lastUpdate": 1760117960983,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7306,6 +7306,126 @@ window.BENCHMARK_DATA = {
             "value": 147.9375,
             "unit": "median mem",
             "extra": "avg mem: 128.33320719902042, max mem: 152.67578125, count: 55228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4",
+          "message": "feat: allow `text[]::pdb.fuzzy/slop/boost` casts on the rhs of some operators (#3317)\n\n# Ticket(s) Closed\n\n- Closes #3297 \n\n## What\n\nThis enables the ability to use `TEXT[]`s on the rhs of `===`, `&&&`,\n`|||`, and `###` where the first three can be cast to `::pdb.fuzzy` and\nthe latter (phrase operator) can be cast to `::pdb.slop`.\n\nAllows for queries like:\n\n```sql\nSELECT * FROM regress.mock_items WHERE description === ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;\nSELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);\n```\n\n## Why\n\n## How\n\n## Tests\n\nregression tests for fuzzy and slop have been updated.",
+          "timestamp": "2025-10-10T13:22:56-04:00",
+          "tree_id": "8d56deef9895e4426664a371708fd8b6c7b46ff2",
+          "url": "https://github.com/paradedb/paradedb/commit/b3f4d952bddc7187d2025f9ecd191f3b7c3b7df4"
+        },
+        "date": 1760117959160,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.844694984197735, max cpu: 13.913043, count: 55308"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.07811228710133, max mem: 154.8359375, count: 55308"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.641913447447097, max cpu: 9.284333, count: 55308"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.81041501398984, max mem: 31.25390625, count: 55308"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.901273718286882, max cpu: 14.145383, count: 55308"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.13500293244195, max mem: 155.578125, count: 55308"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.62538730370721, max cpu: 7.5000005, count: 55308"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.6896550482073, max mem: 155.34375, count: 55308"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652077415722995, max cpu: 9.514371, count: 110616"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 136.36523133802976, max mem: 155.05859375, count: 110616"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28669,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28184.18935777826, max block_count: 54021.0, count: 55308"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.554205539885732, max segment_count: 58.0, count: 55308"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.703199168369393, max cpu: 9.213051, count: 55308"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.95389992180154, max mem: 159.3359375, count: 55308"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.256001751416883, max cpu: 4.6647234, count: 55308"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 129.62147054619132, max mem: 151.734375, count: 55308"
           }
         ]
       }

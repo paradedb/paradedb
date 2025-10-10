@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760124173847,
+  "lastUpdate": 1760124247613,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2830,6 +2830,72 @@ window.BENCHMARK_DATA = {
             "value": 92.94641739976713,
             "unit": "median tps",
             "extra": "avg tps: 107.07221790707916, max tps: 1025.8409331049127, count: 55373"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "722f1c4094a56dce00cf6388bc73b31176c03474",
+          "message": "chore: add `const`, `pdb.all` and `pdb.empty` [v2 API] (#3323)\n\n# Ticket(s) Closed\n\n- Closes #3301 (except for the MLT and disjunction_max points)\n\n## What\n\n- Add two new functions, `pdb.all()` and `pdb.empty()` to mirror what's\nalready in the `paradedb` schema.\n- Add a new `::pdb.const` type that works exactly the same as\n`::pdb.boost` but applies a constant score instead.\n\n## Why\n\nGeneral cleanup and consistency.\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T15:06:00-04:00",
+          "tree_id": "55ec131cec74c7b31e9de1508f1850c2bd8ce742",
+          "url": "https://github.com/paradedb/paradedb/commit/722f1c4094a56dce00cf6388bc73b31176c03474"
+        },
+        "date": 1760124245665,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 775.8165510766926,
+            "unit": "median tps",
+            "extra": "avg tps: 775.9786224083754, max tps: 819.1889327793631, count: 54491"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3438.5325714983337,
+            "unit": "median tps",
+            "extra": "avg tps: 3415.4862684335417, max tps: 3459.1136360682567, count: 54491"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 769.8672267570529,
+            "unit": "median tps",
+            "extra": "avg tps: 769.141480492835, max tps: 867.5666592870921, count: 54491"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 648.5280656721674,
+            "unit": "median tps",
+            "extra": "avg tps: 646.7668702437848, max tps: 721.1572389609113, count: 54491"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1643.6233187978537,
+            "unit": "median tps",
+            "extra": "avg tps: 1635.3855474701543, max tps: 1649.9240985433241, count: 108982"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1245.4000869343477,
+            "unit": "median tps",
+            "extra": "avg tps: 1237.6607551065044, max tps: 1257.8857014124785, count: 54491"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 100.21336659557927,
+            "unit": "median tps",
+            "extra": "avg tps: 134.37866665750855, max tps: 779.2410192472531, count: 54491"
           }
         ]
       }

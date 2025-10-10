@@ -119,6 +119,7 @@ mod typedef {
 
     extension_sql!(
         r#"
+            CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.fuzzy;
         "#,
         name = "FuzzyType_shell",
@@ -242,9 +243,9 @@ pub fn fuzzy_to_fuzzy(input: FuzzyType, typmod: i32, is_explicit: bool) -> Fuzzy
 
 extension_sql!(
     r#"
-        CREATE CAST (pdb.query AS pg_catalog.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pg_catalog.fuzzy AS pg_catalog.boost) WITH FUNCTION fuzzy_to_boost(pg_catalog.fuzzy, integer, boolean) AS IMPLICIT;
-        CREATE CAST (pg_catalog.fuzzy AS pg_catalog.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pg_catalog.fuzzy, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_fuzzy",
     requires = [

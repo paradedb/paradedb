@@ -119,6 +119,7 @@ mod typedef {
 
     extension_sql!(
         r#"
+            CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.slop;
         "#,
         name = "SlopType_shell",
@@ -218,9 +219,9 @@ pub fn slop_to_slop(input: SlopType, typmod: i32, is_explicit: bool) -> SlopType
 
 extension_sql!(
     r#"
-        CREATE CAST (pdb.query AS pg_catalog.slop) WITH FUNCTION query_to_slop(pdb.query, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pg_catalog.slop AS pg_catalog.boost) WITH FUNCTION slop_to_boost(pg_catalog.slop, integer, boolean) AS IMPLICIT;
-        CREATE CAST (pg_catalog.slop AS pg_catalog.slop) WITH FUNCTION slop_to_slop(pg_catalog.slop, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.query AS pdb.slop) WITH FUNCTION query_to_slop(pdb.query, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.slop AS pdb.boost) WITH FUNCTION slop_to_boost(pdb.slop, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.slop AS pdb.slop) WITH FUNCTION slop_to_slop(pdb.slop, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_slop",
     requires = [query_to_slop, slop_to_boost, slop_to_slop, "SlopType_final"]

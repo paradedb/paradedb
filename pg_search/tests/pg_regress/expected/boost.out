@@ -1,4 +1,4 @@
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.boost(3);
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -9,7 +9,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"boost":3.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::boost(3.14159);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.boost(3.14159);
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -20,7 +20,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"boost":3.140625}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::boost(0.5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.boost(0.5);
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -31,7 +31,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"boost":0.5}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::boost(0);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.boost(0);
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -42,7 +42,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"boost":0.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.boost(-100);
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -53,7 +53,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(3);
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -64,7 +64,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":3.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::boost(3.14159);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(3.14159);
                                                                                                                   QUERY PLAN                                                                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -75,7 +75,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":3.140625}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::boost(0.5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(0.5);
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -86,7 +86,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":0.5}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::boost(0);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(0);
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -97,7 +97,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":0.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.boost(-100);
                                                                                                                  QUERY PLAN                                                                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -108,7 +108,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3);
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -119,7 +119,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":3.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::boost(3.14159);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(3.14159);
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -130,7 +130,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":3.140625}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::boost(0.5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0.5);
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -141,7 +141,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":0.5}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::boost(0);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(0);
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -152,7 +152,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":0.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.boost(-100);
                                                                                                                   QUERY PLAN                                                                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -163,7 +163,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(3);
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -174,7 +174,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"boost":3.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(3.14159);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(3.14159);
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -185,7 +185,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"boost":3.140625}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(0.5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(0.5);
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -196,7 +196,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"boost":0.5}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(0);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(0);
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -207,7 +207,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"boost":0.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(-100);
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -218,7 +218,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(3);
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -229,7 +229,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":3.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::boost(3.14159);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(3.14159);
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -240,7 +240,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":3.140625}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::boost(0.5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(0.5);
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -251,7 +251,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":0.5}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::boost(0);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(0);
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -262,7 +262,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":0.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.boost(-100);
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -273,7 +273,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::boost(-100);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.boost(-100);
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -284,7 +284,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"boost":-100.0}}}}
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.boost(3);
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -298,13 +298,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 --
 -- validate basic json representations
 --
-SELECT 'foo'::boost(3);
+SELECT 'foo'::pdb.boost(3);
                                   boost                                   
 --------------------------------------------------------------------------
  {"boost":{"query":{"unclassified_string":{"string":"foo"}},"boost":3.0}}
 (1 row)
 
-SELECT pdb.term('foo')::boost(3);
+SELECT pdb.term('foo')::pdb.boost(3);
                                      term                                     
 ------------------------------------------------------------------------------
  {"boost":{"query":{"term":{"value":"foo","is_datetime":false}},"boost":3.0}}
@@ -313,19 +313,19 @@ SELECT pdb.term('foo')::boost(3);
 --
 -- oob cases.  these all get clamped to [-2048..2048]
 --
-SELECT 'foo'::boost(2049);
+SELECT 'foo'::pdb.boost(2049);
                                     boost                                    
 -----------------------------------------------------------------------------
  {"boost":{"query":{"unclassified_string":{"string":"foo"}},"boost":2048.0}}
 (1 row)
 
-SELECT 'foo'::boost(-2049);
+SELECT 'foo'::pdb.boost(-2049);
                                     boost                                     
 ------------------------------------------------------------------------------
  {"boost":{"query":{"unclassified_string":{"string":"foo"}},"boost":-2048.0}}
 (1 row)
 
-SELECT 'foo'::boost(Inf);
+SELECT 'foo'::pdb.boost(Inf);
                                     boost                                    
 -----------------------------------------------------------------------------
  {"boost":{"query":{"unclassified_string":{"string":"foo"}},"boost":2048.0}}
@@ -334,11 +334,11 @@ SELECT 'foo'::boost(Inf);
 --
 -- error cases
 --
-SELECT 'foo'::boost(hi_mom);
+SELECT 'foo'::pdb.boost(hi_mom);
 ERROR:  invalid boost value: hi_mom at character 15
-SELECT 'foo'::boost(1,2);
+SELECT 'foo'::pdb.boost(1,2);
 ERROR:  assertion failed: typmod_parts.len() == 1 at character 15
-SELECT 'foo'::boost(NaN);
+SELECT 'foo'::pdb.boost(NaN);
 ERROR:  only 16 bit floats in the range [-2048..2048] are supported at character 15
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::boost;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::pdb.boost;
 ERROR:  boost value should have been set

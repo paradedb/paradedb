@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108707819,
+  "lastUpdate": 1760108741665,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8050,6 +8050,42 @@ window.BENCHMARK_DATA = {
             "value": 5.283355303091729,
             "unit": "median tps",
             "extra": "avg tps: 4.780743889577462, max tps: 5.868650085800207, count: 57542"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec9ff340a70f67a810bbd68f1032786a6a70171f",
+          "message": "fix: allow the RHS of `@@@` to support `pdb.query` at runtime (#3308)\n\n# Ticket(s) Closed\n\n- Closes #3300\n\n## What\n\nThis allows the rhs of `@@@` to support a `pdb.query` at runtime\n\n## Why\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T10:37:24-04:00",
+          "tree_id": "5e8a7b39c086133de1e3b584061cf342da72a619",
+          "url": "https://github.com/paradedb/paradedb/commit/ec9ff340a70f67a810bbd68f1032786a6a70171f"
+        },
+        "date": 1760108739777,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.438610813424106,
+            "unit": "median tps",
+            "extra": "avg tps: 7.170822669129903, max tps: 11.085505900950503, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.29114661747357,
+            "unit": "median tps",
+            "extra": "avg tps: 4.791956842244101, max tps: 5.869127958691501, count: 57334"
           }
         ]
       }

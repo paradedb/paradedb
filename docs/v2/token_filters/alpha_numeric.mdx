@@ -17,13 +17,13 @@ To demonstrate this token filter, let's compare the output of the following two 
 
 ```sql
 SELECT
-  'Tokenize me! 123'::pdb.whitespace::text[],
-  'Tokenize me! 123'::pdb.whitespace('alpha_num_only=true')::text[];
+  'The café at 9pm!'::pdb.simple::text[],
+  'The café at 9pm!'::pdb.simple('alpha_num_only=true')::text[];
 ```
 
 ```ini Expected Response
-        text        |      text
---------------------+----------------
- {tokenize,me!,123} | {tokenize,123}
+       text        |     text
+-------------------+--------------
+ {the,café,at,9pm} | {the,at,9pm}
 (1 row)
 ```

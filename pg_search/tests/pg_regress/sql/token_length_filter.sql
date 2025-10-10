@@ -4,3 +4,9 @@
 
 SELECT :'very_long_token'::pdb.simple::text[];
 SELECT :'very_long_token'::pdb.simple('remove_long=255')::text[];
+
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple::text[];
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=1')::text[];
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2')::text[];
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2', 'remove_long=15')::text[];
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2', 'remove_long=16')::text[];

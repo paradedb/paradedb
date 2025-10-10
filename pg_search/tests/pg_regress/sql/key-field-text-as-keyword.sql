@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 DROP TABLE IF EXISTS public.key_field_text_raw;
 CREATE TABLE public.key_field_text_raw
 (

@@ -17,3 +17,33 @@ SELECT :'very_long_token'::pdb.simple('remove_long=255')::text[];
  {}
 (1 row)
 
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple::text[];
+                    text                    
+--------------------------------------------
+ {a,sentence,with,a,veryveryverylong,token}
+(1 row)
+
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=1')::text[];
+                    text                    
+--------------------------------------------
+ {a,sentence,with,a,veryveryverylong,token}
+(1 row)
+
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2')::text[];
+                  text                  
+----------------------------------------
+ {sentence,with,veryveryverylong,token}
+(1 row)
+
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2', 'remove_long=15')::text[];
+         text          
+-----------------------
+ {sentence,with,token}
+(1 row)
+
+SELECT 'a sentence with a veryveryverylong token'::pdb.simple('remove_short=2', 'remove_long=16')::text[];
+                  text                  
+----------------------------------------
+ {sentence,with,veryveryverylong,token}
+(1 row)
+

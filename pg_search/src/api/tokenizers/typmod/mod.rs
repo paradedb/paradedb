@@ -294,6 +294,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
     fn from(value: &ParsedTypmod) -> Self {
         SearchTokenizerFilters {
             remove_long: value.get("remove_long").and_then(|p| p.as_usize()),
+            remove_short: value.get("remove_short").and_then(|p| p.as_usize()),
             lowercase: value.get("lowercase").and_then(|p| p.as_bool()),
             stemmer: value
                 .get("stemmer")

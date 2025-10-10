@@ -89,6 +89,10 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
                         query = match_conjunction(string);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
+                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
+                        query = match_conjunction_array(array);
+                        query.apply_fuzzy_data(fuzzy_data);
+                        query.apply_slop_data(slop_data);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost })
                 }

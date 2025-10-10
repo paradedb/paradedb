@@ -1366,8 +1366,22 @@ CREATE CAST (json AS pdb.ngram) WITH FUNCTION pdb.json_to_ngram AS ASSIGNMENT;
 CREATE CAST (jsonb AS pdb.ngram) WITH FUNCTION pdb.jsonb_to_ngram AS ASSIGNMENT;
 
 --
--- text[] on the rhs of some operators
+-- text[] casting to boost/fuzzy/slop on the rhs of some operators
 --
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/boost.rs:213
+-- pg_search::api::operator::boost::text_array_to_boost
+CREATE  FUNCTION "text_array_to_boost"(
+    "array" TEXT[], /* alloc::vec::Vec<alloc::string::String> */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS pdb.boost /* pg_search::api::operator::boost::BoostType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'text_array_to_boost_wrapper';
+/* </end connected objects> */
+
 
 -- pg_search/src/api/operator/fuzzy.rs:215
 -- pg_search::api::operator::fuzzy::text_array_to_fuzzy
@@ -1414,3 +1428,13 @@ CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], inte
 --   text_array_to_slop
 --   SlopType_final
 CREATE CAST (text[] AS pdb.slop) WITH FUNCTION text_array_to_slop(text[], integer, boolean) AS ASSIGNMENT;
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/boost.rs:286
+-- requires:
+--   query_to_boost
+--   prox_to_boost
+--   boost_to_boost
+--   text_array_to_boost
+--   BoostType_final
+CREATE CAST (text[] AS pdb.boost) WITH FUNCTION text_array_to_boost(text[], integer, boolean) AS ASSIGNMENT;

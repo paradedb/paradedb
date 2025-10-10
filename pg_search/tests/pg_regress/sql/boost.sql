@@ -31,11 +31,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.boost(-100);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.boost(3);
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& ARRAY['running', 'shoes']::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| ARRAY['running', 'shoes']::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### ARRAY['running', 'shoes']::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['running', 'shoes']::pdb.boost(3);
+
 --
 -- validate basic json representations
 --
 SELECT 'foo'::pdb.boost(3);
 SELECT pdb.term('foo')::pdb.boost(3);
+SELECT ARRAY['foo', 'bar']::pdb.boost(3);
 
 --
 -- oob cases.  these all get clamped to [-2048..2048]

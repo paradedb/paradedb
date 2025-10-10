@@ -211,6 +211,20 @@ pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> Boo
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn text_array_to_boost(array: Vec<String>, typmod: i32, _is_explicit: bool) -> BoostType {
+    let boost = deserialize_i32_to_f32(typmod);
+    let query = pdb::Query::UnclassifiedArray {
+        array,
+        fuzzy_data: None,
+        slop_data: None,
+    };
+    BoostType(pdb::Query::Boost {
+        query: Box::new(query),
+        boost: Some(boost),
+    })
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn prox_to_boost(input: ProximityClause, typmod: i32, _is_explicit: bool) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
 
@@ -271,6 +285,7 @@ pub fn boost_to_boost(input: BoostType, typmod: i32, _is_explicit: bool) -> Boos
 
 extension_sql!(
     r#"
+        CREATE CAST (text[] AS pdb.boost) WITH FUNCTION text_array_to_boost(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.boost) WITH FUNCTION query_to_boost(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.proximityclause AS pdb.boost) WITH FUNCTION prox_to_boost(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.boost AS pdb.boost) WITH FUNCTION boost_to_boost(pdb.boost, integer, boolean) AS IMPLICIT;
@@ -280,6 +295,7 @@ extension_sql!(
         query_to_boost,
         prox_to_boost,
         boost_to_boost,
+        text_array_to_boost,
         "BoostType_final"
     ]
 );

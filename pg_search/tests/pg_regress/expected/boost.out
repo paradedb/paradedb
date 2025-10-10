@@ -295,6 +295,50 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"proximity":{"left":{"term":"running"},"distance":{"any_order":3},"right":{"term":"shoes"}}},"boost":3.0}}}}
 (6 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& ARRAY['running', 'shoes']::pdb.boost(3);
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"boost":3.0}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| ARRAY['running', 'shoes']::pdb.boost(3);
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"boost":3.0}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### ARRAY['running', 'shoes']::pdb.boost(3);
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"phrase_array":{"tokens":["running","shoes"],"slop":null}},"boost":3.0}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['running', 'shoes']::pdb.boost(3);
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"term_set":{"terms":["running","shoes"]}},"boost":3.0}}}}
+(6 rows)
+
 --
 -- validate basic json representations
 --
@@ -308,6 +352,12 @@ SELECT pdb.term('foo')::pdb.boost(3);
                                      term                                     
 ------------------------------------------------------------------------------
  {"boost":{"query":{"term":{"value":"foo","is_datetime":false}},"boost":3.0}}
+(1 row)
+
+SELECT ARRAY['foo', 'bar']::pdb.boost(3);
+                                     array                                      
+--------------------------------------------------------------------------------
+ {"boost":{"query":{"unclassified_array":{"array":["foo","bar"]}},"boost":3.0}}
 (1 row)
 
 --

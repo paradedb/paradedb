@@ -84,6 +84,9 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                     if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
                         query = phrase_string(string);
                         query.apply_slop_data(slop_data);
+                    } else if let pdb::Query::UnclassifiedArray {array,  slop_data, ..} = query {
+                        query = phrase_array(array);
+                        query.apply_slop_data(slop_data);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
                 }

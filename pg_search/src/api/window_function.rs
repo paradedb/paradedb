@@ -19,7 +19,7 @@ use pgrx::prelude::*;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
 
 /// Internal placeholder function for window aggregates
-///
+/// 
 /// This function is used as a replacement for WindowFunc nodes during planning.
 /// The JSON parameter contains the serialized WindowAggregateInfo that will be
 /// deserialized during custom scan planning.
@@ -45,3 +45,4 @@ pub fn window_func_oid() -> pg_sys::Oid {
         .expect("the `paradedb.window_func` function should exist")
     }
 }
+

@@ -99,162 +99,23 @@ impl CustomScan for AggregateScan {
             // that handles both the base scan and window aggregate computation.
             // The window functions have already been replaced with window_func(json) by the hook.
 
-            // Get the base relation with bm25 index
-            let parent_relids = args.input_rel().relids;
-            let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
-            let heap_rte = unsafe {
-                range_table::get_rte(
-                    args.root().simple_rel_array_size as usize,
-                    args.root().simple_rte_array,
-                    heap_rti,
-                )?
-            };
-            let (table, bm25_index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
-            let schema = bm25_index
-                .schema()
-                .expect("window custom scan: should have a schema");
-
-            // Check if there's a WHERE clause with @@@ operator
+            // Check if this is a search query (has @@@ operator)
             let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
             if matches!(ri_type, RestrictInfoType::Join) {
                 return None;
             }
-            let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
 
-            // Extract the WHERE clause query if present
-            let mut where_qual_state = QualExtractState::default();
-            let query = if has_where_clause {
-                unsafe {
-                    let result = extract_quals(
-                        args.root,
-                        heap_rti,
-                        restrict_info.as_ptr().cast(),
-                        anyelement_query_input_opoid(),
-                        ri_type,
-                        &bm25_index,
-                        false,
-                        &mut where_qual_state,
-                        true,
-                    );
-                    SearchQueryInput::from(&result?)
-                }
-            } else {
-                SearchQueryInput::All
-            };
-
-            let has_search_operator = where_qual_state.uses_our_operator;
-            if !has_search_operator {
-                pgrx::warning!("  No @@@ operator found, skipping window custom scan");
-                return None;
-            }
-
-            pgrx::warning!("  Found @@@ operator, creating window custom scan");
-
-            // Extract window aggregates from the replaced targetList
-            // They should now be window_func(json) calls
-            let window_aggs = unsafe {
-                use crate::postgres::customscan::hook::extract_window_aggregates_from_targetlist;
-                extract_window_aggregates_from_targetlist((*parse).targetList)
-            };
-
-            if window_aggs.is_empty() {
-                pgrx::warning!("  Could not deserialize window aggregates from targetList");
-                return None;
-            }
-
-            pgrx::warning!("  Deserialized {} window aggregates", window_aggs.len());
-
-            // Build aggregate types and target list mapping
-            let aggregate_types: Vec<AggregateType> = window_aggs
-                .iter()
-                .map(|info| info.agg_type.clone())
-                .collect();
-
-            // Build target list mapping - map each target entry to either a base column or aggregate
-            // For window functions without GROUP BY, base columns are pass-through,
-            // and window_func(json) placeholders are aggregates
-            let target_list_mapping = unsafe {
-                use crate::api::window_function::window_func_oid;
-                let window_func_procid = window_func_oid();
-                let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-                let mut mapping = Vec::new();
-                let mut agg_idx = 0;
-
-                for te in tlist.iter_ptr() {
-                    let expr = (*te).expr;
-                    if nodecast!(FuncExpr, T_FuncExpr, expr).is_some() {
-                        let func_expr = expr as *mut pg_sys::FuncExpr;
-                        if (*func_expr).funcid == window_func_procid {
-                            // This is a window aggregate
-                            mapping.push(TargetListEntry::Aggregate(agg_idx));
-                            agg_idx += 1;
-                            continue;
-                        }
-                    }
-                    // This is a regular column - it will be produced by the base scan
-                    // For window functions, we don't have GROUP BY, so treat as pass-through
-                    mapping.push(TargetListEntry::PassThrough);
-                }
-
-                mapping
-            };
-
-            // Set a competitive cost (lower than WindowAgg to be chosen)
-            // Use the input relation's cheapest path cost as baseline
-            let base_cost = unsafe {
-                let input_rel = args.input_rel();
-                if !(*input_rel).cheapest_total_path.is_null() {
-                    (*(*input_rel).cheapest_total_path).total_cost
-                } else {
-                    100.0
-                }
-            };
-
-            // Extract ORDER BY pathkeys from the query (for TopN with LIMIT)
-            // These need to be carried through the window aggregate path
-            let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-
-            let input_reloptkind = unsafe { (*args.input_rel()).reloptkind };
-            let output_reloptkind = unsafe { (*args.output_rel()).reloptkind };
-
-            // Set cost slightly lower than base to be more attractive than WindowAgg
-            // WindowAgg adds ~0.05-0.10 to the base cost, so we match the base cost exactly
-            builder = builder.set_startup_cost(0.0);
-            builder = builder.set_total_cost(base_cost); // Same as base, cheaper than WindowAgg
-
-            // Add pathkeys if we have ORDER BY - this tells PostgreSQL our output is sorted
-            if let Some(pathkeys) = order_pathkey_info.pathkeys() {
-                for pathkey_style in pathkeys {
-                    builder = builder.add_path_key(pathkey_style);
-                }
-                pgrx::warning!("  Added {} pathkeys for ORDER BY", pathkeys.len());
-            }
+            // TODO: Implement window function custom path
+            // For now, we need to:
+            // 1. Extract the search query from WHERE clause
+            // 2. Get the base relation and bm25 index
+            // 3. Create a custom path that will handle both scanning and window aggregates
+            // 4. The window aggregate info is in Query->targetList as window_func(json) calls
 
             pgrx::warning!(
-                "  Creating custom path with cost {} (WindowAgg is ~{})",
-                base_cost,
-                base_cost + 0.05
+                "  Window custom scan not yet fully implemented, falling back to WindowAgg"
             );
-            pgrx::warning!(
-                "  input_rel type: {:?}, output_rel type: {:?}",
-                input_reloptkind,
-                output_reloptkind
-            );
-
-            return Some(builder.build(PrivateData {
-                aggregate_types,
-                indexrelid: bm25_index.oid(),
-                heap_rti,
-                query,
-                grouping_columns: Vec::new(), // No GROUP BY for window functions
-                orderby_info: Vec::new(),     // TODO: Extract ORDER BY from LIMIT
-                target_list_mapping,
-                has_order_by: false,
-                limit: None, // TODO: Extract from Query
-                offset: None,
-                maybe_truncated: false,
-                filter_groups: Vec::new(),
-            }));
+            return None;
         }
 
         if !is_group_agg_stage {
@@ -497,124 +358,9 @@ impl CustomScan for AggregateScan {
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
-        pgrx::warning!("AggregateScan::plan_custom_path called");
-        pgrx::warning!("  heap_rti={}", builder.custom_private().heap_rti);
-        pgrx::warning!("  has_order_by={}", builder.custom_private().has_order_by);
-        pgrx::warning!(
-            "  grouping_columns.len()={}",
-            builder.custom_private().grouping_columns.len()
-        );
+        builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        let heap_rti = builder.custom_private().heap_rti;
-
-        // Check if this is a window function (no GROUP BY but has target list mapping with PassThrough)
-        let has_passthrough = builder
-            .custom_private()
-            .target_list_mapping
-            .iter()
-            .any(|entry| matches!(entry, TargetListEntry::PassThrough));
-
-        builder.set_scanrelid(heap_rti);
-
-        if has_passthrough {
-            // This is a window function - fix Vars to reference scanrelid BEFORE build()
-            pgrx::warning!(
-                "  Detected window function (PassThrough entries), fixing Vars to reference scanrelid={}", heap_rti
-            );
-            unsafe {
-                // The tlist is empty for UPPERREL_WINDOW - we need to create it from the Query
-                let tlist = builder.args().tlist.as_ptr();
-                pgrx::warning!(
-                    "  tlist has {} entries (empty for UPPERREL_WINDOW)",
-                    PgList::<pg_sys::TargetEntry>::from_pg(tlist).len()
-                );
-
-                // Get the target list from the Query instead
-                let parse = builder.args().root.as_ref().unwrap().parse;
-                if !parse.is_null() && !(*parse).targetList.is_null() {
-                    let query_tlist = (*parse).targetList;
-                    pgrx::warning!(
-                        "  Using Query->targetList instead, which has {} entries",
-                        PgList::<pg_sys::TargetEntry>::from_pg(query_tlist).len()
-                    );
-
-                    // Create a NEW target list with Vars fixed and FuncExprs replaced
-                    let mut new_tlist = PgList::<pg_sys::TargetEntry>::new();
-                    let entries = PgList::<pg_sys::TargetEntry>::from_pg(query_tlist);
-
-                    pgrx::warning!("  Creating new target list with {} entries", entries.len());
-
-                    for (i, te) in entries.iter_ptr().enumerate() {
-                        let node_type = (*(*te).expr).type_;
-                        pgrx::warning!("    Entry {}: type={:?}", i, node_type);
-
-                        // Check if this is a FuncExpr and print its funcid
-                        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                            pgrx::warning!("      FuncExpr funcid={}", (*funcexpr).funcid);
-                            // Check the args - maybe there's a WindowFunc nested inside?
-                            if !(*funcexpr).args.is_null() {
-                                let args_list = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                                pgrx::warning!("      FuncExpr has {} args", args_list.len());
-                                for (arg_idx, arg) in args_list.iter_ptr().enumerate() {
-                                    pgrx::warning!(
-                                        "        Arg {}: type={:?}",
-                                        arg_idx,
-                                        (*arg).type_
-                                    );
-                                }
-                            }
-                        }
-
-                        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
-                            pgrx::warning!(
-                                "    Entry {}: Fixing Var with old varno={}",
-                                i,
-                                (*var).varno
-                            );
-                            let var_mut = var as *mut pg_sys::Var;
-                            (*var_mut).varno = heap_rti as i32;
-                            (*var_mut).varnosyn = heap_rti as u32;
-                        } else if nodecast!(FuncExpr, T_FuncExpr, (*te).expr).is_some() {
-                            // This is already a FuncExpr (window_func or placeholder)
-                            // Replace with now() to avoid any issues
-                            pgrx::warning!(
-                                "    Entry {}: Found FuncExpr, replacing with now() placeholder",
-                                i
-                            );
-                            let funcexpr = make_placeholder_for_window_func(
-                                (*te).expr as *mut pg_sys::FuncExpr,
-                            );
-                            let te_mut = te as *mut pg_sys::TargetEntry;
-                            (*te_mut).expr = funcexpr as *mut pg_sys::Expr;
-                        } else if let Some(windowfunc) =
-                            nodecast!(WindowFunc, T_WindowFunc, (*te).expr)
-                        {
-                            pgrx::warning!(
-                                "    Entry {}: Found WindowFunc! Replacing with now() placeholder",
-                                i
-                            );
-                            // This shouldn't happen but if WindowFunc is here, replace with now()
-                            let funcexpr = pg_sys::makeFuncExpr(
-                                placeholder_procid(),
-                                (*windowfunc).wintype,
-                                PgList::<pg_sys::Node>::new().into_pg(),
-                                pg_sys::InvalidOid,
-                                pg_sys::InvalidOid,
-                                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                            );
-                            let te_mut = te as *mut pg_sys::TargetEntry;
-                            (*te_mut).expr = funcexpr as *mut pg_sys::Expr;
-                        }
-                    }
-                    pgrx::warning!("  Done fixing Vars and replacing WindowFuncs");
-
-                    cscan
-                } else {
-                    pgrx::warning!("  WARNING: Could not get Query->targetList!");
-                    builder.build()
-                }
-            }
-        } else if builder.custom_private().grouping_columns.is_empty()
+        if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
             && !builder.custom_private().has_order_by
         {
@@ -632,26 +378,13 @@ impl CustomScan for AggregateScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        // Check if this is a window function
-        let has_passthrough = builder
-            .custom_private()
-            .target_list_mapping
-            .iter()
-            .any(|entry| matches!(entry, TargetListEntry::PassThrough));
-
-        // EXECUTION-TIME REPLACEMENT
-        if has_passthrough {
-            // Window functions: replace window_func(json) with now() placeholders
-            unsafe {
-                let cscan = builder.args().cscan;
-                let plan = &mut (*cscan).scan.plan;
-                replace_window_funcs_in_target_list(plan);
-            }
-        } else if !builder.custom_private().grouping_columns.is_empty()
+        // EXECUTION-TIME REPLACEMENT: Replace T_Aggref if we have GROUP BY or ORDER BY
+        // For simple aggregations without GROUP BY or ORDER BY, replacement should have happened at planning time
+        // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
+        if !builder.custom_private().grouping_columns.is_empty()
             || !builder.custom_private().orderby_info.is_empty()
             || builder.custom_private().has_order_by
         {
-            // GROUP BY: replace Aggrefs with now() placeholders
             unsafe {
                 let cscan = builder.args().cscan;
                 let plan = &mut (*cscan).scan.plan;
@@ -770,12 +503,6 @@ impl CustomScan for AggregateScan {
                             convert_aggregate_value_to_datum(agg_value, expected_typoid);
                         datums[i] = datum;
                         isnull[i] = is_null;
-                    }
-                    TargetListEntry::PassThrough => {
-                        // For window functions, these columns are already in the slot
-                        // from the base scan - we don't need to fill them here.
-                        // TODO(window): This indicates we're using AggregateScan incorrectly
-                        // Window functions without GROUP BY should use PdbScan instead
                     }
                 }
             }
@@ -1222,62 +949,7 @@ pub unsafe fn extract_filter_clause(
     result.map(|qual| SearchQueryInput::from(&qual))
 }
 
-/// Replace window_func(json) calls in the target list with placeholder FuncExprs
-/// This is similar to replace_aggrefs_in_target_list but for window functions
-unsafe fn replace_window_funcs_in_target_list(plan: *mut pg_sys::Plan) {
-    if (*plan).targetlist.is_null() {
-        return;
-    }
-
-    use crate::api::window_function::window_func_oid;
-    let window_func_procid = window_func_oid();
-
-    pgrx::warning!("replace_window_funcs_in_target_list: Looking for window_func(json) calls");
-
-    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
-    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
-
-    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            if (*funcexpr).funcid == window_func_procid {
-                // This is a window_func(json) call - replace with placeholder
-                pgrx::warning!("  Replacing window_func at target entry {}", te_idx);
-                let new_te = pg_sys::flatCopyTargetEntry(te);
-                let placeholder = make_placeholder_for_window_func(funcexpr);
-                (*new_te).expr = placeholder as *mut pg_sys::Expr;
-                new_targetlist.push(new_te);
-                continue;
-            }
-        }
-
-        // For non-window_func entries, just make a flat copy
-        let copied_te = pg_sys::flatCopyTargetEntry(te);
-        new_targetlist.push(copied_te);
-    }
-
-    (*plan).targetlist = new_targetlist.into_pg();
-    pgrx::warning!("replace_window_funcs_in_target_list: Done");
-}
-
-/// Create a placeholder FuncExpr for a window function
-unsafe fn make_placeholder_for_window_func(
-    funcexpr: *mut pg_sys::FuncExpr,
-) -> *mut pg_sys::FuncExpr {
-    let placeholder: *mut pg_sys::FuncExpr = pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
-    (*placeholder).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*placeholder).funcid = placeholder_procid();
-    (*placeholder).funcresulttype = (*funcexpr).funcresulttype;
-    (*placeholder).funcretset = false;
-    (*placeholder).funcvariadic = false;
-    (*placeholder).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
-    (*placeholder).funccollid = pg_sys::InvalidOid;
-    (*placeholder).inputcollid = (*funcexpr).inputcollid;
-    (*placeholder).location = (*funcexpr).location;
-    (*placeholder).args = PgList::<pg_sys::Node>::new().into_pg();
-
-    placeholder
-}
-
+/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     if (*plan).targetlist.is_null() {

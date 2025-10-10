@@ -22,6 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::options::BM25IndexOptions;
+pub use crate::postgres::utils::FieldSource;
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -170,12 +171,6 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
 }
 
 #[derive(Debug, Clone)]
-pub enum FieldSource {
-    Heap { attno: usize },
-    Expression { att_idx: usize },
-}
-
-#[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
     pub source: FieldSource,
@@ -285,12 +280,11 @@ impl SearchIndexSchema {
             let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
-            let mut expr_idx_counter = 0;
             for (
                 attname,
                 ExtractedFieldAttribute {
                     attno,
-                    heap_attno,
+                    source,
                     tantivy_type,
                     inner_typoid,
                     ..
@@ -321,18 +315,11 @@ impl SearchIndexSchema {
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
                     );
-                    let source = if *heap_attno != usize::MAX {
-                        FieldSource::Heap { attno: *heap_attno }
-                    } else {
-                        let att_idx = expr_idx_counter;
-                        expr_idx_counter += 1;
-                        FieldSource::Expression { att_idx }
-                    };
                     categorized.push((
                         search_field,
                         CategorizedFieldData {
                             attno: *attno,
-                            source,
+                            source: *source,
                             base_oid,
                             is_key_field,
                             is_array,

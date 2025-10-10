@@ -346,7 +346,7 @@ pub unsafe fn extract_field_attributes(
         let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
             .unwrap_or_else(|e| panic!("{e}"));
 
-        // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.exact` tokenizer
+        // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
             && att_typmod == -1
             && matches!(tantivy_type, SearchFieldType::Text(..));

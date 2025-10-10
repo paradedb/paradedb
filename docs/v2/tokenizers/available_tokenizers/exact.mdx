@@ -7,14 +7,14 @@ exact UUID matching is a common use case), and is useful for doing exact string 
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.exact))
+USING bm25 (id, (description::pdb.literal))
 WITH (key_field='id');
 ```
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
 ```sql
-SELECT 'Tokenize me!'::pdb.exact::text[];
+SELECT 'Tokenize me!'::pdb.literal::text[];
 ```
 
 ```ini Expected Response

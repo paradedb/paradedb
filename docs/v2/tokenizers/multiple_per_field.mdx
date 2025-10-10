@@ -12,7 +12,7 @@ The alias name can be any string you like. For instance, the following statement
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
-  (description::pdb.exact),
+  (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))
 ) WITH (key_field='id');
 ```
@@ -43,7 +43,7 @@ text field can reference the field directly:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
-  (description::pdb.exact),
+  (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))
 ) WITH (key_field='id');
 

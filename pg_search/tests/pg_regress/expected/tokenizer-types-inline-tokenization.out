@@ -4,7 +4,7 @@ SELECT 'this is a test.'::pdb.chinese_compatible::text[];
  {this,is,a,test}
 (1 row)
 
-SELECT 'this is a test.'::pdb.exact::text[];
+SELECT 'this is a test.'::pdb.literal::text[];
         text         
 ---------------------
  {"this is a test."}

@@ -15,14 +15,14 @@ CREATE INDEX idxuse_alias ON use_alias USING bm25 (
 CREATE INDEX idxuse_alias ON use_alias USING bm25 (
     id,
     t,
-    (t::pdb.exact('alias=exact')),
+    (t::pdb.literal('alias=literal')),
     (t::pdb.simple('alias=simple')),
     (t::pdb.ngram(2, 3, 'alias=ngram_2_3')),
     (t::pdb.ngram(3, 5, 'alias=ngram_3_5'))
 ) WITH (key_field = 'id');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t @@@ 'this is a test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(exact) @@@ 'this is a test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(literal) @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(simple) @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_2_3) @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_3_5) @@@ 'this is a test';

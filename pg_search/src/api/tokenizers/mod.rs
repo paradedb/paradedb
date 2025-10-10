@@ -74,7 +74,7 @@ pub fn search_field_config_from_type(
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
-        "exact" => SearchTokenizer::Keyword,
+        "literal" => SearchTokenizer::Keyword,
         "chinese_compatible" => {
             SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
         }
@@ -90,7 +90,7 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let (fast, fieldnorms, record) = if type_name == "exact" {
+    let (fast, fieldnorms, record) = if type_name == "literal" {
         // non-tokenized fields get to be fast
         (true, false, IndexRecordOption::Basic)
     } else {

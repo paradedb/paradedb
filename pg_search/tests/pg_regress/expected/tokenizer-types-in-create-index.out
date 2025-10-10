@@ -11,7 +11,7 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
      id,
      t,
      (t::pdb.chinese_compatible('alias=chinese_compatible')),
-     (t::pdb.exact('alias=exact')),
+     (t::pdb.literal('alias=literal')),
      (t::pdb.jieba('alias=jieba')),
      (t::pdb.lindera(chinese, 'alias=lindera_chinese')),
      (t::pdb.lindera(japanese, 'alias=lindera_japanese')),
@@ -29,12 +29,12 @@ SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
 --------------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
  chinese_compatible | Str        | f      | t       | f    | t          |             | chinese_compatible                         | position | 
  ctid               | U64        | f      | t       | t    | f          |             |                                            |          | 
- exact              | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
  id                 | I64        | f      | t       | t    | f          |             |                                            |          | 
  jieba              | Str        | f      | t       | f    | t          |             | jieba                                      | position | 
  lindera_chinese    | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
  lindera_japanese   | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
  lindera_korean     | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
+ literal            | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
  ngram              | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | 
  regex              | Str        | f      | t       | f    | t          |             | regex                                      | position | 
  simple             | Str        | f      | t       | f    | t          |             | default                                    | position | 
@@ -176,16 +176,16 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"jieba","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) @@@ 'test';
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) @@@ 'test';
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Scan) on tok_in_ci
          Table: tok_in_ci
          Index: idxtok_in_ci
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"exact","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"literal","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) @@@ 'test';
@@ -332,16 +332,16 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"jieba","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) &&& 'test';
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) &&& 'test';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Scan) on tok_in_ci
          Table: tok_in_ci
          Index: idxtok_in_ci
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"exact","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) &&& 'test';
@@ -488,16 +488,16 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"match":{"field":"jieba","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) ||| 'test';
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) ||| 'test';
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Scan) on tok_in_ci
          Table: tok_in_ci
          Index: idxtok_in_ci
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"exact","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) ||| 'test';
@@ -644,16 +644,16 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
          Tantivy Query: {"with_index":{"query":{"term":{"field":"jieba","value":"test","is_datetime":false}}}}
 (7 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) === 'test';
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) === 'test';
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Scan) on tok_in_ci
          Table: tok_in_ci
          Index: idxtok_in_ci
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"exact","value":"test","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"literal","value":"test","is_datetime":false}}}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) === 'test';

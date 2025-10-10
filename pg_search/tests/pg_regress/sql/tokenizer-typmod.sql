@@ -6,9 +6,9 @@ SELECT 'Running Shoes.  olé'::pdb.whitespace::text[];
 SELECT 'Running Shoes.  olé'::pdb.whitespace('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.whitespace('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
-SELECT 'Running Shoes.  olé'::pdb.exact::text[];
-SELECT 'Running Shoes.  olé'::pdb.exact('alias=foo')::text[];  -- only option supported for exact
-SELECT 'Running Shoes.  olé'::pdb.exact('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.literal::text[];
+SELECT 'Running Shoes.  olé'::pdb.literal('alias=foo')::text[];  -- only option supported for exact
+SELECT 'Running Shoes.  olé'::pdb.literal('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.chinese_compatible::text[];
 SELECT 'Running Shoes.  olé'::pdb.chinese_compatible('lowercase=false')::text[];

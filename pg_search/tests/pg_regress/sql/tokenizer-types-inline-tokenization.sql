@@ -1,5 +1,5 @@
 SELECT 'this is a test.'::pdb.chinese_compatible::text[];
-SELECT 'this is a test.'::pdb.exact::text[];
+SELECT 'this is a test.'::pdb.literal::text[];
 SELECT 'this is a test.'::pdb.jieba::text[];
 SELECT 'this is a test.'::pdb.lindera(chinese)::text[];
 SELECT 'this is a test.'::pdb.lindera(japanese)::text[];

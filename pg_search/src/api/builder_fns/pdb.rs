@@ -28,6 +28,16 @@ mod pdb {
     use std::collections::Bound;
     use tantivy::schema::{OwnedValue, Value};
 
+    #[pg_extern(immutable, parallel_safe, name = "all")]
+    pub fn pdb_all() -> pdb::Query {
+        pdb::Query::All
+    }
+
+    #[pg_extern(immutable, parallel_safe, name = "empty")]
+    pub fn pdb_empty() -> pdb::Query {
+        pdb::Query::Empty
+    }
+
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "match_conjunction")]
     pub fn match_conjunction(terms_to_tokenize: String) -> pdb::Query {

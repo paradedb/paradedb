@@ -1635,6 +1635,10 @@ fn base_query_has_search_predicates(
             .iter()
             .any(|q| base_query_has_search_predicates(q, current_index_oid)),
 
+        // Despite being part of FieldedQuery, these do not use a field, as far as the user knows
+        SearchQueryInput::FieldedQuery {  query: pdb::Query::All, ..} |
+        SearchQueryInput::FieldedQuery {  query: pdb::Query::Empty, ..} => false,
+
         // These are NOT search predicates (they're range/exists/other predicates)
         SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }

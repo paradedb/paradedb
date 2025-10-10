@@ -1,0 +1,12 @@
+select count(*) from regress.mock_items where id @@@ pdb.all();
+ count 
+-------
+    41
+(1 row)
+
+select count(*) from regress.mock_items where id @@@ pdb.empty();
+ count 
+-------
+     0
+(1 row)
+

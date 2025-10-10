@@ -29,9 +29,9 @@ use serde_json::Value;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
-    BooleanQuery, BoostQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
-    PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, Query, QueryParser, RangeQuery,
-    RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
+    AllQuery, BooleanQuery, BoostQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery,
+    FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, Query,
+    QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
 use tantivy::{Score, Searcher, Term};
@@ -143,6 +143,9 @@ pub mod pdb {
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
     pub enum Query {
+        All,
+        Empty,
+
         /// This is instantiated in places where a string literal is used
         /// as the right-hand-side of one of our operators.  For example, in
         ///
@@ -454,6 +457,9 @@ impl pdb::Query {
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
+            pdb::Query::All => Box::new(AllQuery),
+            pdb::Query::Empty => Box::new(EmptyQuery),
+
             pdb::Query::UnclassifiedString { .. } => {
                 // this would indicate a problem with the various operator SUPPORT functions failing
                 // to convert the UnclassifiedString into the pdb::Query variant they require

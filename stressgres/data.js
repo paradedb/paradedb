@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760119445223,
+  "lastUpdate": 1760119486563,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2632,6 +2632,72 @@ window.BENCHMARK_DATA = {
             "value": 182.17500917609547,
             "unit": "median tps",
             "extra": "avg tps: 206.7795238877881, max tps: 1042.2572791248374, count: 55308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdecbe9790b1f7053fe49331f81c711d85ab4ea3",
+          "message": "chore: Temporarily disable compound sorts in proptests. (#3321)\n\nSee https://github.com/paradedb/paradedb/issues/3266.",
+          "timestamp": "2025-10-10T10:48:29-07:00",
+          "tree_id": "f82dc82ece86a514f1aff1d178ebfea6bc4296cf",
+          "url": "https://github.com/paradedb/paradedb/commit/cdecbe9790b1f7053fe49331f81c711d85ab4ea3"
+        },
+        "date": 1760119484666,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 764.0196700339277,
+            "unit": "median tps",
+            "extra": "avg tps: 764.5384391995673, max tps: 881.7778993859351, count: 55376"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3012.6842355909043,
+            "unit": "median tps",
+            "extra": "avg tps: 3004.380347145451, max tps: 3277.814369112185, count: 55376"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 759.3537500438217,
+            "unit": "median tps",
+            "extra": "avg tps: 759.0457875287747, max tps: 894.0749329078043, count: 55376"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 648.5994618943042,
+            "unit": "median tps",
+            "extra": "avg tps: 645.8823550483528, max tps: 682.8904007224623, count: 55376"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1682.293727039232,
+            "unit": "median tps",
+            "extra": "avg tps: 1676.792087034749, max tps: 1697.36617698104, count: 110752"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1258.8611775588654,
+            "unit": "median tps",
+            "extra": "avg tps: 1253.416242326951, max tps: 1269.3199629225505, count: 55376"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 260.6128044644225,
+            "unit": "median tps",
+            "extra": "avg tps: 270.50428073647066, max tps: 880.1220905363991, count: 55376"
           }
         ]
       }

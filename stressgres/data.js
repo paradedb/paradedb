@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760122693339,
+  "lastUpdate": 1760122696337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11848,6 +11848,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.3404392652164, max segment_count: 106.0, count: 57323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b418256789178eb01453f8d5c7edcdd5eeee9aa",
+          "message": "feat: Introduce literal normalized tokenizer (#3320)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLike the literal tokenizer, but allows for filters.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T14:27:59-04:00",
+          "tree_id": "d66f7ec22ec5a7715c949894c2cc19ff8914cb07",
+          "url": "https://github.com/paradedb/paradedb/commit/4b418256789178eb01453f8d5c7edcdd5eeee9aa"
+        },
+        "date": 1760122694421,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.842003,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.32155973850142, max cpu: 42.72997, count: 57787"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 226.78766870954973, max mem: 228.796875, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.41782869153861, max cpu: 33.366436, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.6213070873423, max mem: 164.1328125, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24198,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23258.88393583332, max block_count: 26072.0, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.32555765137488, max segment_count: 106.0, count: 57787"
           }
         ]
       }

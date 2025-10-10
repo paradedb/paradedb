@@ -162,6 +162,25 @@ pub mod pdb {
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
         },
+        /// This is instantiated in places where a text array is used
+        /// as the right-hand-side of one of our operators.  For example, in
+        ///
+        /// ```sql
+        /// SELECT * FROM t WHERE f @@@ ARRAY['some', 'terms']
+        /// ```
+        ///
+        /// This variant is constructed first, then the "SUPPORT" function for our various operators
+        /// will rewrite it to the [`Query`] variant that is correct for its usage.
+        ///
+        /// For example, the `===` operator will rewrite it to a [`Query::TermSet`] and `@@@` to
+        /// a [`Query::ParseWithField`].
+        UnclassifiedArray {
+            array: Vec<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            fuzzy_data: Option<FuzzyData>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            slop_data: Option<SlopData>,
+        },
         Boost {
             query: Box<Query>,
             boost: Option<tantivy::Score>,
@@ -342,6 +361,9 @@ impl pdb::Query {
             pdb::Query::UnclassifiedString { fuzzy_data, .. } => {
                 *fuzzy_data = Some(new_fuzzy_data);
             }
+            pdb::Query::UnclassifiedArray { fuzzy_data, .. } => {
+                *fuzzy_data = Some(new_fuzzy_data);
+            }
 
             pdb::Query::Term {
                 value: OwnedValue::Str(value),
@@ -352,6 +374,25 @@ impl pdb::Query {
                     distance: Some(new_fuzzy_data.distance),
                     transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
                     prefix: Some(new_fuzzy_data.prefix),
+                }
+            }
+
+            pdb::Query::TermSet { terms } => {
+                // must convert to an OR'd set of FuzzyTerms
+                let mut fuzzy_terms = Vec::with_capacity(terms.len());
+                for term in terms {
+                    let OwnedValue::Str(term) = term else {
+                        continue;
+                    };
+                    fuzzy_terms.push(term.clone());
+                }
+
+                *self = pdb::Query::MatchArray {
+                    tokens: fuzzy_terms,
+                    distance: Some(new_fuzzy_data.distance),
+                    transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
+                    prefix: Some(new_fuzzy_data.prefix),
+                    conjunction_mode: Some(false),
                 }
             }
 
@@ -379,7 +420,6 @@ impl pdb::Query {
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => *fuzzy_data = Some(new_fuzzy_data),
 
-            // TODO:  we could silently ignore
             _ => panic!("query type is not compatible with fuzzy"),
         }
     }
@@ -393,11 +433,15 @@ impl pdb::Query {
             pdb::Query::UnclassifiedString { slop_data, .. } => {
                 *slop_data = Some(new_slop_data);
             }
+            pdb::Query::UnclassifiedArray { slop_data, .. } => {
+                *slop_data = Some(new_slop_data);
+            }
             pdb::Query::Phrase { slop, .. } => *slop = Some(new_slop_data.slop),
+
+            pdb::Query::PhraseArray { slop, .. } => *slop = Some(new_slop_data.slop),
 
             pdb::Query::TokenizedPhrase { slop, .. } => *slop = Some(new_slop_data.slop),
 
-            // TODO:  we could silently ignore
             _ => panic!("query type is not compatible with slop"),
         }
     }
@@ -415,6 +459,13 @@ impl pdb::Query {
                 // to convert the UnclassifiedString into the pdb::Query variant they require
                 unreachable!(
                     "pdb::Query::UnclassifiedString cannot be converted into a TantivyQuery"
+                )
+            }
+            pdb::Query::UnclassifiedArray { .. } => {
+                // this would indicate a problem with the various operator SUPPORT functions failing
+                // to convert the UnclassifiedArray into the pdb::Query variant they require
+                unreachable!(
+                    "pdb::Query::UnclassifiedArray cannot be converted into a TantivyQuery"
                 )
             }
             pdb::Query::Exists => exists(field, searcher),

@@ -9,10 +9,19 @@ SELECT * FROM regress.mock_items WHERE description === 'sho'::pdb.fuzzy(1) ORDER
 SELECT * FROM regress.mock_items WHERE description === 'sho'::pdb.fuzzy(2) ORDER BY id; -- 3 rows
 
 --
+-- array to fuzzy
+--
+
+SELECT * FROM regress.mock_items WHERE description === ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description &&& ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description ||| ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;
+
+--
 -- (currently) unsupported for phrase and proximity
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.fuzzy(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.fuzzy(2);
+SELECT * FROM regress.mock_items WHERE description ### ARRAY['sho', 'running']::pdb.fuzzy(2) ORDER BY id;
 
 
 --

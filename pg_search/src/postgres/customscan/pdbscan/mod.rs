@@ -1653,6 +1653,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::UnclassifiedString { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::UnclassifiedArray { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Boost { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::TermSet { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Term { .. }, .. }

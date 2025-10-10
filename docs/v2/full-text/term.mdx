@@ -7,11 +7,8 @@ canonical: https://docs.paradedb.com/documentation/advanced/term/term
 Term queries look for exact token matches. A term query is like an exact string match, but at the
 token level.
 
-## Overview
-
 Unlike [match](/v2/full-text/match) or [phrase](/v2/full-text/phrase) queries, term queries treat the query
-string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization, lowercasing,
-stemming, etc.
+string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization or filtering.
 
 Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
@@ -51,12 +48,12 @@ case sensitivity, and there are no documents in the example dataset containing t
   tokenizer.
 </Note>
 
-### How It Works
+## How It Works
 
 Under the hood, `===` simply finds all documents where any of their tokens are an exact string match against the query token.
 A document's tokens are determined by the field's tokenizer and token filters, configured at index creation time.
 
-### Examples
+## Examples
 
 Let’s consider a few more hypothetical documents to see whether they would be returned by the term query.
 These examples assume that index uses the default tokenizer and token filters, and that the term query is

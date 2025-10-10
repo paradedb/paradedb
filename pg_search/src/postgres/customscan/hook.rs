@@ -23,16 +23,8 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathl
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
-use std::sync::Mutex;
 
 use crate::nodecast;
-
-// Global storage for window aggregates extracted during planning
-// PostgreSQL may copy Query structures during planning, so we can't reliably key by Query pointer.
-// Instead, we use a simple "latest" storage since planning is single-threaded per backend.
-// The planner hook extracts and stores here, then plan_custom_path retrieves.
-pub static EXTRACTED_WINDOW_AGGREGATES: Lazy<Mutex<Option<Vec<WindowAggregateInfo>>>> =
-    Lazy::new(|| Mutex::new(None));
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -196,7 +188,77 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+    // Handle both GROUP_AGG (aggregates) and WINDOW (window functions)
+    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+        && stage != pg_sys::UpperRelationKind::UPPERREL_WINDOW
+    {
+        return;
+    }
+
+    // Handle WINDOW stage (window functions)
+    // Similar to UPPERREL_GROUP_AGG, we create a single custom scan that handles both
+    // the base scan and window aggregate computation
+    if stage == pg_sys::UpperRelationKind::UPPERREL_WINDOW {
+        pgrx::warning!("paradedb_upper_paths_callback: UPPERREL_WINDOW stage detected!");
+
+        unsafe {
+            // Check if the input is a base relation (not a join or subquery)
+            if input_rel.is_null() || (*input_rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL
+            {
+                pgrx::warning!("  Input is not a base relation, skipping window custom scan");
+                return;
+            }
+
+            let parse = (*root).parse;
+            if parse.is_null() || (*parse).targetList.is_null() {
+                return;
+            }
+
+            // Extract window functions from Query->targetList
+            use crate::postgres::customscan::pdbscan::projections::window_agg;
+            let window_aggs = window_agg::extract_window_aggregates(
+                (*parse).targetList,
+                (*parse).windowClause,
+                1, // dummy RTI for now
+            );
+
+            if window_aggs.is_empty() {
+                pgrx::warning!("  No window aggregates found to handle");
+                return;
+            }
+
+            pgrx::warning!(
+                "  Extracted {} window aggregates from base relation",
+                window_aggs.len()
+            );
+
+            // Replace WindowFunc nodes with window_func(json) in Query->targetList
+            // This is the same as aggregatescan replacing Aggref with placeholder
+            replace_windowfuncs_in_query(parse, &window_aggs);
+            pgrx::warning!("  Replaced WindowFunc nodes with window_func(json) placeholders");
+
+            // Try to create a custom path using PdbScan
+            // The PdbScan will handle both the base scan and window aggregates
+            let path_result = CS::create_custom_path(CustomPathBuilder::new(
+                root,
+                output_rel,
+                CreateUpperPathsHookArgs {
+                    root,
+                    stage,
+                    input_rel,
+                    output_rel,
+                    extra,
+                },
+            ));
+
+            if let Some(path) = path_result {
+                pgrx::warning!("  Created custom path for window aggregates");
+                add_path(output_rel, path);
+            } else {
+                pgrx::warning!("  Could not create custom path for window aggregates");
+            }
+        }
+
         return;
     }
 
@@ -255,16 +317,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
         if has_window_funcs && has_search_op {
             pgrx::warning!(
-                "planner_hook: Found window functions in search query, extracting and storing"
+                "planner_hook: Found window functions in search query - will handle at UPPERREL_WINDOW stage"
             );
-
-            // Extract and store window functions for later use in plan_custom_path
-            // DON'T replace them - let PostgreSQL handle them normally, and we'll
-            // inject our handling at execution time (like aggregatescan does)
-            let _window_aggs = extract_window_functions(parse);
-
-            // NO REPLACEMENT - let PostgreSQL create WindowAgg node naturally
-            // We'll handle it at the upper path level or at execution time
+            // No action needed here - replacement happens at create_upper_paths_hook for UPPERREL_WINDOW
         }
     }
 
@@ -451,18 +506,23 @@ unsafe fn replace_windowfuncs_in_query(
                 );
                 args.push(json_const.cast());
 
-                // Create a FuncExpr that calls paradedb.window_func(json)
-                let funcexpr = pg_sys::makeFuncExpr(
-                    window_func_procid,
-                    agg_info.result_type_oid,
-                    args.into_pg(),
-                    pg_sys::InvalidOid,
-                    pg_sys::InvalidOid,
-                    pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                );
+                // Create a FuncExpr manually (like aggregatescan does)
+                use std::mem::size_of;
+                let funcexpr: *mut pg_sys::FuncExpr =
+                    pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
+                (*funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
+                (*funcexpr).funcid = window_func_procid;
+                (*funcexpr).funcresulttype = agg_info.result_type_oid;
+                (*funcexpr).funcretset = false;
+                (*funcexpr).funcvariadic = false;
+                (*funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+                (*funcexpr).funccollid = pg_sys::InvalidOid;
+                (*funcexpr).inputcollid = pg_sys::InvalidOid; // WindowFunc doesn't have inputcollid
+                (*funcexpr).location = -1; // Unknown location
+                (*funcexpr).args = args.into_pg();
 
                 // Replace the WindowFunc with our placeholder FuncExpr
-                (*new_te).expr = funcexpr.cast();
+                (*new_te).expr = funcexpr as *mut pg_sys::Expr;
                 new_targetlist.push(new_te);
                 replaced_count += 1;
 
@@ -499,7 +559,7 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
         .expect("the `now()` function should exist")
 }
 
-/// Extract window functions, store in global cache, and return them for replacement
+/// Extract window functions for replacement
 /// This is called in the planner hook before replacing WindowFunc nodes
 unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
     use crate::postgres::customscan::pdbscan::projections::window_agg;
@@ -518,30 +578,9 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
             "planner_hook: Extracted {} window aggregates",
             window_aggs.len()
         );
-
-        // Store in global "latest" storage for retrieval in plan_custom_path
-        // (PostgreSQL may copy the Query, so we can't key by pointer)
-        let mut storage = EXTRACTED_WINDOW_AGGREGATES
-            .lock()
-            .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-        *storage = Some(window_aggs.clone());
-        pgrx::warning!("planner_hook: Stored window aggregates in global storage");
     }
 
     window_aggs
-}
-
-/// Retrieve and clear window aggregates from the global storage
-/// Returns None if no aggregates were stored
-pub unsafe fn take_extracted_window_aggregates() -> Option<Vec<WindowAggregateInfo>> {
-    let mut storage = EXTRACTED_WINDOW_AGGREGATES
-        .lock()
-        .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-    let result = storage.take();
-    if result.is_some() {
-        pgrx::warning!("Retrieved window aggregates from global storage");
-    }
-    result
 }
 
 /// Extract window aggregates from paradedb.window_func(json) calls in the target list

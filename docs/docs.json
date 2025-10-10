@@ -243,6 +243,7 @@
                             "pages": [
                               "v2/tokenizers/available_tokenizers/simple",
                               "v2/tokenizers/available_tokenizers/exact",
+                              "v2/tokenizers/available_tokenizers/literal_normalized",
                               "v2/tokenizers/available_tokenizers/whitespace",
                               "v2/tokenizers/available_tokenizers/ngrams",
                               "v2/tokenizers/available_tokenizers/regex",

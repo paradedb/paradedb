@@ -75,6 +75,9 @@ pub fn search_field_config_from_type(
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         "literal" => SearchTokenizer::Keyword,
+        "literal_normalized" => {
+            SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default())
+        }
         "chinese_compatible" => {
             SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
         }
@@ -151,6 +154,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
 
         #[allow(deprecated)]
         SearchTokenizer::Raw(filters)
+        | SearchTokenizer::LiteralNormalized(filters)
         | SearchTokenizer::Default(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)

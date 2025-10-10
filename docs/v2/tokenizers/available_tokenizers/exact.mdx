@@ -1,8 +1,8 @@
 ---
-title: Exact
+title: Literal
 ---
 
-The exact tokenizer applies no tokenization to the text, preserving it as-is. It is the default for `uuid` fields (since
+The literal tokenizer applies no tokenization to the text, preserving it as-is. It is the default for `uuid` fields (since
 exact UUID matching is a common use case), and is useful for doing exact string matching over text fields.
 
 ```sql
@@ -25,6 +25,6 @@ SELECT 'Tokenize me!'::pdb.literal::text[];
 ```
 
 <Note>
-  Because the exact tokenizer preserves the source text exactly, [token
+  Because the literal tokenizer preserves the source text exactly, [token
   filters](/v2/token_filters/overview) cannot be configured for this tokenizer.
 </Note>

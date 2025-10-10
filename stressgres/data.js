@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108333926,
+  "lastUpdate": 1760108704063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2368,6 +2368,72 @@ window.BENCHMARK_DATA = {
             "value": 136.4640047823984,
             "unit": "median tps",
             "extra": "avg tps: 133.97462070893147, max tps: 657.205967693069, count: 54660"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "051f1c91e005cf94328dff488aaa4ba9b9b89703",
+          "message": "feat: Introduce `AlphaNumOnly` filter (#3315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA new filter that removes tokens containing non ASCII letters and\ndigits.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T10:48:38-04:00",
+          "tree_id": "95691fe3913334da5c80c710f3451542e0fa7327",
+          "url": "https://github.com/paradedb/paradedb/commit/051f1c91e005cf94328dff488aaa4ba9b9b89703"
+        },
+        "date": 1760108702256,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 778.7173094850829,
+            "unit": "median tps",
+            "extra": "avg tps: 778.2407504739814, max tps: 830.5938193831685, count: 54939"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3306.22794610577,
+            "unit": "median tps",
+            "extra": "avg tps: 3273.312252844538, max tps: 3450.1875540113238, count: 54939"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 774.3797277121582,
+            "unit": "median tps",
+            "extra": "avg tps: 773.8248592089849, max tps: 822.2808552374447, count: 54939"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 653.245653190448,
+            "unit": "median tps",
+            "extra": "avg tps: 652.5971311324447, max tps: 731.844907161149, count: 54939"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1731.350953120091,
+            "unit": "median tps",
+            "extra": "avg tps: 1718.3672870746059, max tps: 1745.7622706428883, count: 109878"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1304.664712238238,
+            "unit": "median tps",
+            "extra": "avg tps: 1290.7357716815486, max tps: 1315.1231675462761, count: 54939"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 116.906209306321,
+            "unit": "median tps",
+            "extra": "avg tps: 119.22194815317971, max tps: 1045.6608733568746, count: 54939"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760110177697,
+  "lastUpdate": 1760110239467,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17026,6 +17026,60 @@ window.BENCHMARK_DATA = {
             "value": 19.14967585117994,
             "unit": "median tps",
             "extra": "avg tps: 19.2687525541262, max tps: 20.41018163914978, count: 55490"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec9ff340a70f67a810bbd68f1032786a6a70171f",
+          "message": "fix: allow the RHS of `@@@` to support `pdb.query` at runtime (#3308)\n\n# Ticket(s) Closed\n\n- Closes #3300\n\n## What\n\nThis allows the rhs of `@@@` to support a `pdb.query` at runtime\n\n## Why\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T10:37:24-04:00",
+          "tree_id": "5e8a7b39c086133de1e3b584061cf342da72a619",
+          "url": "https://github.com/paradedb/paradedb/commit/ec9ff340a70f67a810bbd68f1032786a6a70171f"
+        },
+        "date": 1760110237585,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.481760162317194,
+            "unit": "median tps",
+            "extra": "avg tps: 36.79014560321906, max tps: 42.74436996805403, count: 55446"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.63067143788555,
+            "unit": "median tps",
+            "extra": "avg tps: 280.61815580517117, max tps: 2993.8153569207357, count: 55446"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1059.1468114598429,
+            "unit": "median tps",
+            "extra": "avg tps: 1051.976185231737, max tps: 1160.3149832379786, count: 55446"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.2329130633365,
+            "unit": "median tps",
+            "extra": "avg tps: 157.08962322885233, max tps: 884.2703147103858, count: 110892"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.069561601313683,
+            "unit": "median tps",
+            "extra": "avg tps: 19.159331292687472, max tps: 20.96626036000956, count: 55446"
           }
         ]
       }

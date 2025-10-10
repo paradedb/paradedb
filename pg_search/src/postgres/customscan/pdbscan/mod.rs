@@ -38,6 +38,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::hook::EXTRACTED_WINDOW_AGGREGATES;
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -57,7 +58,8 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
-    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
+    self, range_table, take_extracted_window_aggregates, CustomScan, CustomScanState,
+    RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -594,109 +596,36 @@ impl CustomScan for PdbScan {
                 .try_into()
                 .expect("range table index should not be negative");
 
-            // Try to extract window aggregates from the path's target expressions
-            // The rel->reltarget->exprs contains List<Expr> (not TargetEntry)
-            let rel = builder.args().rel;
-
-            pgrx::warning!("plan_custom_path: Looking for window_func calls in rel->reltarget");
-
-            let window_aggs = if !(*rel).reltarget.is_null() {
-                let reltarget = (*rel).reltarget;
-                if !(*reltarget).exprs.is_null() {
-                    use crate::api::window_function::window_func_oid;
-                    let window_func_procid = window_func_oid();
-                    let expr_list = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
-                    let mut results = Vec::new();
-
-                    pgrx::warning!("plan_custom_path: Scanning {} expressions", expr_list.len());
-
-                    for (idx, expr_ptr) in expr_list.iter_ptr().enumerate() {
-                        if expr_ptr.is_null() {
-                            pgrx::warning!("  Expr {}: NULL", idx);
-                            continue;
-                        }
-
-                        // Debug: print the node type of EVERY expression
-                        let node_type = unsafe { (*expr_ptr).type_ };
-                        pgrx::warning!("  Expr {}: type={:?}", idx, node_type);
-
-                        if nodecast!(FuncExpr, T_FuncExpr, expr_ptr).is_some() {
-                            let func_expr = expr_ptr as *mut pg_sys::FuncExpr;
-                            if (*func_expr).funcid == window_func_procid {
-                                pgrx::warning!("  Found window_func at index {}", idx);
-                                // Extract JSON argument and deserialize
-                                let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
-                                if let Some(first_arg) = args.get_ptr(0) {
-                                    if nodecast!(Const, T_Const, first_arg).is_some() {
-                                        let const_node = first_arg as *mut pg_sys::Const;
-                                        if !(*const_node).constisnull {
-                                            use pgrx::IntoDatum;
-                                            let json_datum = (*const_node).constvalue;
-                                            // Convert Datum to *mut varlena, then detoast
-                                            let varlena_ptr =
-                                                json_datum.cast_mut_ptr::<pg_sys::varlena>();
-                                            let text_ptr =
-                                                pgrx::pg_sys::pg_detoast_datum(varlena_ptr)
-                                                    as *const pg_sys::text;
-                                            let json_str = pg_sys::text_to_cstring(text_ptr);
-                                            let json_cstr = std::ffi::CStr::from_ptr(json_str);
-                                            if let Ok(json_string) = json_cstr.to_str() {
-                                                match serde_json::from_str::<WindowAggregateInfo>(
-                                                    json_string,
-                                                ) {
-                                                    Ok(info) => results.push(info),
-                                                    Err(e) => pgrx::warning!(
-                                                        "  Failed to deserialize: {}",
-                                                        e
-                                                    ),
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    results
+            // Retrieve window aggregates from global storage (set by planner hook)
+            // Use a non-consuming peek first to see if they're there
+            {
+                let storage = EXTRACTED_WINDOW_AGGREGATES
+                    .lock()
+                    .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
+                if storage.is_some() {
+                    pgrx::warning!(
+                        "plan_custom_path: Window aggregates ARE in storage, retrieving..."
+                    );
                 } else {
-                    Vec::new()
+                    pgrx::warning!("plan_custom_path: Window aggregates NOT in storage");
                 }
-            } else {
-                Vec::new()
-            };
+            }
 
-            if !window_aggs.is_empty() {
+            if let Some(window_aggs) = take_extracted_window_aggregates() {
                 pgrx::warning!(
-                    "plan_custom_path: Found {} window aggregates in rel->reltarget",
+                    "plan_custom_path: Retrieved {} window aggregates from global storage",
                     window_aggs.len()
                 );
                 builder
                     .custom_private_mut()
                     .set_window_aggregates(window_aggs);
             } else {
-                pgrx::warning!("plan_custom_path: No window aggregates found in rel->reltarget");
+                pgrx::warning!("plan_custom_path: Failed to retrieve window aggregates");
             }
 
             let private_data = builder.custom_private();
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
-
-            // Debug: Also check processed_tlist for comparison
-            pgrx::warning!(
-                "plan_custom_path: Also checking processed_tlist ({} entries)",
-                processed_tlist.len()
-            );
-            for (idx, te) in processed_tlist.iter_ptr().enumerate() {
-                if !te.is_null() && !(*te).expr.is_null() {
-                    let expr_type = (*(*te).expr).type_;
-                    pgrx::warning!("  processed_tlist[{}]: type={:?}", idx, expr_type);
-                    if nodecast!(FuncExpr, T_FuncExpr, (*te).expr).is_some() {
-                        let func_expr = (*te).expr as *mut pg_sys::FuncExpr;
-                        pgrx::warning!("    -> FuncExpr with funcid={}", (*func_expr).funcid);
-                    }
-                }
-            }
 
             let mut attname_lookup = HashMap::default();
             let score_funcoid = score_funcoid();

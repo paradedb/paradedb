@@ -88,41 +88,6 @@ impl CustomScan for AggregateScan {
         let args = builder.args();
         let parse = args.root().parse;
 
-        // Check which stage we're at
-        let is_window_stage = args.stage == pg_sys::UpperRelationKind::UPPERREL_WINDOW;
-        let is_group_agg_stage = args.stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG;
-
-        if is_window_stage {
-            pgrx::warning!("AggregateScan::create_custom_path called for UPPERREL_WINDOW");
-
-            // For window functions without GROUP BY, we create a custom scan similar to PdbScan
-            // that handles both the base scan and window aggregate computation.
-            // The window functions have already been replaced with window_func(json) by the hook.
-
-            // Check if this is a search query (has @@@ operator)
-            let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
-            if matches!(ri_type, RestrictInfoType::Join) {
-                return None;
-            }
-
-            // TODO: Implement window function custom path
-            // For now, we need to:
-            // 1. Extract the search query from WHERE clause
-            // 2. Get the base relation and bm25 index
-            // 3. Create a custom path that will handle both scanning and window aggregates
-            // 4. The window aggregate info is in Query->targetList as window_func(json) calls
-
-            pgrx::warning!(
-                "  Window custom scan not yet fully implemented, falling back to WindowAgg"
-            );
-            return None;
-        }
-
-        if !is_group_agg_stage {
-            // We only handle GROUP_AGG and WINDOW stages
-            return None;
-        }
-
         // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;

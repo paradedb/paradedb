@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108847677,
+  "lastUpdate": 1760108850663,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6934,6 +6934,126 @@ window.BENCHMARK_DATA = {
             "value": 146.04296875,
             "unit": "median mem",
             "extra": "avg mem: 128.77558227932343, max mem: 151.89453125, count: 54939"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8269d4ed9b0f6101d4627bc72eb008026312fdac",
+          "message": "chore: relocate `fuzzy`, `slop`, `boost` types to the `pdb` schema (#3316)\n\n# Ticket(s) Closed\n\n- Closes #3281\n\n## What\n\nThis relocates the `fuzzy`, `slop`, and `boost` types from `pg_catalog`\nto our `pdb` schema.\n\n🚨This will be a breaking change for any existing queries that cast the\nrhs of one of our operators to one of these types. They'll need to be\nrewritten as `::pdb.fuzzy`.\n\n## Why\n\nPutting them in `pg_catalog` was a mistake and inconsistent with our\nother SQL UX work.\n\n## How\n\n## Tests\n\nExisting tests (and docs) have been updated.",
+          "timestamp": "2025-10-10T10:51:05-04:00",
+          "tree_id": "4a988e0eff7dab9eec493a7ab5f16feb53bb4929",
+          "url": "https://github.com/paradedb/paradedb/commit/8269d4ed9b0f6101d4627bc72eb008026312fdac"
+        },
+        "date": 1760108848853,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.971132648720075, max cpu: 14.723927, count: 55186"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.05484626705595, max mem: 155.29296875, count: 55186"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.555361342964033, max cpu: 9.320388, count: 55186"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.38007714818976, max mem: 28.0078125, count: 55186"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976093448952808, max cpu: 19.238478, count: 55186"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.33387735057352, max mem: 155.15234375, count: 55186"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.625532081160675, max cpu: 9.590409, count: 55186"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 156.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.61971750930942, max mem: 156.03125, count: 55186"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6263243632552795, max cpu: 9.81595, count: 110372"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 153.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 136.7753836882316, max mem: 155.29296875, count: 110372"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27366,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27873.473544014785, max block_count: 54345.0, count: 55186"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 29,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 28.75870691842134, max segment_count: 58.0, count: 55186"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589150542045115, max cpu: 9.476802, count: 55186"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 154.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.5539767643741, max mem: 156.6171875, count: 55186"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.752932,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.284377220953573, max cpu: 4.7151275, count: 55186"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 128.86177632517757, max mem: 152.33984375, count: 55186"
           }
         ]
       }

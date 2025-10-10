@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760124250748,
+  "lastUpdate": 1760125012720,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9640,6 +9640,42 @@ window.BENCHMARK_DATA = {
             "value": 5.33216749939797,
             "unit": "median tps",
             "extra": "avg tps: 4.823831516040341, max tps: 5.908013111416877, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "722f1c4094a56dce00cf6388bc73b31176c03474",
+          "message": "chore: add `const`, `pdb.all` and `pdb.empty` [v2 API] (#3323)\n\n# Ticket(s) Closed\n\n- Closes #3301 (except for the MLT and disjunction_max points)\n\n## What\n\n- Add two new functions, `pdb.all()` and `pdb.empty()` to mirror what's\nalready in the `paradedb` schema.\n- Add a new `::pdb.const` type that works exactly the same as\n`::pdb.boost` but applies a constant score instead.\n\n## Why\n\nGeneral cleanup and consistency.\n\n## How\n\n## Tests\n\nYes",
+          "timestamp": "2025-10-10T15:06:00-04:00",
+          "tree_id": "55ec131cec74c7b31e9de1508f1850c2bd8ce742",
+          "url": "https://github.com/paradedb/paradedb/commit/722f1c4094a56dce00cf6388bc73b31176c03474"
+        },
+        "date": 1760125010860,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.323989083236,
+            "unit": "median tps",
+            "extra": "avg tps: 7.094401245540269, max tps: 10.953897551679141, count: 57328"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.245507402759758,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7473472537545565, max tps: 5.83388490287431, count: 57328"
           }
         ]
       }

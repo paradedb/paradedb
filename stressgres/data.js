@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760108071389,
+  "lastUpdate": 1760108074300,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9778,6 +9778,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.85530913745978, max segment_count: 106.0, count: 57806"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84ace13610bc16ef88495a07915708cbe371e4a0",
+          "message": "feat: add new `##>` operator for \"in order\" proximity (#3314)\n\n# Ticket(s) Closed\n\n- Closes #3305\n\n## What\n\nSimilar to the existing `##` operator, but `##>` requires the rhs be\nthat many tokens after the lhs.\n\nExample:\n\n```sql\n... WHERE text @@@ ('z' ##>24##> 'a');\n```\n\n## Why\n\n## How\n\n## Tests\n\nUpdated the `proximity.sql` test with a small test.",
+          "timestamp": "2025-10-10T10:25:54-04:00",
+          "tree_id": "576dd1e98eb7884b79985358e642deb5df8beda0",
+          "url": "https://github.com/paradedb/paradedb/commit/84ace13610bc16ef88495a07915708cbe371e4a0"
+        },
+        "date": 1760108072469,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.038231751941534, max cpu: 42.146343, count: 57542"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 225.9410952000278, max mem: 228.2265625, count: 57542"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.392957498112025, max cpu: 33.103447, count: 57542"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.12886158154043, max mem: 164.55078125, count: 57542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24546,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23440.850422300235, max block_count: 26228.0, count: 57542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.77595495464183, max segment_count: 109.0, count: 57542"
           }
         ]
       }

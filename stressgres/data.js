@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760120224425,
+  "lastUpdate": 1760120227378,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11284,6 +11284,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.61959053147486, max segment_count: 107.0, count: 57538"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdecbe9790b1f7053fe49331f81c711d85ab4ea3",
+          "message": "chore: Temporarily disable compound sorts in proptests. (#3321)\n\nSee https://github.com/paradedb/paradedb/issues/3266.",
+          "timestamp": "2025-10-10T10:48:29-07:00",
+          "tree_id": "f82dc82ece86a514f1aff1d178ebfea6bc4296cf",
+          "url": "https://github.com/paradedb/paradedb/commit/cdecbe9790b1f7053fe49331f81c711d85ab4ea3"
+        },
+        "date": 1760120225558,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.955454985619227, max cpu: 42.942345, count: 57515"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.36352547976614, max mem: 228.76171875, count: 57515"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.34109836088167, max cpu: 33.300297, count: 57515"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.82704769951317, max mem: 164.14453125, count: 57515"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24553,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23473.414830913676, max block_count: 26300.0, count: 57515"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.958497783187, max segment_count: 108.0, count: 57515"
           }
         ]
       }

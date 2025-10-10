@@ -318,6 +318,12 @@
                         "pages": [
                           "v2/aggregates/overview"
                         ]
+                      },
+                      {
+                        "group": "Joins",
+                        "pages": [
+                          "v2/joins/overview"
+                        ]
                       }
                     ]
                   },

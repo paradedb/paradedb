@@ -76,11 +76,11 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for SlopType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("slop".into()))
+            Ok(SqlMapping::As("pdb.slop".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("slop".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.slop".into())))
         }
     }
 
@@ -119,7 +119,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.slop;
+            CREATE TYPE pdb.slop;
         "#,
         name = "SlopType_shell",
         creates = [Type(SlopType)]
@@ -161,7 +161,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.slop (
+            CREATE TYPE pdb.slop (
                 INPUT = slop_in,
                 OUTPUT = slop_out,
                 INTERNALLENGTH = VARIABLE,

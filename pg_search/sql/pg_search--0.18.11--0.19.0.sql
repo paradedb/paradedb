@@ -73,22 +73,30 @@ CREATE OPERATOR pg_catalog.##> (
 
 
 --
+-- relocate the fuzzy, boost, and slop types from `pg_catalog` to `pdb`
+--
+ALTER TYPE pg_catalog.fuzzy SET SCHEMA pdb;
+ALTER TYPE pg_catalog.boost SET SCHEMA pdb;
+ALTER TYPE pg_catalog.slop SET SCHEMA pdb;
+
+
+--
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work
 --
 
 DROP OPERATOR IF EXISTS pg_catalog.&&&(text, text);
-DROP OPERATOR IF EXISTS pg_catalog.&&&(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog.&&&(text, fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, pdb.boost);
+DROP OPERATOR IF EXISTS pg_catalog.&&&(text, pdb.fuzzy);
 DROP OPERATOR IF EXISTS pg_catalog.|||(text, text);
-DROP OPERATOR IF EXISTS pg_catalog.|||(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog.|||(text, fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, pdb.boost);
+DROP OPERATOR IF EXISTS pg_catalog.|||(text, pdb.fuzzy);
 DROP OPERATOR IF EXISTS pg_catalog.###(text, text);
-DROP OPERATOR IF EXISTS pg_catalog.###(text, boost);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, pdb.boost);
 DROP OPERATOR IF EXISTS pg_catalog.===(text, text);
 DROP OPERATOR IF EXISTS pg_catalog.===(text, text[]);
-DROP OPERATOR IF EXISTS pg_catalog.===(text, boost);
-DROP OPERATOR IF EXISTS pg_catalog.===(text, fuzzy);
-DROP OPERATOR IF EXISTS pg_catalog.###(text, slop);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, pdb.boost);
+DROP OPERATOR IF EXISTS pg_catalog.===(text, pdb.fuzzy);
+DROP OPERATOR IF EXISTS pg_catalog.###(text, pdb.slop);
 DROP OPERATOR IF EXISTS pg_catalog.&&&(text, pdb.query);
 DROP OPERATOR IF EXISTS pg_catalog.===(text, pdb.query);
 DROP OPERATOR IF EXISTS pg_catalog.|||(text, pdb.query);
@@ -227,23 +235,23 @@ CREATE OPERATOR pg_catalog.&&& (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     );
-DROP FUNCTION IF EXISTS search_with_match_conjunction_boost(_field text, terms_to_tokenize boost);
-CREATE OR REPLACE FUNCTION search_with_match_conjunction_boost(_field anyelement, terms_to_tokenize boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_conjunction_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_match_conjunction_boost(_field text, terms_to_tokenize pdb.boost);
+CREATE OR REPLACE FUNCTION search_with_match_conjunction_boost(_field anyelement, terms_to_tokenize pdb.boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_conjunction_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/andandand.rs:57
 -- pg_search::api::operator::andandand::search_with_match_conjunction_boost
 CREATE OPERATOR pg_catalog.&&& (
     PROCEDURE="search_with_match_conjunction_boost",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=boost /* pg_search::api::operator::boost::BoostType */
+    RIGHTARG=pdb.boost /* pg_search::api::operator::boost::BoostType */
     );
-DROP FUNCTION IF EXISTS search_with_match_conjunction_fuzzy(_field text, terms_to_tokenize fuzzy);
-CREATE OR REPLACE FUNCTION search_with_match_conjunction_fuzzy(_field anyelement, terms_to_tokenize fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_conjunction_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_match_conjunction_fuzzy(_field text, terms_to_tokenize pdb.fuzzy);
+CREATE OR REPLACE FUNCTION search_with_match_conjunction_fuzzy(_field anyelement, terms_to_tokenize pdb.fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_conjunction_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/andandand.rs:65
 -- pg_search::api::operator::andandand::search_with_match_conjunction_fuzzy
 CREATE OPERATOR pg_catalog.&&& (
     PROCEDURE="search_with_match_conjunction_fuzzy",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    RIGHTARG=pdb.fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
     );
 DROP FUNCTION IF EXISTS search_with_match_disjunction(_field text, terms_to_tokenize text);
 CREATE OR REPLACE FUNCTION search_with_match_disjunction(_field anyelement, terms_to_tokenize text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_disjunction_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
@@ -273,23 +281,23 @@ CREATE OPERATOR pg_catalog.||| (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     );
-DROP FUNCTION IF EXISTS search_with_match_disjunction_boost(_field text, terms_to_tokenize boost);
-CREATE OR REPLACE FUNCTION search_with_match_disjunction_boost(_field anyelement, terms_to_tokenize boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_disjunction_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_match_disjunction_boost(_field text, terms_to_tokenize pdb.boost);
+CREATE OR REPLACE FUNCTION search_with_match_disjunction_boost(_field anyelement, terms_to_tokenize pdb.boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_disjunction_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/ororor.rs:56
 -- pg_search::api::operator::ororor::search_with_match_disjunction_boost
 CREATE OPERATOR pg_catalog.||| (
     PROCEDURE="search_with_match_disjunction_boost",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=boost /* pg_search::api::operator::boost::BoostType */
+    RIGHTARG=pdb.boost /* pg_search::api::operator::boost::BoostType */
     );
-DROP FUNCTION IF EXISTS search_with_match_disjunction_fuzzy(_field text, terms_to_tokenize fuzzy);
-CREATE OR REPLACE FUNCTION search_with_match_disjunction_fuzzy(_field anyelement, terms_to_tokenize fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_disjunction_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_match_disjunction_fuzzy(_field text, terms_to_tokenize pdb.fuzzy);
+CREATE OR REPLACE FUNCTION search_with_match_disjunction_fuzzy(_field anyelement, terms_to_tokenize pdb.fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_disjunction_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/ororor.rs:63
 -- pg_search::api::operator::ororor::search_with_match_disjunction_fuzzy
 CREATE OPERATOR pg_catalog.||| (
     PROCEDURE="search_with_match_disjunction_fuzzy",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    RIGHTARG=pdb.fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
     );
 DROP FUNCTION IF EXISTS search_with_phrase(_field text, terms_to_tokenize text);
 CREATE OR REPLACE FUNCTION search_with_phrase(_field anyelement, terms_to_tokenize text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
@@ -319,14 +327,14 @@ CREATE OPERATOR pg_catalog.### (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     );
-DROP FUNCTION IF EXISTS search_with_phrase_boost(_field text, terms_to_tokenize boost);
-CREATE OR REPLACE FUNCTION search_with_phrase_boost(_field anyelement, terms_to_tokenize boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_phrase_boost(_field text, terms_to_tokenize pdb.boost);
+CREATE OR REPLACE FUNCTION search_with_phrase_boost(_field anyelement, terms_to_tokenize pdb.boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/hashhashhash.rs:52
 -- pg_search::api::operator::hashhashhash::search_with_phrase_boost
 CREATE OPERATOR pg_catalog.### (
     PROCEDURE="search_with_phrase_boost",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=boost /* pg_search::api::operator::boost::BoostType */
+    RIGHTARG=pdb.boost /* pg_search::api::operator::boost::BoostType */
     );
 DROP FUNCTION IF EXISTS search_with_term(_field text, term text);
 CREATE OR REPLACE FUNCTION search_with_term(_field anyelement, term text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
@@ -346,32 +354,32 @@ CREATE OPERATOR pg_catalog.=== (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     );
-DROP FUNCTION IF EXISTS search_with_term_boost(_field text, term boost);
-CREATE OR REPLACE FUNCTION search_with_term_boost(_field anyelement, term boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_term_boost(_field text, term pdb.boost);
+CREATE OR REPLACE FUNCTION search_with_term_boost(_field anyelement, term pdb.boost) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_boost_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/eqeqeq.rs:48
 -- pg_search::api::operator::eqeqeq::search_with_term_boost
 CREATE OPERATOR pg_catalog.=== (
     PROCEDURE="search_with_term_boost",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=boost /* pg_search::api::operator::boost::BoostType */
+    RIGHTARG=pdb.boost /* pg_search::api::operator::boost::BoostType */
     );
-DROP FUNCTION IF EXISTS search_with_term_fuzzy(_field text, term fuzzy);
-CREATE OR REPLACE FUNCTION search_with_term_fuzzy(_field anyelement, term fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_term_fuzzy(_field text, term pdb.fuzzy);
+CREATE OR REPLACE FUNCTION search_with_term_fuzzy(_field anyelement, term pdb.fuzzy) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_fuzzy_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/eqeqeq.rs:54
 -- pg_search::api::operator::eqeqeq::search_with_term_fuzzy
 CREATE OPERATOR pg_catalog.=== (
     PROCEDURE="search_with_term_fuzzy",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    RIGHTARG=pdb.fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
     );
-DROP FUNCTION IF EXISTS search_with_phrase_slop(_field text, terms_to_tokenize slop);
-CREATE OR REPLACE FUNCTION search_with_phrase_slop(_field anyelement, terms_to_tokenize slop) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_slop_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS search_with_phrase_slop(_field text, terms_to_tokenize pdb.slop);
+CREATE OR REPLACE FUNCTION search_with_phrase_slop(_field anyelement, terms_to_tokenize pdb.slop) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_slop_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/hashhashhash.rs:60
 -- pg_search::api::operator::hashhashhash::search_with_phrase_slop
 CREATE OPERATOR pg_catalog.### (
     PROCEDURE="search_with_phrase_slop",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
-    RIGHTARG=slop /* pg_search::api::operator::slop::SlopType */
+    RIGHTARG=pdb.slop /* pg_search::api::operator::slop::SlopType */
     );
 DROP FUNCTION IF EXISTS search_with_term_pdb_query(_field text, term pdb.query);
 CREATE OR REPLACE FUNCTION search_with_term_pdb_query(_field anyelement, term pdb.query) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_term_pdb_query_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;

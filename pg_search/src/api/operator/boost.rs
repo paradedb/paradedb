@@ -83,11 +83,11 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for BoostType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("boost".into()))
+            Ok(SqlMapping::As("pdb.boost".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("boost".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.boost".into())))
         }
     }
 
@@ -131,7 +131,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.boost;
+            CREATE TYPE pdb.boost;
         "#,
         name = "BoostType_shell",
         creates = [Type(BoostType)]
@@ -180,7 +180,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.boost (
+            CREATE TYPE pdb.boost (
                 INPUT = boost_in,
                 OUTPUT = boost_out,
                 INTERNALLENGTH = VARIABLE,

@@ -76,11 +76,11 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for FuzzyType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("fuzzy".into()))
+            Ok(SqlMapping::As("pdb.fuzzy".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("fuzzy".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.fuzzy".into())))
         }
     }
 
@@ -119,7 +119,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.fuzzy;
+            CREATE TYPE pdb.fuzzy;
         "#,
         name = "FuzzyType_shell",
         creates = [Type(FuzzyType)]
@@ -185,7 +185,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.fuzzy (
+            CREATE TYPE pdb.fuzzy (
                 INPUT = fuzzy_in,
                 OUTPUT = fuzzy_out,
                 INTERNALLENGTH = VARIABLE,

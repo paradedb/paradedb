@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760103898534,
+  "lastUpdate": 1760104465121,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2104,6 +2104,72 @@ window.BENCHMARK_DATA = {
             "value": 131.05201710338847,
             "unit": "median tps",
             "extra": "avg tps: 170.53341691318096, max tps: 921.2276648352661, count: 54688"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d83f2888d60760ce3ab8c71ac24749d018604ce7",
+          "message": "feat: Introduce `TokenLengthFilter` (#3309)\n\n# Ticket(s) Closed\n\n- Closes #3280 \n\n## What\n\nIntroduces a `TokenLengthFilter`, which is like Tantivy's\n`RemoveLongFilter` but has a min and max threshold. This enables a new\nfilter, `remove_short`, which removes tokens below a certain byte\nthreshold.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-10T09:38:04-04:00",
+          "tree_id": "51697ab88c096b3ab284e210fec8ec1eb9b425c4",
+          "url": "https://github.com/paradedb/paradedb/commit/d83f2888d60760ce3ab8c71ac24749d018604ce7"
+        },
+        "date": 1760104463350,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 801.186619485437,
+            "unit": "median tps",
+            "extra": "avg tps: 798.3723169964521, max tps: 845.4351106946979, count: 55306"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3407.524380321508,
+            "unit": "median tps",
+            "extra": "avg tps: 3378.0543504454677, max tps: 3416.750060716227, count: 55306"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 796.0973878972554,
+            "unit": "median tps",
+            "extra": "avg tps: 793.6517426172871, max tps: 798.6221086167542, count: 55306"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 694.8030102057671,
+            "unit": "median tps",
+            "extra": "avg tps: 688.7052586015192, max tps: 698.0627173163646, count: 55306"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1757.832198098006,
+            "unit": "median tps",
+            "extra": "avg tps: 1740.7160093421521, max tps: 1771.1928565582198, count: 110612"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1301.2586837965564,
+            "unit": "median tps",
+            "extra": "avg tps: 1290.1296629154685, max tps: 1313.2338667210588, count: 55306"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 135.26939275578388,
+            "unit": "median tps",
+            "extra": "avg tps: 152.1652109771735, max tps: 524.8038020985854, count: 55306"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760126490346,
+  "lastUpdate": 1760126965026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14434,6 +14434,54 @@ window.BENCHMARK_DATA = {
             "value": 6.060728123417987,
             "unit": "median tps",
             "extra": "avg tps: 6.035040181036408, max tps: 7.485085461973749, count: 56151"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e17d61bda58030142da91a0daeba3b94eec0f572",
+          "message": "chore: move the `more_like_this` functions to the `pdb` schema (#3325)\n\n# Ticket(s) Closed\n\n- Part of #3301\n\n## What\n\nMove the various `more_like_this` functions over to the `pdb` schema.\n\n## Why\n\n@rebasedming told me to\n\n## Tests\n\nTests updated",
+          "timestamp": "2025-10-10T15:28:01-04:00",
+          "tree_id": "69144d775a862e0661ec991ed82443aecb99ac47",
+          "url": "https://github.com/paradedb/paradedb/commit/e17d61bda58030142da91a0daeba3b94eec0f572"
+        },
+        "date": 1760126963241,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1146.8121170588074,
+            "unit": "median tps",
+            "extra": "avg tps: 1139.2204072827, max tps: 1214.8507551274995, count: 56288"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1347.7033466107787,
+            "unit": "median tps",
+            "extra": "avg tps: 1344.189928697991, max tps: 1364.6574873553254, count: 56288"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1940.5018779802172,
+            "unit": "median tps",
+            "extra": "avg tps: 1856.752196824711, max tps: 2138.8936823399226, count: 56288"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.954368651005425,
+            "unit": "median tps",
+            "extra": "avg tps: 5.937805063111393, max tps: 7.52617264167004, count: 56288"
           }
         ]
       }

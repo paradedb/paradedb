@@ -212,12 +212,12 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
-        Exact,
+        Literal,
         SearchTokenizer::Keyword,
-        tokenize_exact,
-        json_to_exact,
-        jsonb_to_exact,
-        "exact",
+        tokenize_literal,
+        json_to_literal,
+        jsonb_to_literal,
+        "literal",
         preferred = false,
         custom_typmod = true
     );
@@ -310,7 +310,7 @@ pub(crate) mod pdb {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn exact_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
+fn literal_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
     let parsed_typmod = ParsedTypmod::try_from(&typmod_parts).unwrap();
     if parsed_typmod.len() == 1 && matches!(parsed_typmod[0].key(), Some("alias")) {
         drop(parsed_typmod);
@@ -319,7 +319,7 @@ fn exact_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
 
     ErrorReport::new(
         PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
-        "type modifier is not allowed for type \"exact\"",
+        "type modifier is not allowed for type \"literal\"",
         function_name!(),
     )
     .report(PgLogLevel::ERROR);
@@ -328,8 +328,8 @@ fn exact_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
 
 extension_sql!(
     r#"
-        ALTER TYPE pdb.exact SET (TYPMOD_IN = exact_typmod_in);
+        ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in);
     "#,
-    name = "exact_typmod",
-    requires = [exact_typmod_in, "exact_definition"]
+    name = "literal_typmod",
+    requires = [literal_typmod_in, "literal_definition"]
 );

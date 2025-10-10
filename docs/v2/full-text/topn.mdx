@@ -76,7 +76,7 @@ See [indexing expressions](/v2/indexing/indexing_expressions) for more informati
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (lower(description)::pdb.exact))
+USING bm25 (id, (lower(description)::pdb.literal))
 WITH (key_field='id');
 ```
 

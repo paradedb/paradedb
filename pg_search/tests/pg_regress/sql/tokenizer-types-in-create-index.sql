@@ -13,7 +13,7 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
      id,
      t,
      (t::pdb.chinese_compatible('alias=chinese_compatible')),
-     (t::pdb.exact('alias=exact')),
+     (t::pdb.literal('alias=literal')),
      (t::pdb.jieba('alias=jieba')),
      (t::pdb.lindera(chinese, 'alias=lindera_chinese')),
      (t::pdb.lindera(japanese, 'alias=lindera_japanese')),
@@ -40,7 +40,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) @@@ 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) @@@ 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) @@@ 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) @@@ 'test';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t &&& 'test';
@@ -54,7 +54,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) &&& 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) &&& 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) &&& 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) &&& 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) &&& 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) &&& 'test';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t ||| 'test';
@@ -68,7 +68,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) ||| 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) ||| 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) ||| 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) ||| 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) ||| 'test';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t === 'test';
@@ -82,6 +82,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) === 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) === 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) === 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.exact('alias=exact')) === 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) === 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) === 'test';
 

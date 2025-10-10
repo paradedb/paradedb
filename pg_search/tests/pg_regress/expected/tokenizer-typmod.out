@@ -34,20 +34,20 @@ SELECT 'Running Shoes.  olé'::pdb.whitespace('lowercase=false', 'stemmer=englis
  {Run,Shoes.,ole}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.exact::text[];
+SELECT 'Running Shoes.  olé'::pdb.literal::text[];
           text           
 -------------------------
  {"Running Shoes.  olé"}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.exact('alias=foo')::text[];  -- only option supported for exact
+SELECT 'Running Shoes.  olé'::pdb.literal('alias=foo')::text[];  -- only option supported for exact
           text           
 -------------------------
  {"Running Shoes.  olé"}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.exact('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-ERROR:  type modifier is not allowed for type "exact" at character 31
+SELECT 'Running Shoes.  olé'::pdb.literal('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+ERROR:  type modifier is not allowed for type "literal" at character 31
 SELECT 'Running Shoes.  olé'::pdb.chinese_compatible::text[];
         text         
 ---------------------

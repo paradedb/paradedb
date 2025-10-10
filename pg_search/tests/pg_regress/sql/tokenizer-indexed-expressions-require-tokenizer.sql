@@ -20,7 +20,7 @@ CREATE INDEX idxexpr
     ON expr
         USING bm25 (
                     id,
-                    (lower(t)::pdb.exact)
+                    (lower(t)::pdb.literal)
             )
     WITH (key_field = 'id');
 

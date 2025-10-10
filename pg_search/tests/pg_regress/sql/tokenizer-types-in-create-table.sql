@@ -10,7 +10,7 @@ CREATE TABLE all_types
     text_col               text,
     varchar_col            varchar,
     chinese_compatible_col pdb.chinese_compatible,
-    exact_col              pdb.exact,
+    exact_col              pdb.literal,
     jieba_col              pdb.jieba,
     lindera_chinese_col    pdb.lindera(chinese),
     lindera_japanese_col   pdb.lindera(japanese),

@@ -5,7 +5,7 @@ CALL paradedb.create_bm25_test_table(
         table_name => 'issue3300'
      );
 
-CREATE INDEX idxissue3000 ON issue3300 USING bm25 (id, description, rating, (category::pdb.exact), metadata) WITH (key_field='id');
+CREATE INDEX idxissue3000 ON issue3300 USING bm25 (id, description, rating, (category::pdb.literal), metadata) WITH (key_field='id');
 
 CREATE TABLE allowed_categories
 (

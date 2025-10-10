@@ -9,7 +9,7 @@ INSERT INTO invalid_lhs (t) VALUES ('This is a TEST');
 CREATE INDEX idxinvalid_lhs ON invalid_lhs USING bm25 (
    id,
    t,
-   (t::pdb.exact('alias=exact')),
+   (t::pdb.literal('alias=literal')),
    (t::pdb.simple('alias=simple')),
    (t::pdb.ngram(2, 3, 'alias=ngram_2_3')),
    (t::pdb.ngram(3, 5, 'alias=ngram_3_5'))
@@ -21,27 +21,27 @@ SELECT * FROM invalid_lhs WHERE t::text @@@ 'this is a test';
 --
 -- all of these are invalid
 --
-SELECT * FROM invalid_lhs where (t::pdb.exact) @@@ 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) @@@ 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) @@@ 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) @@@ 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) @@@ 'This is a TEST';
 
-SELECT * FROM invalid_lhs where (t::pdb.exact) &&& 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) &&& 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) &&& 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) &&& 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) &&& 'This is a TEST';
 
-SELECT * FROM invalid_lhs where (t::pdb.exact) ||| 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) ||| 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ||| 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ||| 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ||| 'This is a TEST';
 
-SELECT * FROM invalid_lhs where (t::pdb.exact) ### 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) ### 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ### 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ### 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ### 'This is a TEST';
 
-SELECT * FROM invalid_lhs where (t::pdb.exact) === 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) === 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) === 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) === 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) === 'This is a TEST';

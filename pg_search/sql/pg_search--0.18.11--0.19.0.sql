@@ -142,13 +142,13 @@ $$;
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:312
--- pg_search::api::tokenizers::definitions::exact_typmod_in
-CREATE  FUNCTION "exact_typmod_in"(
+-- pg_search::api::tokenizers::definitions::literal_typmod_in
+CREATE  FUNCTION "literal_typmod_in"(
     "typmod_parts" cstring[] /* pgrx::datum::array::Array<&core::ffi::c_str::CStr> */
 ) RETURNS INT /* i32 */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'exact_typmod_in_wrapper';
+AS 'MODULE_PATHNAME', 'literal_typmod_in_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -462,16 +462,16 @@ AS 'MODULE_PATHNAME', 'match_conjunction_array_wrapper';
 --   Type(pg_search::api::tokenizers::definitions::pdb::Exact)
 
 
-CREATE TYPE pdb.exact;
-CREATE OR REPLACE FUNCTION pdb.exact_in(cstring) RETURNS pdb.exact AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.exact_out(pdb.exact) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.exact_send(pdb.exact) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.exact_recv(internal) RETURNS pdb.exact AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
-CREATE TYPE pdb.exact (
-                          INPUT = pdb.exact_in,
-                          OUTPUT = pdb.exact_out,
-                          SEND = pdb.exact_send,
-                          RECEIVE = pdb.exact_recv,
+CREATE TYPE pdb.literal;
+CREATE OR REPLACE FUNCTION pdb.literal_in(cstring) RETURNS pdb.literal AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_out(pdb.literal) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_send(pdb.literal) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_recv(internal) RETURNS pdb.literal AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.literal (
+                          INPUT = pdb.literal_in,
+                          OUTPUT = pdb.literal_out,
+                          SEND = pdb.literal_send,
+                          RECEIVE = pdb.literal_recv,
                           COLLATABLE = true,
                           CATEGORY = 't', -- 't' is for tokenizer
                           PREFERRED = false,
@@ -482,11 +482,11 @@ CREATE TYPE pdb.exact (
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:329
 -- requires:
---   exact_typmod_in
---   exact_definition
+--   literal_typmod_in
+--   literal_definition
 
 
-ALTER TYPE pdb.exact SET (TYPMOD_IN = exact_typmod_in);
+ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in);
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -788,22 +788,22 @@ ALTER TYPE pdb.regex SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_ty
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:214
--- pg_search::api::tokenizers::definitions::pdb::tokenize_exact
-CREATE  FUNCTION pdb."tokenize_exact"(
-    "s" pdb.exact /* pg_search::api::tokenizers::definitions::pdb::Exact */
+-- pg_search::api::tokenizers::definitions::pdb::tokenize_literal
+CREATE  FUNCTION pdb."tokenize_literal"(
+    "s" pdb.literal /* pg_search::api::tokenizers::definitions::pdb::Exact */
 ) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'tokenize_exact_wrapper';
+AS 'MODULE_PATHNAME', 'tokenize_literal_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:214
 -- requires:
---   exact_definition
---   tokenize_exact
+--   literal_definition
+--   tokenize_literal
 
-CREATE CAST (pdb.exact AS TEXT[]) WITH FUNCTION pdb.tokenize_exact AS IMPLICIT;
+CREATE CAST (pdb.literal AS TEXT[]) WITH FUNCTION pdb.tokenize_literal AS IMPLICIT;
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -952,15 +952,15 @@ CREATE CAST (jsonb AS pdb.lindera) WITH FUNCTION pdb.jsonb_to_lindera AS ASSIGNM
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:214
--- pg_search::api::tokenizers::definitions::pdb::json_to_exact
+-- pg_search::api::tokenizers::definitions::pdb::json_to_literal
 -- requires:
---   tokenize_exact
-CREATE  FUNCTION pdb."json_to_exact"(
+--   tokenize_literal
+CREATE  FUNCTION pdb."json_to_literal"(
     "json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
-) RETURNS pdb.exact /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Exact> */
+) RETURNS pdb.literal /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Exact> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'json_to_exact_wrapper';
+AS 'MODULE_PATHNAME', 'json_to_literal_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -1023,27 +1023,27 @@ CREATE CAST (jsonb AS pdb.simple) WITH FUNCTION pdb.jsonb_to_simple AS ASSIGNMEN
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:214
--- pg_search::api::tokenizers::definitions::pdb::jsonb_to_exact
+-- pg_search::api::tokenizers::definitions::pdb::jsonb_to_literal
 -- requires:
---   tokenize_exact
-CREATE  FUNCTION pdb."jsonb_to_exact"(
+--   tokenize_literal
+CREATE  FUNCTION pdb."jsonb_to_literal"(
     "jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
-) RETURNS pdb.exact /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Exact> */
+) RETURNS pdb.literal /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Exact> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'jsonb_to_exact_wrapper';
+AS 'MODULE_PATHNAME', 'jsonb_to_literal_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:214
 -- requires:
---   exact_definition
---   json_to_exact
---   jsonb_to_exact
+--   literal_definition
+--   json_to_literal
+--   jsonb_to_literal
 
 
-CREATE CAST (json AS pdb.exact) WITH FUNCTION pdb.json_to_exact AS ASSIGNMENT;
-CREATE CAST (jsonb AS pdb.exact) WITH FUNCTION pdb.jsonb_to_exact AS ASSIGNMENT;
+CREATE CAST (json AS pdb.literal) WITH FUNCTION pdb.json_to_literal AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.literal) WITH FUNCTION pdb.jsonb_to_literal AS ASSIGNMENT;
 /* </end connected objects> */
 
 /* <begin connected objects> */

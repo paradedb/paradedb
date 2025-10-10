@@ -9,7 +9,7 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (lower(description)::pdb.exact), rating)
+USING bm25 (id, (lower(description)::pdb.literal), rating)
 WITH (key_field='id');
 -- This gets a TopN scan
 EXPLAIN SELECT description, rating FROM mock_items

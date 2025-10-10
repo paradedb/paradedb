@@ -223,6 +223,17 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        LiteralNormalized,
+        SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default()),
+        tokenize_literal_normalized,
+        json_to_literal_normalized,
+        jsonb_to_literal_normalized,
+        "literal_normalized",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    define_tokenizer_type!(
         ChineseCompatible,
         SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
         tokenize_chinese_compatible,

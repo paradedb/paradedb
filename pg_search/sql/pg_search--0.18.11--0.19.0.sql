@@ -1438,3 +1438,82 @@ CREATE CAST (text[] AS pdb.slop) WITH FUNCTION text_array_to_slop(text[], intege
 --   text_array_to_boost
 --   BoostType_final
 CREATE CAST (text[] AS pdb.boost) WITH FUNCTION text_array_to_boost(text[], integer, boolean) AS ASSIGNMENT;
+/* pg_search::api::tokenizers::definitions::pdb */
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- creates:
+--   Type(pg_search::api::tokenizers::definitions::pdb::LiteralNormalized)
+            CREATE TYPE pdb.literal_normalized;
+CREATE OR REPLACE FUNCTION pdb.literal_normalized_in(cstring) RETURNS pdb.literal_normalized AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_normalized_out(pdb.literal_normalized) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_normalized_send(pdb.literal_normalized) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.literal_normalized_recv(internal) RETURNS pdb.literal_normalized AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.literal_normalized (
+                INPUT = pdb.literal_normalized_in,
+                OUTPUT = pdb.literal_normalized_out,
+                SEND = pdb.literal_normalized_send,
+                RECEIVE = pdb.literal_normalized_recv,
+                COLLATABLE = true,
+                CATEGORY = 't', -- 't' is for tokenizer
+                PREFERRED = false,
+                LIKE = text
+            );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   generic_typmod_in
+--   generic_typmod_out
+--   literal_normalized_definition
+ALTER TYPE pdb.literal_normalized SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::tokenize_literal_normalized
+CREATE  FUNCTION pdb."tokenize_literal_normalized"(
+	"s" pdb.literal_normalized /* pg_search::api::tokenizers::definitions::pdb::LiteralNormalized */
+) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'tokenize_literal_normalized_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   literal_normalized_definition
+--   tokenize_literal_normalized
+CREATE CAST (pdb.literal_normalized AS TEXT[]) WITH FUNCTION pdb.tokenize_literal_normalized AS IMPLICIT;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::jsonb_to_literal_normalized
+-- requires:
+--   tokenize_literal_normalized
+CREATE  FUNCTION pdb."jsonb_to_literal_normalized"(
+	"jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
+) RETURNS pdb.literal_normalized /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::LiteralNormalized> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'jsonb_to_literal_normalized_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- pg_search::api::tokenizers::definitions::pdb::json_to_literal_normalized
+-- requires:
+--   tokenize_literal_normalized
+CREATE  FUNCTION pdb."json_to_literal_normalized"(
+	"json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
+) RETURNS pdb.literal_normalized /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::LiteralNormalized> */
+IMMUTABLE STRICT PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'json_to_literal_normalized_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:225
+-- requires:
+--   literal_normalized_definition
+--   json_to_literal_normalized
+--   jsonb_to_literal_normalized
+        CREATE CAST (json AS pdb.literal_normalized) WITH FUNCTION pdb.json_to_literal_normalized AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.literal_normalized) WITH FUNCTION pdb.jsonb_to_literal_normalized AS ASSIGNMENT;

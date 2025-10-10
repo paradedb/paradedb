@@ -270,6 +270,7 @@ pub enum SearchTokenizer {
         note = "use the `SearchTokenizer::Keyword` variant instead"
     )]
     Raw(SearchTokenizerFilters),
+    LiteralNormalized(SearchTokenizerFilters),
     WhiteSpace(SearchTokenizerFilters),
     RegexTokenizer {
         pattern: String,
@@ -326,6 +327,7 @@ impl SearchTokenizer {
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
+            "literal_normalized" => Ok(SearchTokenizer::LiteralNormalized(filters)),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace(filters)),
             "regex" => {
                 let pattern: String =
@@ -376,6 +378,9 @@ impl SearchTokenizer {
             }
             // the keyword tokenizer is a special case that does not have filters
             SearchTokenizer::Keyword => TextAnalyzer::builder(RawTokenizer::default()).build(),
+            SearchTokenizer::LiteralNormalized(filters) => {
+                add_filters!(RawTokenizer::default(), filters)
+            }
             SearchTokenizer::WhiteSpace(filters) => {
                 add_filters!(WhitespaceTokenizer::default(), filters)
             }
@@ -446,6 +451,7 @@ impl SearchTokenizer {
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => filters,
+            SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
             SearchTokenizer::RegexTokenizer { filters, .. } => filters,
             SearchTokenizer::ChineseCompatible(filters) => filters,
@@ -497,6 +503,7 @@ impl SearchTokenizer {
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
+            SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {

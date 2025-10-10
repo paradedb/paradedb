@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760109600887,
+  "lastUpdate": 1760109604137,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20206,6 +20206,114 @@ window.BENCHMARK_DATA = {
             "value": 159.2109375,
             "unit": "median mem",
             "extra": "avg mem: 156.9929240270035, max mem: 160.3515625, count: 55428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84ace13610bc16ef88495a07915708cbe371e4a0",
+          "message": "feat: add new `##>` operator for \"in order\" proximity (#3314)\n\n# Ticket(s) Closed\n\n- Closes #3305\n\n## What\n\nSimilar to the existing `##` operator, but `##>` requires the rhs be\nthat many tokens after the lhs.\n\nExample:\n\n```sql\n... WHERE text @@@ ('z' ##>24##> 'a');\n```\n\n## Why\n\n## How\n\n## Tests\n\nUpdated the `proximity.sql` test with a small test.",
+          "timestamp": "2025-10-10T10:25:54-04:00",
+          "tree_id": "576dd1e98eb7884b79985358e642deb5df8beda0",
+          "url": "https://github.com/paradedb/paradedb/commit/84ace13610bc16ef88495a07915708cbe371e4a0"
+        },
+        "date": 1760109602331,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.4193402777094, max cpu: 46.55674, count: 55490"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 156.60004413802037, max mem: 158.87890625, count: 55490"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.5830908277239155, max cpu: 41.73913, count: 55490"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 110.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 109.80724215511803, max mem: 110.953125, count: 55490"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.969981534177295, max cpu: 13.9265, count: 55490"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 142.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 122.16829644136331, max mem: 143.56640625, count: 55490"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30767,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31350.004289061093, max block_count: 63716.0, count: 55490"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3087754942091667, max cpu: 4.669261, count: 55490"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.16561591897188, max mem: 128.5, count: 55490"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.80140565867724, max segment_count: 51.0, count: 55490"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.85731491135593, max cpu: 37.10145, count: 110980"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.9911382540773, max mem: 156.14453125, count: 110980"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.997113497464337, max cpu: 28.125, count: 55490"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 158.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 156.86389045323483, max mem: 160.6484375, count: 55490"
           }
         ]
       }

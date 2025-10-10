@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760126197510,
+  "lastUpdate": 1760126200351,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12412,6 +12412,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.36578984091544, max segment_count: 107.0, count: 57328"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e17d61bda58030142da91a0daeba3b94eec0f572",
+          "message": "chore: move the `more_like_this` functions to the `pdb` schema (#3325)\n\n# Ticket(s) Closed\n\n- Part of #3301\n\n## What\n\nMove the various `more_like_this` functions over to the `pdb` schema.\n\n## Why\n\n@rebasedming told me to\n\n## Tests\n\nTests updated",
+          "timestamp": "2025-10-10T15:28:01-04:00",
+          "tree_id": "69144d775a862e0661ec991ed82443aecb99ac47",
+          "url": "https://github.com/paradedb/paradedb/commit/e17d61bda58030142da91a0daeba3b94eec0f572"
+        },
+        "date": 1760126198588,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.66891869176875, max cpu: 42.857143, count: 57358"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.48841125856464, max mem: 227.73828125, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.492868198855994, max cpu: 33.366436, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.08424391540848, max mem: 164.50390625, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24391,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23320.17490149587, max block_count: 26174.0, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.49797761428222, max segment_count: 107.0, count: 57358"
           }
         ]
       }

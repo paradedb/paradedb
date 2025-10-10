@@ -120,11 +120,11 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     {
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-            "the `raw` tokenizer is deprecated",
+            "using the `raw` tokenizer for the key_field is deprecated",
             function_name!(),
         )
-            .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want for you key_field")
-            .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+            .set_detail("the `raw` tokenizer also lowercases the input and this is probably not what you want for you key_field")
+            .set_hint("use `exact` instead").report(PgLogLevel::WARNING);
     }
 
     let options = index_relation.options();

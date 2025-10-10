@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760109533906,
+  "lastUpdate": 1760109600887,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16726,6 +16726,60 @@ window.BENCHMARK_DATA = {
             "value": 18.954205412204242,
             "unit": "median tps",
             "extra": "avg tps: 18.953430836823358, max tps: 19.93786205786769, count: 55428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84ace13610bc16ef88495a07915708cbe371e4a0",
+          "message": "feat: add new `##>` operator for \"in order\" proximity (#3314)\n\n# Ticket(s) Closed\n\n- Closes #3305\n\n## What\n\nSimilar to the existing `##` operator, but `##>` requires the rhs be\nthat many tokens after the lhs.\n\nExample:\n\n```sql\n... WHERE text @@@ ('z' ##>24##> 'a');\n```\n\n## Why\n\n## How\n\n## Tests\n\nUpdated the `proximity.sql` test with a small test.",
+          "timestamp": "2025-10-10T10:25:54-04:00",
+          "tree_id": "576dd1e98eb7884b79985358e642deb5df8beda0",
+          "url": "https://github.com/paradedb/paradedb/commit/84ace13610bc16ef88495a07915708cbe371e4a0"
+        },
+        "date": 1760109599088,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.179821957314836,
+            "unit": "median tps",
+            "extra": "avg tps: 38.28399173673823, max tps: 38.8271335992512, count: 55490"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.59573440475975,
+            "unit": "median tps",
+            "extra": "avg tps: 273.78456950740014, max tps: 2925.34276221379, count: 55490"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1031.7964671497584,
+            "unit": "median tps",
+            "extra": "avg tps: 1028.7179491575496, max tps: 1086.7308515943878, count: 55490"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.87529272441552,
+            "unit": "median tps",
+            "extra": "avg tps: 157.6657960407286, max tps: 829.088633942489, count: 110980"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.14967585117994,
+            "unit": "median tps",
+            "extra": "avg tps: 19.2687525541262, max tps: 20.41018163914978, count: 55490"
           }
         ]
       }

@@ -31,6 +31,46 @@ AS 'MODULE_PATHNAME', 'fsm_size_wrapper';
 DROP FUNCTION IF EXISTS fsm_info(index regclass);
 CREATE OR REPLACE FUNCTION fsm_info(index regclass) RETURNS TABLE(xid xid, fsm_blockno pg_catalog.int8, tag pg_catalog.int8, free_blockno pg_catalog.int8) AS 'MODULE_PATHNAME', 'fsm_info_wrapper' LANGUAGE c STRICT;
 
+--
+-- new in-order proximity operator
+--
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/proximity.rs:37
+-- pg_search::api::operator::proximity::lhs_prox_in_order
+CREATE  FUNCTION "lhs_prox_in_order"(
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "distance" INT /* i32 */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'lhs_prox_in_order_wrapper';
+-- pg_search/src/api/operator/proximity.rs:37
+-- pg_search::api::operator::proximity::lhs_prox_in_order
+CREATE OPERATOR pg_catalog.##> (
+    PROCEDURE="lhs_prox_in_order",
+    LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    RIGHTARG=INT /* i32 */
+    );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/proximity.rs:51
+-- pg_search::api::operator::proximity::rhs_prox_in_order
+CREATE  FUNCTION "rhs_prox_in_order"(
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'rhs_prox_in_order_wrapper';
+-- pg_search/src/api/operator/proximity.rs:51
+-- pg_search::api::operator::proximity::rhs_prox_in_order
+CREATE OPERATOR pg_catalog.##> (
+    PROCEDURE="rhs_prox_in_order",
+    LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    RIGHTARG=pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    );
+
 
 --
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work

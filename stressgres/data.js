@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760104467947,
+  "lastUpdate": 1760104611369,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7198,6 +7198,42 @@ window.BENCHMARK_DATA = {
             "value": 5.411536723290264,
             "unit": "median tps",
             "extra": "avg tps: 4.895820292967161, max tps: 6.002567308271367, count: 57232"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98baf4ce05a4907c305bcbb28438d5fcc6025f09",
+          "message": "chore: Remove dead code in `tokenizers/src/manager.rs` (#3310)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-10T09:28:36-04:00",
+          "tree_id": "ae706715e3523d0f2bca3de4c17c19661812c2c8",
+          "url": "https://github.com/paradedb/paradedb/commit/98baf4ce05a4907c305bcbb28438d5fcc6025f09"
+        },
+        "date": 1760104609566,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.393902841842877,
+            "unit": "median tps",
+            "extra": "avg tps: 7.161945484499525, max tps: 11.177316785408856, count: 57546"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.2919328312205485,
+            "unit": "median tps",
+            "extra": "avg tps: 4.791438768084217, max tps: 5.850292206317029, count: 57546"
           }
         ]
       }

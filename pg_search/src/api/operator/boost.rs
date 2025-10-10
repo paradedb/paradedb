@@ -83,11 +83,11 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for BoostType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("boost".into()))
+            Ok(SqlMapping::As("pdb.boost".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("boost".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.boost".into())))
         }
     }
 
@@ -131,7 +131,8 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.boost;
+            CREATE SCHEMA IF NOT EXISTS pdb;
+            CREATE TYPE pdb.boost;
         "#,
         name = "BoostType_shell",
         creates = [Type(BoostType)]
@@ -180,7 +181,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.boost (
+            CREATE TYPE pdb.boost (
                 INPUT = boost_in,
                 OUTPUT = boost_out,
                 INTERNALLENGTH = VARIABLE,
@@ -270,9 +271,9 @@ pub fn boost_to_boost(input: BoostType, typmod: i32, _is_explicit: bool) -> Boos
 
 extension_sql!(
     r#"
-        CREATE CAST (pdb.query AS pg_catalog.boost) WITH FUNCTION query_to_boost(pdb.query, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pdb.proximityclause AS pg_catalog.boost) WITH FUNCTION prox_to_boost(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pg_catalog.boost AS pg_catalog.boost) WITH FUNCTION boost_to_boost(pg_catalog.boost, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.query AS pdb.boost) WITH FUNCTION query_to_boost(pdb.query, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.proximityclause AS pdb.boost) WITH FUNCTION prox_to_boost(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.boost AS pdb.boost) WITH FUNCTION boost_to_boost(pdb.boost, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_boost",
     requires = [

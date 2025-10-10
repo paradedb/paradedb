@@ -147,13 +147,11 @@ pub fn pdb_query_typoid() -> pg_sys::Oid {
 
 pub fn boost_typoid() -> pg_sys::Oid {
     unsafe {
-        let oid = direct_function_call::<pg_sys::Oid>(
-            pg_sys::regtypein,
-            &[c"pg_catalog.boost".into_datum()],
-        )
-        .expect("type `pg_catalog.boost` should exist");
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.boost".into_datum()])
+                .expect("type `pdb.boost` should exist");
         if oid == pg_sys::Oid::INVALID {
-            panic!("type `pg_catalog.boost` should exist");
+            panic!("type `pdb.boost` should exist");
         }
         oid
     }
@@ -161,13 +159,11 @@ pub fn boost_typoid() -> pg_sys::Oid {
 
 pub fn fuzzy_typoid() -> pg_sys::Oid {
     unsafe {
-        let oid = direct_function_call::<pg_sys::Oid>(
-            pg_sys::regtypein,
-            &[c"pg_catalog.fuzzy".into_datum()],
-        )
-        .expect("type `pg_catalog.fuzzy` should exist");
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.fuzzy".into_datum()])
+                .expect("type `pdb.fuzzy` should exist");
         if oid == pg_sys::Oid::INVALID {
-            panic!("type `pg_catalog.fuzzy` should exist");
+            panic!("type `pdb.fuzzy` should exist");
         }
         oid
     }
@@ -175,13 +171,11 @@ pub fn fuzzy_typoid() -> pg_sys::Oid {
 
 pub fn slop_typoid() -> pg_sys::Oid {
     unsafe {
-        let oid = direct_function_call::<pg_sys::Oid>(
-            pg_sys::regtypein,
-            &[c"pg_catalog.slop".into_datum()],
-        )
-        .expect("type `pg_catalog.slop` should exist");
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.slop".into_datum()])
+                .expect("type `pdb.slop` should exist");
         if oid == pg_sys::Oid::INVALID {
-            panic!("type `pg_catalog.slop` should exist");
+            panic!("type `pdb.slop` should exist");
         }
         oid
     }

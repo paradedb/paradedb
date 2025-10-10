@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760110382217,
+  "lastUpdate": 1760110385452,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15298,6 +15298,108 @@ window.BENCHMARK_DATA = {
             "value": 156.70703125,
             "unit": "median mem",
             "extra": "avg mem: 170.79749997790623, max mem: 216.5703125, count: 56577"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8269d4ed9b0f6101d4627bc72eb008026312fdac",
+          "message": "chore: relocate `fuzzy`, `slop`, `boost` types to the `pdb` schema (#3316)\n\n# Ticket(s) Closed\n\n- Closes #3281\n\n## What\n\nThis relocates the `fuzzy`, `slop`, and `boost` types from `pg_catalog`\nto our `pdb` schema.\n\n🚨This will be a breaking change for any existing queries that cast the\nrhs of one of our operators to one of these types. They'll need to be\nrewritten as `::pdb.fuzzy`.\n\n## Why\n\nPutting them in `pg_catalog` was a mistake and inconsistent with our\nother SQL UX work.\n\n## How\n\n## Tests\n\nExisting tests (and docs) have been updated.",
+          "timestamp": "2025-10-10T10:51:05-04:00",
+          "tree_id": "4a988e0eff7dab9eec493a7ab5f16feb53bb4929",
+          "url": "https://github.com/paradedb/paradedb/commit/8269d4ed9b0f6101d4627bc72eb008026312fdac"
+        },
+        "date": 1760110383564,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.318942495994303, max background_merging: 1.0, count: 56170"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.738417844394867, max cpu: 9.495549, count: 56170"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.263385843199217, max mem: 19.859375, count: 56170"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.626431092777366, max cpu: 27.934044, count: 56170"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 166.6307070750623, max mem: 168.25390625, count: 56170"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67797,
+            "unit": "median block_count",
+            "extra": "avg block_count: 68581.97106996618, max block_count: 75588.0, count: 56170"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 85,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 92.25162898344311, max segment_count: 194.0, count: 56170"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.90757160039491, max cpu: 27.934044, count: 56170"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 167.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.31022934006143, max mem: 167.50390625, count: 56170"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.943050609043185, max cpu: 27.77242, count: 56170"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 165.7762804321702, max mem: 168.46875, count: 56170"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.07098461389628, max cpu: 33.802814, count: 56170"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 154.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.0592507260326, max mem: 214.60546875, count: 56170"
           }
         ]
       }

@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
 SELECT 'Running Shoes.  olé'::pdb.simple::text[];
         text         
 ---------------------
@@ -324,5 +325,23 @@ SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=engli
       text      
 ----------------
  {Run,Shoe,ole}
+(1 row)
+
+SELECT 'Running Shoes.  olé'::pdb.raw::text[];
+          text           
+-------------------------
+ {"running shoes.  olé"}
+(1 row)
+
+SELECT 'Running Shoes.  olé'::pdb.raw('lowercase=false')::text[];
+          text           
+-------------------------
+ {"Running Shoes.  olé"}
+(1 row)
+
+SELECT 'Running Shoes.  olé'::pdb.raw('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+          text           
+-------------------------
+ {"Running Shoes.  ole"}
 (1 row)
 

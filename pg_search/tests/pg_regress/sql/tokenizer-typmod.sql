@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 SELECT 'Running Shoes.  olé'::pdb.simple::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
@@ -65,3 +67,7 @@ SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes', 'lowercase=false', 'stemmer=
 SELECT 'Running Shoes.  olé'::pdb.source_code::text[];
 SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+
+SELECT 'Running Shoes.  olé'::pdb.raw::text[];
+SELECT 'Running Shoes.  olé'::pdb.raw('lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.raw('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];

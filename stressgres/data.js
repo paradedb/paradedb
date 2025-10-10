@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760120153240,
+  "lastUpdate": 1760120224425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8974,6 +8974,42 @@ window.BENCHMARK_DATA = {
             "value": 5.2892776014884175,
             "unit": "median tps",
             "extra": "avg tps: 4.779233442713954, max tps: 5.820865916696082, count: 57538"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdecbe9790b1f7053fe49331f81c711d85ab4ea3",
+          "message": "chore: Temporarily disable compound sorts in proptests. (#3321)\n\nSee https://github.com/paradedb/paradedb/issues/3266.",
+          "timestamp": "2025-10-10T10:48:29-07:00",
+          "tree_id": "f82dc82ece86a514f1aff1d178ebfea6bc4296cf",
+          "url": "https://github.com/paradedb/paradedb/commit/cdecbe9790b1f7053fe49331f81c711d85ab4ea3"
+        },
+        "date": 1760120222592,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.56352967667732,
+            "unit": "median tps",
+            "extra": "avg tps: 7.303494165484067, max tps: 11.388978843566912, count: 57515"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3392847817256825,
+            "unit": "median tps",
+            "extra": "avg tps: 4.831281492339187, max tps: 5.910762809187777, count: 57515"
           }
         ]
       }

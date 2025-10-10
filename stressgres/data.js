@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760121009055,
+  "lastUpdate": 1760121716953,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18742,6 +18742,60 @@ window.BENCHMARK_DATA = {
             "value": 18.42795096262768,
             "unit": "median tps",
             "extra": "avg tps: 18.413724306683747, max tps: 19.222609670820272, count: 55440"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdecbe9790b1f7053fe49331f81c711d85ab4ea3",
+          "message": "chore: Temporarily disable compound sorts in proptests. (#3321)\n\nSee https://github.com/paradedb/paradedb/issues/3266.",
+          "timestamp": "2025-10-10T10:48:29-07:00",
+          "tree_id": "f82dc82ece86a514f1aff1d178ebfea6bc4296cf",
+          "url": "https://github.com/paradedb/paradedb/commit/cdecbe9790b1f7053fe49331f81c711d85ab4ea3"
+        },
+        "date": 1760121715165,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.08781608654619,
+            "unit": "median tps",
+            "extra": "avg tps: 39.045477408201016, max tps: 41.10124121768146, count: 55514"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.46239298275992,
+            "unit": "median tps",
+            "extra": "avg tps: 269.8588712926875, max tps: 2795.7261987756247, count: 55514"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1014.9365525092376,
+            "unit": "median tps",
+            "extra": "avg tps: 1007.8705308183359, max tps: 1045.4764050163997, count: 55514"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 125.72570733046409,
+            "unit": "median tps",
+            "extra": "avg tps: 159.5680039426782, max tps: 843.7284868069089, count: 111028"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.587306483627934,
+            "unit": "median tps",
+            "extra": "avg tps: 18.734143503261986, max tps: 20.84070747032658, count: 55514"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760125774848,
+  "lastUpdate": 1760126197510,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9862,6 +9862,42 @@ window.BENCHMARK_DATA = {
             "value": 5.245507402759758,
             "unit": "median tps",
             "extra": "avg tps: 4.7473472537545565, max tps: 5.83388490287431, count: 57328"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e17d61bda58030142da91a0daeba3b94eec0f572",
+          "message": "chore: move the `more_like_this` functions to the `pdb` schema (#3325)\n\n# Ticket(s) Closed\n\n- Part of #3301\n\n## What\n\nMove the various `more_like_this` functions over to the `pdb` schema.\n\n## Why\n\n@rebasedming told me to\n\n## Tests\n\nTests updated",
+          "timestamp": "2025-10-10T15:28:01-04:00",
+          "tree_id": "69144d775a862e0661ec991ed82443aecb99ac47",
+          "url": "https://github.com/paradedb/paradedb/commit/e17d61bda58030142da91a0daeba3b94eec0f572"
+        },
+        "date": 1760126195704,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.338569334181347,
+            "unit": "median tps",
+            "extra": "avg tps: 7.118094209708974, max tps: 11.033642137237745, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.276695283657783,
+            "unit": "median tps",
+            "extra": "avg tps: 4.769397644902115, max tps: 5.857613297068613, count: 57358"
           }
         ]
       }

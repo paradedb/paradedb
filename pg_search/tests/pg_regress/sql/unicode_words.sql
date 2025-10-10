@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS unicode_words;
+CREATE TABLE unicode_words(
+    id serial8 not null primary key,
+    t text
+);
+INSERT INTO unicode_words(t) VALUES ('it''s Paul''s birthday today!  🎂🚨👀🥜');
+CREATE INDEX idxunicode_words ON unicode_words USING bm25 (id, (t::pdb.unicode_words)) WITH (key_field = 'id');
+
+SELECT * FROM unicode_words WHERE t @@@ '🚨';
+
+
+select 'it''s Paul''s birthday today!  🎂🚨👀🥜'::pdb.unicode_words::text[];
+select 'it''s Paul''s birthday today!  🎂🚨👀🥜'::pdb.unicode_words(remove_emojis)::text[];
+

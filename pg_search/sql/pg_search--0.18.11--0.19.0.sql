@@ -1518,6 +1518,85 @@ AS 'MODULE_PATHNAME', 'json_to_literal_normalized_wrapper';
         CREATE CAST (json AS pdb.literal_normalized) WITH FUNCTION pdb.json_to_literal_normalized AS ASSIGNMENT;
 CREATE CAST (jsonb AS pdb.literal_normalized) WITH FUNCTION pdb.jsonb_to_literal_normalized AS ASSIGNMENT;
 
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- creates:
+--   Type(pg_search::api::tokenizers::definitions::pdb::UnicodeWords)
+CREATE TYPE pdb.unicode_words;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_in(cstring) RETURNS pdb.unicode_words AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_out(pdb.unicode_words) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_send(pdb.unicode_words) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_recv(internal) RETURNS pdb.unicode_words AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.unicode_words (
+                                  INPUT = pdb.unicode_words_in,
+                                  OUTPUT = pdb.unicode_words_out,
+                                  SEND = pdb.unicode_words_send,
+                                  RECEIVE = pdb.unicode_words_recv,
+                                  COLLATABLE = true,
+                                  CATEGORY = 't', -- 't' is for tokenizer
+                                  PREFERRED = false,
+                                  LIKE = text
+                              );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   generic_typmod_in
+--   generic_typmod_out
+--   unicode_words_definition
+ALTER TYPE pdb.unicode_words SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::tokenize_unicode_words
+CREATE  FUNCTION pdb."tokenize_unicode_words"(
+    "s" pdb.unicode_words /* pg_search::api::tokenizers::definitions::pdb::UnicodeWords */
+) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'tokenize_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   unicode_words_definition
+--   tokenize_unicode_words
+CREATE CAST (pdb.unicode_words AS TEXT[]) WITH FUNCTION pdb.tokenize_unicode_words AS IMPLICIT;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::jsonb_to_unicode_words
+-- requires:
+--   tokenize_unicode_words
+CREATE  FUNCTION pdb."jsonb_to_unicode_words"(
+    "jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
+) RETURNS pdb.unicode_words /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::UnicodeWords> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'jsonb_to_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::json_to_unicode_words
+-- requires:
+--   tokenize_unicode_words
+CREATE  FUNCTION pdb."json_to_unicode_words"(
+    "json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
+) RETURNS pdb.unicode_words /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::UnicodeWords> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'json_to_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   unicode_words_definition
+--   json_to_unicode_words
+--   jsonb_to_unicode_words
+CREATE CAST (json AS pdb.unicode_words) WITH FUNCTION pdb.json_to_unicode_words AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.unicode_words) WITH FUNCTION pdb.jsonb_to_unicode_words AS ASSIGNMENT;
+
 
 --
 -- pdb.all() and pdb.empty()

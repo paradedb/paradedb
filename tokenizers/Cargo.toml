@@ -22,6 +22,8 @@ tracing = "0.1.41"
 strum_macros = "0.27.1"
 strum = { version = "0.27.1", features = ["derive"] }
 tantivy-jieba = { workspace = true }
+emoji = "0.2.1"
+unicode-segmentation = "1.12.0"
 
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"

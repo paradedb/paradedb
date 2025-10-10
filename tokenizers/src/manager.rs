@@ -25,6 +25,7 @@ use crate::{
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
+    unicode_words::UnicodeWordsTokenizer,
 };
 use anyhow::Result;
 use serde::de::{self, Deserializer};
@@ -293,6 +294,10 @@ pub enum SearchTokenizer {
     Jieba(SearchTokenizerFilters),
 
     Lindera(LinderaLanguage, SearchTokenizerFilters),
+    UnicodeWords {
+        remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -364,6 +369,19 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => Ok(SearchTokenizer::Jieba(filters)),
+            "unicode_words" => {
+                let remove_emojis: bool = serde_json::from_value(value["remove_emojis"].clone())
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "unicode_words tokenizer requires an integer 'remove_emojis' field"
+                        )
+                    })?;
+
+                Ok(SearchTokenizer::UnicodeWords {
+                    remove_emojis,
+                    filters,
+                })
+            }
             _ => Err(anyhow::anyhow!(
                 "unknown tokenizer type: {}",
                 tokenizer_type
@@ -440,6 +458,12 @@ impl SearchTokenizer {
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
                 panic!("LinderaStyle::Unspecified is not supported")
             }
+            SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters,
+            } => {
+                add_filters!(UnicodeWordsTokenizer::new(*remove_emojis), filters)
+            }
         };
 
         Some(analyzer)
@@ -464,6 +488,7 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba(filters) => filters,
+            SearchTokenizer::UnicodeWords { filters, .. } => filters,
         }
     }
 
@@ -530,6 +555,7 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
+            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
         }
     }
 }

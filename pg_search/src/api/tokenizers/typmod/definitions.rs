@@ -126,3 +126,18 @@ pub fn lookup_alias_typmod(typmod: i32) -> typmod::Result<AliasTypmod> {
         alias: alias.as_str().unwrap().to_string(),
     })
 }
+
+pub struct UnicodeWordsTypmod {
+    pub remove_emojis: bool,
+    pub filters: SearchTokenizerFilters,
+}
+
+pub fn lookup_unicode_words_typmod(typmod: i32) -> typmod::Result<UnicodeWordsTypmod> {
+    let parsed = load_typmod(typmod)?;
+    let filters = SearchTokenizerFilters::from(&parsed);
+    let remove_emojis = parsed.try_get("remove_emojis", 0).is_some();
+    Ok(UnicodeWordsTypmod {
+        remove_emojis,
+        filters,
+    })
+}

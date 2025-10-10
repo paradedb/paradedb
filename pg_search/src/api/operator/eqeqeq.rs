@@ -84,6 +84,12 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
+                    let mut query = term_set_str(array);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    query.apply_slop_data(slop_data);
+                    to_search_query_input(field, query)
+                }
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, lhs, rhs| {

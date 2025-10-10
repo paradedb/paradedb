@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::{match_conjunction, match_conjunction_array};
+use crate::api::builder_fns::{match_conjunction, match_conjunction_array, term_set_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
@@ -96,6 +96,19 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
                     let mut query = match_conjunction(string);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
+                    to_search_query_input(field, query)
+                }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
+                    let mut query = term_set_str(array);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    query.apply_slop_data(slop_data);
+
+                    assert!(matches!(query, pdb::Query::MatchArray{..}));
+                    let pdb::Query::MatchArray { conjunction_mode, .. } = &mut query else {
+                        unreachable!()
+                    };
+                    *conjunction_mode = Some(true);
+
                     to_search_query_input(field, query)
                 }
 

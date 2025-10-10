@@ -92,7 +92,11 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
-
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, slop_data, .. }) => {
+                    let mut query = phrase_array(array);
+                    query.apply_slop_data(slop_data);
+                    to_search_query_input(field, query)
+                }
                 _ => panic!("The right-hand side of the `###(field, TEXT)` operator must be a text value."),
             }
         }, |field, lhs, rhs| {

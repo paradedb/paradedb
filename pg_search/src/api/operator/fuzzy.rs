@@ -212,6 +212,17 @@ fn query_to_fuzzy(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> Fuz
     FuzzyType(input)
 }
 
+#[pg_extern(immutable, parallel_safe)]
+fn text_array_to_fuzzy(array: Vec<String>, typmod: i32, _is_explicit: bool) -> FuzzyType {
+    let mut query = pdb::Query::UnclassifiedArray {
+        array,
+        fuzzy_data: None,
+        slop_data: None,
+    };
+    query.apply_fuzzy_data((typmod != -1).then(|| typmod.into()));
+    FuzzyType(query)
+}
+
 #[pg_cast(implicit, immutable, parallel_safe)]
 fn fuzzy_to_query(input: FuzzyType) -> pdb::Query {
     input.0
@@ -243,6 +254,7 @@ pub fn fuzzy_to_fuzzy(input: FuzzyType, typmod: i32, is_explicit: bool) -> Fuzzy
 
 extension_sql!(
     r#"
+        CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
@@ -252,6 +264,7 @@ extension_sql!(
         query_to_fuzzy,
         fuzzy_to_boost,
         fuzzy_to_fuzzy,
+        text_array_to_fuzzy,
         "FuzzyType_final"
     ]
 );

@@ -31,8 +31,8 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
+    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 use tantivy_jieba;
 
@@ -44,6 +44,7 @@ pub struct SearchTokenizerFilters {
     pub stemmer: Option<Language>,
     pub stopwords_language: Option<Language>,
     pub stopwords: Option<Vec<String>>,
+    pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
 }
@@ -63,6 +64,7 @@ impl SearchTokenizerFilters {
             stopwords_language: None,
             stopwords: None,
             ascii_folding: None,
+            alpha_num_only: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -113,7 +115,11 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("stopwords tokenizer requires a valid 'stopwords' field")
             })?);
         }
-
+        if let Some(alpha_num_only) = value.get("alpha_num_only") {
+            filters.alpha_num_only = Some(alpha_num_only.as_bool().ok_or_else(|| {
+                anyhow::anyhow!("ascii_folding tokenizer requires a valid 'alpha_num_only' field")
+            })?);
+        }
         if let Some(ascii_folding) = value.get("ascii_folding") {
             filters.ascii_folding = Some(ascii_folding.as_bool().ok_or_else(|| {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
@@ -163,7 +169,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}stopwords={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
         }
-
+        if let Some(value) = self.alpha_num_only {
+            write!(buffer, "{}alpha_num_only={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
         if let Some(value) = self.ascii_folding {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
@@ -207,6 +216,13 @@ impl SearchTokenizerFilters {
             .map(|stop_words| StopWordFilter::remove(stop_words.clone()))
     }
 
+    fn alpha_num_only(&self) -> Option<AlphaNumOnlyFilter> {
+        match self.alpha_num_only {
+            Some(true) => Some(AlphaNumOnlyFilter), // Only enable if explicitly requested.
+            _ => None,
+        }
+    }
+
     fn ascii_folding(&self) -> Option<AsciiFoldingFilter> {
         match self.ascii_folding {
             Some(true) => Some(AsciiFoldingFilter), // Only enable if explicitly requested.
@@ -227,6 +243,7 @@ macro_rules! add_filters {
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
             .filter($filters.stopwords())
+            .filter($filters.alpha_num_only())
             .filter($filters.ascii_folding())
             $(
                 .filter($extra_filter)
@@ -576,6 +593,7 @@ mod tests {
                     stopwords: None,
                     ascii_folding: None,
                     normalizer: None,
+                    alpha_num_only: None,
                 }
             }
         );
@@ -599,6 +617,7 @@ mod tests {
                 stopwords: None,
                 ascii_folding: None,
                 normalizer: None,
+                alpha_num_only: None,
             },
         };
 
@@ -642,6 +661,7 @@ mod tests {
                 ]),
                 ascii_folding: None,
                 normalizer: None,
+                alpha_num_only: None,
             })
         );
 
@@ -693,6 +713,7 @@ mod tests {
                 stopwords: None,
                 ascii_folding: None,
                 normalizer: None,
+                alpha_num_only: None,
             })
         );
 

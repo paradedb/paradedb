@@ -327,6 +327,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                 .get("stopwords_language")
                 .and_then(|p| p.as_language().ok()),
             stopwords: None, // TODO: handle stopwords list in a new way we haven't done up to this point
+            alpha_num_only: value.get("alpha_num_only").and_then(|p| p.as_bool()),
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
         }

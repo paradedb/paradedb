@@ -243,12 +243,19 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 ) -> *mut pg_sys::PlannedStmt {
     // Check if this is a SELECT query with window functions that we can handle
     if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
-        let has_window_funcs =
-            !(*parse).targetList.is_null() && has_window_functions((*parse).targetList);
+        // Debug: Count RTEs and check for subqueries
+        let rte_count = if !(*parse).rtable.is_null() {
+            PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable).len()
+        } else {
+            0
+        };
+
+        let has_window_funcs = query_has_window_functions(parse);
         let has_search_op = query_has_search_operator(parse);
 
         pgrx::warning!(
-            "planner_hook: SELECT query - has_window_funcs={}, has_search_op={}",
+            "planner_hook: SELECT query (RTEs={}) - has_window_funcs={}, has_search_op={}",
+            rte_count,
             has_window_funcs,
             has_search_op
         );
@@ -258,18 +265,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
                 "planner_hook: Found window functions in search query - replacing with window_func(json)"
             );
 
-            // Extract window functions
-            let window_aggs = extract_window_functions(parse);
-
-            if !window_aggs.is_empty() {
-                // Replace WindowFunc nodes with window_func(json) placeholders
-                // This allows PdbScan to handle them at the base relation level
-                replace_windowfuncs_in_query(parse, &window_aggs);
-                pgrx::warning!(
-                    "planner_hook: Replaced {} WindowFunc nodes with window_func(json)",
-                    window_aggs.len()
-                );
-            }
+            // Extract and replace window functions recursively (including subqueries)
+            replace_windowfuncs_recursively(parse);
         }
     }
 
@@ -290,6 +287,42 @@ unsafe fn has_window_functions(target_list: *mut pg_sys::List) -> bool {
             return true;
         }
     }
+    false
+}
+
+/// Check if the query (or any subquery) contains window functions
+unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+
+    // Check the current query's target list
+    if !(*parse).targetList.is_null() && has_window_functions((*parse).targetList) {
+        pgrx::warning!("query_has_window_functions: Found window functions in current query");
+        return true;
+    }
+
+    // Check subqueries in RTEs
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        pgrx::warning!(
+            "query_has_window_functions: Checking {} RTEs for subquery window functions",
+            rtable.len()
+        );
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+                pgrx::warning!(
+                    "  RTE {}: Found subquery, checking for window functions recursively",
+                    idx
+                );
+                if query_has_window_functions((*rte).subquery) {
+                    pgrx::warning!("  RTE {}: Subquery contains window functions!", idx);
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 
@@ -330,6 +363,24 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
         if expr_contains_any_operator((*parse).havingQual, &[searchqueryinput_opno, text_opno]) {
             pgrx::warning!("query_has_search_operator: Found @@@ in HAVING clause");
             return true;
+        }
+    }
+
+    // Check if any RTEs contain subqueries with @@@ operators
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        pgrx::warning!(
+            "query_has_search_operator: Checking {} RTEs for subqueries",
+            rtable.len()
+        );
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+                pgrx::warning!("  RTE {}: Found subquery, checking recursively", idx);
+                if query_has_search_operator((*rte).subquery) {
+                    pgrx::warning!("  RTE {}: Subquery contains @@@!", idx);
+                    return true;
+                }
+            }
         }
     }
 
@@ -402,6 +453,37 @@ unsafe fn expr_contains_any_operator(
     }
 
     false
+}
+
+/// Recursively replace window functions in the query and all subqueries
+unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
+    if parse.is_null() {
+        return;
+    }
+
+    // Replace window functions in current query
+    let window_aggs = extract_window_functions(parse);
+    if !window_aggs.is_empty() {
+        replace_windowfuncs_in_query(parse, &window_aggs);
+        pgrx::warning!(
+            "replace_windowfuncs_recursively: Replaced {} WindowFunc nodes in current query",
+            window_aggs.len()
+        );
+    }
+
+    // Recursively process subqueries in RTEs
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+                pgrx::warning!(
+                    "replace_windowfuncs_recursively: Processing subquery in RTE {}",
+                    idx
+                );
+                replace_windowfuncs_recursively((*rte).subquery);
+            }
+        }
+    }
 }
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions

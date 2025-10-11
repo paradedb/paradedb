@@ -982,6 +982,34 @@ FROM products
 WHERE description @@@ 'laptop'
 LIMIT 3;
 
+-- Test 37: Window function with COALESCE
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,
+    SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
+    AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,
+    SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
+    AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Cleanup
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

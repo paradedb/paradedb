@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760207309272,
+  "lastUpdate": 1760208048329,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10084,6 +10084,42 @@ window.BENCHMARK_DATA = {
             "value": 5.276695283657783,
             "unit": "median tps",
             "extra": "avg tps: 4.769397644902115, max tps: 5.857613297068613, count: 57358"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3b1cd9e331faa1e071d8070241a0856a290435a",
+          "message": "fix: aggregate scan not solving postgres expressions (#3298)\n\n# Ticket(s) Closed\n\n- Closes #3292 \n\n## What\n\nOur code to solve Postgres expressions was run only in the `PdbScan`,\nnot the `AggregateScan`, causing a panic if there was a Postgres\nexpression in the search query.\n\n## Why\n\n## How\n\nMoved common code to a shared trait.\n\n## Tests",
+          "timestamp": "2025-10-11T14:12:05-04:00",
+          "tree_id": "37dfdfe55fc00c2238294dcc48c3b14977b729cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d3b1cd9e331faa1e071d8070241a0856a290435a"
+        },
+        "date": 1760208046532,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.533342995046816,
+            "unit": "median tps",
+            "extra": "avg tps: 7.278505105250218, max tps: 11.318155678565107, count: 57304"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.132518642798454,
+            "unit": "median tps",
+            "extra": "avg tps: 4.615729664180124, max tps: 5.741464267360192, count: 57304"
           }
         ]
       }

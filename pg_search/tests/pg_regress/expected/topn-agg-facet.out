@@ -147,7 +147,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -202,7 +204,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
 WARNING:  TopN init: Received 1 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -219,13 +223,13 @@ WARNING:  Injected Const node for window aggregate at index 3
 WARNING:  Computing 1 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -307,7 +311,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_7", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -393,7 +399,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_7", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -424,25 +432,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Avg { field: "field_7", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | total_count | total_price | avg_rating 
 ----+-------------+--------+-------+-------------+-------------+------------
@@ -497,7 +505,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                        QUERY PLAN                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -560,7 +570,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                      QUERY PLAN                                                                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -622,7 +634,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_7", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -697,7 +711,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -768,7 +784,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -792,19 +810,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | min_price | max_price 
 ----+-------------+--------+-------+-----------+-----------
@@ -860,11 +878,18 @@ WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
 WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func calls
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
-WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x14f81a478), expr_state: PostgresPointer(0x0) } }) }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x15a8d8478), expr_state: PostgresPointer(0x0) } }) }
 WARNING:    Window aggregate has FILTER - verifying deserialization...
-WARNING:    ✅ FILTER deserialized successfully - node pointer is valid: 0x14f81a478
+WARNING:    ✅ FILTER deserialized successfully - node pointer is valid: 0x15a8d8478
 WARNING:    ✅ FILTER node type: T_OpExpr
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:    ✅ FILTER expression deserialized: {OPEXPR :opno 91 :opfuncid 60 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 8 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 8 :location -1} {CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location -1 :constvalue 1 [ 1 0 0 0 0 0 0 0 ]}) :location -1}
+WARNING:    ℹ️  NOTE: FILTER conversion requires root (PlannerInfo) which is not available at execution time
+WARNING:    ℹ️  TODO: Implement FILTER evaluation using ExprContext at execution time
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:    Converting FILTER from PostgresExpression to SearchQueryInput
+WARNING:    ✅ FILTER converted successfully: FieldedQuery { field: FieldName("in_stock"), query: Term { value: Bool(true), is_datetime: false } }
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -923,7 +948,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Count { field: "field_5", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                         QUERY PLAN                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -988,7 +1015,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                     QUERY PLAN                                                                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1045,7 +1074,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                       QUERY PLAN                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1094,7 +1125,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
@@ -1154,7 +1187,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1251,7 +1286,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1313,7 +1350,9 @@ WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func ca
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 1 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1460,7 +1499,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1534,7 +1575,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -1558,14 +1601,14 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x13e86ae58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x15a8dfa58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e86b398
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8dff98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x13e86ae58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x15a8dfa58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e86b398
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8dff98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
 ----+-------------+----------+-------+-------+--------+-------+-------------+-------------
@@ -1706,7 +1749,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1780,7 +1825,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -1804,19 +1851,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | category | rating | total_results | category_count 
 ----+-------------+----------+--------+---------------+----------------
@@ -1894,7 +1941,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1976,7 +2025,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -2000,24 +2051,24 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | price | price_bucket | total_results | bucket_count 
 ----+-------------+-------+--------------+---------------+--------------
@@ -2106,7 +2157,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2198,7 +2251,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -2229,25 +2284,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Avg { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
 ----+-------------+--------+-------+---------------+-------------+-----------------
@@ -2335,7 +2390,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2427,7 +2484,9 @@ WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Min { field: "field_6", missing: None, filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Max { field: "field_6", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 3 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 3 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 3 window aggregates in PrivateData
 WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -2458,25 +2517,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | price | total_results | category_min_price | category_max_price 
 ----+-------------+----------+-------+---------------+--------------------+--------------------
@@ -2545,7 +2604,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2618,7 +2679,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -2642,19 +2705,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | in_stock | total_results | stock_count 
 ----+-------------+----------+---------------+-------------
@@ -2725,7 +2788,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2800,7 +2865,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: Sum { field: "field_9", missing: None, filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -2824,19 +2891,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | sales | sales_volume | total_results | total_sales 
 ----+-------------+-------+--------------+---------------+-------------
@@ -2916,7 +2983,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                              
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3000,7 +3069,9 @@ WARNING:  replace_windowfuncs_recursively: Replaced 2 WindowFunc nodes in curren
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 2 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 2 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 2 window aggregates in PrivateData
 WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -3024,24 +3095,24 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating |     rating_tier     | total_results | tier_count 
 ----+-------------+--------+---------------------+---------------+------------
@@ -3187,7 +3258,9 @@ WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 6 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 6 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 6 window aggregates in PrivateData
 WARNING:  Initializing scan state with 6 window aggregates
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3336,7 +3409,9 @@ WARNING:  extract_window_func_calls: Found window aggregate: Avg { field: "field
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
 WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: None }
-WARNING:  plan_custom_path: Found 6 window aggregates, storing in PrivateData
+WARNING:  plan_custom_path: Found 6 window aggregates
+WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
+WARNING:  plan_custom_path: Storing 6 window aggregates in PrivateData
 WARNING:  Initializing scan state with 6 window aggregates
 WARNING:  TopN init: Received 6 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
@@ -3388,43 +3463,43 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
 ----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------

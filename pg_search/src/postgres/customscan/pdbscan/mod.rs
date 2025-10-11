@@ -595,12 +595,41 @@ impl CustomScan for PdbScan {
             let processed_tlist = (*builder.args().root).processed_tlist;
 
             pgrx::warning!("plan_custom_path: Extracting window_func calls from processed_tlist");
-            let window_aggregates =
+            let mut window_aggregates =
                 extract_window_func_calls(processed_tlist.cast(), window_func_procid);
 
             if !window_aggregates.is_empty() {
                 pgrx::warning!(
-                    "plan_custom_path: Found {} window aggregates, storing in PrivateData",
+                    "plan_custom_path: Found {} window aggregates",
+                    window_aggregates.len()
+                );
+
+                // Convert PostgresExpression filters to SearchQueryInput now that we have root
+                use crate::postgres::customscan::pdbscan::projections::window_agg::convert_window_aggregate_filters;
+
+                // Get the necessary context for conversion
+                let private_data = builder.custom_private();
+                if let Some(heaprelid) = private_data.heaprelid() {
+                    if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
+                        let root = builder.args().root;
+                        let rti = private_data
+                            .range_table_index()
+                            .expect("range table index should be set")
+                            .try_into()
+                            .expect("range table index should not be negative");
+
+                        pgrx::warning!("plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput");
+                        convert_window_aggregate_filters(
+                            &mut window_aggregates,
+                            &bm25_index,
+                            root,
+                            rti,
+                        );
+                    }
+                }
+
+                pgrx::warning!(
+                    "plan_custom_path: Storing {} window aggregates in PrivateData",
                     window_aggregates.len()
                 );
                 builder

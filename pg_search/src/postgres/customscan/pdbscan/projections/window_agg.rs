@@ -700,6 +700,78 @@ fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
 }
 
 /// Extract window_func(json) calls from the processed target list at planning time
+/// Convert PostgresExpression filters to SearchQueryInput
+/// 
+/// This is called at plan_custom_path time when we have access to root (PlannerInfo),
+/// allowing us to use extract_quals to properly convert FILTER expressions.
+pub unsafe fn convert_window_aggregate_filters(
+    window_aggregates: &mut [WindowAggregateInfo],
+    bm25_index: &crate::postgres::PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
+) {
+    use crate::api::operator::anyelement_query_input_opoid;
+    use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+    use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+
+    for window_agg in window_aggregates.iter_mut() {
+        // Check if this aggregate has a FILTER
+        if !agg_type_has_filter(&window_agg.agg_type) {
+            continue;
+        }
+
+        // Try to get the filter
+        let filter_opt = get_aggregate_filter_mut(&mut window_agg.agg_type);
+        if let Some(filter) = filter_opt {
+            // Check if it's a PostgresExpression that needs conversion
+            if let crate::query::SearchQueryInput::PostgresExpression { expr } = filter {
+                let filter_node = expr.node();
+                if !filter_node.is_null() {
+                    pgrx::warning!("  Converting FILTER from PostgresExpression to SearchQueryInput");
+                    
+                    // Use extract_quals to convert the expression
+                    let mut filter_qual_state = QualExtractState::default();
+                    let result = extract_quals(
+                        root,
+                        heap_rti,
+                        filter_node,
+                        anyelement_query_input_opoid(),
+                        RestrictInfoType::BaseRelation,
+                        bm25_index,
+                        false,
+                        &mut filter_qual_state,
+                        true, // attempt_pushdown
+                    );
+
+                    // Replace the PostgresExpression with the converted SearchQueryInput
+                    if let Some(qual) = result {
+                        let converted = crate::query::SearchQueryInput::from(&qual);
+                        pgrx::warning!("  ✅ FILTER converted successfully: {:?}", converted);
+                        *filter = converted;
+                    } else {
+                        pgrx::warning!("  ⚠️  FILTER conversion failed - extract_quals returned None");
+                    }
+                } else {
+                    pgrx::warning!("  ⚠️  FILTER node is null");
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to get mutable filter from an aggregate type
+fn get_aggregate_filter_mut(agg_type: &mut AggregateType) -> Option<&mut crate::query::SearchQueryInput> {
+    match agg_type {
+        AggregateType::CountAny { filter } => filter.as_mut(),
+        AggregateType::Count { filter, .. } => filter.as_mut(),
+        AggregateType::Sum { filter, .. } => filter.as_mut(),
+        AggregateType::Avg { filter, .. } => filter.as_mut(),
+        AggregateType::Min { filter, .. } => filter.as_mut(),
+        AggregateType::Max { filter, .. } => filter.as_mut(),
+        _ => None,
+    }
+}
+
 /// Similar to uses_scores/uses_snippets, this walks the expression tree to find our placeholders
 pub unsafe fn extract_window_func_calls(
     node: *mut pg_sys::Node,
@@ -742,10 +814,10 @@ pub unsafe fn extract_window_func_calls(
                                         info.agg_type
                                     );
 
-                                    // Verify FILTER deserialization if present
+                                    // Verify FILTER deserialization and convert to SearchQueryInput if needed
                                     if agg_type_has_filter(&info.agg_type) {
                                         pgrx::warning!("  Window aggregate has FILTER - verifying deserialization...");
-
+                                        
                                         // Try to get the filter from the aggregate type
                                         let filter_opt = get_aggregate_filter(&info.agg_type);
                                         if let Some(filter) = filter_opt {
@@ -757,6 +829,19 @@ pub unsafe fn extract_window_func_calls(
                                                         // Try to get node type to verify it's a valid node
                                                         let node_type = (*filter_node).type_;
                                                         pgrx::warning!("  ✅ FILTER node type: {:?}", node_type);
+                                                        
+                                                        // Try to convert to a readable format for debugging
+                                                        // Use nodeToString to see what we deserialized
+                                                        let node_str = pg_sys::nodeToString(filter_node.cast());
+                                                        if !node_str.is_null() {
+                                                            let cstr = std::ffi::CStr::from_ptr(node_str);
+                                                            if let Ok(s) = cstr.to_str() {
+                                                                pgrx::warning!("  ✅ FILTER expression deserialized: {}", s);
+                                                                pgrx::warning!("  ℹ️  NOTE: FILTER conversion requires root (PlannerInfo) which is not available at execution time");
+                                                                pgrx::warning!("  ℹ️  TODO: Implement FILTER evaluation using ExprContext at execution time");
+                                                            }
+                                                            pg_sys::pfree(node_str.cast());
+                                                        }
                                                     } else {
                                                         pgrx::warning!("  ❌ FILTER deserialized but node pointer is NULL");
                                                     }

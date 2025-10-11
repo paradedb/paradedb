@@ -590,12 +590,39 @@ pub unsafe fn placeholder_procid() -> pg_sys::Oid {
 /// This is called in the planner hook before replacing WindowFunc nodes
 unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
     use crate::postgres::customscan::pdbscan::projections::window_agg;
+    use crate::postgres::rel_get_bm25_index;
 
-    // Extract window aggregates (RTI doesn't matter here since we're just extracting)
-    let window_aggs = window_agg::extract_window_aggregates(
+    // Get the bm25_index for proper FILTER extraction
+    // We need to find the relation OID from the query's rtable
+    assert!(
+        !(*parse).rtable.is_null(),
+        "Query rtable should not be null"
+    );
+
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    // Look for the first plain relation with a bm25 index
+    let mut bm25_index_opt = None;
+    let mut heap_rti = 1;
+    for (idx, rte) in rtable.iter_ptr().enumerate() {
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            if let Some((_, bm25_index)) = rel_get_bm25_index((*rte).relid) {
+                bm25_index_opt = Some(bm25_index);
+                heap_rti = (idx + 1) as pg_sys::Index;
+                break;
+            }
+        }
+    }
+
+    // We should always find a bm25_index since we only get here when has_search_op=true
+    let bm25_index = bm25_index_opt.expect("Should find bm25_index when query has @@@ operator");
+
+    // Extract window aggregates with full context
+    let window_aggs = window_agg::extract_window_aggregates_with_context(
         (*parse).targetList,
         (*parse).windowClause,
-        1, // dummy RTI
+        heap_rti,
+        &bm25_index,
+        std::ptr::null_mut(), // root not available yet in planner_hook
     );
 
     if window_aggs.is_empty() {

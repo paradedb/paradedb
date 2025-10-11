@@ -72,25 +72,29 @@ pub enum FrameBound {
     UnboundedFollowing,
 }
 
-/// Extract window aggregates from the target list
+/// Extract window aggregates from the target list with full context
 ///
 /// Extracts ALL window functions with their complete specifications:
 /// - Standard aggregates: COUNT, SUM, AVG, MIN, MAX
 /// - Window specification: PARTITION BY, ORDER BY, frame clauses
-/// - FILTER clauses
+/// - FILTER clauses (stored as PostgresExpression if root is null)
 /// - Result types
 ///
-/// we extract everything even if we can't execute it yet.
+/// We extract everything even if we can't execute it yet.
 /// This ensures all information is available for future execution implementations.
 ///
 /// Parameters:
 /// - target_list: The Query's targetList
 /// - window_clause_list: The Query's windowClause list (for PARTITION BY/ORDER BY/frame details)
-/// - _rti: Range table index (currently unused, but kept for future use)
-pub unsafe fn extract_window_aggregates(
+/// - heap_rti: Range table index for the base relation
+/// - bm25_index: The BM25 index for the relation (needed for FILTER extraction)
+/// - root: PlannerInfo (can be null - will store FILTER as PostgresExpression for later extraction)
+pub unsafe fn extract_window_aggregates_with_context(
     target_list: *mut pg_sys::List,
     window_clause_list: *mut pg_sys::List,
-    _rti: pg_sys::Index,
+    heap_rti: pg_sys::Index,
+    bm25_index: &crate::postgres::PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
 ) -> Vec<WindowAggregateInfo> {
     let mut window_aggs = Vec::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
@@ -102,7 +106,7 @@ pub unsafe fn extract_window_aggregates(
 
             // Extract the aggregate function and its details
             if let Some((agg_type, result_oid)) =
-                extract_standard_aggregate(window_func, &window_spec)
+                extract_standard_aggregate(window_func, &window_spec, bm25_index, root, heap_rti)
             {
                 // Check if we can currently execute this window function
                 // Currently only executable: empty PARTITION BY, no ORDER BY, no FILTER, no frame
@@ -189,39 +193,54 @@ fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
     }
 }
 
-/// Extract FILTER expression from window function
+/// Extract FILTER expression with full context (bm25_index and root)
 ///
-/// This function extracts the filter clause from a window function for future conversion
-/// to SearchQueryInput. For now, it returns None as a placeholder, but the expression
-/// is logged for debugging.
+/// This uses the same logic as aggregatescan to convert the filter expression
+/// to a SearchQueryInput using extract_quals.
 ///
-/// Future implementation will:
-/// 1. Parse the filter expression tree
-/// 2. Convert it to a SearchQueryInput
-/// 3. Return Some(SearchQueryInput) for use in Tantivy aggregations
-unsafe fn extract_filter_expression(
+/// If root is null, we store the expression as a PostgresExpression for later extraction.
+unsafe fn extract_filter_expression_with_context(
     filter_expr: *mut pg_sys::Expr,
+    bm25_index: &crate::postgres::PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
 ) -> Option<crate::query::SearchQueryInput> {
+    use crate::api::operator::anyelement_query_input_opoid;
+    use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+    use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+
     if filter_expr.is_null() {
         return None;
     }
 
-    // For now, we just log that we found a filter expression
-    // Future implementation will convert this to SearchQueryInput
-    let node_type = (*filter_expr.cast::<pg_sys::Node>()).type_;
-    pgrx::warning!(
-        "Found FILTER expression with node type {:?} - will be converted to SearchQueryInput in future",
-        node_type
+    // If root is not available yet, store as PostgresExpression for later extraction
+    if root.is_null() {
+        pgrx::warning!("  root is null, storing FILTER as PostgresExpression for later extraction");
+        let filter_node = filter_expr as *mut pg_sys::Node;
+        return Some(crate::query::SearchQueryInput::PostgresExpression {
+            expr: crate::query::PostgresExpression::new(filter_node),
+        });
+    }
+
+    let mut filter_qual_state = QualExtractState::default();
+    let filter_node = filter_expr as *mut pg_sys::Node;
+
+    pgrx::warning!("  Extracting FILTER using extract_quals (like aggregatescan)");
+
+    let result = extract_quals(
+        root,
+        heap_rti,
+        filter_node,
+        anyelement_query_input_opoid(),
+        RestrictInfoType::BaseRelation,
+        bm25_index,
+        false,
+        &mut filter_qual_state,
+        true, // attempt_pushdown
     );
 
-    // TODO: Convert filter expression to SearchQueryInput
-    // This will involve:
-    // - Walking the expression tree
-    // - Identifying field references and operators
-    // - Building a SearchQueryInput that represents the filter
-    // - Supporting common patterns like: field = value, field > value, etc.
-
-    None // Placeholder - will be implemented in execution phase
+    // Convert Qual to SearchQueryInput
+    result.map(|qual| crate::query::SearchQueryInput::from(&qual))
 }
 
 /// Extract standard aggregate function (COUNT, SUM, AVG, MIN, MAX)
@@ -230,6 +249,9 @@ unsafe fn extract_filter_expression(
 unsafe fn extract_standard_aggregate(
     window_func: *mut pg_sys::WindowFunc,
     window_spec: &WindowSpecification,
+    bm25_index: &crate::postgres::PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
 ) -> Option<(AggregateType, pg_sys::Oid)> {
     // Note: We don't check if the window spec is empty here anymore
     // We extract ALL aggregates regardless of whether we can execute them
@@ -240,13 +262,16 @@ unsafe fn extract_standard_aggregate(
 
     // Extract FILTER clause if present
     let filter = if !(*window_func).aggfilter.is_null() {
-        // Extract the filter expression
-        // For now, we serialize it for future conversion to SearchQueryInput
-        pgrx::warning!("Window function has FILTER clause - extracting for future implementation");
+        // Extract the filter expression using the same method as aggregatescan
+        pgrx::warning!("Window function has FILTER clause - extracting");
 
-        // Try to extract a simple representation of the filter
-        // This is a placeholder - full implementation will convert to SearchQueryInput
-        extract_filter_expression((*window_func).aggfilter)
+        // Even if root is null, we can store as PostgresExpression for later extraction
+        extract_filter_expression_with_context(
+            (*window_func).aggfilter,
+            bm25_index,
+            root, // Can be null - will store as PostgresExpression
+            heap_rti,
+        )
     } else {
         None
     };

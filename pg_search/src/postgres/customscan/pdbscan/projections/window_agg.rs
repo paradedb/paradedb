@@ -179,24 +179,20 @@ impl WindowSpecification {
 /// with PostgreSQL's standard window function execution in the same query.
 ///
 /// Parameters:
-/// - target_list: The Query's targetList
-/// - window_clause_list: The Query's windowClause list (for PARTITION BY/ORDER BY/frame details)
+/// - parse: The Query object containing all query information
 /// - heap_rti: Range table index for the base relation
 /// - bm25_index: The BM25 index for the relation (needed for FILTER extraction)
 /// - root: PlannerInfo (can be null - will store FILTER as PostgresExpression for later extraction)
-/// - has_order_by: Whether the query has an ORDER BY clause
-/// - has_limit: Whether the query has a LIMIT clause
 pub unsafe fn extract_window_aggregates_with_context(
-    target_list: *mut pg_sys::List,
-    window_clause_list: *mut pg_sys::List,
+    parse: *mut pg_sys::Query,
     heap_rti: pg_sys::Index,
     bm25_index: &crate::postgres::PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
-    has_order_by: bool,
-    has_limit: bool,
 ) -> Vec<WindowAggregateInfo> {
     // Check TopN context requirement if enabled
     if window_functions::ONLY_ALLOW_TOP_N {
+        let has_order_by = !(*parse).sortClause.is_null();
+        let has_limit = !(*parse).limitCount.is_null();
         let is_top_n_query = has_order_by && has_limit;
         if !is_top_n_query {
             // Not a TopN query - return empty vec so PostgreSQL handles all window functions
@@ -205,7 +201,7 @@ pub unsafe fn extract_window_aggregates_with_context(
     }
 
     let mut potential_window_aggs = Vec::new();
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
     // First pass: extract all window functions and check if they're supported
     for (idx, te) in tlist.iter_ptr().enumerate() {
@@ -216,7 +212,7 @@ pub unsafe fn extract_window_aggregates_with_context(
             {
                 // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
                 let window_spec =
-                    extract_window_specification(window_func, window_clause_list, agg_type);
+                    extract_window_specification(window_func, (*parse).windowClause, agg_type);
 
                 let window_agg_info = WindowAggregateInfo {
                     target_entry_index: idx,

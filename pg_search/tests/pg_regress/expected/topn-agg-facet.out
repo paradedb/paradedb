@@ -1827,7 +1827,7 @@ LIMIT 3;
   4 | HP Spectre  |    4.4 |           4
 (3 rows)
 
--- Test 37: Window function with COALESCE (window functions DO support COALESCE)
+-- Test 37: Window function with COALESCE
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,

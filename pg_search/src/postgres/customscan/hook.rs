@@ -23,16 +23,8 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathl
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
-use std::sync::Mutex;
 
 use crate::nodecast;
-
-// Global storage for window aggregates extracted during planning
-// PostgreSQL may copy Query structures during planning, so we can't reliably key by Query pointer.
-// Instead, we use a simple "latest" storage since planning is single-threaded per backend.
-// The planner hook extracts and stores here, then plan_custom_path retrieves.
-pub static EXTRACTED_WINDOW_AGGREGATES: Lazy<Mutex<Option<Vec<WindowAggregateInfo>>>> =
-    Lazy::new(|| Mutex::new(None));
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -534,33 +526,12 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
     let bm25_index = bm25_index_opt.expect("Should find bm25_index when query has @@@ operator");
 
     // Extract window aggregates with full context
-    let window_aggs = window_agg::extract_window_aggregates_with_context(
+    window_agg::extract_window_aggregates_with_context(
         parse,
         heap_rti,
         &bm25_index,
         std::ptr::null_mut(), // root not available yet in planner_hook
-    );
-
-    if !window_aggs.is_empty() {
-        // Store in global "latest" storage for retrieval in plan_custom_path
-        // (PostgreSQL may copy the Query, so we can't key by pointer)
-        let mut storage = EXTRACTED_WINDOW_AGGREGATES
-            .lock()
-            .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-        *storage = Some(window_aggs.clone());
-    }
-
-    window_aggs
-}
-
-/// Retrieve and clear window aggregates from the global storage
-/// Returns None if no aggregates were stored
-#[allow(dead_code)]
-pub unsafe fn take_extracted_window_aggregates() -> Option<Vec<WindowAggregateInfo>> {
-    let mut storage = EXTRACTED_WINDOW_AGGREGATES
-        .lock()
-        .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-    storage.take()
+    )
 }
 
 /// Extract window aggregates from paradedb.window_func(json) calls in the target list

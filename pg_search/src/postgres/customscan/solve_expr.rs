@@ -35,6 +35,7 @@ impl SearchQueryInput {
     }
 
     pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        pgrx::info!("solve postgres expressions");
         assert!(
             !expr_context.is_null(),
             "expr_context was never initialized"
@@ -129,6 +130,8 @@ pub trait SolvePostgresExpressions {
         if self.has_postgres_expressions() {
             self.init_postgres_expressions(planstate);
             self.solve_postgres_expressions(expr_context);
+        } else {
+            pgrx::info!("no postgres expressions to solve");
         }
     }
 }

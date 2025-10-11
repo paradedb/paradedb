@@ -292,6 +292,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         &mut self,
         worker_style: QueryWorkerStyle,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
+        pgrx::info!("execute aggregate");
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
             return Ok(None);
@@ -670,9 +671,12 @@ pub fn build_aggregation_query_from_search_input(
     qctx: &QueryContext,
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
+    pgrx::info!("build aggregation query from search input");
     // Convert base query to FilterAggregation
     let base_query_tantivy = to_tantivy_query(qctx, Some(qparams.base_query))?;
     let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
+
+    pgrx::info!("base filter is {:?}", base_filter);
 
     // Convert filter queries to FilterAggregations
     let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = qparams
@@ -683,6 +687,8 @@ pub fn build_aggregation_query_from_search_input(
                 .map(FilterAggregation::new_with_query)
         })
         .collect();
+
+    pgrx::info!("filter aggregations are {:?}", filter_aggregations);
 
     build_aggregation_query(base_filter, filter_aggregations?, qparams)
 }

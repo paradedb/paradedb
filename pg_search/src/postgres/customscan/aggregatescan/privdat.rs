@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
+use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
@@ -150,6 +151,28 @@ impl AggregateType {
 impl ExplainFormat for AggregateType {
     fn explain_format(&self) -> String {
         self.format_aggregate()
+    }
+}
+
+impl SolvePostgresExpressions for AggregateType {
+    fn has_heap_filters(&mut self) -> bool {
+        self.filter_expr()
+            .map_or(false, |mut filter| filter.has_heap_filters())
+    }
+
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.filter_expr()
+            .map_or(false, |mut filter| filter.has_postgres_expressions())
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.filter_expr()
+            .map(|mut filter| filter.init_postgres_expressions(planstate));
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.filter_expr()
+            .map(|mut filter| filter.solve_postgres_expressions(expr_context));
     }
 }
 

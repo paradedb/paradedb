@@ -409,6 +409,7 @@ impl CustomScan for AggregateScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        pgrx::info!("exec custom scan");
         let next = match &mut state.custom_state_mut().state {
             ExecutionState::Completed => return std::ptr::null_mut(),
             ExecutionState::NotStarted => {
@@ -824,6 +825,7 @@ fn extract_aggregates(
                 let agg_idx = aggregate_types.len(); // Current index before adding
                 let (agg_type, uses_search_op) =
                     AggregateType::try_from(aggref, relation_oid, bm25_index, args.root, heap_rti)?;
+                pgrx::info!("agg_type is {:?}", agg_type);
                 filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
 
                 // Group aggregates by their filter expression during extraction
@@ -989,6 +991,7 @@ fn execute(
         offset: &state.custom_state().offset,
     };
 
+    pgrx::info!("execute aggregation");
     let result = execute_aggregation(
         state.custom_state().indexrel(),
         &qparams,
@@ -997,7 +1000,7 @@ fn execute(
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
-
+    pgrx::info!("execute aggregation result");
     // Process results using unified result processing
     let aggregate_results = state.custom_state().process_aggregation_results(result);
 
@@ -1015,18 +1018,32 @@ impl PlainExecCapable for AggregateScan {}
 impl SolvePostgresExpressions for AggregateScanState {
     fn has_heap_filters(&mut self) -> bool {
         self.query.has_heap_filters()
+            || self
+                .aggregate_types
+                .iter_mut()
+                .any(|agg| agg.has_heap_filters())
     }
 
     fn has_postgres_expressions(&mut self) -> bool {
         self.query.has_postgres_expressions()
+            || self
+                .aggregate_types
+                .iter_mut()
+                .any(|agg| agg.has_postgres_expressions())
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
         self.query.init_postgres_expressions(planstate);
+        self.aggregate_types
+            .iter_mut()
+            .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         self.query.solve_postgres_expressions(expr_context);
+        self.aggregate_types
+            .iter_mut()
+            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }
 }
 

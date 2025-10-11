@@ -660,7 +660,7 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
 
--- Test 10.2: Window functions
+-- Test 10.2: Window functions (should fall back)
 SELECT 
     category,
     price,

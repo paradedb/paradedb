@@ -1101,7 +1101,7 @@ FROM filter_agg_test;
                  4 |           3
 (1 row)
 
--- Test 10.2: Window functions
+-- Test 10.2: Window functions (should fall back)
 SELECT 
     category,
     price,

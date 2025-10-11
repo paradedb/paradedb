@@ -1211,7 +1211,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
-                window_aggregates: None, // TODO: Add window aggregate support
+                window_aggregates: privdata.window_aggregates().clone(),
             };
         }
         if matches!(topn_pathkey_info, PathKeyInfo::None) {
@@ -1222,7 +1222,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
-                window_aggregates: None, // TODO: Add window aggregate support
+                window_aggregates: privdata.window_aggregates().clone(),
             };
         }
     }

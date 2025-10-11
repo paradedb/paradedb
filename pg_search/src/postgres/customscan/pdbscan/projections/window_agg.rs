@@ -40,63 +40,24 @@ pub mod window_functions {
 
     /// Enable support for custom frame clauses (e.g., `ROWS BETWEEN ...`, `RANGE BETWEEN ...`).
     pub const FRAME_CLAUSES: bool = false;
-
-    /// Determines if a window specification can be executed with current feature support.
-    ///
-    /// This function centralizes the logic for checking execution capability based on
-    /// the presence of various window function features.
-    ///
-    /// # Arguments
-    /// - `has_partition_by`: True if the window function has a `PARTITION BY` clause.
-    /// - `has_order_by`: True if the window function has an `ORDER BY` clause.
-    /// - `has_filter`: True if the window function has a `FILTER` clause.
-    /// - `has_frame`: True if the window function has a custom frame clause.
-    ///
-    /// # Returns
-    /// `true` if the window function can be executed, `false` otherwise.
-    pub fn can_execute_window_spec(
-        has_partition_by: bool,
-        has_order_by: bool,
-        has_filter: bool,
-        has_frame: bool,
-    ) -> bool {
-        // Check each feature against its flag
-        if has_partition_by && !PARTITION_BY {
-            return false;
-        }
-        if has_order_by && !ORDER_BY {
-            return false;
-        }
-        if has_filter && !FILTER_CLAUSE {
-            return false;
-        }
-        if has_frame && !FRAME_CLAUSES {
-            return false;
-        }
-
-        // All required features are supported
-        true
-    }
 }
 
 /// Information about a window aggregate to compute during TopN execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WindowAggregateInfo {
-    /// The aggregate type (reuses existing AggregateType from aggregatescan)
-    /// This includes COUNT, SUM, AVG, MIN, MAX with optional filter support
-    pub agg_type: AggregateType,
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
     /// Result type OID for the aggregate
     pub result_type_oid: pg_sys::Oid,
-    /// Window specification (PARTITION BY, ORDER BY, frame clause)
+    /// Window specification (aggregate type (with optional FILTER), PARTITION BY, ORDER BY, frame clause)
     pub window_spec: WindowSpecification,
 }
 
 /// Window specification from the OVER clause
-/// Note: FILTER clause is stored in AggregateType.filter, not here
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WindowSpecification {
+    /// The aggregate type (COUNT, SUM, AVG, MIN, MAX with optional filter support)
+    pub agg_type: AggregateType,
     /// PARTITION BY columns (empty if no partitioning)
     pub partition_by: Vec<String>,
     /// ORDER BY specification (None if no ordering)
@@ -130,6 +91,40 @@ pub enum FrameBound {
     UnboundedFollowing,
 }
 
+impl WindowSpecification {
+    /// Check if we can handle this window specification
+    ///
+    /// We extract ALL window functions with complete specifications:
+    /// - ✅ PARTITION BY (extracted but not yet executable)
+    /// - ✅ ORDER BY (extracted but not yet executable)
+    /// - ✅ FILTER clause (extracted but not yet executable)
+    /// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
+    ///
+    /// Execution capability is determined by feature flags defined in this module.
+    pub fn is_supported(&self) -> bool {
+        let has_filter = self.agg_type.has_filter();
+        let has_partition_by = !self.partition_by.is_empty();
+        let has_order_by = self.order_by.is_some();
+        let has_frame = self.frame_clause.is_some();
+        // Check each feature against its flag
+        if has_filter && !window_functions::FILTER_CLAUSE {
+            return false;
+        }
+        if has_partition_by && !window_functions::PARTITION_BY {
+            return false;
+        }
+        if has_order_by && !window_functions::ORDER_BY {
+            return false;
+        }
+        if has_frame && !window_functions::FRAME_CLAUSES {
+            return false;
+        }
+
+        // All required features are supported
+        true
+    }
+}
+
 /// Extract window aggregates from the target list with full context
 ///
 /// Extracts ALL window functions with their complete specifications:
@@ -159,21 +154,18 @@ pub unsafe fn extract_window_aggregates_with_context(
 
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
-            // Extract complete window specification (PARTITION BY, ORDER BY, frame, etc.)
-            let window_spec = extract_window_specification(window_func, window_clause_list);
-
-            // Extract the aggregate function and its details
+            // Extract the aggregate function and its details first
             if let Some((agg_type, result_oid)) =
-                extract_standard_aggregate(window_func, &window_spec, bm25_index, root, heap_rti)
+                extract_standard_aggregate(window_func, bm25_index, root, heap_rti)
             {
+                // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
+                let window_spec =
+                    extract_window_specification(window_func, window_clause_list, agg_type);
+
                 // Check if we can currently execute this window function
-                // Currently only executable: empty PARTITION BY, no ORDER BY, no FILTER, no frame
-                let has_filter = agg_type_has_filter(&agg_type);
-                let has_frame = window_spec.frame_clause.is_some();
-                let can_execute = can_handle_window_spec(&window_spec) && !has_filter;
+                let can_execute = window_spec.is_supported();
 
                 let window_agg_info = WindowAggregateInfo {
-                    agg_type,
                     target_entry_index: idx,
                     result_type_oid: result_oid,
                     window_spec,
@@ -185,28 +177,6 @@ pub unsafe fn extract_window_aggregates_with_context(
     }
 
     window_aggs
-}
-
-/// Check if we can handle this window specification
-///
-/// We extract ALL window functions with complete specifications:
-/// - ✅ PARTITION BY (extracted but not yet executable)
-/// - ✅ ORDER BY (extracted but not yet executable)
-/// - ✅ FILTER clause (extracted but not yet executable)
-/// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
-///
-/// Execution capability is determined by feature flags defined in this module.
-unsafe fn can_handle_window_spec(spec: &WindowSpecification) -> bool {
-    let has_partition_by = !spec.partition_by.is_empty();
-    let has_order_by = spec.order_by.is_some();
-    let has_frame = spec.frame_clause.is_some();
-
-    window_functions::can_execute_window_spec(
-        has_partition_by,
-        has_order_by,
-        false, // has_filter is checked separately in the caller
-        has_frame,
-    )
 }
 
 /// Check if an AggregateType has a FILTER clause
@@ -268,15 +238,12 @@ unsafe fn extract_filter_expression_with_context(
 /// Returns: (AggregateType, result_type_oid)
 unsafe fn extract_standard_aggregate(
     window_func: *mut pg_sys::WindowFunc,
-    window_spec: &WindowSpecification,
     bm25_index: &crate::postgres::PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
 ) -> Option<(AggregateType, pg_sys::Oid)> {
-    // Note: We don't check if the window spec is empty here anymore
     // We extract ALL aggregates regardless of whether we can execute them
-    // The execution capability check happens separately via can_handle_window_spec()
-
+    // The execution capability check happens separately via is_supported()
     let funcoid = (*window_func).winfnoid;
     let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
 
@@ -363,15 +330,16 @@ unsafe fn extract_standard_aggregate(
 }
 
 /// Extract complete window specification from a WindowFunc node
-/// Note: FILTER clause is extracted separately and stored in AggregateType
 ///
 /// This function extracts:
+/// - Aggregate type (with FILTER clause)
 /// - PARTITION BY columns
 /// - ORDER BY specification
 /// - Frame clause (ROWS/RANGE/GROUPS BETWEEN...)
 unsafe fn extract_window_specification(
     window_func: *mut pg_sys::WindowFunc,
     window_clause_list: *mut pg_sys::List,
+    agg_type: AggregateType,
 ) -> WindowSpecification {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
@@ -380,6 +348,7 @@ unsafe fn extract_window_specification(
     if winref == 0 {
         // No window clause - means empty OVER ()
         return WindowSpecification {
+            agg_type,
             partition_by: Vec::new(),
             order_by: None,
             frame_clause: None,
@@ -389,6 +358,7 @@ unsafe fn extract_window_specification(
     // Access the WindowClause from the list
     if window_clause_list.is_null() {
         return WindowSpecification {
+            agg_type,
             partition_by: Vec::new(),
             order_by: None,
             frame_clause: None,
@@ -402,6 +372,7 @@ unsafe fn extract_window_specification(
 
     if window_clause_idx >= window_clauses.len() {
         return WindowSpecification {
+            agg_type,
             partition_by: Vec::new(),
             order_by: None,
             frame_clause: None,
@@ -424,6 +395,7 @@ unsafe fn extract_window_specification(
     );
 
     WindowSpecification {
+        agg_type,
         partition_by,
         order_by,
         frame_clause,
@@ -553,15 +525,6 @@ unsafe fn extract_frame_clause(
     })
 }
 
-/// Check if window clause is empty (no PARTITION BY, no ORDER BY)
-/// Note: This is used during extraction before we have the window_clause_list
-/// For full validation, use can_handle_window_spec() on the extracted WindowSpecification
-#[allow(dead_code)]
-unsafe fn is_empty_window_clause(window_func: *mut pg_sys::WindowFunc) -> bool {
-    // Quick check: if winref is 0, it's definitely empty
-    (*window_func).winref == 0
-}
-
 /// Check if this is a COUNT(*) argument (NULL constant)
 unsafe fn is_count_star_arg(arg: *mut pg_sys::Node) -> bool {
     if let Some(const_node) = nodecast!(Const, T_Const, arg) {
@@ -652,12 +615,12 @@ pub unsafe fn convert_window_aggregate_filters(
 
     for window_agg in window_aggregates.iter_mut() {
         // Check if this aggregate has a FILTER
-        if !agg_type_has_filter(&window_agg.agg_type) {
+        if !agg_type_has_filter(&window_agg.window_spec.agg_type) {
             continue;
         }
 
         // Try to get the filter
-        let filter_opt = get_aggregate_filter_mut(&mut window_agg.agg_type);
+        let filter_opt = get_aggregate_filter_mut(&mut window_agg.window_spec.agg_type);
         if let Some(filter) = filter_opt {
             // Check if it's a PostgresExpression that needs conversion
             if let crate::query::SearchQueryInput::PostgresExpression { expr } = filter {

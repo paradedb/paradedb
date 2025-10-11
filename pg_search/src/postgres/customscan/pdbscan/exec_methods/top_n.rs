@@ -168,7 +168,7 @@ impl TopNScanExecState {
         let mut results = HashMap::default();
 
         for agg_info in window_aggs {
-            let datum = match &agg_info.agg_type {
+            let datum = match &agg_info.window_spec.agg_type {
                 AggregateType::CountAny { .. } => {
                     // For COUNT(*) OVER (), we need to count ALL matching documents in the index
                     // Use the search_reader to perform a full search and count all results
@@ -205,31 +205,15 @@ impl ExecMethod for TopNScanExecState {
         // from state.exec_method_type, which might be None
         if let Some(ref window_aggs) = state.window_aggregates {
             // Validate that we can execute these window functions with current feature support
-            use crate::postgres::customscan::pdbscan::projections::window_agg;
-
             for agg_info in window_aggs {
-                let has_partition_by = !agg_info.window_spec.partition_by.is_empty();
-                let has_order_by = agg_info.window_spec.order_by.is_some();
-                let has_frame = agg_info.window_spec.frame_clause.is_some();
-                let has_filter = match &agg_info.agg_type {
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::CountAny { filter } => filter.is_some(),
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Count { filter, .. } => filter.is_some(),
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Sum { filter, .. } => filter.is_some(),
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Avg { filter, .. } => filter.is_some(),
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Min { filter, .. } => filter.is_some(),
-                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Max { filter, .. } => filter.is_some(),
-                };
-
-                if !window_agg::window_functions::can_execute_window_spec(
-                    has_partition_by,
-                    has_order_by,
-                    has_filter,
-                    has_frame,
-                ) {
+                if !agg_info.window_spec.is_supported() {
                     pgrx::warning!(
                         "Window function with unsupported features detected - will return default values. \
                          PARTITION BY: {}, ORDER BY: {}, FILTER: {}, FRAME: {}",
-                        has_partition_by, has_order_by, has_filter, has_frame
+                        !agg_info.window_spec.partition_by.is_empty(),
+                        agg_info.window_spec.order_by.is_some(),
+                        agg_info.window_spec.agg_type.has_filter(),
+                        agg_info.window_spec.frame_clause.is_some()
                     );
                 }
             }

@@ -137,14 +137,20 @@ pub unsafe fn extract_window_aggregates_with_context(
 /// - ✅ FILTER clause (extracted but not yet executable)
 /// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
 ///
-/// For now, only simple aggregates over the entire result set are executable:
-/// - No PARTITION BY
-/// - No ORDER BY  
-/// - No FILTER
-/// - No frame clause
+/// Execution capability is determined by feature flags in the features module.
 unsafe fn can_handle_window_spec(spec: &WindowSpecification) -> bool {
-    // For execution, we only support simple aggregates over entire result set
-    spec.partition_by.is_empty() && spec.order_by.is_none() && spec.frame_clause.is_none()
+    use crate::postgres::customscan::features::window_functions;
+    
+    let has_partition_by = !spec.partition_by.is_empty();
+    let has_order_by = spec.order_by.is_some();
+    let has_frame = spec.frame_clause.is_some();
+    
+    window_functions::can_execute_window_spec(
+        has_partition_by,
+        has_order_by,
+        false, // has_filter is checked separately in the caller
+        has_frame,
+    )
 }
 
 /// Check if an AggregateType has a FILTER clause

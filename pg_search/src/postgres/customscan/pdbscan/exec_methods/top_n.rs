@@ -204,6 +204,31 @@ impl ExecMethod for TopNScanExecState {
         // This must happen AFTER reset() because reset() also tries to get window_aggregates
         // from state.exec_method_type, which might be None
         if let Some(ref window_aggs) = state.window_aggregates {
+            // Validate that we can execute these window functions with current feature support
+            use crate::postgres::customscan::features::window_functions;
+            
+            for agg_info in window_aggs {
+                let has_partition_by = !agg_info.window_spec.partition_by.is_empty();
+                let has_order_by = agg_info.window_spec.order_by.is_some();
+                let has_frame = agg_info.window_spec.frame_clause.is_some();
+                let has_filter = match &agg_info.agg_type {
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::CountAny { filter } => filter.is_some(),
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Count { filter, .. } => filter.is_some(),
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Sum { filter, .. } => filter.is_some(),
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Avg { filter, .. } => filter.is_some(),
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Min { filter, .. } => filter.is_some(),
+                    crate::postgres::customscan::aggregatescan::privdat::AggregateType::Max { filter, .. } => filter.is_some(),
+                };
+                
+                if !window_functions::can_execute_window_spec(has_partition_by, has_order_by, has_filter, has_frame) {
+                    pgrx::warning!(
+                        "Window function with unsupported features detected - will return default values. \
+                         PARTITION BY: {}, ORDER BY: {}, FILTER: {}, FRAME: {}",
+                        has_partition_by, has_order_by, has_filter, has_frame
+                    );
+                }
+            }
+            
             self.window_aggregates = Some(window_aggs.clone());
         }
     }

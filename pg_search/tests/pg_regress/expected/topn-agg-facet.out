@@ -1841,25 +1841,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (sum(COALESCE(price, 0.0)) OVER (?)), (avg(COALESCE(rating, 4.0)) OVER (?))
-   ->  Result
-         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (sum(COALESCE(price, 0.0)) OVER (?)), (avg(COALESCE(rating, 4.0)) OVER (?))
-         ->  Sort
-               Output: id, name, rating, price, (sum(COALESCE(price, 0.0)) OVER (?)), (avg(COALESCE(rating, 4.0)) OVER (?))
-               Sort Key: products.rating DESC
-               ->  WindowAgg
-                     Output: id, name, rating, price, sum(COALESCE(price, 0.0)) OVER (?), avg(COALESCE(rating, 4.0)) OVER (?)
-                     ->  Custom Scan (ParadeDB Scan) on public.products
-                           Output: id, name, rating, price
-                           Table: products
-                           Index: products_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   Output: id, name, rating, price, (count(*) OVER (?)), (sum(COALESCE(price, 0.0)) OVER (?)), (avg(COALESCE(rating, 4.0)) OVER (?))
+   ->  Sort
+         Output: id, name, rating, price, (count(*) OVER (?)), (sum(COALESCE(price, 0.0)) OVER (?)), (avg(COALESCE(rating, 4.0)) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, price, count(*) OVER (?), sum(COALESCE(price, 0.0)) OVER (?), avg(COALESCE(rating, 4.0)) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT 
     id,
@@ -1873,7 +1871,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | rating | price | total_count | total_price_with_default | avg_rating_with_default 
+----+-------------+--------+-------+-------------+--------------------------+-------------------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |                     7396 |      4.6000000000000000
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |                     7396 |      4.6000000000000000
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |                     7396 |      4.6000000000000000
+(3 rows)
+
 -- Cleanup
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

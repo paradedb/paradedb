@@ -18,7 +18,7 @@
 use crate::api::OrderByInfo;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::AggregateType;
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_sys, FromDatum, PgList};
 use serde::{Deserialize, Serialize};
 
 /// Feature flags for window functions.
@@ -282,46 +282,19 @@ unsafe fn extract_standard_aggregate(
         return None;
     }
 
-    let field = extract_field_name(args.get_ptr(0)?)?;
+    let first_arg = args.get_ptr(0)?;
+    let field = extract_field_name(first_arg)?;
+
+    // Extract missing value for COALESCE support (window functions can have COALESCE too)
+    let missing = if !args.is_empty() {
+        let first_arg = args.get_ptr(0)?;
+        parse_coalesce_from_node(first_arg)
+    } else {
+        None
+    };
 
     // Use OID-based matching (same as aggregatescan) to avoid duplication
-    let agg_type = match aggfnoid {
-        F_COUNT_ANY => AggregateType::Count {
-            field,
-            missing: None,
-            filter,
-        },
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            AggregateType::Avg {
-                field,
-                missing: None,
-                filter,
-            }
-        }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            AggregateType::Sum {
-                field,
-                missing: None,
-                filter,
-            }
-        }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            AggregateType::Max {
-                field,
-                missing: None,
-                filter,
-            }
-        }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => AggregateType::Min {
-            field,
-            missing: None,
-            filter,
-        },
-        _ => return None,
-    };
+    let agg_type = AggregateType::create_aggregate_from_oid(aggfnoid, field, missing, filter)?;
 
     // Determine result type based on aggregate type
     let result_oid = match &agg_type {
@@ -333,6 +306,52 @@ unsafe fn extract_standard_aggregate(
     };
 
     Some((agg_type, result_oid))
+}
+
+/// Parse COALESCE expression from a Node to extract missing value
+/// This is similar to parse_coalesce_expression in aggregatescan but works with Node instead of TargetEntry
+unsafe fn parse_coalesce_from_node(node: *mut pg_sys::Node) -> Option<f64> {
+    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, node) {
+        let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+        if args.len() >= 2 {
+            // Second argument should be the default value (missing value)
+            if let Some(const_node) = args.get_ptr(1) {
+                if let Some(const_val) = nodecast!(Const, T_Const, const_node) {
+                    if !(*const_val).constisnull {
+                        // Try to extract the numeric value
+                        match (*const_val).consttype {
+                            pg_sys::FLOAT8OID => {
+                                let datum = (*const_val).constvalue;
+                                return Some(f64::from_datum(datum, false).unwrap_or(0.0));
+                            }
+                            pg_sys::FLOAT4OID => {
+                                let datum = (*const_val).constvalue;
+                                return Some(f32::from_datum(datum, false).unwrap_or(0.0) as f64);
+                            }
+                            pg_sys::INT8OID => {
+                                let datum = (*const_val).constvalue;
+                                return Some(i64::from_datum(datum, false).unwrap_or(0) as f64);
+                            }
+                            pg_sys::INT4OID => {
+                                let datum = (*const_val).constvalue;
+                                return Some(i32::from_datum(datum, false).unwrap_or(0) as f64);
+                            }
+                            pg_sys::NUMERICOID => {
+                                let datum = (*const_val).constvalue;
+                                // For NUMERIC, we need to convert through pgrx's AnyNumeric type
+                                if let Some(numeric) = pgrx::AnyNumeric::from_datum(datum, false) {
+                                    // Convert to f64 - AnyNumeric can be converted to f64
+                                    return Some(numeric.try_into().unwrap_or(0.0));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Extract FILTER expression by serializing it for later conversion
@@ -568,6 +587,17 @@ unsafe fn extract_field_name(node: *mut pg_sys::Node) -> Option<String> {
         // Get the attribute name from the relation
         // For now, return a placeholder - we'll need to look this up properly
         return Some(format!("field_{}", (*var).varattno));
+    }
+
+    // Handle COALESCE expressions - extract field name from first argument
+    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, node) {
+        let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+        if !args.is_empty() {
+            // Recursively extract field name from the first argument of COALESCE
+            if let Some(first_arg) = args.get_ptr(0) {
+                return extract_field_name(first_arg);
+            }
+        }
     }
 
     // TODO: Handle more complex expressions (JSON operators, etc.)

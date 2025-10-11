@@ -230,7 +230,7 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
+        let agg_type = Self::create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
 
         Some((agg_type, filter_uses_search_operator))
     }
@@ -410,6 +410,55 @@ impl AggregateType {
             }
         }
     }
+
+    /// Create appropriate AggregateType from function OID
+    pub fn create_aggregate_from_oid(
+        aggfnoid: u32,
+        field: String,
+        missing: Option<f64>,
+        filter: Option<SearchQueryInput>,
+    ) -> Option<AggregateType> {
+        match aggfnoid {
+            F_COUNT_ANY => Some(AggregateType::Count {
+                field,
+                missing,
+                filter,
+            }),
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(AggregateType::Avg {
+                    field,
+                    missing,
+                    filter,
+                })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(AggregateType::Sum {
+                    field,
+                    missing,
+                    filter,
+                })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(AggregateType::Max {
+                    field,
+                    missing,
+                    filter,
+                })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(AggregateType::Min {
+                field,
+                missing,
+                filter,
+            }),
+            _ => {
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
+        }
+    }
 }
 
 impl AggregateValue {
@@ -567,53 +616,4 @@ unsafe fn parse_coalesce_expression(
     };
 
     Some((var, missing))
-}
-
-/// Create appropriate AggregateType from function OID
-fn create_aggregate_from_oid(
-    aggfnoid: u32,
-    field: String,
-    missing: Option<f64>,
-    filter: Option<SearchQueryInput>,
-) -> Option<AggregateType> {
-    match aggfnoid {
-        F_COUNT_ANY => Some(AggregateType::Count {
-            field,
-            missing,
-            filter,
-        }),
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some(AggregateType::Avg {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some(AggregateType::Sum {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some(AggregateType::Max {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some(AggregateType::Min {
-            field,
-            missing,
-            filter,
-        }),
-        _ => {
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-            None
-        }
-    }
 }

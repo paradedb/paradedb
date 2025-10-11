@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760208814088,
+  "lastUpdate": 1760209540534,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21172,6 +21172,60 @@ window.BENCHMARK_DATA = {
             "value": 18.427472118636597,
             "unit": "median tps",
             "extra": "avg tps: 18.65186261068383, max tps: 22.69090076046058, count: 55360"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3b1cd9e331faa1e071d8070241a0856a290435a",
+          "message": "fix: aggregate scan not solving postgres expressions (#3298)\n\n# Ticket(s) Closed\n\n- Closes #3292 \n\n## What\n\nOur code to solve Postgres expressions was run only in the `PdbScan`,\nnot the `AggregateScan`, causing a panic if there was a Postgres\nexpression in the search query.\n\n## Why\n\n## How\n\nMoved common code to a shared trait.\n\n## Tests",
+          "timestamp": "2025-10-11T14:12:05-04:00",
+          "tree_id": "37dfdfe55fc00c2238294dcc48c3b14977b729cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d3b1cd9e331faa1e071d8070241a0856a290435a"
+        },
+        "date": 1760209538703,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.48291447600334,
+            "unit": "median tps",
+            "extra": "avg tps: 37.50785696684463, max tps: 39.338925486164456, count: 55491"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.46117103385265,
+            "unit": "median tps",
+            "extra": "avg tps: 274.35465542604834, max tps: 2964.515997725532, count: 55491"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1049.063666942239,
+            "unit": "median tps",
+            "extra": "avg tps: 1043.0136706663832, max tps: 1069.6169129445154, count: 55491"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.81744021505675,
+            "unit": "median tps",
+            "extra": "avg tps: 155.0966872713401, max tps: 835.4088286911223, count: 110982"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.456053868556936,
+            "unit": "median tps",
+            "extra": "avg tps: 18.48577326286349, max tps: 20.05445763906539, count: 55491"
           }
         ]
       }

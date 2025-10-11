@@ -1111,6 +1111,8 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: false, ORDER BY: false, FILTER: true, FRAME: false
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: false, ORDER BY: false, FILTER: true, FRAME: false
   category   |  price  | total_count | apple_count_window 
 -------------+---------+-------------+--------------------
  electronics | 2499.99 |           9 |                  9

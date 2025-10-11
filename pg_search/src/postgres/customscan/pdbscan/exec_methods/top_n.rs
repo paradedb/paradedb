@@ -205,8 +205,8 @@ impl ExecMethod for TopNScanExecState {
         // from state.exec_method_type, which might be None
         if let Some(ref window_aggs) = state.window_aggregates {
             // Validate that we can execute these window functions with current feature support
-            use crate::postgres::customscan::features::window_functions;
-            
+            use crate::postgres::customscan::pdbscan::projections::window_agg;
+
             for agg_info in window_aggs {
                 let has_partition_by = !agg_info.window_spec.partition_by.is_empty();
                 let has_order_by = agg_info.window_spec.order_by.is_some();
@@ -219,8 +219,13 @@ impl ExecMethod for TopNScanExecState {
                     crate::postgres::customscan::aggregatescan::privdat::AggregateType::Min { filter, .. } => filter.is_some(),
                     crate::postgres::customscan::aggregatescan::privdat::AggregateType::Max { filter, .. } => filter.is_some(),
                 };
-                
-                if !window_functions::can_execute_window_spec(has_partition_by, has_order_by, has_filter, has_frame) {
+
+                if !window_agg::window_functions::can_execute_window_spec(
+                    has_partition_by,
+                    has_order_by,
+                    has_filter,
+                    has_frame,
+                ) {
                     pgrx::warning!(
                         "Window function with unsupported features detected - will return default values. \
                          PARTITION BY: {}, ORDER BY: {}, FILTER: {}, FRAME: {}",
@@ -228,7 +233,7 @@ impl ExecMethod for TopNScanExecState {
                     );
                 }
             }
-            
+
             self.window_aggregates = Some(window_aggs.clone());
         }
     }

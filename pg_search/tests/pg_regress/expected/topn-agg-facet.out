@@ -689,6 +689,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | category | rating | total_results | category_count 
 ----+-------------+----------+--------+---------------+----------------
   1 | MacBook Pro | Laptops  |    4.8 |             4 |              4
@@ -753,6 +754,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | price | price_bucket | total_results | bucket_count 
 ----+-------------+-------+--------------+---------------+--------------
   1 | MacBook Pro |  2499 | Premium      |             4 |            4
@@ -804,6 +806,8 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
 ----+-------------+--------+-------+---------------+-------------+-----------------
   1 | MacBook Pro | Apple  |  2499 |             4 |           4 |               0
@@ -854,6 +858,8 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | category | price | total_results | category_min_price | category_max_price 
 ----+-------------+----------+-------+---------------+--------------------+--------------------
   1 | MacBook Pro | Laptops  |  2499 |             4 |                  0 |                  0
@@ -900,6 +906,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | in_stock | total_results | stock_count 
 ----+-------------+----------+---------------+-------------
   1 | MacBook Pro | t        |             4 |           4
@@ -1024,6 +1031,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | rating |     rating_tier     | total_results | tier_count 
 ----+-------------+--------+---------------------+---------------+------------
   1 | MacBook Pro |    4.8 | Excellent (4.7+)    |             4 |          4
@@ -1099,6 +1107,9 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
+WARNING:  Window function with unsupported features detected - will return default values. PARTITION BY: true, ORDER BY: false, FILTER: false, FRAME: false
  id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
 ----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------
   1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 |         0 |          0 |           4 |                 4 |           4

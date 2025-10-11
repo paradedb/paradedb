@@ -18,8 +18,6 @@
 //! https://www.postgresql.org/docs/current/custom-scan.html
 
 #![allow(unused_variables)]
-
-pub mod features;
 #![allow(clippy::tabs_in_doc_comments)]
 
 use parking_lot::Mutex;

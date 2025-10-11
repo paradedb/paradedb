@@ -21,6 +21,64 @@ use crate::postgres::customscan::aggregatescan::AggregateType;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
+/// Feature flags for window functions.
+///
+/// These constants control the enablement of experimental or incomplete window function features.
+/// They are used during the planning phase to determine if a custom scan can handle
+/// a particular window function construct.
+///
+/// When a feature is fully implemented and stable, its flag should be set to `true`.
+pub mod window_functions {
+    /// Enable support for `PARTITION BY` clause in window functions.
+    pub const PARTITION_BY: bool = false;
+
+    /// Enable support for `ORDER BY` clause in window functions.
+    pub const ORDER_BY: bool = false;
+
+    /// Enable support for `FILTER` clause in window functions.
+    pub const FILTER_CLAUSE: bool = false;
+
+    /// Enable support for custom frame clauses (e.g., `ROWS BETWEEN ...`, `RANGE BETWEEN ...`).
+    pub const FRAME_CLAUSES: bool = false;
+
+    /// Determines if a window specification can be executed with current feature support.
+    ///
+    /// This function centralizes the logic for checking execution capability based on
+    /// the presence of various window function features.
+    ///
+    /// # Arguments
+    /// - `has_partition_by`: True if the window function has a `PARTITION BY` clause.
+    /// - `has_order_by`: True if the window function has an `ORDER BY` clause.
+    /// - `has_filter`: True if the window function has a `FILTER` clause.
+    /// - `has_frame`: True if the window function has a custom frame clause.
+    ///
+    /// # Returns
+    /// `true` if the window function can be executed, `false` otherwise.
+    pub fn can_execute_window_spec(
+        has_partition_by: bool,
+        has_order_by: bool,
+        has_filter: bool,
+        has_frame: bool,
+    ) -> bool {
+        // Check each feature against its flag
+        if has_partition_by && !PARTITION_BY {
+            return false;
+        }
+        if has_order_by && !ORDER_BY {
+            return false;
+        }
+        if has_filter && !FILTER_CLAUSE {
+            return false;
+        }
+        if has_frame && !FRAME_CLAUSES {
+            return false;
+        }
+
+        // All required features are supported
+        true
+    }
+}
+
 /// Information about a window aggregate to compute during TopN execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WindowAggregateInfo {
@@ -137,14 +195,12 @@ pub unsafe fn extract_window_aggregates_with_context(
 /// - ✅ FILTER clause (extracted but not yet executable)
 /// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
 ///
-/// Execution capability is determined by feature flags in the features module.
+/// Execution capability is determined by feature flags defined in this module.
 unsafe fn can_handle_window_spec(spec: &WindowSpecification) -> bool {
-    use crate::postgres::customscan::features::window_functions;
-    
     let has_partition_by = !spec.partition_by.is_empty();
     let has_order_by = spec.order_by.is_some();
     let has_frame = spec.frame_clause.is_some();
-    
+
     window_functions::can_execute_window_spec(
         has_partition_by,
         has_order_by,

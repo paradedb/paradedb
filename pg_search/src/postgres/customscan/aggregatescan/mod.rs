@@ -102,11 +102,8 @@ impl CustomScan for AggregateScan {
         }
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
 
-        // Check feature support using feature flags
-        use crate::postgres::customscan::features::aggregates;
-        
         // Are there any group (/distinct/order-by) or having clauses?
-        if args.root().hasHavingQual && !aggregates::HAVING_CLAUSE {
+        if args.root().hasHavingQual {
             // We can't handle HAVING yet
             return None;
         }
@@ -114,9 +111,7 @@ impl CustomScan for AggregateScan {
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                if !aggregates::DISTINCT_AGGREGATES {
-                    return None;
-                }
+                return None;
             }
         }
 
@@ -816,7 +811,7 @@ fn extract_aggregates(
                 }
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 // Check for DISTINCT in aggregate functions
-                if !(*aggref).aggdistinct.is_null() && !aggregates::DISTINCT_AGGREGATES {
+                if !(*aggref).aggdistinct.is_null() {
                     // TODO: Support DISTINCT in aggregate custom scans if Tantivy supports it.
                     return None;
                 }

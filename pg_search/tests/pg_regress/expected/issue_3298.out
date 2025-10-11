@@ -9,7 +9,7 @@ CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating, (category::pdb.exact), metadata) WITH (key_field='id');
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating, (category::pdb.literal), metadata) WITH (key_field='id');
 CREATE TABLE allowed_categories (
     category TEXT PRIMARY KEY
 );
@@ -33,6 +33,56 @@ SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => AR
  count 
 -------
      5
+(1 row)
+
+EXPLAIN SELECT
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+FROM mock_items;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.12..0.12 rows=0 width=24)
+   Index: search_idx
+   Execution Strategy: Multi-Query (2 Filter Groups)
+     Group 1 Query (No Filter): "all"
+     Group 1 Aggregates: COUNT(*)
+     Group 2 Query: {}
+     Group 2 Aggregates: COUNT(*) FILTER (WHERE {}), COUNT(*) FILTER (WHERE {})
+   InitPlan 1
+     ->  Limit  (cost=0.00..0.04 rows=2 width=32)
+           ->  Seq Scan on allowed_categories  (cost=0.00..27.00 rows=1360 width=32)
+   InitPlan 2
+     ->  Limit  (cost=0.04..0.08 rows=2 width=32)
+           ->  Seq Scan on allowed_categories allowed_categories_1  (cost=0.00..27.00 rows=1360 width=32)
+(13 rows)
+
+SELECT
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+FROM mock_items;
+ total | count | count 
+-------+-------+-------
+    41 |     5 |     0
+(1 row)
+
+-- Make sure the results are correct
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
+ count 
+-------
+     5
+(1 row)
+
+SELECT
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
+  COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
+FROM mock_items;
+ total | count | count 
+-------+-------+-------
+    41 |     5 |     0
 (1 row)
 
 DROP TABLE allowed_categories;

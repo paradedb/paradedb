@@ -128,35 +128,27 @@ pub enum FrameBound {
 
 impl WindowSpecification {
     /// Check if we can handle this window specification
-    ///
-    /// We extract ALL window functions with complete specifications:
-    /// - ✅ PARTITION BY (extracted but not yet executable)
-    /// - ✅ ORDER BY (extracted but not yet executable)
-    /// - ✅ FILTER clause (extracted but not yet executable)
-    /// - ✅ Custom frame clauses (ROWS/RANGE/GROUPS) (extracted but not yet executable)
-    ///
-    /// Execution capability is determined by feature flags defined in this module.
+    /// Execution capability is determined by feature flags.
     pub fn is_supported(&self) -> bool {
         // First check if the aggregate function itself is supported
         if !self.is_aggregate_supported() {
             return false;
         }
 
-        let has_filter = self.agg_type.has_filter();
-        let has_partition_by = !self.partition_by.is_empty();
-        let has_order_by = self.order_by.is_some();
-        let has_frame = self.frame_clause.is_some();
-
         // Check each feature against its flag
+        let has_filter = self.agg_type.has_filter();
         if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
             return false;
         }
+        let has_partition_by = !self.partition_by.is_empty();
         if has_partition_by && !window_functions::WINDOW_AGG_PARTITION_BY {
             return false;
         }
+        let has_order_by = self.order_by.is_some();
         if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
             return false;
         }
+        let has_frame = self.frame_clause.is_some();
         if has_frame && !window_functions::WINDOW_AGG_FRAME_CLAUSES {
             return false;
         }
@@ -262,16 +254,85 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
     }
 }
 
-/// Check if an AggregateType has a FILTER clause
-fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
-    match agg_type {
-        AggregateType::CountAny { filter } => filter.is_some(),
-        AggregateType::Count { filter, .. } => filter.is_some(),
-        AggregateType::Sum { filter, .. } => filter.is_some(),
-        AggregateType::Avg { filter, .. } => filter.is_some(),
-        AggregateType::Min { filter, .. } => filter.is_some(),
-        AggregateType::Max { filter, .. } => filter.is_some(),
+/// Extract window aggregate function using OID-based approach (same as aggregatescan)
+///
+/// Returns: (AggregateType, result_type_oid)
+unsafe fn extract_standard_aggregate(
+    window_func: *mut pg_sys::WindowFunc,
+) -> Option<(AggregateType, pg_sys::Oid)> {
+    use pg_sys::*;
+
+    let aggfnoid = (*window_func).winfnoid.to_u32();
+    let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
+
+    // Extract FILTER clause if present
+    let filter = if !(*window_func).aggfilter.is_null() {
+        extract_filter_expression((*window_func).aggfilter)
+    } else {
+        None
+    };
+
+    // Handle COUNT(*) special case - same logic as aggregatescan
+    if aggfnoid == F_COUNT_ && args.is_empty() {
+        return Some((AggregateType::CountAny { filter }, INT8OID));
     }
+
+    // For other aggregates, we need a field name
+    if args.is_empty() {
+        return None;
+    }
+
+    let field = extract_field_name(args.get_ptr(0)?)?;
+
+    // Use OID-based matching (same as aggregatescan) to avoid duplication
+    let agg_type = match aggfnoid {
+        F_COUNT_ANY => AggregateType::Count {
+            field,
+            missing: None,
+            filter,
+        },
+        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+            AggregateType::Avg {
+                field,
+                missing: None,
+                filter,
+            }
+        }
+        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+            AggregateType::Sum {
+                field,
+                missing: None,
+                filter,
+            }
+        }
+        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+            AggregateType::Max {
+                field,
+                missing: None,
+                filter,
+            }
+        }
+        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+        | F_MIN_NUMERIC => AggregateType::Min {
+            field,
+            missing: None,
+            filter,
+        },
+        _ => return None,
+    };
+
+    // Determine result type based on aggregate type
+    let result_oid = match &agg_type {
+        AggregateType::CountAny { .. } | AggregateType::Count { .. } => INT8OID,
+        AggregateType::Sum { .. }
+        | AggregateType::Avg { .. }
+        | AggregateType::Min { .. }
+        | AggregateType::Max { .. } => FLOAT8OID,
+    };
+
+    Some((agg_type, result_oid))
 }
 
 /// Extract FILTER expression by serializing it for later conversion
@@ -282,123 +343,26 @@ fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
 ///
 /// ## How we preserve the FILTER:
 /// We wrap the filter expression in a PostgresExpression, which:
-/// 1. **At planning time (now)**: Calls nodeToString() during JSON serialization,
+/// 1. **At planner hook time (now)**: Calls nodeToString() during JSON serialization,
 ///    converting the node tree to a string representation
-/// 2. **At execution time (later)**: Calls stringToNode() during JSON deserialization,
-///    recreating the node tree in the execution memory context
+/// 2. **At planning time (later)**: Calls stringToNode() during JSON deserialization,
+///    recreating the node tree in the planning memory context
 ///
 /// This is safe because:
-/// - nodeToString creates a new string copy (not a pointer to planning memory)
+/// - nodeToString creates a new string copy (not a pointer to planner hook memory)
 /// - stringToNode allocates new nodes in current memory context
-/// - The deserialized nodes live as long as needed for execution
-///
-/// ## Future work:
-/// At execution time, we need to:
-/// 1. Deserialize the PostgresExpression (stringToNode)
-/// 2. Call extract_quals with full context (root, bm25_index, heap_rti)
-/// 3. Convert to SearchQueryInput
-/// 4. Apply as a filter during aggregation
+/// - The deserialized nodes live as long as needed for planning and execution
 unsafe fn extract_filter_expression(
     filter_expr: *mut pg_sys::Expr,
 ) -> Option<crate::query::SearchQueryInput> {
     if filter_expr.is_null() {
         return None;
     }
-
     // Serialize the filter expression - nodeToString will be called during JSON serialization
     let filter_node = filter_expr as *mut pg_sys::Node;
-
     Some(crate::query::SearchQueryInput::PostgresExpression {
         expr: crate::query::PostgresExpression::new(filter_node),
     })
-}
-
-/// Extract standard aggregate function (COUNT, SUM, AVG, MIN, MAX)
-///
-/// Returns: (AggregateType, result_type_oid)
-unsafe fn extract_standard_aggregate(
-    window_func: *mut pg_sys::WindowFunc,
-) -> Option<(AggregateType, pg_sys::Oid)> {
-    // We extract standard aggregates and let the caller decide if they're supported
-    // The execution capability check happens in the caller via is_supported()
-    let funcoid = (*window_func).winfnoid;
-    let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
-
-    // Extract FILTER clause if present
-    let filter = if !(*window_func).aggfilter.is_null() {
-        // Extract the filter expression using the same method as aggregatescan
-        extract_filter_expression((*window_func).aggfilter)
-    } else {
-        None
-    };
-
-    // Get function name to identify the aggregate
-    let funcname = get_function_name(funcoid)?;
-
-    match funcname.as_str() {
-        "count" => {
-            if args.is_empty() || is_count_star_arg(args.get_ptr(0)?) {
-                // COUNT(*) - count all documents
-                Some((AggregateType::CountAny { filter }, pg_sys::INT8OID))
-            } else {
-                // COUNT(field) - count non-null values
-                let field = extract_field_name(args.get_ptr(0)?)?;
-                Some((
-                    AggregateType::Count {
-                        field,
-                        missing: None,
-                        filter,
-                    },
-                    pg_sys::INT8OID,
-                ))
-            }
-        }
-        "sum" => {
-            let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((
-                AggregateType::Sum {
-                    field,
-                    missing: None,
-                    filter,
-                },
-                pg_sys::FLOAT8OID,
-            ))
-        }
-        "avg" => {
-            let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((
-                AggregateType::Avg {
-                    field,
-                    missing: None,
-                    filter,
-                },
-                pg_sys::FLOAT8OID,
-            ))
-        }
-        "min" => {
-            let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((
-                AggregateType::Min {
-                    field,
-                    missing: None,
-                    filter,
-                },
-                pg_sys::FLOAT8OID,
-            ))
-        }
-        "max" => {
-            let field = extract_field_name(args.get_ptr(0)?)?;
-            Some((
-                AggregateType::Max {
-                    field,
-                    missing: None,
-                    filter,
-                },
-                pg_sys::FLOAT8OID,
-            ))
-        }
-        _ => None,
-    }
 }
 
 /// Extract complete window specification from a WindowFunc node
@@ -597,15 +561,6 @@ unsafe fn extract_frame_clause(
     })
 }
 
-/// Check if this is a COUNT(*) argument (NULL constant)
-unsafe fn is_count_star_arg(arg: *mut pg_sys::Node) -> bool {
-    if let Some(const_node) = nodecast!(Const, T_Const, arg) {
-        (*const_node).constisnull
-    } else {
-        false
-    }
-}
-
 /// Extract field name from a Var or expression
 unsafe fn extract_field_name(node: *mut pg_sys::Node) -> Option<String> {
     // Try to extract from Var
@@ -617,27 +572,6 @@ unsafe fn extract_field_name(node: *mut pg_sys::Node) -> Option<String> {
 
     // TODO: Handle more complex expressions (JSON operators, etc.)
     None
-}
-
-/// Get function name from OID
-unsafe fn get_function_name(funcoid: pg_sys::Oid) -> Option<String> {
-    let func_tuple =
-        pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::PROCOID as _, funcoid.into());
-
-    if func_tuple.is_null() {
-        return None;
-    }
-
-    let func_form = pg_sys::GETSTRUCT(func_tuple) as *mut pg_sys::FormData_pg_proc;
-    let name_data = &(*func_form).proname;
-    let name = std::ffi::CStr::from_ptr(name_data.data.as_ptr())
-        .to_str()
-        .ok()?
-        .to_string();
-
-    pg_sys::ReleaseSysCache(func_tuple);
-
-    Some(name)
 }
 
 /// Format aggregate type for display
@@ -687,7 +621,7 @@ pub unsafe fn convert_window_aggregate_filters(
 
     for window_agg in window_aggregates.iter_mut() {
         // Check if this aggregate has a FILTER
-        if !agg_type_has_filter(&window_agg.window_spec.agg_type) {
+        if !window_agg.window_spec.agg_type.has_filter() {
             continue;
         }
 

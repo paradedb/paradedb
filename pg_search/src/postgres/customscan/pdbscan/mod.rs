@@ -21,7 +21,6 @@ pub mod parallel;
 mod privdat;
 mod projections;
 mod scan_state;
-mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
@@ -55,6 +54,7 @@ use crate::postgres::customscan::qual_inspect::{
     extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
@@ -910,6 +910,8 @@ impl CustomScan for PdbScan {
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
+            let planstate = state.planstate();
+
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),
@@ -922,29 +924,10 @@ impl CustomScan for PdbScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            if state.custom_state_mut().has_postgres_expressions()
-                || state.custom_state_mut().has_heap_filters()
-            {
-                // we have some runtime Postgres expressions/sub-queries that need to be evaluated
-                //
-                // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
-                // make a new one and swap some pointers around
-
-                // hold onto the planstate's current ExprContext
-                // TODO(@mdashti): improve this code by using an extended version of 'ExprContextGuard'
-                let planstate = state.planstate();
-                let stdecontext = (*planstate).ps_ExprContext;
-
-                // assign a new one
-                pg_sys::ExecAssignExprContext(estate, planstate);
-
-                // take that one and assign it to our state's `runtime_context`.  This is what
-                // will be used during `rescan_custom_state` to evaluate expressions
-                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
-
-                // and restore our planstate's original ExprContext
-                (*planstate).ps_ExprContext = stdecontext;
-            }
+            state
+                .custom_state_mut()
+                .init_expr_context(estate, planstate);
+            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
         }
     }
 

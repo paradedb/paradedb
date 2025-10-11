@@ -227,8 +227,6 @@ pub unsafe fn inject_placeholders(
                 return Some(data.const_score_node.cast());
             }
 
-            // Note: We DON'T replace window_func(json) here - that's handled by inject_window_aggregate_placeholders
-
             if (*funcexpr).funcid == data.snippet_funcoid
                 || (*funcexpr).funcid == data.snippet_positions_funcoid
             {

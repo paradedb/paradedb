@@ -201,8 +201,6 @@ impl ExecMethod for TopNScanExecState {
         self.reset(state);
 
         // Transfer window aggregates from scan state to exec state
-        // This must happen AFTER reset() because reset() also tries to get window_aggregates
-        // from state.exec_method_type, which might be None
         if let Some(ref window_aggs) = state.window_aggregates {
             // Validate that we can execute these window functions with current feature support
             for agg_info in window_aggs {

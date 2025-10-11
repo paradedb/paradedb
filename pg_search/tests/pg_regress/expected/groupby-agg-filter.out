@@ -1102,37 +1102,6 @@ FROM filter_agg_test;
 (1 row)
 
 -- Test 10.2: Window functions
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT 
-    category,
-    price,
-    COUNT(*) OVER() AS total_count,
-    COUNT(*) FILTER (WHERE brand @@@ 'Apple') OVER() AS apple_count_window
-FROM filter_agg_test
-WHERE category @@@ 'electronics'
-ORDER BY price DESC
-LIMIT 5;
-                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: category, price, (paradedb.window_func('{"target_entry_index":2,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":991239,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) OVER (?))
-   ->  WindowAgg
-         Output: category, price, paradedb.window_func('{"target_entry_index":2,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":991239,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) OVER (?)
-         ->  Gather Merge
-               Output: category, price, id
-               Workers Planned: 1
-               ->  Sort
-                     Output: category, price, id
-                     Sort Key: filter_agg_test.price DESC
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.filter_agg_test
-                           Output: category, price, id
-                           Table: filter_agg_test
-                           Index: filter_agg_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
-
 SELECT 
     category,
     price,

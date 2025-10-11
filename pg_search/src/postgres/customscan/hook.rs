@@ -18,14 +18,13 @@
 use crate::api::window_function::window_func_oid;
 use crate::api::HashMap;
 use crate::gucs;
+use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
-
-use crate::nodecast;
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -236,13 +235,6 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 ) -> *mut pg_sys::PlannedStmt {
     // Check if this is a SELECT query with window functions that we can handle
     if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
-        // Debug: Count RTEs and check for subqueries
-        let rte_count = if !(*parse).rtable.is_null() {
-            PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable).len()
-        } else {
-            0
-        };
-
         let has_window_funcs = query_has_window_functions(parse);
         let has_search_op = query_has_search_operator(parse);
 

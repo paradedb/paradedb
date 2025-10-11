@@ -75,11 +75,6 @@ SELECT
     COUNT(*) AS total,
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -96,11 +91,6 @@ SELECT
     COUNT(*) AS total,
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | laptop_count 
 -------+--------------
     20 |            2
@@ -114,11 +104,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'keyboard') AS keyboard_count,
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                        QUERY PLAN                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -141,11 +126,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'keyboard') AS keyboard_count,
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | laptop_count | keyboard_count | books_count 
 -------+--------------+----------------+-------------
     20 |            2 |              2 |           4
@@ -159,14 +139,6 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_available
 FROM filter_agg_test
 WHERE status @@@ 'available';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
                                                                                                                                                      QUERY PLAN                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -187,14 +159,6 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_available
 FROM filter_agg_test
 WHERE status @@@ 'available';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
  available_total | electronics_available | apple_available 
 -----------------+-----------------------+-----------------
               15 |                     6 |               2
@@ -208,11 +172,6 @@ SELECT
     MAX(price) FILTER (WHERE description @@@ 'laptop') AS max_laptop_price,
     MIN(views) FILTER (WHERE status @@@ 'sold') AS min_sold_views
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | electronics_revenue | apple_avg_rating | max_laptop_price | min_sold_views 
 -------+---------------------+------------------+------------------+----------------
     20 |             8679.92 | 4.66666666666667 |          2499.99 |            180
@@ -230,14 +189,6 @@ SELECT
     MAX(views) AS max_views
 FROM filter_agg_test
 WHERE status @@@ 'available';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -255,11 +206,6 @@ SELECT
     SUM(price) FILTER (WHERE category @@@ 'electronics') AS electronics_revenue,
     AVG(rating) FILTER (WHERE category @@@ 'electronics') AS electronics_avg_rating
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -278,11 +224,6 @@ SELECT
     SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_revenue, -- Filter 1 (same)
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count   -- Filter 2 (different)
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                QUERY PLAN                                                                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -309,11 +250,6 @@ SELECT
     COUNT(*) FILTER (WHERE rating >= 4) AS highly_rated,
     COUNT(*) FILTER (WHERE in_stock = true) AS in_stock_items
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                        QUERY PLAN                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -350,11 +286,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -375,11 +306,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | total | apple_count 
 -------------+-------+-------------
  books       |     4 |           0
@@ -398,11 +324,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -426,11 +347,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | available_count | highly_rated_count | avg_available_price 
 -------------+-----------------+--------------------+---------------------
  books       |               3 |                  4 |    51.6566666666667
@@ -450,14 +366,6 @@ FROM filter_agg_test
 WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
    brand   | total_products |    avg_price     | electronics_count | available_revenue 
 -----------+----------------+------------------+-------------------+-------------------
  Apple     |              3 |          1799.99 |                 3 |           4499.98
@@ -476,14 +384,6 @@ FROM filter_agg_test
 WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
                                                                                                                                                                QUERY PLAN                                                                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -511,11 +411,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, status
 ORDER BY category, status;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -543,11 +438,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, status
 ORDER BY category, status;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   |  status   | count | avg_rating_expensive | max_views_out_of_stock | max_views_available 
 -------------+-----------+-------+----------------------+------------------------+---------------------
  books       | available |     3 |                      |                        |                1800
@@ -569,11 +459,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'laptop' AND price > 1000) AS expensive_laptops,
     COUNT(*) FILTER (WHERE category @@@ 'electronics' AND brand @@@ 'Apple') AS apple_electronics
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | expensive_laptops | apple_electronics 
 -------+-------------------+-------------------
     20 |                 2 |                 3
@@ -585,11 +470,6 @@ SELECT
     COUNT(*) FILTER (WHERE category @@@ 'books' OR category @@@ 'sports') AS books_or_sports,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple' OR brand @@@ 'Samsung') AS major_brands
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | books_or_sports | major_brands 
 -------+-----------------+--------------
     20 |               8 |            6
@@ -600,11 +480,6 @@ SELECT
     COUNT(*) AS total,
     COUNT(*) FILTER (WHERE (category @@@ 'electronics' AND price > 500) OR (category @@@ 'books' AND rating >= 4)) AS complex_filter
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | complex_filter 
 -------+----------------
     20 |             10
@@ -620,11 +495,6 @@ SELECT
     COUNT(*) FILTER (WHERE in_stock = true) AS expensive_items,
     COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                        QUERY PLAN                                                                                       
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -645,11 +515,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'nonexistent_term_xyz') AS no_matches,
     COUNT(*) FILTER (WHERE price > 10000) AS too_expensive
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | no_matches | too_expensive 
 -------+------------+---------------
     20 |          0 |             0
@@ -663,11 +528,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count,
     COUNT(*) FILTER (WHERE description IS NOT NULL AND description @@@ 'laptop') AS laptop_not_null
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | null_descriptions | laptop_count | laptop_not_null 
 -------+-------------------+--------------+-----------------
     20 |                 2 |            2 |               2
@@ -679,11 +539,6 @@ SELECT
     STDDEV(price) FILTER (WHERE category @@@ 'electronics') AS price_stddev,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total |   price_stddev   | apple_count 
 -------+------------------+-------------
     20 | 901.871070925012 |           3
@@ -707,11 +562,6 @@ SELECT
     COUNT(*) FILTER (WHERE rating >= 5) AS f11,
     COUNT(*) FILTER (WHERE in_stock = true) AS f12
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  f1 | f2 | f3 | f4 | f5 | f6 | f7 | f8 | f9 | f10 | f11 | f12 
 ----+----+----+----+----+----+----+----+----+-----+-----+-----
   8 |  4 |  4 |  4 |  3 |  3 |  2 | 15 |  5 |  16 |   6 |  15
@@ -720,42 +570,18 @@ WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=fal
 -- Test 6.2: Performance comparison - separate queries vs FILTER
 -- Separate queries (slower approach)
 SELECT COUNT(*) FROM filter_agg_test WHERE description @@@ 'laptop';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
  count 
 -------
      2
 (1 row)
 
 SELECT COUNT(*) FROM filter_agg_test WHERE description @@@ 'keyboard';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
  count 
 -------
      1
 (1 row)
 
 SELECT COUNT(*) FROM filter_agg_test WHERE category @@@ 'books';
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
  count 
 -------
      4
@@ -767,11 +593,6 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'keyboard') AS keyboard_count,
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  laptop_count | keyboard_count | books_count 
 --------------+----------------+-------------
             2 |              1 |           4
@@ -790,11 +611,6 @@ SELECT paradedb.aggregate(
         "max_rating": {"max": {"field": "rating"}}
     }'::json
 );
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                            aggregate                                            
 ------------------------------------------------------------------------------------------------
  {"sum_price": {"value": 8679.92}, "max_rating": {"value": 5.0}, "total_count": {"value": 8.0}}
@@ -818,11 +634,6 @@ SELECT paradedb.aggregate(
         }
     }'::json
 );
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                aggregate                                                                                                                                                                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"category_breakdown": {"buckets": [{"key": "books", "avg_price": {"value": 51.656666666666666}, "doc_count": 3, "total_views": {"value": 4600.0}}, {"key": "clothing", "avg_price": {"value": 54.98999999999999}, "doc_count": 3, "total_views": {"value": 670.0}}, {"key": "electronics", "avg_price": {"value": 1188.3233333333333}, "doc_count": 6, "total_views": {"value": 4800.0}}, {"key": "sports", "avg_price": {"value": 376.6566666666667}, "doc_count": 3, "total_views": {"value": 500.0}}], "sum_other_doc_count": 0}}
@@ -839,11 +650,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | available_count | highly_rated_count 
 -------------+-----------------+--------------------
  books       |               3 |                  4
@@ -860,11 +666,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY apple_count DESC;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | total | apple_count 
 -------------+-------+-------------
  electronics |     8 |           3
@@ -886,11 +687,6 @@ SELECT
     MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
     MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -907,11 +703,6 @@ SELECT
     MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
     MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  apple_count | apple_total_price | apple_avg_price | apple_min_price | apple_max_price 
 -------------+-------------------+-----------------+-----------------+-----------------
            3 |           5399.97 |         1799.99 |          899.99 |         2499.99
@@ -930,11 +721,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -955,11 +741,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | apple_count | apple_total_price | apple_avg_price | apple_min_rating | apple_max_views 
 -------------+-------------+-------------------+-----------------+------------------+-----------------
  books       |           0 |                   |                 |                  |                
@@ -978,11 +759,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1001,11 +777,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | expensive_available_count | expensive_available_total | expensive_available_avg_rating 
 -------------+---------------------------+---------------------------+--------------------------------
  books       |                         0 |                           |                               
@@ -1026,11 +797,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1053,11 +819,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | highly_rated_count | highly_rated_total_price | highly_rated_avg_price | highly_rated_min_price | highly_rated_max_price 
 -------------+--------------------+--------------------------+------------------------+------------------------+------------------------
  books       |                  4 |                   194.96 |    48.7400000000000000 |                  39.99 |                  59.99
@@ -1077,11 +838,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1103,11 +859,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
     brand    | in_stock_count | in_stock_total_price | in_stock_avg_rating | in_stock_max_views 
 -------------+----------------+----------------------+---------------------+--------------------
  Apple       |              2 |              4499.98 |  5.0000000000000000 |               1500
@@ -1138,11 +889,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | apple_count | apple_total_price | apple_avg_rating | available_count | available_max_views | highly_rated_min_price 
 -------------+-------------+-------------------+------------------+-----------------+---------------------+------------------------
  books       |           0 |                   |                  |               3 |                1800 |                  39.99
@@ -1166,11 +912,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1197,11 +938,6 @@ SELECT
     MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
     SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1220,11 +956,6 @@ SELECT
     MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
     SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  samsung_count | samsung_total_price | samsung_min_price | samsung_max_price | samsung_min_rating | samsung_max_rating | samsung_total_views 
 ---------------+---------------------+-------------------+-------------------+--------------------+--------------------+---------------------
              3 |             3049.97 |            599.99 |           1799.99 |                  3 |                  4 |                2300
@@ -1241,11 +972,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | expensive_count | expensive_rating_sum |  expensive_avg_views  | expensive_min_price | expensive_max_price 
 -------------+-----------------+----------------------+-----------------------+---------------------+---------------------
  books       |               0 |                      |                       |                     |                    
@@ -1265,11 +991,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                          QUERY PLAN                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1292,11 +1013,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, brand
 ORDER BY category, brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   |    brand    | available_count | available_total_price | available_sum_rating 
 -------------+-------------+-----------------+-----------------------+----------------------
  books       | DataBooks   |               1 |                 44.99 |                    4
@@ -1322,11 +1038,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, brand
 ORDER BY category, brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1348,11 +1059,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | apple_price_sum | apple_price_avg | apple_price_min | apple_price_max | apple_price_count 
 -------------+-----------------+-----------------+-----------------+-----------------+-------------------
  books       |                 |                 |                 |                 |                 0
@@ -1372,11 +1078,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1395,17 +1096,12 @@ SELECT
     COUNT(DISTINCT category) AS unique_categories,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  unique_categories | apple_count 
 -------------------+-------------
                  4 |           3
 (1 row)
 
--- Test 10.2: Window functions (should fall back)
+-- Test 10.2: Window functions
 SELECT 
     category,
     price,
@@ -1415,45 +1111,13 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=true, has_search_op=true
-WARNING:  planner_hook: Found window functions in search query, extracting and storing
-WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
-WARNING:  ═══════════════════════════════════════════════════════════
-WARNING:  EXTRACTED WINDOW FUNCTION #2
-WARNING:  ═══════════════════════════════════════════════════════════
-WARNING:  Aggregate Type: COUNT(*)
-WARNING:  PARTITION BY: (none - aggregate over entire result set)
-WARNING:  ORDER BY: (none)
-WARNING:  FRAME: (default)
-WARNING:  Result Type OID: 20
-WARNING:  Target Entry Index: 2
-WARNING:  ✅ CAN EXECUTE: Yes - will compute at execution time
-WARNING:  ═══════════════════════════════════════════════════════════
-WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
-WARNING:  Window function at index 3 is not a supported aggregate type
-WARNING:  planner_hook: Extracted 1 window aggregates
-WARNING:  planner_hook: Stored window aggregates in global storage
-WARNING:  plan_custom_path: Window aggregates ARE in storage, retrieving...
-WARNING:  Retrieved window aggregates from global storage
-WARNING:  plan_custom_path: Retrieved 1 window aggregates from global storage
-WARNING:  Initializing scan state with 1 window aggregates
-WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
-WARNING:  Initializing scan state with 1 window aggregates
-WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
   category   |  price  | total_count | apple_count_window 
 -------------+---------+-------------+--------------------
- electronics | 2499.99 |           8 |                  3
- electronics | 1999.99 |           8 |                  3
- electronics | 1799.99 |           8 |                  3
- electronics |  899.99 |           8 |                  3
- electronics |  649.99 |           8 |                  3
+ electronics | 2499.99 |           9 |                  9
+ electronics | 1999.99 |           9 |                  9
+ electronics | 1799.99 |           9 |                  9
+ electronics |  899.99 |           9 |                  9
+ electronics |  649.99 |           9 |                  9
 (5 rows)
 
 -- Test 10.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
@@ -1464,11 +1128,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | total_in_category | apple_in_category 
 -------------+-------------------+-------------------
  books       |                 4 |                 0
@@ -1487,11 +1146,6 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, status
 ORDER BY category, status;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   |  status   | count | avg_rating_expensive | max_views_available 
 -------------+-----------+-------+----------------------+---------------------
  books       | available |     3 |                      |                1800
@@ -1520,14 +1174,6 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1546,14 +1192,6 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 GROUP BY brand
 ORDER BY brand;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
   brand  | sold_count | sold_total 
 ---------+------------+------------
  Apple   |          1 |     899.99
@@ -1573,17 +1211,6 @@ FROM filter_agg_test
 WHERE price > 500
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=1756
-WARNING:  expr_contains_operator: Checking node type=T_Var
-WARNING:  expr_contains_operator: Unhandled node type=T_Var
-WARNING:  expr_contains_operator: Checking node type=T_FuncExpr
-WARNING:  expr_contains_operator: Unhandled node type=T_FuncExpr
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
@@ -1602,17 +1229,6 @@ FROM filter_agg_test
 WHERE price > 500
 GROUP BY category
 ORDER BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=1756
-WARNING:  expr_contains_operator: Checking node type=T_Var
-WARNING:  expr_contains_operator: Unhandled node type=T_Var
-WARNING:  expr_contains_operator: Checking node type=T_FuncExpr
-WARNING:  expr_contains_operator: Unhandled node type=T_FuncExpr
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
   category   | apple_count | apple_avg_price 
 -------------+-------------+-----------------
  electronics |           3 |         1799.99
@@ -1627,17 +1243,6 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'NonExistent') AS count
 FROM filter_agg_test
 WHERE id > 1000;  -- No matches
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=521
-WARNING:  expr_contains_operator: Checking node type=T_Var
-WARNING:  expr_contains_operator: Unhandled node type=T_Var
-WARNING:  expr_contains_operator: Checking node type=T_Const
-WARNING:  expr_contains_operator: Unhandled node type=T_Const
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  count 
 -------
      0
@@ -1650,14 +1255,6 @@ SELECT
 FROM filter_agg_test
 WHERE category @@@ 'electronics'
 GROUP BY category;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=937085
-WARNING:  expr_contains_operator: MATCH! Found target operator
-WARNING:  query_has_search_operator: Found @@@ in WHERE clause
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=true
   category   | nonexistent_count 
 -------------+-------------------
  electronics |                 0
@@ -1669,17 +1266,6 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test
 WHERE id = 1;  -- Only one row
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is not null, checking...
-WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=96
-WARNING:  expr_contains_operator: Checking node type=T_Var
-WARNING:  expr_contains_operator: Unhandled node type=T_Var
-WARNING:  expr_contains_operator: Checking node type=T_Const
-WARNING:  expr_contains_operator: Unhandled node type=T_Const
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  total | apple_count 
 -------+-------------
      1 |           1
@@ -1691,11 +1277,6 @@ SELECT
     COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics2,
     COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics3
 FROM filter_agg_test;
-WARNING:  query_has_search_operator: Looking for opno=937092 or 937085
-WARNING:  query_has_search_operator: jointree is not null
-WARNING:  query_has_search_operator: quals is null
-WARNING:  query_has_search_operator: @@@ operator not found
-WARNING:  planner_hook: SELECT query - has_window_funcs=false, has_search_op=false
  electronics1 | electronics2 | electronics3 
 --------------+--------------+--------------
             8 |            8 |            8

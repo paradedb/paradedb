@@ -165,8 +165,6 @@ impl TopNScanExecState {
             return;
         };
 
-        pgrx::warning!("Computing {} window aggregates", window_aggs.len());
-
         let mut results = HashMap::default();
 
         for agg_info in window_aggs {
@@ -183,13 +181,9 @@ impl TopNScanExecState {
                         check_for_interrupts!();
                     }
 
-                    pgrx::warning!("Computing COUNT(*) OVER (): total_count={}", total_count);
                     (total_count as i64).into_datum().unwrap()
                 }
-                _ => {
-                    pgrx::warning!("Aggregate type {:?} not yet implemented", agg_info.agg_type);
-                    pg_sys::Datum::from(0)
-                }
+                _ => pg_sys::Datum::from(0),
             };
 
             results.insert(agg_info.target_entry_index, datum);
@@ -210,10 +204,6 @@ impl ExecMethod for TopNScanExecState {
         // This must happen AFTER reset() because reset() also tries to get window_aggregates
         // from state.exec_method_type, which might be None
         if let Some(ref window_aggs) = state.window_aggregates {
-            pgrx::warning!(
-                "TopN init: Received {} window aggregates from scan state",
-                window_aggs.len()
-            );
             self.window_aggregates = Some(window_aggs.clone());
         }
     }

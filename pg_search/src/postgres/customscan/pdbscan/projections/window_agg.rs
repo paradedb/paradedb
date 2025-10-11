@@ -114,31 +114,6 @@ pub unsafe fn extract_window_aggregates_with_context(
                 let has_frame = window_spec.frame_clause.is_some();
                 let can_execute = can_handle_window_spec(&window_spec) && !has_filter;
 
-                if !can_execute {
-                    if has_filter {
-                        pgrx::warning!(
-                            "Window function at index {} extracted but has FILTER clause (not yet executable)",
-                            idx
-                        );
-                    } else if has_frame {
-                        pgrx::warning!(
-                            "Window function at index {} extracted but has frame clause (not yet executable)",
-                            idx
-                        );
-                    } else if !window_spec.partition_by.is_empty() {
-                        pgrx::warning!(
-                            "Window function at index {} extracted but has PARTITION BY (not yet executable)",
-                            idx
-                        );
-                    } else if window_spec.order_by.is_some() {
-                        pgrx::warning!(
-                            "Window function at index {} extracted but has ORDER BY in OVER clause (not yet executable)",
-                            idx
-                        );
-                    }
-                    // Still extract it! Execution capability check happens later
-                }
-
                 let window_agg_info = WindowAggregateInfo {
                     agg_type,
                     target_entry_index: idx,
@@ -146,15 +121,7 @@ pub unsafe fn extract_window_aggregates_with_context(
                     window_spec,
                 };
 
-                // Print comprehensive extraction details
-                print_window_aggregate_info(&window_agg_info, idx, can_execute);
-
                 window_aggs.push(window_agg_info);
-            } else {
-                pgrx::warning!(
-                    "Window function at index {} is not a supported aggregate type",
-                    idx
-                );
             }
         }
     }
@@ -189,20 +156,6 @@ fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
         AggregateType::Avg { filter, .. } => filter.is_some(),
         AggregateType::Min { filter, .. } => filter.is_some(),
         AggregateType::Max { filter, .. } => filter.is_some(),
-        _ => false, // Other aggregate types don't have filter support yet
-    }
-}
-
-/// Helper function to get the filter from an aggregate type
-fn get_aggregate_filter(agg_type: &AggregateType) -> Option<&crate::query::SearchQueryInput> {
-    match agg_type {
-        AggregateType::CountAny { filter } => filter.as_ref(),
-        AggregateType::Count { filter, .. } => filter.as_ref(),
-        AggregateType::Sum { filter, .. } => filter.as_ref(),
-        AggregateType::Avg { filter, .. } => filter.as_ref(),
-        AggregateType::Min { filter, .. } => filter.as_ref(),
-        AggregateType::Max { filter, .. } => filter.as_ref(),
-        _ => None,
     }
 }
 
@@ -241,7 +194,6 @@ unsafe fn extract_filter_expression_with_context(
     }
 
     // Serialize the filter expression - nodeToString will be called during JSON serialization
-    pgrx::warning!("  FILTER clause detected - serializing expression tree for later conversion");
     let filter_node = filter_expr as *mut pg_sys::Node;
 
     Some(crate::query::SearchQueryInput::PostgresExpression {
@@ -269,9 +221,6 @@ unsafe fn extract_standard_aggregate(
     // Extract FILTER clause if present
     let filter = if !(*window_func).aggfilter.is_null() {
         // Extract the filter expression using the same method as aggregatescan
-        pgrx::warning!("Window function has FILTER clause - extracting");
-
-        // Even if root is null, we can store as PostgresExpression for later extraction
         extract_filter_expression_with_context(
             (*window_func).aggfilter,
             bm25_index,
@@ -377,7 +326,6 @@ unsafe fn extract_window_specification(
 
     // Access the WindowClause from the list
     if window_clause_list.is_null() {
-        pgrx::warning!("Window clause list is null but winref={}", winref);
         return WindowSpecification {
             partition_by: Vec::new(),
             order_by: None,
@@ -391,11 +339,6 @@ unsafe fn extract_window_specification(
     let window_clause_idx = (winref - 1) as usize;
 
     if window_clause_idx >= window_clauses.len() {
-        pgrx::warning!(
-            "winref {} out of bounds (window_clauses.len={})",
-            winref,
-            window_clauses.len()
-        );
         return WindowSpecification {
             partition_by: Vec::new(),
             order_by: None,
@@ -416,13 +359,6 @@ unsafe fn extract_window_specification(
         (*window_clause).frameOptions,
         (*window_clause).startOffset,
         (*window_clause).endOffset,
-    );
-
-    pgrx::warning!(
-        "Extracted window spec: partition_by={:?}, order_by={:?}, frame_clause={:?}",
-        partition_by,
-        order_by,
-        frame_clause
     );
 
     WindowSpecification {
@@ -491,6 +427,7 @@ unsafe fn extract_frame_clause(
     // Defined in windowDefs.h
 
     const FRAMEOPTION_NONDEFAULT: i32 = 0x00001;
+    #[allow(dead_code)]
     const FRAMEOPTION_RANGE: i32 = 0x00002;
     const FRAMEOPTION_ROWS: i32 = 0x00004;
     const FRAMEOPTION_GROUPS: i32 = 0x00008;
@@ -557,6 +494,7 @@ unsafe fn extract_frame_clause(
 /// Check if window clause is empty (no PARTITION BY, no ORDER BY)
 /// Note: This is used during extraction before we have the window_clause_list
 /// For full validation, use can_handle_window_spec() on the extracted WindowSpecification
+#[allow(dead_code)]
 unsafe fn is_empty_window_clause(window_func: *mut pg_sys::WindowFunc) -> bool {
     // Quick check: if winref is 0, it's definitely empty
     (*window_func).winref == 0
@@ -605,73 +543,8 @@ unsafe fn get_function_name(funcoid: pg_sys::Oid) -> Option<String> {
     Some(name)
 }
 
-/// Print comprehensive window aggregate information for debugging
-fn print_window_aggregate_info(info: &WindowAggregateInfo, idx: usize, can_execute: bool) {
-    pgrx::warning!("═══════════════════════════════════════════════════════════");
-    pgrx::warning!("EXTRACTED WINDOW FUNCTION #{}", idx);
-    pgrx::warning!("═══════════════════════════════════════════════════════════");
-
-    // Print aggregate type
-    pgrx::warning!("Aggregate Type: {}", format_aggregate_type(&info.agg_type));
-
-    // Print FILTER clause if present
-    if let Some(filter_info) = get_filter_info(&info.agg_type) {
-        pgrx::warning!("  FILTER: {}", filter_info);
-    }
-
-    // Print PARTITION BY
-    if !info.window_spec.partition_by.is_empty() {
-        pgrx::warning!("PARTITION BY:");
-        for (i, col) in info.window_spec.partition_by.iter().enumerate() {
-            pgrx::warning!("  [{}] {}", i, col);
-        }
-    } else {
-        pgrx::warning!("PARTITION BY: (none - aggregate over entire result set)");
-    }
-
-    // Print ORDER BY
-    if let Some(ref order_by) = info.window_spec.order_by {
-        pgrx::warning!("ORDER BY:");
-        for (i, order_info) in order_by.iter().enumerate() {
-            pgrx::warning!(
-                "  [{}] {:?} {:?}",
-                i,
-                order_info.feature,
-                order_info.direction
-            );
-        }
-    } else {
-        pgrx::warning!("ORDER BY: (none)");
-    }
-
-    // Print frame clause
-    if let Some(ref frame) = info.window_spec.frame_clause {
-        pgrx::warning!(
-            "FRAME: {:?} BETWEEN {:?} AND {:?}",
-            frame.frame_type,
-            frame.start_bound,
-            frame.end_bound.as_ref().unwrap_or(&FrameBound::CurrentRow)
-        );
-    } else {
-        pgrx::warning!("FRAME: (default)");
-    }
-
-    // Print result type
-    pgrx::warning!("Result Type OID: {}", info.result_type_oid);
-    pgrx::warning!("Target Entry Index: {}", info.target_entry_index);
-
-    // Print execution capability
-    if can_execute {
-        pgrx::warning!("✅ CAN EXECUTE: Yes - will compute at execution time");
-    } else {
-        pgrx::warning!("⚠️  CAN EXECUTE: No - extracted but not yet supported");
-        pgrx::warning!("   Will fall back to PostgreSQL's WindowAgg if not replaced");
-    }
-
-    pgrx::warning!("═══════════════════════════════════════════════════════════");
-}
-
 /// Format aggregate type for display
+#[allow(dead_code)]
 fn format_aggregate_type(agg_type: &AggregateType) -> String {
     match agg_type {
         AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
@@ -684,6 +557,7 @@ fn format_aggregate_type(agg_type: &AggregateType) -> String {
 }
 
 /// Get filter info from aggregate type
+#[allow(dead_code)]
 fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
     let filter = match agg_type {
         AggregateType::CountAny { filter } => filter,
@@ -701,7 +575,7 @@ fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
 
 /// Extract window_func(json) calls from the processed target list at planning time
 /// Convert PostgresExpression filters to SearchQueryInput
-/// 
+///
 /// This is called at plan_custom_path time when we have access to root (PlannerInfo),
 /// allowing us to use extract_quals to properly convert FILTER expressions.
 pub unsafe fn convert_window_aggregate_filters(
@@ -727,8 +601,6 @@ pub unsafe fn convert_window_aggregate_filters(
             if let crate::query::SearchQueryInput::PostgresExpression { expr } = filter {
                 let filter_node = expr.node();
                 if !filter_node.is_null() {
-                    pgrx::warning!("  Converting FILTER from PostgresExpression to SearchQueryInput");
-                    
                     // Use extract_quals to convert the expression
                     let mut filter_qual_state = QualExtractState::default();
                     let result = extract_quals(
@@ -746,24 +618,8 @@ pub unsafe fn convert_window_aggregate_filters(
                     // Replace the PostgresExpression with the converted SearchQueryInput
                     if let Some(qual) = result {
                         let converted = crate::query::SearchQueryInput::from(&qual);
-                        pgrx::warning!("  ✅ FILTER converted successfully: {:?}", converted);
-                        
-                        // Also print as JSON for better visibility
-                        match serde_json::to_string_pretty(&converted) {
-                            Ok(json) => {
-                                pgrx::warning!("  ✅ FILTER as JSON:\n{}", json);
-                            }
-                            Err(e) => {
-                                pgrx::warning!("  ⚠️  Failed to serialize FILTER to JSON: {}", e);
-                            }
-                        }
-                        
                         *filter = converted;
-                    } else {
-                        pgrx::warning!("  ⚠️  FILTER conversion failed - extract_quals returned None");
                     }
-                } else {
-                    pgrx::warning!("  ⚠️  FILTER node is null");
                 }
             }
         }
@@ -771,7 +627,9 @@ pub unsafe fn convert_window_aggregate_filters(
 }
 
 /// Helper function to get mutable filter from an aggregate type
-fn get_aggregate_filter_mut(agg_type: &mut AggregateType) -> Option<&mut crate::query::SearchQueryInput> {
+fn get_aggregate_filter_mut(
+    agg_type: &mut AggregateType,
+) -> Option<&mut crate::query::SearchQueryInput> {
     match agg_type {
         AggregateType::CountAny { filter } => filter.as_mut(),
         AggregateType::Count { filter, .. } => filter.as_mut(),
@@ -779,7 +637,6 @@ fn get_aggregate_filter_mut(agg_type: &mut AggregateType) -> Option<&mut crate::
         AggregateType::Avg { filter, .. } => filter.as_mut(),
         AggregateType::Min { filter, .. } => filter.as_mut(),
         AggregateType::Max { filter, .. } => filter.as_mut(),
-        _ => None,
     }
 }
 
@@ -820,63 +677,9 @@ pub unsafe fn extract_window_func_calls(
 
                             match serde_json::from_str::<WindowAggregateInfo>(json_str) {
                                 Ok(info) => {
-                                    pgrx::warning!(
-                                        "extract_window_func_calls: Found window aggregate: {:?}",
-                                        info.agg_type
-                                    );
-
-                                    // Verify FILTER deserialization and convert to SearchQueryInput if needed
-                                    if agg_type_has_filter(&info.agg_type) {
-                                        pgrx::warning!("  Window aggregate has FILTER - verifying deserialization...");
-                                        
-                                        // Try to get the filter from the aggregate type
-                                        let filter_opt = get_aggregate_filter(&info.agg_type);
-                                        if let Some(filter) = filter_opt {
-                                            match filter {
-                                                crate::query::SearchQueryInput::PostgresExpression { expr } => {
-                                                    let filter_node = expr.node();
-                                                    if !filter_node.is_null() {
-                                                        pgrx::warning!("  ✅ FILTER deserialized successfully - node pointer is valid: {:p}", filter_node);
-                                                        // Try to get node type to verify it's a valid node
-                                                        let node_type = (*filter_node).type_;
-                                                        pgrx::warning!("  ✅ FILTER node type: {:?}", node_type);
-                                                        
-                                                        // Try to convert to a readable format for debugging
-                                                        // Use nodeToString to see what we deserialized
-                                                        let node_str = pg_sys::nodeToString(filter_node.cast());
-                                                        if !node_str.is_null() {
-                                                            let cstr = std::ffi::CStr::from_ptr(node_str);
-                                                            if let Ok(s) = cstr.to_str() {
-                                                                pgrx::warning!("  ✅ FILTER expression deserialized: {}", s);
-                                                                pgrx::warning!("  ℹ️  NOTE: FILTER conversion requires root (PlannerInfo) which is not available at execution time");
-                                                                pgrx::warning!("  ℹ️  TODO: Implement FILTER evaluation using ExprContext at execution time");
-                                                            }
-                                                            pg_sys::pfree(node_str.cast());
-                                                        }
-                                                    } else {
-                                                        pgrx::warning!("  ❌ FILTER deserialized but node pointer is NULL");
-                                                    }
-                                                }
-                                                crate::query::SearchQueryInput::Uninitialized => {
-                                                    pgrx::warning!("  FILTER is Uninitialized (not converted yet)");
-                                                }
-                                                _ => {
-                                                    pgrx::warning!("  FILTER is a different SearchQueryInput variant");
-                                                }
-                                            }
-                                        } else {
-                                            pgrx::warning!("  Warning: agg_type_has_filter returned true but couldn't extract filter");
-                                        }
-                                    }
-
                                     (*context).window_aggs.push(info);
                                 }
-                                Err(e) => {
-                                    pgrx::warning!(
-                                        "extract_window_func_calls: Failed to deserialize: {}",
-                                        e
-                                    );
-                                }
+                                Err(e) => {}
                             }
                         }
                     }

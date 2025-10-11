@@ -253,18 +253,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         let has_window_funcs = query_has_window_functions(parse);
         let has_search_op = query_has_search_operator(parse);
 
-        pgrx::warning!(
-            "planner_hook: SELECT query (RTEs={}) - has_window_funcs={}, has_search_op={}",
-            rte_count,
-            has_window_funcs,
-            has_search_op
-        );
-
         if has_window_funcs && has_search_op {
-            pgrx::warning!(
-                "planner_hook: Found window functions in search query - replacing with window_func(json)"
-            );
-
             // Extract and replace window functions recursively (including subqueries)
             replace_windowfuncs_recursively(parse);
         }
@@ -298,27 +287,18 @@ unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
 
     // Check the current query's target list
     if !(*parse).targetList.is_null() && has_window_functions((*parse).targetList) {
-        pgrx::warning!("query_has_window_functions: Found window functions in current query");
         return true;
     }
 
     // Check subqueries in RTEs
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        pgrx::warning!(
-            "query_has_window_functions: Checking {} RTEs for subquery window functions",
-            rtable.len()
-        );
         for (idx, rte) in rtable.iter_ptr().enumerate() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
-                pgrx::warning!(
-                    "  RTE {}: Found subquery, checking for window functions recursively",
-                    idx
-                );
-                if query_has_window_functions((*rte).subquery) {
-                    pgrx::warning!("  RTE {}: Subquery contains window functions!", idx);
-                    return true;
-                }
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_has_window_functions((*rte).subquery)
+            {
+                return true;
             }
         }
     }
@@ -334,57 +314,36 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     let searchqueryinput_opno = anyelement_query_input_opoid();
     let text_opno = anyelement_text_opoid();
 
-    pgrx::warning!(
-        "query_has_search_operator: Looking for opno={} or {}",
-        searchqueryinput_opno,
-        text_opno
-    );
-
     // Check WHERE clause (jointree->quals)
     if !(*parse).jointree.is_null() {
         let jointree = (*parse).jointree;
-        pgrx::warning!("query_has_search_operator: jointree is not null");
-        if !(*jointree).quals.is_null() {
-            pgrx::warning!("query_has_search_operator: quals is not null, checking...");
-            if expr_contains_any_operator((*jointree).quals, &[searchqueryinput_opno, text_opno]) {
-                pgrx::warning!("query_has_search_operator: Found @@@ in WHERE clause");
-                return true;
-            }
-        } else {
-            pgrx::warning!("query_has_search_operator: quals is null");
+        if !(*jointree).quals.is_null()
+            && expr_contains_any_operator((*jointree).quals, &[searchqueryinput_opno, text_opno])
+        {
+            return true;
         }
-    } else {
-        pgrx::warning!("query_has_search_operator: jointree is null");
     }
 
     // Check HAVING clause
-    if !(*parse).havingQual.is_null() {
-        pgrx::warning!("query_has_search_operator: Checking HAVING clause");
-        if expr_contains_any_operator((*parse).havingQual, &[searchqueryinput_opno, text_opno]) {
-            pgrx::warning!("query_has_search_operator: Found @@@ in HAVING clause");
-            return true;
-        }
+    if !(*parse).havingQual.is_null()
+        && expr_contains_any_operator((*parse).havingQual, &[searchqueryinput_opno, text_opno])
+    {
+        return true;
     }
 
     // Check if any RTEs contain subqueries with @@@ operators
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        pgrx::warning!(
-            "query_has_search_operator: Checking {} RTEs for subqueries",
-            rtable.len()
-        );
         for (idx, rte) in rtable.iter_ptr().enumerate() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
-                pgrx::warning!("  RTE {}: Found subquery, checking recursively", idx);
-                if query_has_search_operator((*rte).subquery) {
-                    pgrx::warning!("  RTE {}: Subquery contains @@@!", idx);
-                    return true;
-                }
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_has_search_operator((*rte).subquery)
+            {
+                return true;
             }
         }
     }
 
-    pgrx::warning!("query_has_search_operator: @@@ operator not found");
     false
 }
 
@@ -398,17 +357,11 @@ unsafe fn expr_contains_any_operator(
     }
 
     let node_type = (*node).type_;
-    pgrx::warning!("expr_contains_operator: Checking node type={:?}", node_type);
 
     match node_type {
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node as *mut pg_sys::OpExpr;
-            pgrx::warning!(
-                "expr_contains_operator: Found OpExpr with opno={}",
-                (*opexpr).opno
-            );
             if target_opnos.contains(&(*opexpr).opno) {
-                pgrx::warning!("expr_contains_operator: MATCH! Found target operator");
                 return true;
             }
             // Check arguments
@@ -423,7 +376,6 @@ unsafe fn expr_contains_any_operator(
         }
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = node as *mut pg_sys::BoolExpr;
-            pgrx::warning!("expr_contains_operator: Found BoolExpr, checking args");
             if !(*boolexpr).args.is_null() {
                 let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
                 for arg in args.iter_ptr() {
@@ -436,7 +388,6 @@ unsafe fn expr_contains_any_operator(
         pg_sys::NodeTag::T_RestrictInfo => {
             // RestrictInfo wraps the actual clause
             let rinfo = node as *mut pg_sys::RestrictInfo;
-            pgrx::warning!("expr_contains_operator: Found RestrictInfo, unwrapping");
             if !(*rinfo).clause.is_null() {
                 return expr_contains_any_operator(
                     (*rinfo).clause as *mut pg_sys::Node,
@@ -444,12 +395,7 @@ unsafe fn expr_contains_any_operator(
                 );
             }
         }
-        _ => {
-            pgrx::warning!(
-                "expr_contains_operator: Unhandled node type={:?}",
-                node_type
-            );
-        }
+        _ => {}
     }
 
     false
@@ -465,10 +411,6 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     let window_aggs = extract_window_functions(parse);
     if !window_aggs.is_empty() {
         replace_windowfuncs_in_query(parse, &window_aggs);
-        pgrx::warning!(
-            "replace_windowfuncs_recursively: Replaced {} WindowFunc nodes in current query",
-            window_aggs.len()
-        );
     }
 
     // Recursively process subqueries in RTEs
@@ -476,10 +418,6 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
-                pgrx::warning!(
-                    "replace_windowfuncs_recursively: Processing subquery in RTE {}",
-                    idx
-                );
                 replace_windowfuncs_recursively((*rte).subquery);
             }
         }
@@ -492,7 +430,6 @@ unsafe fn replace_windowfuncs_in_query(
     window_aggs: &[WindowAggregateInfo],
 ) {
     use crate::api::window_function::window_func_oid;
-    use pgrx::IntoDatum;
 
     if (*parse).targetList.is_null() {
         return;
@@ -552,16 +489,7 @@ unsafe fn replace_windowfuncs_in_query(
                 (*new_te).expr = funcexpr.cast();
                 new_targetlist.push(new_te);
                 replaced_count += 1;
-
-                pgrx::warning!(
-                    "planner_hook: Replaced WindowFunc at resno {} with window_func(json)",
-                    (*te).resno
-                );
             } else {
-                pgrx::warning!(
-                    "planner_hook: WARNING: No window aggregate info for index {}",
-                    idx
-                );
                 // Still copy the entry but don't replace it
                 new_targetlist.push(te);
             }
@@ -572,18 +500,7 @@ unsafe fn replace_windowfuncs_in_query(
         }
     }
 
-    pgrx::warning!(
-        "planner_hook: Replaced {} WindowFunc nodes in Query with window_func calls",
-        replaced_count
-    );
     (*parse).targetList = new_targetlist.into_pg();
-}
-
-/// Get the Oid of the now() function to use as a placeholder
-pub unsafe fn placeholder_procid() -> pg_sys::Oid {
-    use pgrx::IntoDatum;
-    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
-        .expect("the `now()` function should exist")
 }
 
 /// Extract window functions, store in global cache, and return them for replacement
@@ -625,21 +542,13 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
         std::ptr::null_mut(), // root not available yet in planner_hook
     );
 
-    if window_aggs.is_empty() {
-        pgrx::warning!("planner_hook: No extractable window aggregates found");
-    } else {
-        pgrx::warning!(
-            "planner_hook: Extracted {} window aggregates",
-            window_aggs.len()
-        );
-
+    if !window_aggs.is_empty() {
         // Store in global "latest" storage for retrieval in plan_custom_path
         // (PostgreSQL may copy the Query, so we can't key by pointer)
         let mut storage = EXTRACTED_WINDOW_AGGREGATES
             .lock()
             .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
         *storage = Some(window_aggs.clone());
-        pgrx::warning!("planner_hook: Stored window aggregates in global storage");
     }
 
     window_aggs
@@ -647,20 +556,18 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
 
 /// Retrieve and clear window aggregates from the global storage
 /// Returns None if no aggregates were stored
+#[allow(dead_code)]
 pub unsafe fn take_extracted_window_aggregates() -> Option<Vec<WindowAggregateInfo>> {
     let mut storage = EXTRACTED_WINDOW_AGGREGATES
         .lock()
         .expect("Failed to lock EXTRACTED_WINDOW_AGGREGATES");
-    let result = storage.take();
-    if result.is_some() {
-        pgrx::warning!("Retrieved window aggregates from global storage");
-    }
-    result
+    storage.take()
 }
 
 /// Extract window aggregates from paradedb.window_func(json) calls in the target list
 /// This is called during custom scan planning to deserialize the window aggregate info
 /// that was embedded during the planner hook
+#[allow(dead_code)]
 pub unsafe fn extract_window_aggregates_from_targetlist(
     target_list: *mut pg_sys::List,
 ) -> Vec<WindowAggregateInfo> {
@@ -675,23 +582,11 @@ pub unsafe fn extract_window_aggregates_from_targetlist(
     let window_func_procid = window_func_oid();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
 
-    pgrx::warning!(
-        "extract_window_aggregates_from_targetlist: Scanning {} target entries, looking for funcid={}",
-        tlist.len(),
-        window_func_procid
-    );
-
     for (idx, te) in tlist.iter_ptr().enumerate() {
         let node_type = (*(*te).expr).type_;
-        pgrx::warning!("  Entry {}: node type={:?}", idx, node_type);
 
         // Check if this is a FuncExpr calling window_func
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            pgrx::warning!(
-                "  Entry {}: Found FuncExpr with funcid={}",
-                idx,
-                (*funcexpr).funcid
-            );
             if (*funcexpr).funcid == window_func_procid {
                 // This is our window_func placeholder
                 // Extract the JSON argument
@@ -701,22 +596,13 @@ pub unsafe fn extract_window_aggregates_from_targetlist(
                         if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
                             // Extract the text datum and deserialize
                             if !(*const_node).constisnull {
-                                let json_text = pg_sys::Datum::from((*const_node).constvalue);
+                                let json_text = (*const_node).constvalue;
                                 if let Some(json_str) = String::from_datum(json_text, false) {
                                     match serde_json::from_str::<WindowAggregateInfo>(&json_str) {
                                         Ok(window_agg) => {
-                                            pgrx::warning!(
-                                                "Deserialized window aggregate from target entry {}",
-                                                idx
-                                            );
                                             window_aggs.push(window_agg);
                                         }
-                                        Err(e) => {
-                                            pgrx::warning!(
-                                                "Failed to deserialize window aggregate: {}",
-                                                e
-                                            );
-                                        }
+                                        Err(e) => {}
                                     }
                                 }
                             }

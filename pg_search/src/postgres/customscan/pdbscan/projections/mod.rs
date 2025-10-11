@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::customscan::{placeholder_procid, score_funcoid};
+use crate::postgres::customscan::score_funcoid;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
@@ -305,22 +305,6 @@ pub unsafe fn inject_placeholders(
         snippet_generators:
             &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
         const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
-    }
-
-    // Debug: check what's in the targetlist before walking
-    pgrx::warning!("inject_placeholders: Starting");
-
-    // Debug: check what's in the targetlist before walking
-    let tlist_check = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
-    for (idx, te) in tlist_check.iter_ptr().enumerate() {
-        let node_type = (*(*te).expr).type_;
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            pgrx::warning!(
-                "  inject_placeholders: Entry {}: FuncExpr with funcid={}",
-                idx,
-                (*funcexpr).funcid
-            );
-        }
     }
 
     let mut data = Data {

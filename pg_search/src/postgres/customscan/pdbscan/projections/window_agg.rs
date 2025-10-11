@@ -193,54 +193,60 @@ fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
     }
 }
 
-/// Extract FILTER expression with full context (bm25_index and root)
+/// Helper function to get the filter from an aggregate type
+fn get_aggregate_filter(agg_type: &AggregateType) -> Option<&crate::query::SearchQueryInput> {
+    match agg_type {
+        AggregateType::CountAny { filter } => filter.as_ref(),
+        AggregateType::Count { filter, .. } => filter.as_ref(),
+        AggregateType::Sum { filter, .. } => filter.as_ref(),
+        AggregateType::Avg { filter, .. } => filter.as_ref(),
+        AggregateType::Min { filter, .. } => filter.as_ref(),
+        AggregateType::Max { filter, .. } => filter.as_ref(),
+        _ => None,
+    }
+}
+
+/// Extract FILTER expression by serializing it for later conversion
 ///
-/// This uses the same logic as aggregatescan to convert the filter expression
-/// to a SearchQueryInput using extract_quals.
+/// ## Why we can't convert now:
+/// We can't use extract_quals here because root (PlannerInfo) doesn't exist yet
+/// in the planner_hook (it's created by standard_planner which runs after).
 ///
-/// If root is null, we store the expression as a PostgresExpression for later extraction.
+/// ## How we preserve the FILTER:
+/// We wrap the filter expression in a PostgresExpression, which:
+/// 1. **At planning time (now)**: Calls nodeToString() during JSON serialization,
+///    converting the node tree to a string representation
+/// 2. **At execution time (later)**: Calls stringToNode() during JSON deserialization,
+///    recreating the node tree in the execution memory context
+///
+/// This is safe because:
+/// - nodeToString creates a new string copy (not a pointer to planning memory)
+/// - stringToNode allocates new nodes in current memory context
+/// - The deserialized nodes live as long as needed for execution
+///
+/// ## Future work:
+/// At execution time, we need to:
+/// 1. Deserialize the PostgresExpression (stringToNode)
+/// 2. Call extract_quals with full context (root, bm25_index, heap_rti)
+/// 3. Convert to SearchQueryInput
+/// 4. Apply as a filter during aggregation
 unsafe fn extract_filter_expression_with_context(
     filter_expr: *mut pg_sys::Expr,
-    bm25_index: &crate::postgres::PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
+    _bm25_index: &crate::postgres::PgSearchRelation,
+    _root: *mut pg_sys::PlannerInfo,
+    _heap_rti: pg_sys::Index,
 ) -> Option<crate::query::SearchQueryInput> {
-    use crate::api::operator::anyelement_query_input_opoid;
-    use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-    use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
-
     if filter_expr.is_null() {
         return None;
     }
 
-    // If root is not available yet, store as PostgresExpression for later extraction
-    if root.is_null() {
-        pgrx::warning!("  root is null, storing FILTER as PostgresExpression for later extraction");
-        let filter_node = filter_expr as *mut pg_sys::Node;
-        return Some(crate::query::SearchQueryInput::PostgresExpression {
-            expr: crate::query::PostgresExpression::new(filter_node),
-        });
-    }
-
-    let mut filter_qual_state = QualExtractState::default();
+    // Serialize the filter expression - nodeToString will be called during JSON serialization
+    pgrx::warning!("  FILTER clause detected - serializing expression tree for later conversion");
     let filter_node = filter_expr as *mut pg_sys::Node;
 
-    pgrx::warning!("  Extracting FILTER using extract_quals (like aggregatescan)");
-
-    let result = extract_quals(
-        root,
-        heap_rti,
-        filter_node,
-        anyelement_query_input_opoid(),
-        RestrictInfoType::BaseRelation,
-        bm25_index,
-        false,
-        &mut filter_qual_state,
-        true, // attempt_pushdown
-    );
-
-    // Convert Qual to SearchQueryInput
-    result.map(|qual| crate::query::SearchQueryInput::from(&qual))
+    Some(crate::query::SearchQueryInput::PostgresExpression {
+        expr: crate::query::PostgresExpression::new(filter_node),
+    })
 }
 
 /// Extract standard aggregate function (COUNT, SUM, AVG, MIN, MAX)
@@ -735,6 +741,38 @@ pub unsafe fn extract_window_func_calls(
                                         "extract_window_func_calls: Found window aggregate: {:?}",
                                         info.agg_type
                                     );
+
+                                    // Verify FILTER deserialization if present
+                                    if agg_type_has_filter(&info.agg_type) {
+                                        pgrx::warning!("  Window aggregate has FILTER - verifying deserialization...");
+
+                                        // Try to get the filter from the aggregate type
+                                        let filter_opt = get_aggregate_filter(&info.agg_type);
+                                        if let Some(filter) = filter_opt {
+                                            match filter {
+                                                crate::query::SearchQueryInput::PostgresExpression { expr } => {
+                                                    let filter_node = expr.node();
+                                                    if !filter_node.is_null() {
+                                                        pgrx::warning!("  ✅ FILTER deserialized successfully - node pointer is valid: {:p}", filter_node);
+                                                        // Try to get node type to verify it's a valid node
+                                                        let node_type = (*filter_node).type_;
+                                                        pgrx::warning!("  ✅ FILTER node type: {:?}", node_type);
+                                                    } else {
+                                                        pgrx::warning!("  ❌ FILTER deserialized but node pointer is NULL");
+                                                    }
+                                                }
+                                                crate::query::SearchQueryInput::Uninitialized => {
+                                                    pgrx::warning!("  FILTER is Uninitialized (not converted yet)");
+                                                }
+                                                _ => {
+                                                    pgrx::warning!("  FILTER is a different SearchQueryInput variant");
+                                                }
+                                            }
+                                        } else {
+                                            pgrx::warning!("  Warning: agg_type_has_filter returned true but couldn't extract filter");
+                                        }
+                                    }
+
                                     (*context).window_aggs.push(info);
                                 }
                                 Err(e) => {

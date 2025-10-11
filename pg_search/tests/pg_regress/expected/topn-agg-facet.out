@@ -219,13 +219,13 @@ WARNING:  Injected Const node for window aggregate at index 3
 WARNING:  Computing 1 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14903ea78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14903ea78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14903ea78
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x14e852c78
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -424,25 +424,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Avg { field: "field_7", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149051c88
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490516f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149051c38
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149051c88
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490516f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149051c38
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149051c88
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14f839488
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490516f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f838ef8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149051c38
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f839438
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | total_count | total_price | avg_rating 
 ----+-------------+--------+-------+-------------+-------------+------------
@@ -792,19 +792,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149841be8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842140
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149841be8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842140
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x149841be8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842140
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x13e86e5e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13e86eb40
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | min_price | max_price 
 ----+-------------+--------+-------+-----------+-----------
@@ -839,7 +839,7 @@ WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_searc
 WARNING:  planner_hook: Found window functions in search query - replacing with window_func(json)
 WARNING:  Extracted window spec: partition_by=[], order_by=None, frame_clause=None
 WARNING:  Window function has FILTER clause - extracting
-WARNING:    root is null, storing FILTER as PostgresExpression for later extraction
+WARNING:    FILTER clause detected - serializing expression tree for later conversion
 WARNING:  Window function at index 4 extracted but has FILTER clause (not yet executable)
 WARNING:  ═══════════════════════════════════════════════════════════
 WARNING:  EXTRACTED WINDOW FUNCTION #4
@@ -860,7 +860,10 @@ WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
 WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func calls
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
-WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x149840478), expr_state: PostgresPointer(0x0) } }) }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x14f81a478), expr_state: PostgresPointer(0x0) } }) }
+WARNING:    Window aggregate has FILTER - verifying deserialization...
+WARNING:    ✅ FILTER deserialized successfully - node pointer is valid: 0x14f81a478
+WARNING:    ✅ FILTER node type: T_OpExpr
 WARNING:  plan_custom_path: Found 1 window aggregates, storing in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
@@ -1555,14 +1558,14 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x149074258
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x13e86ae58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x149074798
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e86b398
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x149074258
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x13e86ae58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x149074798
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e86b398
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
 ----+-------------+----------+-------+-------+--------+-------+-------------+-------------
@@ -1801,19 +1804,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490737e8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149073d40
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490737e8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149073d40
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1490737e8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149073d40
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13e892be8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13e893140
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | category | rating | total_results | category_count 
 ----+-------------+----------+--------+---------------+----------------
@@ -1997,24 +2000,24 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149834b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1498350f0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149834b98
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1498350f0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149834b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1498350f0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149834b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1498350f0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c998
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x12e85cef0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | price | price_bucket | total_results | bucket_count 
 ----+-------------+-------+--------------+---------------+--------------
@@ -2226,25 +2229,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Avg { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x14e858680
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14e8580d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14e858630
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
 ----+-------------+--------+-------+---------------+-------------+-----------------
@@ -2455,25 +2458,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x149842480
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x12e85c280
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149841ed8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85bcd8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x149842430
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x12e85c230
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | price | total_results | category_min_price | category_max_price 
 ----+-------------+----------+-------+---------------+--------------------+--------------------
@@ -2639,19 +2642,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149841d68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498422a0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149841d68
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498422a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x149841d68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1498422a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x12e85bb68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x12e85c0a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | in_stock | total_results | stock_count 
 ----+-------------+----------+---------------+-------------
@@ -2821,19 +2824,19 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149842b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1498430f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149842b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1498430f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x149842b98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f845b98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1498430f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x14f8460f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | sales | sales_volume | total_results | total_sales 
 ----+-------------+-------+--------------+---------------+-------------
@@ -3021,24 +3024,24 @@ WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1390d5a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1390d5f70
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1390d5a18
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1390d5f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1390d5a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1390d5f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1390d5a18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x1390d5f70
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x14f839a18
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x14f839f70
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating |     rating_tier     | total_results | tier_count 
 ----+-------------+--------+---------------------+---------------+------------
@@ -3385,43 +3388,43 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x1390d0438
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x1390d0398
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x1390d04d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x1390d0488
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x1390cfe58
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x1390d03e8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x1390d0438
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x1390d0398
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x1390d04d8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x1390d0488
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x1390cfe58
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x1390d03e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x1390d0438
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x1390d0398
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x1390d04d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x1390d0488
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x1390cfe58
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x1390d03e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13e892438
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13e892398
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13e8924d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13e892488
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13e891e58
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13e8923e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
 ----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------

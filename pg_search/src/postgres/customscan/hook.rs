@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::window_function::window_func_oid;
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -421,8 +422,6 @@ unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
     window_aggs: &[WindowAggregateInfo],
 ) {
-    use crate::api::window_function::window_func_oid;
-
     if (*parse).targetList.is_null() {
         return;
     }
@@ -541,7 +540,6 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
 pub unsafe fn extract_window_aggregates_from_targetlist(
     target_list: *mut pg_sys::List,
 ) -> Vec<WindowAggregateInfo> {
-    use crate::api::window_function::window_func_oid;
     use pgrx::FromDatum;
 
     let mut window_aggs = Vec::new();

@@ -24,6 +24,7 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
+use crate::api::window_function::window_func_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -47,6 +48,8 @@ use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, us
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
+use crate::postgres::customscan::pdbscan::projections::window_agg::convert_window_aggregate_filters;
+use crate::postgres::customscan::pdbscan::projections::window_agg::extract_window_func_calls;
 use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -588,9 +591,6 @@ impl CustomScan for PdbScan {
 
             // Extract window_func(json) calls from processed_tlist using expression tree walker
             // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
-            use crate::api::window_function::window_func_oid;
-            use crate::postgres::customscan::pdbscan::projections::window_agg::extract_window_func_calls;
-
             let window_func_procid = window_func_oid();
             let processed_tlist = (*builder.args().root).processed_tlist;
 
@@ -599,9 +599,6 @@ impl CustomScan for PdbScan {
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
-                use crate::postgres::customscan::pdbscan::projections::window_agg::convert_window_aggregate_filters;
-
-                // Get the necessary context for conversion
                 let private_data = builder.custom_private();
                 if let Some(heaprelid) = private_data.heaprelid() {
                     if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
@@ -630,7 +627,6 @@ impl CustomScan for PdbScan {
                 .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
-
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
@@ -1406,9 +1402,6 @@ unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
 ) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
-    use crate::api::window_function::window_func_oid;
-    use pgrx::PgList;
-
     let mut const_nodes = HashMap::default();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     let window_func_procid = window_func_oid();

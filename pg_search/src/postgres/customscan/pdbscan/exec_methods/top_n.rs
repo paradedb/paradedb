@@ -183,7 +183,10 @@ impl TopNScanExecState {
 
                     (total_count as i64).into_datum().unwrap()
                 }
-                _ => pg_sys::Datum::from(0),
+                _ => panic!(
+                    "Unsupported window aggregate type: {:?}",
+                    agg_info.window_spec.agg_type
+                ),
             };
 
             results.insert(agg_info.target_entry_index, datum);
@@ -201,9 +204,7 @@ impl ExecMethod for TopNScanExecState {
         self.reset(state);
 
         // Transfer window aggregates from scan state to exec state
-        if let Some(ref window_aggs) = state.window_aggregates {
-            self.window_aggregates = Some(window_aggs.clone());
-        }
+        self.window_aggregates = state.window_aggregates.clone();
     }
 
     ///

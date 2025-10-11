@@ -34,17 +34,26 @@ pub mod window_functions {
     /// When false, window functions can be replaced in any query context.
     pub const ONLY_ALLOW_TOP_N: bool = true;
 
+    /// Enable support for window functions in subqueries.
+    pub const SUBQUERY_SUPPORT: bool = false;
+
+    /// Enable support for window functions in queries with HAVING clauses.
+    pub const HAVING_SUPPORT: bool = false;
+
+    /// Enable support for window functions in queries with JOINs.
+    pub const JOIN_SUPPORT: bool = false;
+
     /// Enable support for `PARTITION BY` clause in window functions.
-    pub const PARTITION_BY: bool = false;
+    pub const WINDOW_AGG_PARTITION_BY: bool = false;
 
     /// Enable support for `ORDER BY` clause in window functions.
-    pub const ORDER_BY: bool = false;
+    pub const WINDOW_AGG_ORDER_BY: bool = false;
 
     /// Enable support for `FILTER` clause in window functions.
-    pub const FILTER_CLAUSE: bool = false;
+    pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 
     /// Enable support for custom frame clauses (e.g., `ROWS BETWEEN ...`, `RANGE BETWEEN ...`).
-    pub const FRAME_CLAUSES: bool = false;
+    pub const WINDOW_AGG_FRAME_CLAUSES: bool = false;
 
     /// Supported aggregate functions in window functions
     pub mod aggregates {
@@ -139,16 +148,16 @@ impl WindowSpecification {
         let has_frame = self.frame_clause.is_some();
 
         // Check each feature against its flag
-        if has_filter && !window_functions::FILTER_CLAUSE {
+        if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
             return false;
         }
-        if has_partition_by && !window_functions::PARTITION_BY {
+        if has_partition_by && !window_functions::WINDOW_AGG_PARTITION_BY {
             return false;
         }
-        if has_order_by && !window_functions::ORDER_BY {
+        if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
             return false;
         }
-        if has_frame && !window_functions::FRAME_CLAUSES {
+        if has_frame && !window_functions::WINDOW_AGG_FRAME_CLAUSES {
             return false;
         }
 
@@ -199,6 +208,30 @@ pub unsafe fn extract_window_aggregates_with_context(
             return Vec::new();
         }
     }
+
+    // Check query context features
+    // Check HAVING clause support
+    if !window_functions::HAVING_SUPPORT && !(*parse).havingQual.is_null() {
+        // Query has HAVING clause but we don't support it - return empty vec
+        return Vec::new();
+    }
+
+    // Check JOIN support
+    if !window_functions::JOIN_SUPPORT && !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        let relation_count = rtable
+            .iter_ptr()
+            .filter(|rte| (**rte).rtekind == pg_sys::RTEKind::RTE_RELATION)
+            .count();
+
+        if relation_count > 1 {
+            // Query has multiple relations (likely JOINs) but we don't support it
+            return Vec::new();
+        }
+    }
+
+    // Note: SUBQUERY_SUPPORT is checked at a higher level in the planner hook
+    // since subqueries are processed recursively
 
     let mut potential_window_aggs = Vec::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);

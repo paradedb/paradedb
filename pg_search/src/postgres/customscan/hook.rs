@@ -20,7 +20,9 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::pdbscan::projections::window_agg::{
+    window_functions, WindowAggregateInfo,
+};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
@@ -466,7 +468,12 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
-                replace_windowfuncs_recursively((*rte).subquery);
+                // Check if subquery support is enabled
+                if window_functions::SUBQUERY_SUPPORT {
+                    replace_windowfuncs_recursively((*rte).subquery);
+                }
+                // If SUBQUERY_SUPPORT is false, we skip processing subqueries,
+                // leaving their window functions for PostgreSQL to handle
             }
         }
     }

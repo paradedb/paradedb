@@ -41,8 +41,6 @@ WITH (
     }'
 );
 -- Test 1: Basic TopN without window aggregates
-\echo 'Test 1: Basic TopN query'
-Test 1: Basic TopN query
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -85,8 +83,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 2: TopN with COUNT(*) OVER () - Basic window aggregate
-\echo 'Test 2: TopN with COUNT(*) OVER () (basic window aggregate)'
-Test 2: TopN with COUNT(*) OVER () (basic window aggregate)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -129,8 +125,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 3: Multiple window aggregates (COUNT, SUM, AVG)
-\echo 'Test 3: Multiple window aggregates in one query'
-Test 3: Multiple window aggregates in one query
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -182,8 +176,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
-\echo 'Test 4: COUNT with PARTITION BY category'
-Test 4: COUNT with PARTITION BY category
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -217,8 +209,6 @@ LIMIT 3;
 (17 rows)
 
 -- Test 5: Window aggregate with ORDER BY in OVER clause
-\echo 'Test 5: SUM with ORDER BY in OVER clause (running total)'
-Test 5: SUM with ORDER BY in OVER clause (running total)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -249,8 +239,6 @@ LIMIT 3;
 (14 rows)
 
 -- Test 6: Window aggregate with ROWS frame
-\echo 'Test 6: AVG with ROWS frame'
-Test 6: AVG with ROWS frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -280,8 +268,6 @@ LIMIT 3;
 (14 rows)
 
 -- Test 7: MIN and MAX window aggregates
-\echo 'Test 7: MIN and MAX aggregates'
-Test 7: MIN and MAX aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -331,8 +317,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 8: Window aggregate with FILTER clause
-\echo 'Test 8: COUNT with FILTER clause'
-Test 8: COUNT with FILTER clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -363,8 +347,6 @@ LIMIT 3;
 (14 rows)
 
 -- Test 9: COUNT with specific column (not *)
-\echo 'Test 9: COUNT(column) instead of COUNT(*)'
-Test 9: COUNT(column) instead of COUNT(*)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -394,8 +376,6 @@ LIMIT 3;
 (14 rows)
 
 -- Test 10: Complex PARTITION BY and ORDER BY combination
-\echo 'Test 10: Complex window with PARTITION BY and ORDER BY'
-Test 10: Complex window with PARTITION BY and ORDER BY
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -430,8 +410,6 @@ LIMIT 3;
 (17 rows)
 
 -- Test 11: Window aggregate without ORDER BY on base query
-\echo 'Test 11: Window aggregate without ORDER BY or LIMIT'
-Test 11: Window aggregate without ORDER BY or LIMIT
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -469,8 +447,6 @@ WHERE description @@@ 'laptop';
 (4 rows)
 
 -- Test 12: Window aggregate with RANGE frame
-\echo 'Test 12: SUM with RANGE frame'
-Test 12: SUM with RANGE frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -504,8 +480,6 @@ LIMIT 3;
 (17 rows)
 
 -- Test 13: Multiple different PARTITION BY clauses
-\echo 'Test 13: Multiple window functions with different partitions'
-Test 13: Multiple window functions with different partitions
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -549,8 +523,6 @@ LIMIT 3;
 (24 rows)
 
 -- Test 14: Window aggregate with GROUPS frame (PG17+)
-\echo 'Test 14: COUNT with GROUPS frame'
-Test 14: COUNT with GROUPS frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -583,8 +555,6 @@ LIMIT 3;
 (17 rows)
 
 -- Test 15: TopN with no @@@ operator (should not trigger window function handling)
-\echo 'Test 15: Window aggregate without @@@ operator (should use standard WindowAgg)'
-Test 15: Window aggregate without @@@ operator (should use standard WindowAgg)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -626,8 +596,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 16: Window aggregate with multiple base table columns
-\echo 'Test 16: Window aggregate with all result columns'
-Test 16: Window aggregate with all result columns
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -682,8 +650,6 @@ LIMIT 2;
 (2 rows)
 
 -- Test 17: Window aggregate in a subquery (TopN in outer query)
-\echo 'Test 17: Subquery with window aggregate, outer LIMIT'
-Test 17: Subquery with window aggregate, outer LIMIT
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM (
     SELECT 
@@ -716,8 +682,6 @@ ORDER BY price DESC
 LIMIT 2;
 ERROR:  Should find bm25_index when query has @@@ operator
 -- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
-\echo 'Test 18: TopN with category facet (value facet pattern)'
-Test 18: TopN with category facet (value facet pattern)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -772,8 +736,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
-\echo 'Test 19: TopN with price range buckets'
-Test 19: TopN with price range buckets
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -845,8 +807,6 @@ LIMIT 5;
 (4 rows)
 
 -- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
-\echo 'Test 20: TopN with multiple facets (brand + price range)'
-Test 20: TopN with multiple facets (brand + price range)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -903,8 +863,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 21: Facet with aggregates - MIN/MAX price per category
-\echo 'Test 21: TopN with MIN/MAX aggregates per category'
-Test 21: TopN with MIN/MAX aggregates per category
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -961,8 +919,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 22: Boolean facet - In-stock availability
-\echo 'Test 22: TopN with boolean facet (in_stock)'
-Test 22: TopN with boolean facet (in_stock)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1015,8 +971,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 23: Popularity facet - Sales volume buckets
-\echo 'Test 23: TopN with sales volume facets'
-Test 23: TopN with sales volume facets
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1074,8 +1028,6 @@ LIMIT 3;
 (3 rows)
 
 -- Test 24: Rating histogram - Rating distribution
-\echo 'Test 24: TopN with rating distribution histogram'
-Test 24: TopN with rating distribution histogram
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1151,8 +1103,6 @@ LIMIT 5;
 (4 rows)
 
 -- Test 25: Complete faceting scenario - Combining all facet types
-\echo 'Test 25: Complete e-commerce faceting (brand, price, rating, stock)'
-Test 25: Complete e-commerce faceting (brand, price, rating, stock)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1242,5 +1192,553 @@ LIMIT 3;
   3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
 (3 rows)
 
+-- =============================================================================
+-- QUERY CONTEXT FEATURE FLAG TESTS
+-- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- =============================================================================
+-- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    category,
+    AVG(price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(price) > 1000
+ORDER BY avg_price DESC
+LIMIT 3;
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (avg(price)), (count(*) OVER (?))
+   ->  Sort
+         Output: category, (avg(price)), (count(*) OVER (?))
+         Sort Key: (avg(products.price)) DESC
+         ->  WindowAgg
+               Output: category, (avg(price)), count(*) OVER (?)
+               ->  GroupAggregate
+                     Output: category, avg(price)
+                     Group Key: products.category
+                     Filter: (avg(products.price) > '1000'::numeric)
+                     ->  Sort
+                           Output: category, price
+                           Sort Key: products.category
+                           ->  Custom Scan (ParadeDB Scan) on public.products
+                                 Output: category, price
+                                 Table: products
+                                 Index: products_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT 
+    category,
+    AVG(price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(price) > 1000
+ORDER BY avg_price DESC
+LIMIT 3;
+ category |       avg_price       | total_count 
+----------+-----------------------+-------------
+ Laptops  | 1849.0000000000000000 |           1
+(1 row)
+
+-- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+-- Create a second table for JOIN testing
+CREATE TABLE product_categories (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    priority INTEGER
+);
+INSERT INTO product_categories VALUES 
+('Laptops', 'Portable computing devices', 1);
+CREATE INDEX product_categories_idx ON product_categories
+USING bm25(name, description, priority)
+WITH (key_field='name');
+WARNING:  the `raw` tokenizer is deprecated
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    p.id,
+    p.name,
+    p.rating,
+    pc.description as category_desc,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+ORDER BY p.rating DESC
+LIMIT 3;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, p.rating, pc.description, (count(*) OVER (?))
+   ->  Sort
+         Output: p.id, p.name, p.rating, pc.description, (count(*) OVER (?))
+         Sort Key: p.rating DESC
+         ->  WindowAgg
+               Output: p.id, p.name, p.rating, pc.description, count(*) OVER (?)
+               ->  Nested Loop
+                     Output: p.id, p.name, p.rating, pc.description
+                     Join Filter: (p.category = pc.name)
+                     ->  Seq Scan on public.product_categories pc
+                           Output: pc.name, pc.description, pc.priority
+                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                           Output: p.id, p.name, p.rating, p.category
+                           Table: products
+                           Index: products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT 
+    p.id,
+    p.name,
+    p.rating,
+    pc.description as category_desc,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+ORDER BY p.rating DESC
+LIMIT 3;
+ id |    name     | rating |       category_desc        | total_count 
+----+-------------+--------+----------------------------+-------------
+  1 | MacBook Pro |    4.8 | Portable computing devices |           4
+  5 | ASUS ROG    |    4.7 | Portable computing devices |           4
+  3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
+(3 rows)
+
+-- Test 28: Window function in subquery
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT *
+FROM (
+    SELECT 
+        id,
+        name,
+        rating,
+        price,
+        COUNT(*) OVER() AS total_count
+    FROM products
+    WHERE description @@@ 'laptop'
+    ORDER BY rating DESC
+    LIMIT 5
+) subq
+WHERE total_count > 0
+ORDER BY price DESC
+LIMIT 3;
+ERROR:  Should find bm25_index when query has @@@ operator
+SELECT *
+FROM (
+    SELECT 
+        id,
+        name,
+        rating,
+        price,
+        COUNT(*) OVER() AS total_count
+    FROM products
+    WHERE description @@@ 'laptop'
+    ORDER BY rating DESC
+    LIMIT 5
+) subq
+WHERE total_count > 0
+ORDER BY price DESC
+LIMIT 3;
+ERROR:  Should find bm25_index when query has @@@ operator
+-- Test 29: Nested subqueries with window functions
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT outer_query.*
+FROM (
+    SELECT 
+        inner_query.*,
+        ROW_NUMBER() OVER(ORDER BY total_count DESC) as rank
+    FROM (
+        SELECT 
+            id,
+            name,
+            rating,
+            COUNT(*) OVER() AS total_count
+        FROM products
+        WHERE description @@@ 'laptop'
+        ORDER BY rating DESC
+        LIMIT 4
+    ) inner_query
+) outer_query
+WHERE rank <= 2;
+ERROR:  Should find bm25_index when query has @@@ operator
+SELECT outer_query.*
+FROM (
+    SELECT 
+        inner_query.*,
+        ROW_NUMBER() OVER(ORDER BY total_count DESC) as rank
+    FROM (
+        SELECT 
+            id,
+            name,
+            rating,
+            COUNT(*) OVER() AS total_count
+        FROM products
+        WHERE description @@@ 'laptop'
+        ORDER BY rating DESC
+        LIMIT 4
+    ) inner_query
+) outer_query
+WHERE rank <= 2;
+ERROR:  Should find bm25_index when query has @@@ operator
+-- Test 30: Window function with HAVING + JOIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    p.category,
+    pc.description,
+    AVG(p.price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+GROUP BY p.category, pc.description
+HAVING AVG(p.price) > 1000
+ORDER BY avg_price DESC
+LIMIT 2;
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.category, pc.description, (avg(p.price)), (count(*) OVER (?))
+   ->  Sort
+         Output: p.category, pc.description, (avg(p.price)), (count(*) OVER (?))
+         Sort Key: (avg(p.price)) DESC
+         ->  WindowAgg
+               Output: p.category, pc.description, (avg(p.price)), count(*) OVER (?)
+               ->  GroupAggregate
+                     Output: p.category, pc.description, avg(p.price)
+                     Group Key: p.category, pc.description
+                     Filter: (avg(p.price) > '1000'::numeric)
+                     ->  Sort
+                           Output: p.category, pc.description, p.price
+                           Sort Key: p.category, pc.description
+                           ->  Nested Loop
+                                 Output: p.category, pc.description, p.price
+                                 Join Filter: (p.category = pc.name)
+                                 ->  Seq Scan on public.product_categories pc
+                                       Output: pc.name, pc.description, pc.priority
+                                 ->  Custom Scan (ParadeDB Scan) on public.products p
+                                       Output: p.category, p.price
+                                       Table: products
+                                       Index: products_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
+
+SELECT 
+    p.category,
+    pc.description,
+    AVG(p.price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+GROUP BY p.category, pc.description
+HAVING AVG(p.price) > 1000
+ORDER BY avg_price DESC
+LIMIT 2;
+ category |        description         |       avg_price       | total_count 
+----------+----------------------------+-----------------------+-------------
+ Laptops  | Portable computing devices | 1849.0000000000000000 |           1
+(1 row)
+
+-- Test 31: Window function with FILTER clause in different contexts
+-- Simple case
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER (?))
+   ->  Sort
+         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > 4.5)) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, in_stock
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | in_stock | high_rating_count 
+----+-------------+--------+----------+-------------------
+  1 | MacBook Pro |    4.8 | t        |                 2
+  5 | ASUS ROG    |    4.7 | t        |                 2
+  3 | ThinkPad X1 |    4.5 | t        |                 2
+(3 rows)
+
+-- With HAVING
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    category,
+    AVG(rating) as avg_rating,
+    COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(rating) > 4.0
+ORDER BY avg_rating DESC
+LIMIT 2;
+ERROR:  column "products.price" must appear in the GROUP BY clause or be used in an aggregate function at character 122
+SELECT 
+    category,
+    AVG(rating) as avg_rating,
+    COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(rating) > 4.0
+ORDER BY avg_rating DESC
+LIMIT 2;
+ERROR:  column "products.price" must appear in the GROUP BY clause or be used in an aggregate function at character 81
+-- Test 32: Mixed supported and unsupported window functions (all-or-nothing test)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,                    -- Supported (COUNT_ANY=true)
+    SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
+    COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (count(*) OVER (?)), (sum(price) OVER (?)), (count(brand) OVER (?))
+   ->  Sort
+         Output: id, name, rating, price, (count(*) OVER (?)), (sum(price) OVER (?)), (count(brand) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, price, count(*) OVER (?), sum(price) OVER (?), count(brand) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, price, brand
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,                    -- Supported (COUNT_ANY=true)
+    SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
+    COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | price | total_count | total_price | brand_count 
+----+-------------+--------+-------+-------------+-------------+-------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 |           4
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 |           4
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 |           4
+(3 rows)
+
+-- Test 33: Only supported window functions (should use custom scan)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count1,                   -- Supported (COUNT_ANY=true)
+    COUNT(*) OVER() AS total_count2                    -- Supported (COUNT_ANY=true)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count1,
+    COUNT(*) OVER() AS total_count2
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | price | total_count1 | total_count2 
+----+-------------+--------+-------+--------------+--------------
+  1 | MacBook Pro |    4.8 |  2499 |            4 |            4
+  5 | ASUS ROG    |    4.7 |  1899 |            4 |            4
+  3 | ThinkPad X1 |    4.5 |  1599 |            4 |            4
+(3 rows)
+
+-- Test 34: Query without ORDER BY and LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop';
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ WindowAgg
+   Output: id, name, rating, count(*) OVER (?)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating
+         Table: products
+         Index: products_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop';
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+  4 | HP Spectre  |    4.4 |           4
+  5 | ASUS ROG    |    4.7 |           4
+(4 rows)
+
+-- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, name, rating, (count(*) OVER (?))
+   Sort Key: products.rating DESC
+   ->  WindowAgg
+         Output: id, name, rating, count(*) OVER (?)
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: id, name, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+  4 | HP Spectre  |    4.4 |           4
+(4 rows)
+
+-- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+LIMIT 3;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (count(*) OVER (?))
+   ->  WindowAgg
+         Output: id, name, rating, count(*) OVER (?)
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: id, name, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+  4 | HP Spectre  |    4.4 |           4
+(3 rows)
+
 -- Cleanup
+DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

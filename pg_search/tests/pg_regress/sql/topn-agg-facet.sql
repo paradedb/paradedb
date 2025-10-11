@@ -47,7 +47,6 @@ WITH (
 );
 
 -- Test 1: Basic TopN without window aggregates
-\echo 'Test 1: Basic TopN query'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -70,7 +69,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 2: TopN with COUNT(*) OVER () - Basic window aggregate
-\echo 'Test 2: TopN with COUNT(*) OVER () (basic window aggregate)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -93,7 +91,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 3: Multiple window aggregates (COUNT, SUM, AVG)
-\echo 'Test 3: Multiple window aggregates in one query'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -122,7 +119,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
-\echo 'Test 4: COUNT with PARTITION BY category'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -136,7 +132,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 5: Window aggregate with ORDER BY in OVER clause
-\echo 'Test 5: SUM with ORDER BY in OVER clause (running total)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -150,7 +145,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 6: Window aggregate with ROWS frame
-\echo 'Test 6: AVG with ROWS frame'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -163,7 +157,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 7: MIN and MAX window aggregates
-\echo 'Test 7: MIN and MAX aggregates'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -190,7 +183,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 8: Window aggregate with FILTER clause
-\echo 'Test 8: COUNT with FILTER clause'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -204,7 +196,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 9: COUNT with specific column (not *)
-\echo 'Test 9: COUNT(column) instead of COUNT(*)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -217,7 +208,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 10: Complex PARTITION BY and ORDER BY combination
-\echo 'Test 10: Complex window with PARTITION BY and ORDER BY'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -232,7 +222,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 11: Window aggregate without ORDER BY on base query
-\echo 'Test 11: Window aggregate without ORDER BY or LIMIT'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -251,7 +240,6 @@ FROM products
 WHERE description @@@ 'laptop';
 
 -- Test 12: Window aggregate with RANGE frame
-\echo 'Test 12: SUM with RANGE frame'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -265,7 +253,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 13: Multiple different PARTITION BY clauses
-\echo 'Test 13: Multiple window functions with different partitions'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -282,7 +269,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 14: Window aggregate with GROUPS frame (PG17+)
-\echo 'Test 14: COUNT with GROUPS frame'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -295,7 +281,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 15: TopN with no @@@ operator (should not trigger window function handling)
-\echo 'Test 15: Window aggregate without @@@ operator (should use standard WindowAgg)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -318,7 +303,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 16: Window aggregate with multiple base table columns
-\echo 'Test 16: Window aggregate with all result columns'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -351,7 +335,6 @@ ORDER BY rating DESC
 LIMIT 2;
 
 -- Test 17: Window aggregate in a subquery (TopN in outer query)
-\echo 'Test 17: Subquery with window aggregate, outer LIMIT'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM (
     SELECT 
@@ -384,7 +367,6 @@ ORDER BY price DESC
 LIMIT 2;
 
 -- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
-\echo 'Test 18: TopN with category facet (value facet pattern)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -411,7 +393,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
-\echo 'Test 19: TopN with price range buckets'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -454,7 +435,6 @@ ORDER BY rating DESC
 LIMIT 5;
 
 -- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
-\echo 'Test 20: TopN with multiple facets (brand + price range)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -483,7 +463,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 21: Facet with aggregates - MIN/MAX price per category
-\echo 'Test 21: TopN with MIN/MAX aggregates per category'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -512,7 +491,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 22: Boolean facet - In-stock availability
-\echo 'Test 22: TopN with boolean facet (in_stock)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -537,7 +515,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 23: Popularity facet - Sales volume buckets
-\echo 'Test 23: TopN with sales volume facets'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -572,7 +549,6 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- Test 24: Rating histogram - Rating distribution
-\echo 'Test 24: TopN with rating distribution histogram'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -619,7 +595,6 @@ ORDER BY rating DESC
 LIMIT 5;
 
 -- Test 25: Complete faceting scenario - Combining all facet types
-\echo 'Test 25: Complete e-commerce faceting (brand, price, rating, stock)'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -671,5 +646,342 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+-- =============================================================================
+-- QUERY CONTEXT FEATURE FLAG TESTS
+-- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- =============================================================================
+
+-- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    category,
+    AVG(price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(price) > 1000
+ORDER BY avg_price DESC
+LIMIT 3;
+
+SELECT 
+    category,
+    AVG(price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(price) > 1000
+ORDER BY avg_price DESC
+LIMIT 3;
+
+-- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+
+-- Create a second table for JOIN testing
+CREATE TABLE product_categories (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    priority INTEGER
+);
+
+INSERT INTO product_categories VALUES 
+('Laptops', 'Portable computing devices', 1);
+
+CREATE INDEX product_categories_idx ON product_categories
+USING bm25(name, description, priority)
+WITH (key_field='name');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    p.id,
+    p.name,
+    p.rating,
+    pc.description as category_desc,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+ORDER BY p.rating DESC
+LIMIT 3;
+
+SELECT 
+    p.id,
+    p.name,
+    p.rating,
+    pc.description as category_desc,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+ORDER BY p.rating DESC
+LIMIT 3;
+
+-- Test 28: Window function in subquery
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT *
+FROM (
+    SELECT 
+        id,
+        name,
+        rating,
+        price,
+        COUNT(*) OVER() AS total_count
+    FROM products
+    WHERE description @@@ 'laptop'
+    ORDER BY rating DESC
+    LIMIT 5
+) subq
+WHERE total_count > 0
+ORDER BY price DESC
+LIMIT 3;
+
+SELECT *
+FROM (
+    SELECT 
+        id,
+        name,
+        rating,
+        price,
+        COUNT(*) OVER() AS total_count
+    FROM products
+    WHERE description @@@ 'laptop'
+    ORDER BY rating DESC
+    LIMIT 5
+) subq
+WHERE total_count > 0
+ORDER BY price DESC
+LIMIT 3;
+
+-- Test 29: Nested subqueries with window functions
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT outer_query.*
+FROM (
+    SELECT 
+        inner_query.*,
+        ROW_NUMBER() OVER(ORDER BY total_count DESC) as rank
+    FROM (
+        SELECT 
+            id,
+            name,
+            rating,
+            COUNT(*) OVER() AS total_count
+        FROM products
+        WHERE description @@@ 'laptop'
+        ORDER BY rating DESC
+        LIMIT 4
+    ) inner_query
+) outer_query
+WHERE rank <= 2;
+
+SELECT outer_query.*
+FROM (
+    SELECT 
+        inner_query.*,
+        ROW_NUMBER() OVER(ORDER BY total_count DESC) as rank
+    FROM (
+        SELECT 
+            id,
+            name,
+            rating,
+            COUNT(*) OVER() AS total_count
+        FROM products
+        WHERE description @@@ 'laptop'
+        ORDER BY rating DESC
+        LIMIT 4
+    ) inner_query
+) outer_query
+WHERE rank <= 2;
+
+-- Test 30: Window function with HAVING + JOIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    p.category,
+    pc.description,
+    AVG(p.price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+GROUP BY p.category, pc.description
+HAVING AVG(p.price) > 1000
+ORDER BY avg_price DESC
+LIMIT 2;
+
+SELECT 
+    p.category,
+    pc.description,
+    AVG(p.price) as avg_price,
+    COUNT(*) OVER() AS total_count
+FROM products p
+JOIN product_categories pc ON p.category = pc.name
+WHERE p.description @@@ 'laptop'
+GROUP BY p.category, pc.description
+HAVING AVG(p.price) > 1000
+ORDER BY avg_price DESC
+LIMIT 2;
+
+-- Test 31: Window function with FILTER clause in different contexts
+
+-- Simple case
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- With HAVING
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    category,
+    AVG(rating) as avg_rating,
+    COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(rating) > 4.0
+ORDER BY avg_rating DESC
+LIMIT 2;
+
+SELECT 
+    category,
+    AVG(rating) as avg_rating,
+    COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
+FROM products
+WHERE description @@@ 'laptop'
+GROUP BY category
+HAVING AVG(rating) > 4.0
+ORDER BY avg_rating DESC
+LIMIT 2;
+
+-- Test 32: Mixed supported and unsupported window functions (all-or-nothing test)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,                    -- Supported (COUNT_ANY=true)
+    SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
+    COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count,                    -- Supported (COUNT_ANY=true)
+    SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
+    COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 33: Only supported window functions (should use custom scan)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count1,                   -- Supported (COUNT_ANY=true)
+    COUNT(*) OVER() AS total_count2                    -- Supported (COUNT_ANY=true)
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    COUNT(*) OVER() AS total_count1,
+    COUNT(*) OVER() AS total_count2
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 34: Query without ORDER BY and LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop';
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop';
+
+-- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC;
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC;
+
+-- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER() AS total_count
+FROM products
+WHERE description @@@ 'laptop'
+LIMIT 3;
+
 -- Cleanup
+DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

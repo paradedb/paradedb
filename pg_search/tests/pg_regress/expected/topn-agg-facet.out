@@ -144,20 +144,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":6,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":6,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+   Output: id, name, rating, price, (count(*) OVER (?)), (sum(price) OVER (?)), (avg(rating) OVER (?))
+   ->  Sort
+         Output: id, name, rating, price, (count(*) OVER (?)), (sum(price) OVER (?)), (avg(rating) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, price, count(*) OVER (?), sum(price) OVER (?), avg(rating) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT 
     id,
@@ -171,11 +174,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | total_count | total_price | avg_rating 
-----+-------------+--------+-------+-------------+-------------+------------
-  1 | MacBook Pro |    4.8 |  2499 |           4 |           0 |          0
-  5 | ASUS ROG    |    4.7 |  1899 |           4 |           0 |          0
-  3 | ThinkPad X1 |    4.5 |  1599 |           4 |           0 |          0
+ id |    name     | rating | price | total_count | total_price |     avg_rating     
+----+-------------+--------+-------+-------------+-------------+--------------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 | 4.6000000000000000
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 | 4.6000000000000000
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 | 4.6000000000000000
 (3 rows)
 
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
@@ -291,20 +294,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":701,"window_spec":{"agg_type":{"Min":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Max":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":701,"window_spec":{"agg_type":{"Min":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Max":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+   Output: id, name, rating, price, (min(price) OVER (?)), (max(price) OVER (?))
+   ->  Sort
+         Output: id, name, rating, price, (min(price) OVER (?)), (max(price) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, price, min(price) OVER (?), max(price) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT 
     id,
@@ -319,9 +325,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | min_price | max_price 
 ----+-------------+--------+-------+-----------+-----------
-  1 | MacBook Pro |    4.8 |  2499 |         0 |         0
-  5 | ASUS ROG    |    4.7 |  1899 |         0 |         0
-  3 | ThinkPad X1 |    4.5 |  1599 |         0 |         0
+  1 | MacBook Pro |    4.8 |  2499 |      1399 |      2499
+  5 | ASUS ROG    |    4.7 |  1899 |      1399 |      2499
+  3 | ThinkPad X1 |    4.5 |  1599 |      1399 |      2499
 (3 rows)
 
 -- Test 8: Window aggregate with FILTER clause
@@ -369,20 +375,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                        QUERY PLAN                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"Count":{"field":"field_5","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"Count":{"field":"field_5","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+   Output: id, name, rating, (count(brand) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (count(brand) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, count(brand) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating, brand
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 -- Test 10: Complex PARTITION BY and ORDER BY combination
 \echo 'Test 10: Complex window with PARTITION BY and ORDER BY'
@@ -431,16 +440,18 @@ SELECT
     COUNT(*) OVER () as total_count
 FROM products
 WHERE description @@@ 'laptop';
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.products
-   Output: id, name, rating, paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-   Table: products
-   Index: products_idx
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ WindowAgg
+   Output: id, name, rating, count(*) OVER (?)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating
+         Table: products
+         Index: products_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
 
 SELECT 
     id,
@@ -449,7 +460,14 @@ SELECT
     COUNT(*) OVER () as total_count
 FROM products
 WHERE description @@@ 'laptop';
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+  4 | HP Spectre  |    4.4 |           4
+  5 | ASUS ROG    |    4.7 |           4
+(4 rows)
+
 -- Test 12: Window aggregate with RANGE frame
 \echo 'Test 12: SUM with RANGE frame'
 Test 12: SUM with RANGE frame
@@ -502,17 +520,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), (paradedb.window_func('{"target_entry_index":7,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
-   ->  Result
-         Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), paradedb.window_func('{"target_entry_index":7,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-         ->  Sort
-               Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?))
-               Sort Key: products.rating DESC
+   Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), count(*) OVER (?)
                ->  WindowAgg
-                     Output: id, name, category, brand, rating, count(*) OVER (?), (count(*) OVER (?))
+                     Output: category, brand, id, name, rating, (count(*) OVER (?)), count(*) OVER (?)
                      ->  Sort
                            Output: category, brand, id, name, rating, (count(*) OVER (?))
                            Sort Key: products.category
@@ -625,20 +643,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
-                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, price, rating, sales, (paradedb.window_func('{"target_entry_index":7,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":8,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, category, brand, price, rating, sales, paradedb.window_func('{"target_entry_index":7,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":8,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 2
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+   Output: id, name, category, brand, price, rating, sales, (count(*) OVER (?)), (sum(sales) OVER (?))
+   ->  Sort
+         Output: id, name, category, brand, price, rating, sales, (count(*) OVER (?)), (sum(sales) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, category, brand, price, rating, sales, count(*) OVER (?), sum(sales) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, category, brand, price, rating, sales
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT 
     id,
@@ -656,8 +677,8 @@ ORDER BY rating DESC
 LIMIT 2;
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
 ----+-------------+----------+-------+-------+--------+-------+-------------+-------------
-  1 | MacBook Pro | Laptops  | Apple |  2499 |    4.8 |   150 |           4 |           0
-  5 | ASUS ROG    | Laptops  | ASUS  |  1899 |    4.7 |    90 |           4 |           0
+  1 | MacBook Pro | Laptops  | Apple |  2499 |    4.8 |   150 |           4 |         540
+  5 | ASUS ROG    | Laptops  | ASUS  |  1899 |    4.7 |    90 |           4 |         540
 (2 rows)
 
 -- Test 17: Window aggregate in a subquery (TopN in outer query)
@@ -709,17 +730,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, rating, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?))
-   ->  Result
-         Output: id, name, category, rating, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?))
-         ->  Sort
-               Output: id, name, category, rating, (count(*) OVER (?))
-               Sort Key: products.rating DESC
+   Output: id, name, category, rating, (count(*) OVER (?)), (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, category, rating, (count(*) OVER (?)), (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, category, rating, count(*) OVER (?), (count(*) OVER (?))
                ->  WindowAgg
-                     Output: id, name, category, rating, count(*) OVER (?)
+                     Output: category, id, name, rating, count(*) OVER (?)
                      ->  Sort
                            Output: category, id, name, rating
                            Sort Key: products.category
@@ -743,7 +764,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | category | rating | total_results | category_count 
+----+-------------+----------+--------+---------------+----------------
+  1 | MacBook Pro | Laptops  |    4.8 |             4 |              4
+  5 | ASUS ROG    | Laptops  |    4.7 |             4 |              4
+  3 | ThinkPad X1 | Laptops  |    4.5 |             4 |              4
+(3 rows)
+
 -- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
 \echo 'Test 19: TopN with price range buckets'
 Test 19: TopN with price range buckets
@@ -767,17 +794,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?)), rating
-   ->  Result
-         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?)), rating
-         ->  Sort
-               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER (?)), rating
-               Sort Key: products.rating DESC
+   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER (?)), (count(*) OVER (?)), rating
+   ->  Sort
+         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER (?)), (count(*) OVER (?)), rating
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER (?), (count(*) OVER (?)), rating
                ->  WindowAgg
-                     Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER (?), rating
+                     Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER (?)
                      ->  Sort
                            Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
                            Sort Key: (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END)
@@ -809,7 +836,14 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | price | price_bucket | total_results | bucket_count 
+----+-------------+-------+--------------+---------------+--------------
+  1 | MacBook Pro |  2499 | Premium      |             4 |            3
+  5 | ASUS ROG    |  1899 | Premium      |             4 |            3
+  3 | ThinkPad X1 |  1599 | Premium      |             4 |            3
+  4 | HP Spectre  |  1399 | Mid-range    |             4 |            1
+(4 rows)
+
 -- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
 \echo 'Test 20: TopN with multiple facets (brand + price range)'
 Test 20: TopN with multiple facets (brand + price range)
@@ -826,17 +860,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                      QUERY PLAN                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?)), (avg(price) OVER (?)), rating
-   ->  Result
-         Output: id, name, brand, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?)), (avg(price) OVER (?)), rating
-         ->  Sort
-               Output: id, name, brand, price, (count(*) OVER (?)), (avg(price) OVER (?)), rating
-               Sort Key: products.rating DESC
+   Output: id, name, brand, price, (count(*) OVER (?)), (count(*) OVER (?)), (avg(price) OVER (?)), rating
+   ->  Sort
+         Output: id, name, brand, price, (count(*) OVER (?)), (count(*) OVER (?)), (avg(price) OVER (?)), rating
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, brand, price, count(*) OVER (?), (count(*) OVER (?)), (avg(price) OVER (?)), rating
                ->  WindowAgg
-                     Output: id, name, brand, price, count(*) OVER (?), avg(price) OVER (?), rating
+                     Output: brand, id, name, price, rating, count(*) OVER (?), avg(price) OVER (?)
                      ->  Sort
                            Output: brand, id, name, price, rating
                            Sort Key: products.brand
@@ -861,7 +895,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | brand  | price | total_results | brand_count |    avg_brand_price    
+----+-------------+--------+-------+---------------+-------------+-----------------------
+  1 | MacBook Pro | Apple  |  2499 |             4 |           1 | 2499.0000000000000000
+  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 | 1899.0000000000000000
+  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 | 1599.0000000000000000
+(3 rows)
+
 -- Test 21: Facet with aggregates - MIN/MAX price per category
 \echo 'Test 21: TopN with MIN/MAX aggregates per category'
 Test 21: TopN with MIN/MAX aggregates per category
@@ -878,17 +918,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                         QUERY PLAN                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (min(price) OVER (?)), (max(price) OVER (?)), rating
-   ->  Result
-         Output: id, name, category, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (min(price) OVER (?)), (max(price) OVER (?)), rating
-         ->  Sort
-               Output: id, name, category, price, (min(price) OVER (?)), (max(price) OVER (?)), rating
-               Sort Key: products.rating DESC
+   Output: id, name, category, price, (count(*) OVER (?)), (min(price) OVER (?)), (max(price) OVER (?)), rating
+   ->  Sort
+         Output: id, name, category, price, (count(*) OVER (?)), (min(price) OVER (?)), (max(price) OVER (?)), rating
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, category, price, count(*) OVER (?), (min(price) OVER (?)), (max(price) OVER (?)), rating
                ->  WindowAgg
-                     Output: id, name, category, price, min(price) OVER (?), max(price) OVER (?), rating
+                     Output: category, id, name, price, rating, min(price) OVER (?), max(price) OVER (?)
                      ->  Sort
                            Output: category, id, name, price, rating
                            Sort Key: products.category
@@ -913,7 +953,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | category | price | total_results | category_min_price | category_max_price 
+----+-------------+----------+-------+---------------+--------------------+--------------------
+  1 | MacBook Pro | Laptops  |  2499 |             4 |               1399 |               2499
+  5 | ASUS ROG    | Laptops  |  1899 |             4 |               1399 |               2499
+  3 | ThinkPad X1 | Laptops  |  1599 |             4 |               1399 |               2499
+(3 rows)
+
 -- Test 22: Boolean facet - In-stock availability
 \echo 'Test 22: TopN with boolean facet (in_stock)'
 Test 22: TopN with boolean facet (in_stock)
@@ -928,17 +974,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, in_stock, (paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?)), rating
-   ->  Result
-         Output: id, name, in_stock, paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?)), rating
-         ->  Sort
-               Output: id, name, in_stock, (count(*) OVER (?)), rating
-               Sort Key: products.rating DESC
+   Output: id, name, in_stock, (count(*) OVER (?)), (count(*) OVER (?)), rating
+   ->  Sort
+         Output: id, name, in_stock, (count(*) OVER (?)), (count(*) OVER (?)), rating
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, in_stock, count(*) OVER (?), (count(*) OVER (?)), rating
                ->  WindowAgg
-                     Output: id, name, in_stock, count(*) OVER (?), rating
+                     Output: in_stock, id, name, rating, count(*) OVER (?)
                      ->  Sort
                            Output: in_stock, id, name, rating
                            Sort Key: products.in_stock
@@ -961,7 +1007,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | in_stock | total_results | stock_count 
+----+-------------+----------+---------------+-------------
+  1 | MacBook Pro | t        |             4 |           4
+  5 | ASUS ROG    | t        |             4 |           4
+  3 | ThinkPad X1 | t        |             4 |           4
+(3 rows)
+
 -- Test 23: Popularity facet - Sales volume buckets
 \echo 'Test 23: TopN with sales volume facets'
 Test 23: TopN with sales volume facets
@@ -981,20 +1033,23 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), rating
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"result_type_oid":701,"window_spec":{"agg_type":{"Sum":{"field":"field_9","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), rating
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (count(*) OVER (?)), (sum(sales) OVER (?)), rating
+   ->  Sort
+         Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (count(*) OVER (?)), (sum(sales) OVER (?)), rating
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, count(*) OVER (?), sum(sales) OVER (?), rating
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, sales, rating
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT 
     id,
@@ -1013,9 +1068,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | sales | sales_volume | total_results | total_sales 
 ----+-------------+-------+--------------+---------------+-------------
-  1 | MacBook Pro |   150 | High         |             4 |           0
-  5 | ASUS ROG    |    90 | Low          |             4 |           0
-  3 | ThinkPad X1 |   180 | High         |             4 |           0
+  1 | MacBook Pro |   150 | High         |             4 |         540
+  5 | ASUS ROG    |    90 | Low          |             4 |         540
+  3 | ThinkPad X1 |   180 | High         |             4 |         540
 (3 rows)
 
 -- Test 24: Rating histogram - Rating distribution
@@ -1043,17 +1098,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?))
-   ->  Result
-         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?))
-         ->  Sort
-               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER (?))
-               Sort Key: products.rating DESC
+   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER (?)), (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER (?)), (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER (?), (count(*) OVER (?))
                ->  WindowAgg
-                     Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER (?)
+                     Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER (?)
                      ->  Sort
                            Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
                            Sort Key: (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
@@ -1087,7 +1142,14 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | rating |     rating_tier     | total_results | tier_count 
+----+-------------+--------+---------------------+---------------+------------
+  1 | MacBook Pro |    4.8 | Excellent (4.7+)    |             4 |          2
+  5 | ASUS ROG    |    4.7 | Excellent (4.7+)    |             4 |          2
+  3 | ThinkPad X1 |    4.5 | Very Good (4.5-4.7) |             4 |          1
+  4 | HP Spectre  |    4.4 | Good (4.0-4.5)      |             4 |          1
+(4 rows)
+
 -- Test 25: Complete faceting scenario - Combining all facet types
 \echo 'Test 25: Complete e-commerce faceting (brand, price, rating, stock)'
 Test 25: Complete e-commerce faceting (brand, price, rating, stock)
@@ -1116,17 +1178,17 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, rating, in_stock, (paradedb.window_func('{"target_entry_index":6,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":7,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":8,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
-   ->  Result
-         Output: id, name, brand, price, rating, in_stock, paradedb.window_func('{"target_entry_index":6,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":7,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_6","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":8,"result_type_oid":701,"window_spec":{"agg_type":{"Avg":{"field":"field_7","missing":null,"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
-         ->  Sort
-               Output: id, name, brand, price, rating, in_stock, (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
-               Sort Key: products.rating DESC
+   Output: id, name, brand, price, rating, in_stock, (count(*) OVER (?)), (avg(price) OVER (?)), (avg(rating) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+   ->  Sort
+         Output: id, name, brand, price, rating, in_stock, (count(*) OVER (?)), (avg(price) OVER (?)), (avg(rating) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, brand, price, rating, in_stock, count(*) OVER (?), avg(price) OVER (?), avg(rating) OVER (?), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                ->  WindowAgg
-                     Output: id, name, brand, price, rating, in_stock, count(*) OVER (?), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+                     Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?)), (count(*) OVER (?)), count(*) OVER (?)
                      ->  Sort
                            Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?)), (count(*) OVER (?))
                            Sort Key: products.brand
@@ -1173,6 +1235,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":6,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+ id |    name     | brand  | price | rating | in_stock | total_results |       avg_price       |     avg_rating     | brand_count | price_range_count | stock_count 
+----+-------------+--------+-------+--------+----------+---------------+-----------------------+--------------------+-------------+-------------------+-------------
+  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+(3 rows)
+
 -- Cleanup
 DROP TABLE products CASCADE;

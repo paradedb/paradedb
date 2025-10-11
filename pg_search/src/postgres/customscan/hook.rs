@@ -533,6 +533,10 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
     // We should always find a bm25_index since we only get here when has_search_op=true
     let bm25_index = bm25_index_opt.expect("Should find bm25_index when query has @@@ operator");
 
+    // Check if this is a TopN query (has ORDER BY and LIMIT)
+    let has_order_by = !(*parse).sortClause.is_null();
+    let has_limit = !(*parse).limitCount.is_null();
+
     // Extract window aggregates with full context
     let window_aggs = window_agg::extract_window_aggregates_with_context(
         (*parse).targetList,
@@ -540,6 +544,8 @@ unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggre
         heap_rti,
         &bm25_index,
         std::ptr::null_mut(), // root not available yet in planner_hook
+        has_order_by,
+        has_limit,
     );
 
     if !window_aggs.is_empty() {

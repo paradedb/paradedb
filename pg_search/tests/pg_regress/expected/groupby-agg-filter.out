@@ -1111,7 +1111,15 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
-ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"target_entry_index":2,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}
+  category   |  price  | total_count | apple_count_window 
+-------------+---------+-------------+--------------------
+ electronics | 2499.99 |           8 |                  3
+ electronics | 1999.99 |           8 |                  3
+ electronics | 1799.99 |           8 |                  3
+ electronics |  899.99 |           8 |                  3
+ electronics |  649.99 |           8 |                  3
+(5 rows)
+
 -- Test 10.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
 SELECT 
     category,

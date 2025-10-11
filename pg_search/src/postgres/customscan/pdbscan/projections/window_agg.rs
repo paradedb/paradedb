@@ -29,6 +29,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// When a feature is fully implemented and stable, its flag should be set to `true`.
 pub mod window_functions {
+    /// Only allow window function replacement in TopN queries (with ORDER BY and LIMIT).
+    /// When true, window functions are only replaced with window_func in TopN execution context.
+    /// When false, window functions can be replaced in any query context.
+    pub const ONLY_ALLOW_TOP_N: bool = true;
+
     /// Enable support for `PARTITION BY` clause in window functions.
     pub const PARTITION_BY: bool = false;
 
@@ -40,6 +45,27 @@ pub mod window_functions {
 
     /// Enable support for custom frame clauses (e.g., `ROWS BETWEEN ...`, `RANGE BETWEEN ...`).
     pub const FRAME_CLAUSES: bool = false;
+
+    /// Supported aggregate functions in window functions
+    pub mod aggregates {
+        /// Enable support for `COUNT(*)` in window functions.
+        pub const COUNT_ANY: bool = true;
+
+        /// Enable support for `COUNT(field)` in window functions.
+        pub const COUNT: bool = false;
+
+        /// Enable support for `SUM(field)` in window functions.
+        pub const SUM: bool = false;
+
+        /// Enable support for `AVG(field)` in window functions.
+        pub const AVG: bool = false;
+
+        /// Enable support for `MIN(field)` in window functions.
+        pub const MIN: bool = false;
+
+        /// Enable support for `MAX(field)` in window functions.
+        pub const MAX: bool = false;
+    }
 }
 
 /// Information about a window aggregate to compute during TopN execution
@@ -102,10 +128,16 @@ impl WindowSpecification {
     ///
     /// Execution capability is determined by feature flags defined in this module.
     pub fn is_supported(&self) -> bool {
+        // First check if the aggregate function itself is supported
+        if !self.is_aggregate_supported() {
+            return false;
+        }
+
         let has_filter = self.agg_type.has_filter();
         let has_partition_by = !self.partition_by.is_empty();
         let has_order_by = self.order_by.is_some();
         let has_frame = self.frame_clause.is_some();
+
         // Check each feature against its flag
         if has_filter && !window_functions::FILTER_CLAUSE {
             return false;
@@ -123,18 +155,28 @@ impl WindowSpecification {
         // All required features are supported
         true
     }
+
+    /// Check if the aggregate function type is supported
+    fn is_aggregate_supported(&self) -> bool {
+        match &self.agg_type {
+            AggregateType::CountAny { .. } => window_functions::aggregates::COUNT_ANY,
+            AggregateType::Count { .. } => window_functions::aggregates::COUNT,
+            AggregateType::Sum { .. } => window_functions::aggregates::SUM,
+            AggregateType::Avg { .. } => window_functions::aggregates::AVG,
+            AggregateType::Min { .. } => window_functions::aggregates::MIN,
+            AggregateType::Max { .. } => window_functions::aggregates::MAX,
+        }
+    }
 }
 
 /// Extract window aggregates from the target list with full context
 ///
-/// Extracts ONLY window functions that we can currently execute:
-/// - Standard aggregates: COUNT, SUM, AVG, MIN, MAX
-/// - Window specification: PARTITION BY, ORDER BY, frame clauses
-/// - FILTER clauses (stored as PostgresExpression if root is null)
-/// - Result types
+/// Uses an all-or-nothing approach: either ALL window functions in the query are supported
+/// and get replaced with window_func placeholders, or NONE of them are replaced and
+/// PostgreSQL handles all window functions with standard execution.
 ///
-/// Window functions that are not supported by our current feature flags
-/// are left as-is for PostgreSQL's standard window function execution.
+/// This ensures consistent execution - we don't mix our custom window function execution
+/// with PostgreSQL's standard window function execution in the same query.
 ///
 /// Parameters:
 /// - target_list: The Query's targetList
@@ -142,16 +184,30 @@ impl WindowSpecification {
 /// - heap_rti: Range table index for the base relation
 /// - bm25_index: The BM25 index for the relation (needed for FILTER extraction)
 /// - root: PlannerInfo (can be null - will store FILTER as PostgresExpression for later extraction)
+/// - has_order_by: Whether the query has an ORDER BY clause
+/// - has_limit: Whether the query has a LIMIT clause
 pub unsafe fn extract_window_aggregates_with_context(
     target_list: *mut pg_sys::List,
     window_clause_list: *mut pg_sys::List,
     heap_rti: pg_sys::Index,
     bm25_index: &crate::postgres::PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
+    has_order_by: bool,
+    has_limit: bool,
 ) -> Vec<WindowAggregateInfo> {
-    let mut window_aggs = Vec::new();
+    // Check TopN context requirement if enabled
+    if window_functions::ONLY_ALLOW_TOP_N {
+        let is_top_n_query = has_order_by && has_limit;
+        if !is_top_n_query {
+            // Not a TopN query - return empty vec so PostgreSQL handles all window functions
+            return Vec::new();
+        }
+    }
+
+    let mut potential_window_aggs = Vec::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
 
+    // First pass: extract all window functions and check if they're supported
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
@@ -162,22 +218,29 @@ pub unsafe fn extract_window_aggregates_with_context(
                 let window_spec =
                     extract_window_specification(window_func, window_clause_list, agg_type);
 
-                // Only extract and replace window functions that we can actually execute
-                if window_spec.is_supported() {
-                    let window_agg_info = WindowAggregateInfo {
-                        target_entry_index: idx,
-                        result_type_oid: result_oid,
-                        window_spec,
-                    };
+                let window_agg_info = WindowAggregateInfo {
+                    target_entry_index: idx,
+                    result_type_oid: result_oid,
+                    window_spec,
+                };
 
-                    window_aggs.push(window_agg_info);
-                }
-                // If not supported, we leave the window function as-is for PostgreSQL to handle
+                potential_window_aggs.push(window_agg_info);
             }
         }
     }
 
-    window_aggs
+    // Second pass: check if ALL window functions are supported
+    let all_supported = potential_window_aggs
+        .iter()
+        .all(|agg| agg.window_spec.is_supported());
+
+    if all_supported {
+        // All window functions are supported - return them for custom execution
+        potential_window_aggs
+    } else {
+        // Some window functions are not supported - return empty vec so PostgreSQL handles all
+        Vec::new()
+    }
 }
 
 /// Check if an AggregateType has a FILTER clause

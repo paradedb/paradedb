@@ -21,7 +21,7 @@ use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    window_functions, WindowAggregateInfo,
+    self, window_functions, WindowAggregateInfo,
 };
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
@@ -458,7 +458,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     }
 
     // Replace window functions in current query
-    let window_aggs = extract_window_functions(parse);
+    let window_aggs = window_agg::extract_window_aggregates(parse);
     if !window_aggs.is_empty() {
         replace_windowfuncs_in_query(parse, &window_aggs);
     }
@@ -554,94 +554,4 @@ unsafe fn replace_windowfuncs_in_query(
     }
 
     (*parse).targetList = new_targetlist.into_pg();
-}
-
-/// Extract window functions, store in global cache, and return them for replacement
-/// This is called in the planner hook before replacing WindowFunc nodes
-unsafe fn extract_window_functions(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
-    use crate::postgres::customscan::pdbscan::projections::window_agg;
-    use crate::postgres::rel_get_bm25_index;
-
-    // Get the bm25_index for proper FILTER extraction
-    // We need to find the relation OID from the query's rtable
-    assert!(
-        !(*parse).rtable.is_null(),
-        "Query rtable should not be null"
-    );
-
-    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-    // Look for the first plain relation with a bm25 index
-    let mut bm25_index_opt = None;
-    let mut heap_rti = 1;
-    for (idx, rte) in rtable.iter_ptr().enumerate() {
-        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-            if let Some((_, bm25_index)) = rel_get_bm25_index((*rte).relid) {
-                bm25_index_opt = Some(bm25_index);
-                heap_rti = (idx + 1) as pg_sys::Index;
-                break;
-            }
-        }
-    }
-
-    // We should always find a bm25_index since we only get here when has_search_op=true
-    let bm25_index = bm25_index_opt.expect("Should find bm25_index when query has @@@ operator");
-
-    // Extract window aggregates with full context
-    window_agg::extract_window_aggregates_with_context(
-        parse,
-        heap_rti,
-        &bm25_index,
-        std::ptr::null_mut(), // root not available yet in planner_hook
-    )
-}
-
-/// Extract window aggregates from paradedb.window_func(json) calls in the target list
-/// This is called during custom scan planning to deserialize the window aggregate info
-/// that was embedded during the planner hook
-#[allow(dead_code)]
-pub unsafe fn extract_window_aggregates_from_targetlist(
-    target_list: *mut pg_sys::List,
-) -> Vec<WindowAggregateInfo> {
-    use pgrx::FromDatum;
-
-    let mut window_aggs = Vec::new();
-    if target_list.is_null() {
-        return window_aggs;
-    }
-
-    let window_func_procid = window_func_oid();
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-
-    for (idx, te) in tlist.iter_ptr().enumerate() {
-        let node_type = (*(*te).expr).type_;
-
-        // Check if this is a FuncExpr calling window_func
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            if (*funcexpr).funcid == window_func_procid {
-                // This is our window_func placeholder
-                // Extract the JSON argument
-                if !(*funcexpr).args.is_null() {
-                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                    if let Some(first_arg) = args.get_ptr(0) {
-                        if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
-                            // Extract the text datum and deserialize
-                            if !(*const_node).constisnull {
-                                let json_text = (*const_node).constvalue;
-                                if let Some(json_str) = String::from_datum(json_text, false) {
-                                    match serde_json::from_str::<WindowAggregateInfo>(&json_str) {
-                                        Ok(window_agg) => {
-                                            window_aggs.push(window_agg);
-                                        }
-                                        Err(e) => {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    window_aggs
 }

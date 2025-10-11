@@ -189,15 +189,7 @@ impl WindowSpecification {
 ///
 /// Parameters:
 /// - parse: The Query object containing all query information
-/// - heap_rti: Range table index for the base relation
-/// - bm25_index: The BM25 index for the relation (needed for FILTER extraction)
-/// - root: PlannerInfo (can be null - will store FILTER as PostgresExpression for later extraction)
-pub unsafe fn extract_window_aggregates_with_context(
-    parse: *mut pg_sys::Query,
-    heap_rti: pg_sys::Index,
-    bm25_index: &crate::postgres::PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-) -> Vec<WindowAggregateInfo> {
+pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
     // Check TopN context requirement if enabled
     if window_functions::ONLY_ALLOW_TOP_N {
         let has_order_by = !(*parse).sortClause.is_null();
@@ -240,9 +232,7 @@ pub unsafe fn extract_window_aggregates_with_context(
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
-            if let Some((agg_type, result_oid)) =
-                extract_standard_aggregate(window_func, bm25_index, root, heap_rti)
-            {
+            if let Some((agg_type, result_oid)) = extract_standard_aggregate(window_func) {
                 // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
                 let window_spec =
                     extract_window_specification(window_func, (*parse).windowClause, agg_type);
@@ -308,11 +298,8 @@ fn agg_type_has_filter(agg_type: &AggregateType) -> bool {
 /// 2. Call extract_quals with full context (root, bm25_index, heap_rti)
 /// 3. Convert to SearchQueryInput
 /// 4. Apply as a filter during aggregation
-unsafe fn extract_filter_expression_with_context(
+unsafe fn extract_filter_expression(
     filter_expr: *mut pg_sys::Expr,
-    _bm25_index: &crate::postgres::PgSearchRelation,
-    _root: *mut pg_sys::PlannerInfo,
-    _heap_rti: pg_sys::Index,
 ) -> Option<crate::query::SearchQueryInput> {
     if filter_expr.is_null() {
         return None;
@@ -331,9 +318,6 @@ unsafe fn extract_filter_expression_with_context(
 /// Returns: (AggregateType, result_type_oid)
 unsafe fn extract_standard_aggregate(
     window_func: *mut pg_sys::WindowFunc,
-    bm25_index: &crate::postgres::PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
 ) -> Option<(AggregateType, pg_sys::Oid)> {
     // We extract standard aggregates and let the caller decide if they're supported
     // The execution capability check happens in the caller via is_supported()
@@ -343,12 +327,7 @@ unsafe fn extract_standard_aggregate(
     // Extract FILTER clause if present
     let filter = if !(*window_func).aggfilter.is_null() {
         // Extract the filter expression using the same method as aggregatescan
-        extract_filter_expression_with_context(
-            (*window_func).aggfilter,
-            bm25_index,
-            root, // Can be null - will store as PostgresExpression
-            heap_rti,
-        )
+        extract_filter_expression((*window_func).aggfilter)
     } else {
         None
     };

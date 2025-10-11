@@ -665,7 +665,29 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
-ERROR:  Should find bm25_index when query has @@@ operator
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+   ->  Sort
+         Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+         Sort Key: products.price DESC
+         ->  Limit
+               Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+               ->  Sort
+                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+                     Sort Key: products.rating DESC
+                     ->  WindowAgg
+                           Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
+                           ->  Custom Scan (ParadeDB Scan) on public.products
+                                 Output: products.id, products.name, products.rating, products.price
+                                 Table: products
+                                 Index: products_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
 SELECT * FROM (
     SELECT 
         id,
@@ -680,7 +702,12 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
-ERROR:  Should find bm25_index when query has @@@ operator
+ id |    name     | rating | price | total_count 
+----+-------------+--------+-------+-------------
+  1 | MacBook Pro |    4.8 |  2499 |           4
+  5 | ASUS ROG    |    4.7 |  1899 |           4
+(2 rows)
+
 -- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -1332,7 +1359,32 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
-ERROR:  Should find bm25_index when query has @@@ operator
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
+   ->  Sort
+         Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
+         Sort Key: subq.price DESC
+         ->  Subquery Scan on subq
+               Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
+               Filter: (subq.total_count > 0)
+               ->  Limit
+                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+                     ->  Sort
+                           Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+                           Sort Key: products.rating DESC
+                           ->  WindowAgg
+                                 Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
+                                 ->  Custom Scan (ParadeDB Scan) on public.products
+                                       Output: products.id, products.name, products.rating, products.price
+                                       Table: products
+                                       Index: products_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
+
 SELECT *
 FROM (
     SELECT 
@@ -1349,7 +1401,13 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
-ERROR:  Should find bm25_index when query has @@@ operator
+ id |    name     | rating | price | total_count 
+----+-------------+--------+-------+-------------
+  1 | MacBook Pro |    4.8 |  2499 |           4
+  5 | ASUS ROG    |    4.7 |  1899 |           4
+  3 | ThinkPad X1 |    4.5 |  1599 |           4
+(3 rows)
+
 -- Test 29: Nested subqueries with window functions
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT outer_query.*
@@ -1370,7 +1428,32 @@ FROM (
     ) inner_query
 ) outer_query
 WHERE rank <= 2;
-ERROR:  Should find bm25_index when query has @@@ operator
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ WindowAgg
+   Output: inner_query.id, inner_query.name, inner_query.rating, inner_query.total_count, row_number() OVER (?)
+   Run Condition: (row_number() OVER (?) <= 2)
+   ->  Sort
+         Output: inner_query.total_count, inner_query.id, inner_query.name, inner_query.rating
+         Sort Key: inner_query.total_count DESC
+         ->  Subquery Scan on inner_query
+               Output: inner_query.total_count, inner_query.id, inner_query.name, inner_query.rating
+               ->  Limit
+                     Output: products.id, products.name, products.rating, (count(*) OVER (?))
+                     ->  Sort
+                           Output: products.id, products.name, products.rating, (count(*) OVER (?))
+                           Sort Key: products.rating DESC
+                           ->  WindowAgg
+                                 Output: products.id, products.name, products.rating, count(*) OVER (?)
+                                 ->  Custom Scan (ParadeDB Scan) on public.products
+                                       Output: products.id, products.name, products.rating
+                                       Table: products
+                                       Index: products_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
+
 SELECT outer_query.*
 FROM (
     SELECT 
@@ -1389,7 +1472,12 @@ FROM (
     ) inner_query
 ) outer_query
 WHERE rank <= 2;
-ERROR:  Should find bm25_index when query has @@@ operator
+ id |    name     | rating | total_count | rank 
+----+-------------+--------+-------------+------
+  1 | MacBook Pro |    4.8 |           4 |    1
+  5 | ASUS ROG    |    4.7 |           4 |    2
+(2 rows)
+
 -- Test 30: Window function with HAVING + JOIN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 

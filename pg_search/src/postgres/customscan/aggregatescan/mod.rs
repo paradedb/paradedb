@@ -409,7 +409,6 @@ impl CustomScan for AggregateScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        pgrx::info!("exec custom scan");
         let next = match &mut state.custom_state_mut().state {
             ExecutionState::Completed => return std::ptr::null_mut(),
             ExecutionState::NotStarted => {
@@ -825,7 +824,6 @@ fn extract_aggregates(
                 let agg_idx = aggregate_types.len(); // Current index before adding
                 let (agg_type, uses_search_op) =
                     AggregateType::try_from(aggref, relation_oid, bm25_index, args.root, heap_rti)?;
-                pgrx::info!("agg_type is {:?}", agg_type);
                 filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
 
                 // Group aggregates by their filter expression during extraction
@@ -855,7 +853,7 @@ fn extract_aggregates(
                 None
             } else {
                 // Get the actual filter expression from the first aggregate in this group
-                aggregate_types[indices[0]].filter_expr()
+                aggregate_types[indices[0]].filter_expr().clone()
             };
             (filter_expr, indices, filter_key)
         })
@@ -991,7 +989,6 @@ fn execute(
         offset: &state.custom_state().offset,
     };
 
-    pgrx::info!("execute aggregation");
     let result = execute_aggregation(
         state.custom_state().indexrel(),
         &qparams,
@@ -1000,7 +997,6 @@ fn execute(
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
-    pgrx::info!("execute aggregation result");
     // Process results using unified result processing
     let aggregate_results = state.custom_state().process_aggregation_results(result);
 

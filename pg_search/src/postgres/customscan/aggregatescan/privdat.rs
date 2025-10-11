@@ -156,23 +156,27 @@ impl ExplainFormat for AggregateType {
 
 impl SolvePostgresExpressions for AggregateType {
     fn has_heap_filters(&mut self) -> bool {
-        self.filter_expr()
-            .map_or(false, |mut filter| filter.has_heap_filters())
+        self.filter_expr_mut()
+            .as_mut()
+            .is_some_and(|filter| filter.has_heap_filters())
     }
 
     fn has_postgres_expressions(&mut self) -> bool {
-        self.filter_expr()
-            .map_or(false, |mut filter| filter.has_postgres_expressions())
+        self.filter_expr_mut()
+            .as_mut()
+            .is_some_and(|filter| filter.has_postgres_expressions())
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.filter_expr()
-            .map(|mut filter| filter.init_postgres_expressions(planstate));
+        if let Some(filter) = self.filter_expr_mut() {
+            filter.init_postgres_expressions(planstate);
+        }
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.filter_expr()
-            .map(|mut filter| filter.solve_postgres_expressions(expr_context));
+        if let Some(filter) = self.filter_expr_mut() {
+            filter.solve_postgres_expressions(expr_context);
+        }
     }
 }
 
@@ -294,14 +298,25 @@ impl AggregateType {
     }
 
     /// Get the filter expression if present
-    pub fn filter_expr(&self) -> Option<SearchQueryInput> {
+    pub fn filter_expr(&self) -> &Option<SearchQueryInput> {
         match self {
-            AggregateType::CountAny { filter } => filter.clone(),
-            AggregateType::Count { filter, .. } => filter.clone(),
-            AggregateType::Sum { filter, .. } => filter.clone(),
-            AggregateType::Avg { filter, .. } => filter.clone(),
-            AggregateType::Min { filter, .. } => filter.clone(),
-            AggregateType::Max { filter, .. } => filter.clone(),
+            AggregateType::CountAny { filter } => filter,
+            AggregateType::Count { filter, .. } => filter,
+            AggregateType::Sum { filter, .. } => filter,
+            AggregateType::Avg { filter, .. } => filter,
+            AggregateType::Min { filter, .. } => filter,
+            AggregateType::Max { filter, .. } => filter,
+        }
+    }
+
+    pub fn filter_expr_mut(&mut self) -> &mut Option<SearchQueryInput> {
+        match self {
+            AggregateType::CountAny { filter } => filter,
+            AggregateType::Count { filter, .. } => filter,
+            AggregateType::Sum { filter, .. } => filter,
+            AggregateType::Avg { filter, .. } => filter,
+            AggregateType::Min { filter, .. } => filter,
+            AggregateType::Max { filter, .. } => filter,
         }
     }
 

@@ -48,9 +48,9 @@ use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, us
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
-use crate::postgres::customscan::pdbscan::projections::window_agg::convert_window_aggregate_filters;
-use crate::postgres::customscan::pdbscan::projections::window_agg::extract_window_func_calls;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::pdbscan::projections::window_agg::{
+    convert_window_aggregate_filters, extract_window_func_calls, WindowAggregateInfo,
+};
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };

@@ -15,14 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::api::window_function::window_func_oid;
 use crate::api::HashMap;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    self, window_functions, WindowAggregateInfo,
-};
+use crate::postgres::customscan::pdbscan::projections::window_agg::{self, WindowAggregateInfo};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
@@ -277,8 +276,8 @@ unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
         return true;
     }
 
-    // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
+    // Check subqueries in RTEs (only if SUBQUERY_SUPPORT is enabled)
+    if window_agg::window_functions::SUBQUERY_SUPPORT && !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
@@ -296,8 +295,6 @@ unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
 /// Check if the query contains the @@@ search operator
 /// This indicates that our custom scans will likely handle this query
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
-    use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
-
     let searchqueryinput_opno = anyelement_query_input_opoid();
     let text_opno = anyelement_text_opoid();
 
@@ -469,7 +466,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
                 // Check if subquery support is enabled
-                if window_functions::SUBQUERY_SUPPORT {
+                if window_agg::window_functions::SUBQUERY_SUPPORT {
                     replace_windowfuncs_recursively((*rte).subquery);
                 }
                 // If SUBQUERY_SUPPORT is false, we skip processing subqueries,

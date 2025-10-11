@@ -127,14 +127,14 @@ impl WindowSpecification {
 
 /// Extract window aggregates from the target list with full context
 ///
-/// Extracts ALL window functions with their complete specifications:
+/// Extracts ONLY window functions that we can currently execute:
 /// - Standard aggregates: COUNT, SUM, AVG, MIN, MAX
 /// - Window specification: PARTITION BY, ORDER BY, frame clauses
 /// - FILTER clauses (stored as PostgresExpression if root is null)
 /// - Result types
 ///
-/// We extract everything even if we can't execute it yet.
-/// This ensures all information is available for future execution implementations.
+/// Window functions that are not supported by our current feature flags
+/// are left as-is for PostgreSQL's standard window function execution.
 ///
 /// Parameters:
 /// - target_list: The Query's targetList
@@ -162,16 +162,17 @@ pub unsafe fn extract_window_aggregates_with_context(
                 let window_spec =
                     extract_window_specification(window_func, window_clause_list, agg_type);
 
-                // Check if we can currently execute this window function
-                let can_execute = window_spec.is_supported();
+                // Only extract and replace window functions that we can actually execute
+                if window_spec.is_supported() {
+                    let window_agg_info = WindowAggregateInfo {
+                        target_entry_index: idx,
+                        result_type_oid: result_oid,
+                        window_spec,
+                    };
 
-                let window_agg_info = WindowAggregateInfo {
-                    target_entry_index: idx,
-                    result_type_oid: result_oid,
-                    window_spec,
-                };
-
-                window_aggs.push(window_agg_info);
+                    window_aggs.push(window_agg_info);
+                }
+                // If not supported, we leave the window function as-is for PostgreSQL to handle
             }
         }
     }
@@ -242,8 +243,8 @@ unsafe fn extract_standard_aggregate(
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
 ) -> Option<(AggregateType, pg_sys::Oid)> {
-    // We extract ALL aggregates regardless of whether we can execute them
-    // The execution capability check happens separately via is_supported()
+    // We extract standard aggregates and let the caller decide if they're supported
+    // The execution capability check happens in the caller via is_supported()
     let funcoid = (*window_func).winfnoid;
     let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
 

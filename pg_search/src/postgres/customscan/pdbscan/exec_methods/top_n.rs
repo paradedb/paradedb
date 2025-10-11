@@ -202,20 +202,6 @@ impl ExecMethod for TopNScanExecState {
 
         // Transfer window aggregates from scan state to exec state
         if let Some(ref window_aggs) = state.window_aggregates {
-            // Validate that we can execute these window functions with current feature support
-            for agg_info in window_aggs {
-                if !agg_info.window_spec.is_supported() {
-                    pgrx::warning!(
-                        "Window function with unsupported features detected - will return default values. \
-                         PARTITION BY: {}, ORDER BY: {}, FILTER: {}, FRAME: {}",
-                        !agg_info.window_spec.partition_by.is_empty(),
-                        agg_info.window_spec.order_by.is_some(),
-                        agg_info.window_spec.agg_type.has_filter(),
-                        agg_info.window_spec.frame_clause.is_some()
-                    );
-                }
-            }
-
             self.window_aggregates = Some(window_aggs.clone());
         }
     }

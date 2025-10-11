@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
 
@@ -26,6 +27,7 @@ use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
 };
@@ -177,17 +179,8 @@ impl CustomScan for AggregateScan {
                 })
                 .collect::<HashSet<_>>()
         };
-        let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys())
-            .into_iter()
-            .filter(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
-                    sort_fields.contains(field_name)
-                } else {
-                    false
-                }
-            })
-            .collect::<Vec<_>>();
+        let orderby_clause = OrderByClause::from_pg(args.root, heap_rti, &schema)?;
+        let orderby_info = OrderByClause::from_pg(args.root, heap_rti, &schema)?.orderby_info(&sort_fields);
 
         // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
@@ -292,11 +285,7 @@ impl CustomScan for AggregateScan {
 
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
-        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
-            for pathkey_style in pathkeys {
-                builder = builder.add_path_key(pathkey_style);
-            }
-        };
+        builder = orderby_clause.add_to_builder(builder);
 
         // A GROUP BY...ORDER BY query could have some results truncated
         let maybe_truncated = !parse.is_null()
@@ -1043,19 +1032,14 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 }
 
-/// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
-fn extract_order_by_pathkeys(
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-) -> PathKeyInfo {
-    unsafe {
-        extract_pathkey_styles_with_sortability_check(
-            root,
-            heap_rti,
-            schema,
-            |search_field| search_field.is_fast(), // Use is_fast() for regular vars
-            |_search_field| false,                 // Don't accept lower functions in aggregatescan
-        )
-    }
+pub trait AggregateClause {
+    fn from_pg(
+        root: *mut pg_sys::PlannerInfo,
+        heap_rti: pg_sys::Index,
+        schema: &SearchIndexSchema,
+    ) -> Option<Self> where Self: Sized;
+
+    fn add_to_builder<CS>(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
+    where
+        CS: CustomScan;
 }

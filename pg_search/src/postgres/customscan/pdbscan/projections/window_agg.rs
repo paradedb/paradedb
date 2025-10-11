@@ -747,6 +747,17 @@ pub unsafe fn convert_window_aggregate_filters(
                     if let Some(qual) = result {
                         let converted = crate::query::SearchQueryInput::from(&qual);
                         pgrx::warning!("  ✅ FILTER converted successfully: {:?}", converted);
+                        
+                        // Also print as JSON for better visibility
+                        match serde_json::to_string_pretty(&converted) {
+                            Ok(json) => {
+                                pgrx::warning!("  ✅ FILTER as JSON:\n{}", json);
+                            }
+                            Err(e) => {
+                                pgrx::warning!("  ⚠️  Failed to serialize FILTER to JSON: {}", e);
+                            }
+                        }
+                        
                         *filter = converted;
                     } else {
                         pgrx::warning!("  ⚠️  FILTER conversion failed - extract_quals returned None");

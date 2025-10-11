@@ -54,11 +54,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Checking 1 RTEs for subquery window functions
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=false, has_search_op=true
@@ -88,11 +88,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Checking 1 RTEs for subquery window functions
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=false, has_search_op=true
@@ -119,11 +119,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -176,11 +176,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -211,25 +211,25 @@ WARNING:  Initializing scan state with 1 window aggregates
 WARNING:  TopN init: Received 1 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 1 window aggregates
 WARNING:    Target list has 4 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=3
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 3
 WARNING:  Computing 1 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134017078
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134017078
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 1 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x15a8c9278
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134017078
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -255,11 +255,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -343,11 +343,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -406,25 +406,25 @@ WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 3 window aggregates
 WARNING:    Target list has 7 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:    Looking for window agg at te_idx=6
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 6
 WARNING:  Computing 3 window aggregates
@@ -432,25 +432,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Avg { field: "field_7", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x134014888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340142f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134014838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x134014888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340142f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134014838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a8d7888
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x134014888
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a8d72f8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340142f8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8d7838
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134014838
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | total_count | total_price | avg_rating 
 ----+-------------+--------+-------+-------------+-------------+------------
@@ -474,11 +474,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -539,11 +539,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -603,11 +603,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -669,11 +669,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -742,11 +742,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -791,38 +791,38 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 6 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:  Computing 2 window aggregates
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x1340443e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134044940
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x15a8defe8
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x1340443e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a8df540
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134044940
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x0), const_node addr=0x1340443e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x134044940
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | rating | price | min_price | max_price 
 ----+-------------+--------+-------+-----------+-----------
@@ -846,11 +846,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -878,9 +878,9 @@ WARNING:  planner_hook: Replaced WindowFunc at resno 5 with window_func(json)
 WARNING:  planner_hook: Replaced 1 WindowFunc nodes in Query with window_func calls
 WARNING:  replace_windowfuncs_recursively: Replaced 1 WindowFunc nodes in current query
 WARNING:  plan_custom_path: Extracting window_func calls from processed_tlist
-WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x15a8d8478), expr_state: PostgresPointer(0x0) } }) }
+WARNING:  extract_window_func_calls: Found window aggregate: CountAny { filter: Some(PostgresExpression { expr: PostgresExpression { node: PostgresPointer(0x13381de78), expr_state: PostgresPointer(0x0) } }) }
 WARNING:    Window aggregate has FILTER - verifying deserialization...
-WARNING:    ✅ FILTER deserialized successfully - node pointer is valid: 0x15a8d8478
+WARNING:    ✅ FILTER deserialized successfully - node pointer is valid: 0x13381de78
 WARNING:    ✅ FILTER node type: T_OpExpr
 WARNING:    ✅ FILTER expression deserialized: {OPEXPR :opno 91 :opfuncid 60 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 8 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 8 :location -1} {CONST :consttype 16 :consttypmod -1 :constcollid 0 :constlen 1 :constbyval true :constisnull false :location -1 :constvalue 1 [ 1 0 0 0 0 0 0 0 ]}) :location -1}
 WARNING:    ℹ️  NOTE: FILTER conversion requires root (PlannerInfo) which is not available at execution time
@@ -889,6 +889,14 @@ WARNING:  plan_custom_path: Found 1 window aggregates
 WARNING:  plan_custom_path: Converting FILTER PostgresExpressions to SearchQueryInput
 WARNING:    Converting FILTER from PostgresExpression to SearchQueryInput
 WARNING:    ✅ FILTER converted successfully: FieldedQuery { field: FieldName("in_stock"), query: Term { value: Bool(true), is_datetime: false } }
+WARNING:    ✅ FILTER as JSON:
+{
+  "term": {
+    "field": "in_stock",
+    "value": true,
+    "is_datetime": false
+  }
+}
 WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                           
@@ -920,11 +928,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -983,11 +991,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1046,11 +1054,11 @@ SELECT
 FROM products
 WHERE description @@@ 'laptop';
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1097,11 +1105,11 @@ SELECT
 FROM products
 WHERE description @@@ 'laptop';
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1131,13 +1139,13 @@ WARNING:  plan_custom_path: Storing 1 window aggregates in PrivateData
 WARNING:  Initializing scan state with 1 window aggregates
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 1 window aggregates
 WARNING:    Target list has 4 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=3
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 3
 ERROR:  window_func placeholder executed - custom scan should have intercepted this. JSON: {"agg_type":{"CountAny":{"filter":null}},"target_entry_index":3,"result_type_oid":20,"window_spec":{"partition_by":[],"order_by":null,"frame_clause":null}}
@@ -1156,11 +1164,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1224,11 +1232,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1319,11 +1327,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1383,7 +1391,7 @@ WHERE rating > 4.5
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
@@ -1419,7 +1427,7 @@ WHERE rating > 4.5
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
@@ -1457,11 +1465,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1533,11 +1541,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1582,33 +1590,33 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 7: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 8: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 7: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 8: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 9 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=7
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 7
 WARNING:    Looking for window agg at te_idx=8
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 8
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x15a8dfa58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x114831658
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8dff98
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x114831b98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x15a8dfa58
+WARNING:    Setting te_idx=7: datum=Datum(0x4), const_node addr=0x114831658
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8dff98
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x114831b98
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
 ----+-------------+----------+-------+-------+--------+-------+-------------+-------------
@@ -1638,16 +1646,16 @@ WARNING:  query_has_window_functions: Checking 1 RTEs for subquery window functi
 WARNING:    RTE 0: Found subquery, checking for window functions recursively
 WARNING:  query_has_window_functions: Found window functions in current query
 WARNING:    RTE 0: Subquery contains window functions!
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is null
 WARNING:  query_has_search_operator: Checking 1 RTEs for subqueries
 WARNING:    RTE 0: Found subquery, checking recursively
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:    RTE 0: Subquery contains @@@!
@@ -1672,16 +1680,16 @@ WARNING:  query_has_window_functions: Checking 1 RTEs for subquery window functi
 WARNING:    RTE 0: Found subquery, checking for window functions recursively
 WARNING:  query_has_window_functions: Found window functions in current query
 WARNING:    RTE 0: Subquery contains window functions!
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is null
 WARNING:  query_has_search_operator: Checking 1 RTEs for subqueries
 WARNING:    RTE 0: Found subquery, checking recursively
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:    RTE 0: Subquery contains @@@!
@@ -1704,11 +1712,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1780,11 +1788,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1832,38 +1840,38 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 6 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x114840be8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x114841140
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a03d9e8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x114840be8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a03df40
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x114841140
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x114840be8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x114841140
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | category | rating | total_results | category_count 
 ----+-------------+----------+--------+---------------+----------------
@@ -1896,11 +1904,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -1980,11 +1988,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2032,43 +2040,43 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 7 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13381cb98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13381d0f0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13381cb98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13381d0f0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a04a998
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13381cb98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04aef0
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13381d0f0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13381cb98
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13381d0f0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | price | price_bucket | total_results | bucket_count 
 ----+-------------+-------+--------------+---------------+--------------
@@ -2095,11 +2103,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2189,11 +2197,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2258,25 +2266,25 @@ WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 3 window aggregates
 WARNING:    Target list has 8 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:    Looking for window agg at te_idx=6
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 6
 WARNING:  Computing 3 window aggregates
@@ -2284,25 +2292,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Avg { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
 ----+-------------+--------+-------+---------------+-------------+-----------------
@@ -2328,11 +2336,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2422,11 +2430,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2491,25 +2499,25 @@ WARNING:  Initializing scan state with 3 window aggregates
 WARNING:  TopN init: Received 3 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 3 window aggregates
 WARNING:    Target list has 8 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:    Looking for window agg at te_idx=6
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 6
 WARNING:  Computing 3 window aggregates
@@ -2517,25 +2525,25 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Min { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Aggregate type Max { field: "field_6", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 3 results
-WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x15a04a280
+WARNING:    Setting te_idx=6: datum=Datum(0x0), const_node addr=0x13382a480
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x15a049cd8
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x133829ed8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x15a04a230
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13382a430
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | category | price | total_results | category_min_price | category_max_price 
 ----+-------------+----------+-------+---------------+--------------------+--------------------
@@ -2559,11 +2567,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2634,11 +2642,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2686,38 +2694,38 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 3: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 6 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=3
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 3
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134051f68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340524a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x13a025f68
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134051f68
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a0264a0
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340524a0
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=3: datum=Datum(0x4), const_node addr=0x134051f68
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x1340524a0
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | in_stock | total_results | stock_count 
 ----+-------------+----------+---------------+-------------
@@ -2746,11 +2754,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2823,11 +2831,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -2872,38 +2880,38 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 7 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Aggregate type Sum { field: "field_9", missing: None, filter: None } not yet implemented
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134052d98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1340532f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134052d98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1340532f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cd98
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134052d98
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x13a02d2f0
+WARNING:    Setting te_idx=5: datum=Datum(0x0), const_node addr=0x1340532f0
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | sales | sales_volume | total_results | total_sales 
 ----+-------------+-------+--------------+---------------+-------------
@@ -2938,11 +2946,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -3024,11 +3032,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -3076,43 +3084,43 @@ WARNING:  Initializing scan state with 2 window aggregates
 WARNING:  TopN init: Received 2 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 4: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 5: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 2 window aggregates
 WARNING:    Target list has 6 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=4
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 4
 WARNING:    Looking for window agg at te_idx=5
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 5
 WARNING:  Computing 2 window aggregates
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134060e18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x134061370
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134060e18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x134061370
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
 WARNING:  Setting window aggregate values in projection: 2 results
-WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x13a02cc18
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134060e18
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x13a02d170
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x134061370
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:  Setting window aggregate values in projection: 2 results
+WARNING:    Setting te_idx=4: datum=Datum(0x4), const_node addr=0x134060e18
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=5: datum=Datum(0x4), const_node addr=0x134061370
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
  id |    name     | rating |     rating_tier     | total_results | tier_count 
 ----+-------------+--------+---------------------+---------------+------------
@@ -3151,11 +3159,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -3302,11 +3310,11 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 WARNING:  query_has_window_functions: Found window functions in current query
-WARNING:  query_has_search_operator: Looking for opno=972100 or 972093
+WARNING:  query_has_search_operator: Looking for opno=972904 or 972897
 WARNING:  query_has_search_operator: jointree is not null
 WARNING:  query_has_search_operator: quals is not null, checking...
 WARNING:  expr_contains_operator: Checking node type=T_OpExpr
-WARNING:  expr_contains_operator: Found OpExpr with opno=972093
+WARNING:  expr_contains_operator: Found OpExpr with opno=972897
 WARNING:  expr_contains_operator: MATCH! Found target operator
 WARNING:  query_has_search_operator: Found @@@ in WHERE clause
 WARNING:  planner_hook: SELECT query (RTEs=1) - has_window_funcs=true, has_search_op=true
@@ -3416,43 +3424,43 @@ WARNING:  Initializing scan state with 6 window aggregates
 WARNING:  TopN init: Received 6 window aggregates from scan state
 WARNING:  inject_score_and_snippet_placeholders: need_scores=false, need_snippets=false, has_window_aggs=true
 WARNING:  inject_placeholders: Starting
-WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 7: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 8: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 9: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 10: FuncExpr with funcid=972182
-WARNING:    inject_placeholders: Entry 11: FuncExpr with funcid=972182
+WARNING:    inject_placeholders: Entry 6: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 7: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 8: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 9: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 10: FuncExpr with funcid=972986
+WARNING:    inject_placeholders: Entry 11: FuncExpr with funcid=972986
 WARNING:  inject_window_aggregate_placeholders: Processing 6 window aggregates
 WARNING:    Target list has 13 entries
-WARNING:    window_func_procid = 972182
+WARNING:    window_func_procid = 972986
 WARNING:    Looking for window agg at te_idx=6
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 6
 WARNING:    Looking for window agg at te_idx=7
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 7
 WARNING:    Looking for window agg at te_idx=8
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 8
 WARNING:    Looking for window agg at te_idx=9
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 9
 WARNING:    Looking for window agg at te_idx=10
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 10
 WARNING:    Looking for window agg at te_idx=11
 WARNING:      Found TargetEntry: type=T_FuncExpr
-WARNING:      Found FuncExpr with funcid=972182
+WARNING:      Found FuncExpr with funcid=972986
 WARNING:      MATCH! Creating Const node
 WARNING:  Injected Const node for window aggregate at index 11
 WARNING:  Computing 6 window aggregates
@@ -3463,43 +3471,43 @@ WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Computing COUNT(*) OVER (): total_count=4
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13405b838
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13405b798
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13405b8d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13405b888
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13405b258
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
-WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
-WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13405b7e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
 WARNING:  Setting window aggregate values in projection: 6 results
-WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x15a8da838
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13405b838
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x15a8da798
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13405b798
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
-WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x15a8da8d8
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13405b8d8
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x15a8da888
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13405b888
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x15a8da258
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13405b258
 WARNING:    After set: constvalue=Datum(0x4), constisnull=false
-WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x15a8da7e8
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13405b7e8
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:  Setting window aggregate values in projection: 6 results
+WARNING:    Setting te_idx=9: datum=Datum(0x4), const_node addr=0x13405b838
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=7: datum=Datum(0x0), const_node addr=0x13405b798
+WARNING:    After set: constvalue=Datum(0x0), constisnull=false
+WARNING:    Setting te_idx=11: datum=Datum(0x4), const_node addr=0x13405b8d8
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=10: datum=Datum(0x4), const_node addr=0x13405b888
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=6: datum=Datum(0x4), const_node addr=0x13405b258
+WARNING:    After set: constvalue=Datum(0x4), constisnull=false
+WARNING:    Setting te_idx=8: datum=Datum(0x0), const_node addr=0x13405b7e8
 WARNING:    After set: constvalue=Datum(0x0), constisnull=false
  id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
 ----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------

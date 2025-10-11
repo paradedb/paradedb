@@ -316,6 +316,21 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
         return true;
     }
 
+    // Check target list (for search operators in SELECT expressions, aggregates, window functions)
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null()
+                && expr_contains_any_operator(
+                    (*te).expr as *mut pg_sys::Node,
+                    &[searchqueryinput_opno, text_opno],
+                )
+            {
+                return true;
+            }
+        }
+    }
+
     // Check if any RTEs contain subqueries with @@@ operators
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
@@ -378,6 +393,54 @@ unsafe fn expr_contains_any_operator(
                     (*rinfo).clause as *mut pg_sys::Node,
                     target_opnos,
                 );
+            }
+        }
+        pg_sys::NodeTag::T_Aggref => {
+            // Check aggregate function arguments and FILTER clause
+            let aggref = node as *mut pg_sys::Aggref;
+
+            // Check aggregate arguments
+            if !(*aggref).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_any_operator(arg, target_opnos) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check FILTER clause
+            if !(*aggref).aggfilter.is_null()
+                && expr_contains_any_operator(
+                    (*aggref).aggfilter as *mut pg_sys::Node,
+                    target_opnos,
+                )
+            {
+                return true;
+            }
+        }
+        pg_sys::NodeTag::T_WindowFunc => {
+            // Check window function arguments and FILTER clause
+            let winfunc = node as *mut pg_sys::WindowFunc;
+
+            // Check window function arguments
+            if !(*winfunc).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*winfunc).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_any_operator(arg, target_opnos) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check FILTER clause
+            if !(*winfunc).aggfilter.is_null()
+                && expr_contains_any_operator(
+                    (*winfunc).aggfilter as *mut pg_sys::Node,
+                    target_opnos,
+                )
+            {
+                return true;
             }
         }
         _ => {}

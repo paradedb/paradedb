@@ -28,7 +28,7 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
+use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, AggregateValue, PrivateData, TargetListEntry,
@@ -134,14 +134,7 @@ impl CustomScan for AggregateScan {
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
 
-        // Extract grouping columns and validate they are fast fields
-        let group_pathkeys = if args.root().group_pathkeys.is_null() {
-            PgList::<pg_sys::PathKey>::new()
-        } else {
-            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
-        };
-        let grouping_columns =
-            extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
+        let grouping_columns = GroupByClause::from_pg(args.root, heap_rti, &schema)?.grouping_columns();
 
         // Extract and validate aggregates - must have schema for field validation
         let (aggregate_types, filter_groups, filter_uses_search_operator) =
@@ -649,60 +642,6 @@ fn combine_query_with_filter(
         },
         None => query.clone(),
     }
-}
-
-/// Extract grouping columns from pathkeys and validate they are fast fields
-fn extract_grouping_columns(
-    pathkeys: &PgList<pg_sys::PathKey>,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-) -> Option<Vec<GroupingColumn>> {
-    let mut grouping_columns = Vec::new();
-
-    for pathkey in pathkeys.iter_ptr() {
-        unsafe {
-            let equivclass = (*pathkey).pk_eclass;
-            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-            let mut found_valid_column = false;
-            for member in members.iter_ptr() {
-                let expr = (*member).em_expr;
-
-                // Create VarContext for field extraction
-                let var_context = VarContext::from_planner(root);
-
-                // Try to extract field name and variable info
-                let (field_name, attno) = if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                {
-                    // JSON operator expression or complex field access
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::InvalidOid {
-                        continue;
-                    }
-                    (field_name.to_string(), attno)
-                } else {
-                    continue;
-                };
-
-                // Check if this field exists in the index schema as a fast field
-                if let Some(search_field) = schema.search_field(&field_name) {
-                    if search_field.is_fast() {
-                        grouping_columns.push(GroupingColumn { field_name, attno });
-                        found_valid_column = true;
-                        break; // Found a valid grouping column for this pathkey
-                    }
-                }
-            }
-
-            if !found_valid_column {
-                return None;
-            }
-        }
-    }
-
-    Some(grouping_columns)
 }
 
 /// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields

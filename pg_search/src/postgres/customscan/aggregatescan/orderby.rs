@@ -4,6 +4,7 @@ use crate::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::AggregateClause;
 use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
 use crate::postgres::customscan::pdbscan::PathKeyInfo;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
@@ -40,11 +41,11 @@ impl AggregateClause for OrderByClause {
     }
 
     fn from_pg(
-        root: *mut pg_sys::PlannerInfo,
+        args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
-        let parse = unsafe { (*root).parse };
+        let parse = unsafe { (*args.root()).parse };
 
         let sort_clause =
             unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
@@ -54,7 +55,7 @@ impl AggregateClause for OrderByClause {
                 .iter_ptr()
                 .filter_map(|sort_clause| {
                     let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
-                    let var_context = VarContext::from_planner(root);
+                    let var_context = VarContext::from_planner(args.root);
                     if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
                         Some(field_name)
                     } else {
@@ -66,7 +67,7 @@ impl AggregateClause for OrderByClause {
 
         let pathkeys = unsafe {
             extract_pathkey_styles_with_sortability_check(
-                root,
+                args.root,
                 heap_rti,
                 schema,
                 |f| f.is_fast(),

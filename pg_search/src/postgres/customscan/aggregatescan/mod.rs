@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod aggregates;
 pub mod groupby;
 pub mod orderby;
 pub mod privdat;
@@ -134,17 +135,11 @@ impl CustomScan for AggregateScan {
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
 
-        let grouping_columns = GroupByClause::from_pg(args.root, heap_rti, &schema)?.grouping_columns();
+        let grouping_columns = GroupByClause::from_pg(args, heap_rti, &schema)?.grouping_columns();
 
         // Extract and validate aggregates - must have schema for field validation
         let (aggregate_types, filter_groups, filter_uses_search_operator) =
-            extract_and_validate_aggregates(
-                args,
-                &schema,
-                &grouping_columns,
-                &bm25_index,
-                heap_rti,
-            )?;
+            extract_and_validate_aggregates(args, &schema, &bm25_index, heap_rti)?;
 
         let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
         let handle_query_without_op = !gucs::enable_custom_scan_without_operator();
@@ -155,8 +150,8 @@ impl CustomScan for AggregateScan {
         }
 
         // Extract ORDER BY pathkeys if present
-        let orderby_clause = OrderByClause::from_pg(args.root, heap_rti, &schema)?;
-        let orderby_info = OrderByClause::from_pg(args.root, heap_rti, &schema)?.orderby_info();
+        let orderby_clause = OrderByClause::from_pg(args, heap_rti, &schema)?;
+        let orderby_info = orderby_clause.orderby_info();
 
         // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
@@ -649,16 +644,11 @@ fn combine_query_with_filter(
 fn extract_and_validate_aggregates(
     args: &CreateUpperPathsHookArgs,
     schema: &SearchIndexSchema,
-    grouping_columns: &[GroupingColumn],
     bm25_index: &PgSearchRelation,
     heap_rti: pg_sys::Index,
 ) -> Option<AggregateExtractionResult> {
     let (aggregate_types, filter_groups, filter_uses_search_operator) =
         extract_aggregates(args, bm25_index, heap_rti)?;
-
-    // Create a set of grouping column field names for quick lookup
-    let grouping_field_names: crate::api::HashSet<&String> =
-        grouping_columns.iter().map(|gc| &gc.field_name).collect();
 
     // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
     for aggregate in &aggregate_types {
@@ -957,7 +947,7 @@ impl SolvePostgresExpressions for AggregateScanState {
 
 pub trait AggregateClause {
     fn from_pg(
-        root: *mut pg_sys::PlannerInfo,
+        args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
         schema: &SearchIndexSchema,
     ) -> Option<Self>

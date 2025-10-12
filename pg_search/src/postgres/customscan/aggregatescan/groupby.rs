@@ -1,10 +1,11 @@
 use crate::postgres::customscan::aggregatescan::AggregateClause;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::schema::SearchIndexSchema;
-use pgrx::PgList;
 use pgrx::pg_sys;
+use pgrx::PgList;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupingColumn {
@@ -31,36 +32,35 @@ impl AggregateClause for GroupByClause {
     }
 
     fn from_pg(
-        root: *mut pg_sys::PlannerInfo,
+        args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let mut grouping_columns = Vec::new();
 
-        let pathkeys = if unsafe { (*root).group_pathkeys.is_null() } {
+        let pathkeys = if unsafe { (*args.root()).group_pathkeys.is_null() } {
             PgList::<pg_sys::PathKey>::new()
         } else {
-            unsafe { PgList::<pg_sys::PathKey>::from_pg((*root).group_pathkeys) }
+            unsafe { PgList::<pg_sys::PathKey>::from_pg((*args.root()).group_pathkeys) }
         };
 
         for pathkey in pathkeys.iter_ptr() {
             unsafe {
                 let equivclass = (*pathkey).pk_eclass;
-                let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+                let members =
+                    PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
                 let mut found_valid_column = false;
                 for member in members.iter_ptr() {
                     let expr = (*member).em_expr;
 
-                    // Create VarContext for field extraction
-                    let var_context = VarContext::from_planner(root);
+                    let var_context = VarContext::from_planner(args.root);
 
-                    // Try to extract field name and variable info
                     let (field_name, attno) = if let Some((var, field_name)) =
                         find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                     {
                         // JSON operator expression or complex field access
-                        let (heaprelid, attno, _) = find_var_relation(var, root);
+                        let (heaprelid, attno, _) = find_var_relation(var, args.root);
                         if heaprelid == pg_sys::InvalidOid {
                             continue;
                         }

@@ -1,12 +1,13 @@
 ---
-title: Boosting
+title: Relevance Tuning
 noindex: true
 canonical: https://docs.paradedb.com/documentation/full-text/boosting
 ---
 
-Boosting increases or decreases the impact of a specific query by multiplying its contribution to the overall BM25 score.
+## Boosting
 
-## Constant Boosting
+ParadeDB offers several ways to tune a document's [BM25 score](/v2/full-text/score).
+The first is boosting, which increases or decreases the impact of a specific query by multiplying its contribution to the overall BM25 score.
 
 To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
 
@@ -40,20 +41,17 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-## Boosting by Field
+## Constant Scoring
 
-The following query boosts the score of each row by multiplying it by the row's `rating`. This means that items with
-the same score but a higher `rating` will score higher overall.
+Constant scoring assigns the same score to all documents that match a query. To apply a constant score, cast the query to the `const` type with a
+numeric value.
+
+For instance, the following query assigns a score of `1` to all documents matching the query `shoes`.
 
 ```sql
-SELECT id, description, rating, paradedb.score(id) * rating as score
+SELECT id, paradedb.score(id), description, category
 FROM mock_items
-WHERE description ||| 'shoes'
+WHERE description ||| 'shoes'::pdb.const(1)
 ORDER BY score DESC
 LIMIT 5;
 ```
-
-<Note>
-  Ordering by `paradedb.score(id) * rating` is less performant than ordering by
-  just `paradedb.score(id)` over large tables.
-</Note>

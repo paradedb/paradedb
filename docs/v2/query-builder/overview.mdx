@@ -1,16 +1,11 @@
 ---
-title: Overview
+title: How Query Builders Work
 noindex: true
 canonical: https://docs.paradedb.com/documentation/advanced/overview
 ---
 
 In addition to basic [match](/v2/full-text/match), [phrase](/v2/full-text/phrase), and
 [term](/v2/full-text/term) queries, additional advanced query types are exposed as query builder functions.
-
-Users familiar with Elasticsearch may notice that these query types are similar to those found in Elastic’s query DSL.
-This is intentional — ParadeDB uses the same terminology as Elasticsearch for its query types.
-
-## Basic Usage
 
 Query builder functions use the `@@@` operator. `@@@` takes a column on the left-hand side and a query builder function on the
 right-hand side. It means "find all rows where the column matches the given query."
@@ -38,24 +33,25 @@ This uses the [regex](/v2/query-builder/term/regex) query builder function to ma
 ## When to Use Query Builder Functions
 
 For most use cases, we recommend using the [full text search](/v2/full-text) operators instead of query builder
-functions. However, there are two scenarios where query builder functions are useful. The first is if you need an **advanced query type**, like the regex query.
+functions. However, there are three situations where query builder functions are useful.
 
-The second is if you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). In order for a query to be executed by ParadeDB,
-it must use at least one of the ParadeDB operators. However, there are some cases where queries that don't contain a ParadeDB
-operator can be more efficiently executed by ParadeDB vs. standard Postgres. For example, when filtering on indexed columns using simple SQL conditions like ranges or null checks.
+1. If you need an advanced query type, like [regex](/v2/query-builder/term/regex) or [more like this](/v2/query-builder/specialized/more-like-this).
 
-In these scenarios, query builder functions provide ParadeDB-compatible equivalents of common SQL constructs, such as:
+2. If you want to leverage ParadeDB's support for [JSON query syntax](/v2/query-builder/json).
 
-- `pdb.range`  is the equivalent of SQL range operators, i.e. `<`, `>`, etc.
-- `pdb.exists` is the equivalent of `IS NOT NULL`
-- `pdb.term` is the equivalent of `=` for non-text fields and for text fields that use the keyword tokenizer
+3. If you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). There are some cases where queries that don't contain a ParadeDB
+operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an `AND ... pdb.all()` `WHERE` clause is semantically equivalent and forces ParadeDB to execute the query.
 
 ```sql
--- Executed by ParadeDB
-SELECT COUNT(*) FROM mock_items
-WHERE rating @@@ pdb.exists();
+-- Top N executed by standard Postgres
+SELECT * FROM mock_items
+WHERE rating IS NOT NULL
+ORDER BY rating
+LIMIT 5;
 
--- Executed by standard Postgres
-SELECT COUNT(*) FROM mock_items
-WHERE rating IS NOT NULL;
+-- Top N executed by ParadeDB
+SELECT * FROM mock_items
+WHERE rating IS NOT NULL AND id @@@ pdb.all()
+ORDER BY rating
+LIMIT 5;
 ```

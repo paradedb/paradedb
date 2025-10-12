@@ -17,8 +17,9 @@
 
 use crate::api::OrderByInfo;
 use crate::gucs;
+use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
+    AggregateResult, AggregateType, AggregateValue, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;

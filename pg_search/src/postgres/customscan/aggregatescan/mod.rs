@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod groupby;
 pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
@@ -23,19 +24,20 @@ use std::ffi::CStr;
 
 use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{HashMap, HashSet, OrderByFeature};
+use crate::api::HashMap;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
+    AggregateType, AggregateValue, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -43,9 +45,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
-};
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
@@ -163,24 +162,8 @@ impl CustomScan for AggregateScan {
         }
 
         // Extract ORDER BY pathkeys if present
-        let sort_clause =
-            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
-        let sort_fields = unsafe {
-            sort_clause
-                .iter_ptr()
-                .filter_map(|sort_clause| {
-                    let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
-                    let var_context = VarContext::from_planner(builder.args().root);
-                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
-                        Some(field_name)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<_>>()
-        };
         let orderby_clause = OrderByClause::from_pg(args.root, heap_rti, &schema)?;
-        let orderby_info = OrderByClause::from_pg(args.root, heap_rti, &schema)?.orderby_info(&sort_fields);
+        let orderby_info = OrderByClause::from_pg(args.root, heap_rti, &schema)?.orderby_info();
 
         // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
@@ -203,6 +186,7 @@ impl CustomScan for AggregateScan {
 
         // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
         // or if it orders by columns that we cannot push down
+        let sort_clause = unsafe { orderby_clause.sort_clause() };
         if unsafe { !(*parse).groupClause.is_null() }
             && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
                 || orderby_info.len() != sort_clause.len())
@@ -285,7 +269,7 @@ impl CustomScan for AggregateScan {
 
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
-        builder = orderby_clause.add_to_builder(builder);
+        builder = orderby_clause.add_to_custom_path(builder);
 
         // A GROUP BY...ORDER BY query could have some results truncated
         let maybe_truncated = !parse.is_null()
@@ -1037,9 +1021,11 @@ pub trait AggregateClause {
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         schema: &SearchIndexSchema,
-    ) -> Option<Self> where Self: Sized;
+    ) -> Option<Self>
+    where
+        Self: Sized;
 
-    fn add_to_builder<CS>(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
+    fn add_to_custom_path<CS>(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
     where
         CS: CustomScan;
 }

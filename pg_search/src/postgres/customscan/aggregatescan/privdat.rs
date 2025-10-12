@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
+use crate::customscan::aggregatescan::GroupingColumn;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::explain::ExplainFormat;
@@ -462,12 +463,6 @@ impl AggregateValue {
     pub fn is_null(&self) -> bool {
         matches!(self, AggregateValue::Null)
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct GroupingColumn {
-    pub field_name: String,
-    pub attno: pg_sys::AttrNumber,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

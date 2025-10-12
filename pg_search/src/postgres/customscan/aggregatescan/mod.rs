@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod aggregates;
 pub mod groupby;
 pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
+pub mod targetlist;
 
 use std::ffi::CStr;
 
@@ -37,6 +37,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
+use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, RestrictInfoType,
 };
@@ -135,11 +136,9 @@ impl CustomScan for AggregateScan {
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
 
-        let grouping_columns = GroupByClause::from_pg(args, heap_rti, &schema)?.grouping_columns();
-
-        // Extract and validate aggregates - must have schema for field validation
-        let (aggregate_types, filter_groups, filter_uses_search_operator) =
-            extract_and_validate_aggregates(args, &schema, &bm25_index, heap_rti)?;
+        let grouping_columns = GroupByClause::from_pg(args, heap_rti, &bm25_index)?.grouping_columns();
+        let target_list = TargetList::from_pg(args, heap_rti, &bm25_index)?;
+        let aggregate_types = target_list.aggregates();
 
         let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
         let handle_query_without_op = !gucs::enable_custom_scan_without_operator();
@@ -150,7 +149,7 @@ impl CustomScan for AggregateScan {
         }
 
         // Extract ORDER BY pathkeys if present
-        let orderby_clause = OrderByClause::from_pg(args, heap_rti, &schema)?;
+        let orderby_clause = OrderByClause::from_pg(args, heap_rti, &bm25_index)?;
         let orderby_info = orderby_clause.orderby_info();
 
         // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
@@ -204,7 +203,7 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::All
         };
         let where_uses_search_operator = where_qual_state.uses_our_operator;
-        let has_search_operator = where_uses_search_operator || filter_uses_search_operator;
+        let has_search_operator = where_uses_search_operator || target_list.uses_our_operator();
         if handle_query_without_op && !has_search_operator {
             return None;
         }
@@ -277,7 +276,7 @@ impl CustomScan for AggregateScan {
             limit,
             offset,
             maybe_truncated,
-            filter_groups,
+            filter_groups: Default::default(),
         }))
     }
 
@@ -340,8 +339,8 @@ impl CustomScan for AggregateScan {
         explainer.add_text("Index", state.custom_state().indexrel().name());
 
         // Use pre-computed filter groups from the scan state
-        let filter_groups = &state.custom_state().filter_groups;
-        explain_execution_strategy(state, filter_groups, explainer);
+        // let filter_groups = &state.custom_state().filter_groups;
+        explain_execution_strategy(state, &[], explainer);
     }
 
     fn begin_custom_scan(
@@ -639,153 +638,6 @@ fn combine_query_with_filter(
     }
 }
 
-/// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields
-/// and don't conflict with GROUP BY columns
-fn extract_and_validate_aggregates(
-    args: &CreateUpperPathsHookArgs,
-    schema: &SearchIndexSchema,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Option<AggregateExtractionResult> {
-    let (aggregate_types, filter_groups, filter_uses_search_operator) =
-        extract_aggregates(args, bm25_index, heap_rti)?;
-
-    // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
-    for aggregate in &aggregate_types {
-        if let Some(field_name) = aggregate.field_name() {
-            // Check if field exists in schema and is a fast field
-            if let Some(search_field) = schema.search_field(&field_name) {
-                if !search_field.is_fast() {
-                    // Aggregate field is not a fast field
-                    return None;
-                }
-            } else {
-                // Aggregate field not found in schema
-                return None;
-            }
-        }
-    }
-
-    Some((aggregate_types, filter_groups, filter_uses_search_operator))
-}
-
-/// If the given args consist only of AggregateTypes that we can handle, return them.
-fn extract_aggregates(
-    args: &CreateUpperPathsHookArgs,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Option<AggregateExtractionResult> {
-    // The PathTarget `exprs` are the closest that we have to a target list at this point.
-    let target_list =
-        unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
-    if target_list.is_empty() {
-        return None;
-    }
-
-    // Get the relation OID for field name lookup
-    let parent_relids = args.input_rel().relids;
-    let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
-    let heap_rte = unsafe {
-        let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
-        rt.get_ptr((heap_rti - 1) as usize)?
-    };
-    let relation_oid = unsafe { (*heap_rte).relid };
-
-    // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
-    let mut aggregate_types = Vec::new();
-    let mut filter_uses_search_operator = false;
-    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::default();
-
-    for expr in target_list.iter_ptr() {
-        unsafe {
-            let node_tag = (*expr).type_;
-
-            if let Some(_var) = nodecast!(Var, T_Var, expr) {
-                // This is a Var - it should be a grouping column, skip it
-                continue;
-            } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
-                // This might be a JSON operator expression - verify it's recognized
-                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
-                if let Some((_var, _field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                {
-                    // This is a recognized JSON operator expression used in GROUP BY - skip it
-                    continue;
-                } else {
-                    // This is an unrecognized OpExpr, we can't support it
-                    return None;
-                }
-            } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
-                // Check for DISTINCT in aggregate functions
-                if !(*aggref).aggdistinct.is_null() {
-                    // TODO: Support DISTINCT in aggregate custom scans if Tantivy supports it.
-                    return None;
-                }
-
-                // Extract the aggregate with filter support
-                let agg_idx = aggregate_types.len(); // Current index before adding
-                let (agg_type, uses_search_op) =
-                    AggregateType::try_from(aggref, relation_oid, bm25_index, args.root, heap_rti)?;
-                filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
-
-                // Group aggregates by their filter expression during extraction
-                let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
-                    // This is the most reliable way to get a deterministic filter key
-                    filter_expr.explain_format()
-                } else {
-                    NO_FILTER_KEY.to_string()
-                };
-                filter_groups.entry(filter_key).or_default().push(agg_idx);
-
-                aggregate_types.push(agg_type);
-            } else {
-                // Unsupported expression type
-                return None;
-            }
-        }
-    }
-
-    // Convert filter groups to the expected format and sort for deterministic output
-    let mut grouped_aggregates: Vec<(Option<SearchQueryInput>, Vec<usize>, String)> = filter_groups
-        .into_iter()
-        .map(|(filter_key, mut indices)| {
-            // Sort indices within each group for deterministic ordering
-            indices.sort();
-            let filter_expr = if filter_key == NO_FILTER_KEY {
-                None
-            } else {
-                // Get the actual filter expression from the first aggregate in this group
-                aggregate_types[indices[0]].filter_expr().clone()
-            };
-            (filter_expr, indices, filter_key)
-        })
-        .collect();
-
-    // Sort by filter key to ensure deterministic ordering
-    // NO_FILTER groups come first, then sorted by filter expression string
-    grouped_aggregates.sort_by(|a, b| {
-        match (a.2.as_str(), b.2.as_str()) {
-            (NO_FILTER_KEY, NO_FILTER_KEY) => std::cmp::Ordering::Equal,
-            (NO_FILTER_KEY, _) => std::cmp::Ordering::Less, // NO_FILTER comes first
-            (_, NO_FILTER_KEY) => std::cmp::Ordering::Greater,
-            (a_key, b_key) => a_key.cmp(b_key), // Sort other filters alphabetically
-        }
-    });
-
-    // Remove the filter_key from the result tuple
-    let filter_groups = grouped_aggregates
-        .into_iter()
-        .map(|(filter_expr, indices, _)| (filter_expr, indices))
-        .collect();
-
-    // It's valid to have zero aggregates when the query is only a GROUP BY on fast fields
-    // (e.g., SELECT category FROM .. GROUP BY category). In that case, we can still build
-    // a ParadeDB Aggregate Scan that only returns the grouping keys. Therefore we return
-    // an empty vector instead of rejecting the plan.
-
-    Some((aggregate_types, filter_groups, filter_uses_search_operator))
-}
-
 /// Extract filter expression from a FILTER clause and track @@@ operator usage
 pub unsafe fn extract_filter_clause(
     filter_expr: *mut pg_sys::Expr,
@@ -949,7 +801,7 @@ pub trait AggregateClause {
     fn from_pg(
         args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
-        schema: &SearchIndexSchema,
+        index: &PgSearchRelation,
     ) -> Option<Self>
     where
         Self: Sized;

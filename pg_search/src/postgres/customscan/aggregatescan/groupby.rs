@@ -3,6 +3,7 @@ use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
+use crate::postgres::PgSearchRelation;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use pgrx::PgList;
@@ -34,9 +35,10 @@ impl AggregateClause for GroupByClause {
     fn from_pg(
         args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
-        schema: &SearchIndexSchema,
+        index: &PgSearchRelation,
     ) -> Option<Self> {
         let mut grouping_columns = Vec::new();
+        let schema = index.schema().ok()?;
 
         let pathkeys = if unsafe { (*args.root()).group_pathkeys.is_null() } {
             PgList::<pg_sys::PathKey>::new()

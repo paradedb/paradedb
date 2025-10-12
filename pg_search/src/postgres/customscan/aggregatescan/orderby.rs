@@ -6,6 +6,7 @@ use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortabilit
 use crate::postgres::customscan::pdbscan::PathKeyInfo;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
+use crate::postgres::PgSearchRelation;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use pgrx::PgList;
@@ -43,9 +44,10 @@ impl AggregateClause for OrderByClause {
     fn from_pg(
         args: &CreateUpperPathsHookArgs,
         heap_rti: pg_sys::Index,
-        schema: &SearchIndexSchema,
+        index: &PgSearchRelation,
     ) -> Option<Self> {
         let parse = unsafe { (*args.root()).parse };
+        let schema = index.schema().ok()?;
 
         let sort_clause =
             unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
@@ -69,7 +71,7 @@ impl AggregateClause for OrderByClause {
             extract_pathkey_styles_with_sortability_check(
                 args.root,
                 heap_rti,
-                schema,
+                &schema,
                 |f| f.is_fast(),
                 |_| false,
             )

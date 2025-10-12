@@ -20,6 +20,7 @@ use crate::customscan::aggregatescan::GroupingColumn;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -235,21 +236,27 @@ impl AggregateType {
         bm25_index: &crate::postgres::PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
-    ) -> Option<(Self, bool)> {
+        qual_state: &mut QualExtractState,
+    ) -> Option<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
-        // Extract filter clause if present
-        let (filter_expr, filter_uses_search_operator) =
-            extract_filter_clause_if_present(aggref, bm25_index, root, heap_rti);
+        if (*aggref).aggfilter.is_null() {
+            return None;
+        }
+
+        let filter_expr = crate::postgres::customscan::aggregatescan::extract_filter_clause(
+            (*aggref).aggfilter,
+            bm25_index,
+            root,
+            heap_rti,
+            qual_state,
+        );
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
-            return Some((
-                AggregateType::CountAny {
-                    filter: filter_expr,
-                },
-                filter_uses_search_operator,
-            ));
+            return Some(AggregateType::CountAny {
+                filter: filter_expr,
+            });
         }
 
         if args.is_empty() {
@@ -260,7 +267,7 @@ impl AggregateType {
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
         let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
 
-        Some((agg_type, filter_uses_search_operator))
+        Some(agg_type)
     }
 
     /// Get the field name for field-based aggregates (None for COUNT)
@@ -344,14 +351,6 @@ impl AggregateType {
                     "field": field,
                 }
             })
-        }
-    }
-
-    #[allow(unreachable_patterns)]
-    pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
-        match self {
-            AggregateType::CountAny { .. } => None, // 'terms' bucket already has a 'doc_count'
-            _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
 
@@ -537,29 +536,6 @@ impl F64Lossless for i64 {
             None
         }
     }
-}
-
-/// Extract filter clause from aggregate if present
-unsafe fn extract_filter_clause_if_present(
-    aggref: *mut pg_sys::Aggref,
-    bm25_index: &crate::postgres::PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-) -> (Option<SearchQueryInput>, bool) {
-    if (*aggref).aggfilter.is_null() {
-        return (None, false);
-    }
-
-    let mut filter_qual_state =
-        crate::postgres::customscan::qual_inspect::QualExtractState::default();
-    let filter_result = crate::postgres::customscan::aggregatescan::extract_filter_clause(
-        (*aggref).aggfilter,
-        bm25_index,
-        root,
-        heap_rti,
-        &mut filter_qual_state,
-    );
-    (filter_result, filter_qual_state.uses_our_operator)
 }
 
 /// Parse field name and missing value from aggregate argument

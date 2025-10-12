@@ -25,7 +25,6 @@ use std::ffi::CStr;
 
 use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::HashMap;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -54,24 +53,13 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
-
-/// Sentinel key for aggregates without FILTER clauses
-/// Used to group non-filtered aggregates together during query optimization
-const NO_FILTER_KEY: &str = "NO_FILTER";
-
-/// Result type for aggregate extraction, containing:
-/// - Vec<AggregateType>: The extracted aggregate types
-/// - Vec<FilterGroup>: Groups of aggregates with the same filter
-/// - bool: Whether any filter uses the @@@ search operator
-type AggregateExtractionResult = (Vec<AggregateType>, Vec<FilterGroup>, bool);
 
 /// A group of aggregate indices that share the same filter condition
 type FilterGroup = (Option<SearchQueryInput>, Vec<usize>);
@@ -136,7 +124,8 @@ impl CustomScan for AggregateScan {
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
 
-        let grouping_columns = GroupByClause::from_pg(args, heap_rti, &bm25_index)?.grouping_columns();
+        let grouping_columns =
+            GroupByClause::from_pg(args, heap_rti, &bm25_index)?.grouping_columns();
         let target_list = TargetList::from_pg(args, heap_rti, &bm25_index)?;
         let aggregate_types = target_list.aggregates();
 

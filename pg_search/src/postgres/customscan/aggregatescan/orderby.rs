@@ -7,7 +7,6 @@ use crate::postgres::customscan::pdbscan::PathKeyInfo;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
@@ -46,7 +45,7 @@ impl AggregateClause for OrderByClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
-        let parse = unsafe { (*args.root()).parse };
+        let parse = unsafe { args.root().parse };
         let schema = index.schema().ok()?;
 
         let sort_clause =

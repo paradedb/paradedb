@@ -1,12 +1,11 @@
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateType};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
-use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
@@ -64,7 +63,8 @@ impl AggregateClause for TargetList {
                     continue;
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
                     let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
-                    if find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node).is_some() {
+                    if find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node).is_some()
+                    {
                         continue;
                     } else {
                         return None;
@@ -76,8 +76,14 @@ impl AggregateClause for TargetList {
                     }
 
                     let mut qual_state = QualExtractState::default();
-                    let aggregate =
-                        AggregateType::try_from(aggref, heap_oid, index, args.root, heap_rti, &mut qual_state)?;
+                    let aggregate = AggregateType::try_from(
+                        aggref,
+                        heap_oid,
+                        index,
+                        args.root,
+                        heap_rti,
+                        &mut qual_state,
+                    )?;
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
 
                     if let Some(field_name) = aggregate.field_name() {

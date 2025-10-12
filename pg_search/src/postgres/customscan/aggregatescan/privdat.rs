@@ -241,10 +241,6 @@ impl AggregateType {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
-        if (*aggref).aggfilter.is_null() {
-            return None;
-        }
-
         let filter_expr = crate::postgres::customscan::aggregatescan::extract_filter_clause(
             (*aggref).aggfilter,
             bm25_index,

@@ -1838,7 +1838,7 @@ fn specialized_queries(mut conn: PgConnection) {
     WHERE id @@@
     '{
         "more_like_this": {
-            "document_fields": [["description", "shoes"]],
+            "document": [["description", "shoes"]],
             "min_doc_frequency": 0,
             "max_doc_frequency": 100,
             "min_term_frequency": 1

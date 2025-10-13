@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod groupby;
+pub mod limit_offset;
 pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
@@ -29,6 +30,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, AggregateValue, PrivateData, TargetListEntry,
@@ -56,7 +58,7 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
@@ -144,21 +146,8 @@ impl CustomScan for AggregateScan {
         // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
-        let (limit, offset) = unsafe {
-            let limit_count = (*parse).limitCount;
-            let offset_count = (*parse).limitOffset;
-
-            let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
-                let const_node = nodecast!(Const, T_Const, node);
-                if let Some(const_node) = const_node {
-                    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
-                } else {
-                    None
-                }
-            };
-
-            (extract_const(limit_count), extract_const(offset_count))
-        };
+        let limit_offset_clause = LimitOffsetClause::from_pg(args, heap_rti, &bm25_index)?;
+        let (limit, offset) = (limit_offset_clause.limit(), limit_offset_clause.offset());
 
         // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
         // or if it orders by columns that we cannot push down

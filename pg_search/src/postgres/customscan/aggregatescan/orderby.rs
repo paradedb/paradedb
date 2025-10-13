@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2025 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
@@ -45,7 +62,7 @@ impl AggregateClause for OrderByClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
-        let parse = unsafe { args.root().parse };
+        let parse = args.root().parse;
         let schema = index.schema().ok()?;
 
         let sort_clause =

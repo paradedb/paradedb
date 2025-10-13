@@ -1,0 +1,72 @@
+SELECT 'this is a test.'::pdb.chinese_compatible::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::pdb.literal::text[];
+        text         
+---------------------
+ {"this is a test."}
+(1 row)
+
+SELECT 'this is a test.'::pdb.jieba::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.lindera(chinese)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.lindera(japanese)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.lindera(korean)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
+                                                                                                                   text                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {thi,this,"this ",his,"his ","his i","is ","is i","is is","s i","s is","s is "," is"," is "," is a","is ","is a","is a ","s a","s a ","s a t"," a "," a t"," a te","a t","a te","a tes"," te"," tes"," test",tes,test,test.,est,est.,st.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.regex('is|a')::text[];
+   text    
+-----------
+ {is,is,a}
+(1 row)
+
+SELECT 'this is a test.'::pdb.simple::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::pdb.whitespace::text[];
+       text        
+-------------------
+ {this,is,a,test.}
+(1 row)
+
+SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pdb.source_code::text[];
+                          text                           
+---------------------------------------------------------
+ {this,is,a,test,fn,foo,arg,string,impl,foo,a,return,42}
+(1 row)
+

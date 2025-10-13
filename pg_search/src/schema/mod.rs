@@ -22,6 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::options::BM25IndexOptions;
+pub use crate::postgres::utils::FieldSource;
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -30,6 +31,7 @@ use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use crate::api::tokenizers::{type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
@@ -47,6 +49,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
     Text(pg_sys::Oid),
+    Tokenized(pg_sys::Oid, Typmod, pg_sys::Oid),
     Uuid(pg_sys::Oid),
     Inet(pg_sys::Oid),
     I64(pg_sys::Oid),
@@ -62,6 +65,10 @@ impl SearchFieldType {
     pub fn default_config(&self) -> SearchFieldConfig {
         match self {
             SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
+            SearchFieldType::Tokenized(..) => {
+                // NB:  check `search_field_config_from_type` to make sure the tokenizer is properly represented
+                panic!("CustomText fields do not have a default config")
+            }
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
             SearchFieldType::Inet(_) => SearchFieldConfig::default_inet(),
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
@@ -77,6 +84,7 @@ impl SearchFieldType {
     pub fn typeoid(&self) -> PgOid {
         match self {
             SearchFieldType::Text(oid) => *oid,
+            SearchFieldType::Tokenized(oid, ..) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
             SearchFieldType::Inet(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
@@ -89,11 +97,22 @@ impl SearchFieldType {
         }
         .into()
     }
+
+    pub fn typmod(&self) -> Typmod {
+        match self {
+            SearchFieldType::Tokenized(_, typmod, ..) => *typmod,
+            _ => -1,
+        }
+    }
 }
 
-impl TryFrom<PgOid> for SearchFieldType {
+impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
     type Error = SearchIndexSchemaError;
-    fn try_from(pg_oid: PgOid) -> Result<Self, Self::Error> {
+    fn try_from(value: (PgOid, Typmod, pg_sys::Oid)) -> Result<Self, Self::Error> {
+        let pg_oid = value.0;
+        let typmod = value.1;
+        let inner_typoid = value.2;
+
         if matches!(
             pg_oid,
             PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBARRAYOID | pg_sys::BuiltinOid::JSONARRAYOID)
@@ -136,13 +155,16 @@ impl TryFrom<PgOid> for SearchFieldType {
                 | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date((*builtin).into())),
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
             },
-            PgOid::Custom(custom) => {
-                if unsafe { pgrx::pg_sys::type_is_enum(*custom) } {
-                    Ok(SearchFieldType::F64(*custom))
-                } else {
-                    Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
-                }
+            PgOid::Custom(custom) if unsafe { pgrx::pg_sys::type_is_enum(*custom) } => {
+                Ok(SearchFieldType::F64(*custom))
             }
+
+            PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => Ok(
+                SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
+            ),
+
+            PgOid::Custom(_) => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
+
             _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
         }
     }
@@ -151,7 +173,9 @@ impl TryFrom<PgOid> for SearchFieldType {
 #[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
+    pub source: FieldSource,
     pub base_oid: PgOid,
+    pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
 }
@@ -253,14 +277,17 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
+            let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
             for (
                 attname,
                 ExtractedFieldAttribute {
                     attno,
-                    pg_type,
+                    source,
                     tantivy_type,
+                    inner_typoid,
+                    ..
                 },
             ) in self.bm25_options.attributes().iter()
             {
@@ -273,13 +300,17 @@ impl SearchIndexSchema {
                 };
 
                 for search_field in search_fields {
-                    let (base_oid, is_array) = resolve_base_type(*pg_type).unwrap_or_else(|| {
+                    let (base_oid, is_array) = resolve_base_type(PgOid::from_untagged(
+                        *inner_typoid,
+                    ))
+                    .unwrap_or_else(|| {
                         pgrx::error!(
                             "Failed to resolve base type for column {} with type {:?}",
                             attname,
                             tantivy_type.typeoid()
                         )
                     });
+                    let is_key_field = key_field_name == *search_field.field_name();
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
@@ -288,7 +319,9 @@ impl SearchIndexSchema {
                         search_field,
                         CategorizedFieldData {
                             attno: *attno,
+                            source: *source,
                             base_oid,
+                            is_key_field,
                             is_array,
                             is_json,
                         },

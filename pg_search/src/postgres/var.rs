@@ -334,7 +334,7 @@ pub unsafe fn find_one_var_and_fieldname(
 ///
 /// It is the caller's responsibility to ensure that the node is a JSON path expression.
 #[inline(always)]
-unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> Vec<String> {
+pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> Vec<String> {
     let mut path = Vec::new();
 
     if is_a(node, T_Var) {

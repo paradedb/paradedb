@@ -132,7 +132,7 @@ fn text_field_with_options(mut conn: PgConnection) {
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
         USING bm25 (id, description)
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}');
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}');
 "#
         .execute(&mut conn);
 
@@ -155,7 +155,7 @@ fn multiple_text_fields(mut conn: PgConnection) {
         USING bm25 (id, description, category)
         WITH (
             key_field='id',
-            text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}'
+            text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}'
         );
         "#
         .execute(&mut conn);
@@ -865,7 +865,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
     DROP VIEW IF EXISTS products_view;
     DROP TABLE IF EXISTS products_2023_view;
     DROP TABLE IF EXISTS products_2024_view;
-    
+
     SET enable_indexscan TO off;
     SET enable_bitmapscan TO off;
     SET max_parallel_workers TO 0;
@@ -884,7 +884,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
         amount DECIMAL,
         sale_date DATE
     );
-    
+
     -- Insert data to both tables
     INSERT INTO products_2023_view (product_name, amount, sale_date) VALUES
     ('Laptop', 1200.00, '2023-01-15'),
@@ -899,7 +899,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
     ('Printer', 200.00, '2024-02-18'),
     ('Camera', 600.00, '2024-04-22'),
     ('Speaker', 120.00, '2024-06-30');
-    
+
     -- Create BM25 indexes for both tables
     CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
     USING bm25 (id, product_name, amount, sale_date)
@@ -918,7 +918,7 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
         numeric_fields = '{"amount": {}}',
         datetime_fields = '{"sale_date": {"fast": true}}'
     );
-    
+
     -- Create view combining both tables
     CREATE VIEW products_view AS
     SELECT * FROM products_2023_view
@@ -935,7 +935,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     // Get the explain plan
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
-    SELECT * FROM sales 
+    SELECT * FROM sales
     WHERE product_name @@@ 'laptop OR smartphone OR headphones'
     ORDER BY sale_date LIMIT 5;
     "#
@@ -965,7 +965,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Also test that we get the correct sorted results
     let results: Vec<(String, String)> = r#"
-    SELECT product_name, sale_date::text FROM sales 
+    SELECT product_name, sale_date::text FROM sales
     WHERE product_name @@@ 'laptop OR smartphone OR headphones'
     ORDER BY sale_date LIMIT 5;
     "#
@@ -993,7 +993,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM (
-        SELECT * FROM products_2023 
+        SELECT * FROM products_2023
         WHERE product_name @@@ 'laptop OR smartphone OR headphones'
         UNION ALL
         SELECT * FROM products_2024
@@ -1022,7 +1022,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Even without the optimization, verify the query returns correct results
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM (
-        SELECT * FROM products_2023 
+        SELECT * FROM products_2023
         WHERE product_name @@@ 'laptop OR smartphone OR headphones'
         UNION ALL
         SELECT * FROM products_2024
@@ -1054,7 +1054,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Verify the tables and indexes were created properly
     let table_check: Vec<(String,)> = r#"
-    SELECT tablename FROM pg_tables 
+    SELECT tablename FROM pg_tables
     WHERE tablename IN ('products_2023_view', 'products_2024_view')
     ORDER BY tablename;
     "#
@@ -1078,7 +1078,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Verify direct table queries work
     let test_query: Vec<(String,)> = r#"
-    SELECT product_name FROM products_2023_view 
+    SELECT product_name FROM products_2023_view
     WHERE product_name @@@ 'laptop'
     LIMIT 1;
     "#
@@ -1144,14 +1144,14 @@ fn expression_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING bm25 (id, lower(description)) WITH (key_field='id')"#
+        USING bm25 (id, (lower(description)::pdb.simple)) WITH (key_field='id')"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index') ORDER BY name"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("_pg_search_1".into(), "Str".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[1], ("description".into(), "Str".into()));
     assert_eq!(rows[2], ("id".into(), "I64".into()));
 }

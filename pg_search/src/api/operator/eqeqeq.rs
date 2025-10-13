@@ -18,76 +18,90 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
+    get_expr_result_type, request_simplify, searchqueryinput_typoid,
+    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
-    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
-    IntoDatum, PgList,
+    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
+    Internal, IntoDatum, PgList,
 };
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term(_field: &str, term: &str) -> bool {
+fn search_with_term(_field: AnyElement, term: &str) -> bool {
     panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_array(_field: &str, terms: Vec<String>) -> bool {
+fn search_with_term_array(_field: AnyElement, terms: Vec<String>) -> bool {
     panic!("query is incompatible with pg_search's `===(field, TEXT[])` operator: `{terms:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_pdb_query(_field: &str, term: pdb::Query) -> bool {
+fn search_with_term_pdb_query(_field: AnyElement, term: pdb::Query) -> bool {
     panic!("query is incompatible with pg_search's `===(field, pdb.query)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_boost(_field: &str, term: BoostType) -> bool {
+fn search_with_term_boost(_field: AnyElement, term: BoostType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, boost)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_fuzzy(_field: &str, term: FuzzyType) -> bool {
+fn search_with_term_fuzzy(_field: AnyElement, term: FuzzyType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, fuzzy)` operator: `{term:?}`")
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, term| {
+        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |lhs, field, term| {
+            validate_lhs_type_as_text_compatible(lhs, "===");
+
             let field = field
                 .expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
 
             match term {
                 RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
+                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
                         query = term_str(string);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
+                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
+                        query = term_set_str(array);
+                        query.apply_fuzzy_data(fuzzy_data);
+                        query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score })
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
                     let mut query = term_str(string);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    query.apply_slop_data(slop_data);
+                    to_search_query_input(field, query)
+                }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
+                    let mut query = term_set_str(array);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
-        }, |field, rhs| {
+        }, |field, lhs, rhs| {
+            validate_lhs_type_as_text_compatible(lhs, "===");
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
             let expr_type = get_expr_result_type(rhs);
             assert!({
-                expr_type  == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
+                        expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
                     }, "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value");
             let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
 
@@ -120,7 +134,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 location: -1,
             }
         })
-        .unwrap_or(ReturnedNodePointer(None))
+            .unwrap_or(ReturnedNodePointer(None))
     }
 }
 

@@ -43,10 +43,10 @@ fn defult_tokenizer(mut conn: PgConnection) {
 
 #[rstest]
 fn tokenizer_filters(mut conn: PgConnection) {
-    // Test en_stem tokenizer with default layers (lowercase => true, remove_long => 255).
+    // Test default tokenizer with default layers (lowercase => true, remove_long => 255).
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(
-      paradedb.tokenizer('en_stem'),
+      paradedb.tokenizer('default'),
       'Hello, hello, ladiesandgentlemen!'
     );
     "#
@@ -61,10 +61,10 @@ fn tokenizer_filters(mut conn: PgConnection) {
         ]
     );
 
-    // Test en_stem optimizer with explicit layers.
+    // Test default optimizer with explicit layers.
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(
-      paradedb.tokenizer('en_stem', lowercase => false, remove_long => 15),
+      paradedb.tokenizer('default', lowercase => false, remove_long => 15),
       'Hello, hello, ladiesandgentlemen!'
     );
     "#
@@ -94,9 +94,7 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("default".into(),),
                 ("keyword".into(),),
                 ("raw".into(),),
-                ("en_stem".into(),),
-                ("stem".into(),),
-                ("lowercase".into(),),
+                ("literal_normalized".into(),),
                 ("white_space".into(),),
                 ("regex_tokenizer".into(),),
                 ("chinese_compatible".into(),),
@@ -106,7 +104,8 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("japanese_lindera".into(),),
                 ("korean_lindera".into(),),
                 ("icu".into(),),
-                ("jieba".into(),)
+                ("jieba".into(),),
+                ("lindera".into(),)
             ]
         );
     } else {
@@ -116,9 +115,7 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("default".into(),),
                 ("keyword".into(),),
                 ("raw".into(),),
-                ("en_stem".into(),),
-                ("stem".into(),),
-                ("lowercase".into(),),
+                ("literal_normalized".into(),),
                 ("white_space".into(),),
                 ("regex_tokenizer".into(),),
                 ("chinese_compatible".into(),),
@@ -127,7 +124,8 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("chinese_lindera".into(),),
                 ("japanese_lindera".into(),),
                 ("korean_lindera".into(),),
-                ("jieba".into(),)
+                ("jieba".into(),),
+                ("lindera".into(),)
             ]
         );
     }

@@ -20,10 +20,14 @@ WHERE description @@@ ('sleek' ## 1 ## 'shoes');
   query is treated as a finalized token.
 </Note>
 
-<Note>
-  Order does not matter for proximity queries -- the term on the left-hand side
-  may appear before or after the term on the right-hand side.
-</Note>
+`##` does not care about order -- the term on the left-hand side may appear before or after the term on the right-hand side.
+To ensure that the left-hand term appears before the right-hand term, use `##>`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
+```
 
 ## Proximity Regex
 

@@ -17,7 +17,7 @@
 
 use pgrx::*;
 
-use crate::api::{FieldName, HashMap};
+use crate::api::FieldName;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::query::pdb_query::pdb;
 use crate::query::{SearchQueryInput, TermInput};
@@ -85,77 +85,6 @@ pub fn disjunction_max(
 #[pg_extern(immutable, parallel_safe)]
 pub fn empty() -> SearchQueryInput {
     SearchQueryInput::Empty
-}
-
-#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
-pub fn more_like_this_empty() -> SearchQueryInput {
-    panic!("more_like_this must be called with either document_id or document_fields");
-}
-
-#[allow(clippy::too_many_arguments)]
-#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
-pub fn more_like_this_fields(
-    document_fields: String,
-    min_doc_frequency: default!(Option<i32>, "NULL"),
-    max_doc_frequency: default!(Option<i32>, "NULL"),
-    min_term_frequency: default!(Option<i32>, "NULL"),
-    max_query_terms: default!(Option<i32>, "NULL"),
-    min_word_length: default!(Option<i32>, "NULL"),
-    max_word_length: default!(Option<i32>, "NULL"),
-    boost_factor: default!(Option<f32>, "NULL"),
-    stop_words: default!(Option<Vec<String>>, "NULL"),
-) -> SearchQueryInput {
-    let document_fields: HashMap<String, tantivy::schema::OwnedValue> =
-        json5::from_str(&document_fields).expect("could not parse document_fields");
-
-    SearchQueryInput::MoreLikeThis {
-        min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-        max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-        min_term_frequency: min_term_frequency.map(|n| n as usize),
-        max_query_terms: max_query_terms.map(|n| n as usize),
-        min_word_length: min_word_length.map(|n| n as usize),
-        max_word_length: max_word_length.map(|n| n as usize),
-        boost_factor,
-        stop_words,
-        document_fields: Some(document_fields.into_iter().collect()),
-        document_id: None,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
-pub fn more_like_this_id(
-    document_id: AnyElement,
-    min_doc_frequency: default!(Option<i32>, "NULL"),
-    max_doc_frequency: default!(Option<i32>, "NULL"),
-    min_term_frequency: default!(Option<i32>, "NULL"),
-    max_query_terms: default!(Option<i32>, "NULL"),
-    min_word_length: default!(Option<i32>, "NULL"),
-    max_word_length: default!(Option<i32>, "NULL"),
-    boost_factor: default!(Option<f32>, "NULL"),
-    stop_words: default!(Option<Vec<String>>, "NULL"),
-) -> SearchQueryInput {
-    SearchQueryInput::MoreLikeThis {
-        min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-        max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-        min_term_frequency: min_term_frequency.map(|n| n as usize),
-        max_query_terms: max_query_terms.map(|n| n as usize),
-        min_word_length: min_word_length.map(|n| n as usize),
-        max_word_length: max_word_length.map(|n| n as usize),
-        boost_factor,
-        stop_words,
-        document_fields: None,
-        document_id: unsafe {
-            Some(
-                TantivyValue::try_from_datum(
-                    document_id.datum(),
-                    PgOid::from_untagged(document_id.oid()),
-                )
-                .unwrap_or_else(|err| panic!("could not read more_like_this document_id: {err}"))
-                .0,
-            )
-        },
-    }
 }
 
 #[pg_extern(immutable, parallel_safe)]

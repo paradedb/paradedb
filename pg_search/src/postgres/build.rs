@@ -258,13 +258,26 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
-    for (name, ExtractedFieldAttribute { tantivy_type, .. }) in
-        unsafe { extract_field_attributes(index_relation.as_ptr()) }
+    for (
+        name,
+        ExtractedFieldAttribute {
+            tantivy_type,
+            normalizer,
+            ..
+        },
+    ) in unsafe { extract_field_attributes(index_relation.as_ptr()) }
     {
-        let config = options.field_config_or_default(&name);
+        let mut config = options.field_config_or_default(&name);
+        config.set_normalizer(normalizer);
 
         match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
+            SearchFieldType::Tokenized(_, _, inner_typoid)
+                if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID =>
+            {
+                builder.add_json_field(name.as_ref(), config.clone())
+            }
+            SearchFieldType::Tokenized(..) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Inet(_) => builder.add_ip_addr_field(name.as_ref(), config.clone()),
             SearchFieldType::I64(_) => builder.add_i64_field(name.as_ref(), config.clone()),

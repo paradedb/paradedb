@@ -21,7 +21,9 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
+use crate::postgres::storage::block::{
+    LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
+};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::pdb_query::pdb;
@@ -251,6 +253,7 @@ fn index_info(
             name!(recyclable, bool),
             name!(xmax, pg_sys::TransactionId),
             name!(segno, String),
+            name!(mutable, bool),
             name!(byte_size, Option<AnyNumeric>),
             name!(num_docs, Option<AnyNumeric>),
             name!(num_deleted, Option<AnyNumeric>),
@@ -285,23 +288,50 @@ fn index_info(
             if !show_invisible && unsafe { !entry.visible() } {
                 continue;
             }
-            results.push((
-                index.name().to_owned(),
-                unsafe { entry.visible() },
-                unsafe { entry.recyclable(segment_components.bman_mut()) },
-                entry.xmax,
-                entry.segment_id.short_uuid_string(),
-                Some(entry.byte_size().into()),
-                Some(entry.num_docs().into()),
-                Some(entry.num_deleted_docs().into()),
-                entry.terms.map(|file| file.total_bytes.into()),
-                entry.postings.map(|file| file.total_bytes.into()),
-                entry.positions.map(|file| file.total_bytes.into()),
-                entry.fast_fields.map(|file| file.total_bytes.into()),
-                entry.field_norms.map(|file| file.total_bytes.into()),
-                entry.store.map(|file| file.total_bytes.into()),
-                entry.delete.map(|file| file.file_entry.total_bytes.into()),
-            ));
+            match entry.content {
+                SegmentMetaEntryContent::Immutable(content) => {
+                    results.push((
+                        index.name().to_owned(),
+                        unsafe { entry.visible() },
+                        unsafe { entry.recyclable(segment_components.bman_mut()) },
+                        entry.xmax(),
+                        entry.segment_id().short_uuid_string(),
+                        false,
+                        Some(entry.byte_size().into()),
+                        Some(entry.num_docs().into()),
+                        Some(entry.num_deleted_docs().into()),
+                        content.terms.map(|file| file.total_bytes.into()),
+                        content.postings.map(|file| file.total_bytes.into()),
+                        content.positions.map(|file| file.total_bytes.into()),
+                        content.fast_fields.map(|file| file.total_bytes.into()),
+                        content.field_norms.map(|file| file.total_bytes.into()),
+                        content.store.map(|file| file.total_bytes.into()),
+                        content
+                            .delete
+                            .map(|file| file.file_entry.total_bytes.into()),
+                    ));
+                }
+                SegmentMetaEntryContent::Mutable(_) => {
+                    results.push((
+                        index.name().to_owned(),
+                        unsafe { entry.visible() },
+                        unsafe { entry.recyclable(segment_components.bman_mut()) },
+                        entry.xmax(),
+                        entry.segment_id().short_uuid_string(),
+                        true,
+                        None,
+                        Some(entry.num_docs().into()),
+                        Some(entry.num_deleted_docs().into()),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
+                }
+            }
         }
     }
 

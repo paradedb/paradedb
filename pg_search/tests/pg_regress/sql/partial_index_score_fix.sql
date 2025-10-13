@@ -19,7 +19,7 @@ INSERT INTO partial_test (description, category, rating) VALUES
 ('Adidas Sneakers', 'Footwear', 2);
 
 -- Create partial index with WHERE clause
-CREATE INDEX partial_test_idx ON partial_test 
+CREATE INDEX partial_test_idx ON partial_test
 USING bm25 (id, description)
 WITH (key_field = 'id')
 WHERE category = 'Electronics';
@@ -27,26 +27,26 @@ WHERE category = 'Electronics';
 -- Test Case 1: Query with only indexed field - should work correctly
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, paradedb.score(id) as score
-FROM partial_test 
+FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
 
 SELECT id, description, category, paradedb.score(id) as score
-FROM partial_test 
+FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
 
 -- Test Case 2: Query with indexed field + non-indexed predicate
--- This should use the partial index predicate (category = 'Electronics') 
+-- This should use the partial index predicate (category = 'Electronics')
 -- instead of All query for the non-indexed rating filter
 -- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 -- SELECT id, description, category, rating, paradedb.score(id) as score
--- FROM partial_test 
+-- FROM partial_test
 -- WHERE description @@@ 'Apple' AND rating >= 4
 -- ORDER BY score DESC;
 
 SELECT id, description, category, rating, paradedb.score(id) as score
-FROM partial_test 
+FROM partial_test
 WHERE description @@@ 'Apple' AND rating >= 4
 ORDER BY score DESC;
 
@@ -54,12 +54,12 @@ ORDER BY score DESC;
 -- This should still use the partial index predicate for the base query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating, paradedb.score(id) as score
-FROM partial_test 
+FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;
 
 SELECT id, description, category, rating, paradedb.score(id) as score
-FROM partial_test 
+FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;
 
@@ -80,7 +80,7 @@ WITH (
     key_field = 'id',
     text_fields = '{
         "description": {
-            "tokenizer": {"type": "en_stem"}
+            "tokenizer": {"type": "default"}
         }
     }'
 ) WHERE category = 'Electronics';
@@ -88,12 +88,12 @@ WITH (
 -- Test 1: Initial query should return only Electronics items with rating > 1
 -- This should return 5 results (all Electronics with rating > 1)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
@@ -107,12 +107,12 @@ INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock
 -- Test 2: After insert, should return 6 results (5 original + 1 new Electronics with rating > 1)
 -- The key insight: Product 3 (Footwear) should NOT be returned since it's not in the partial index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
@@ -121,41 +121,41 @@ ORDER BY rating LIMIT 20;
 UPDATE paradedb.test_partial_index SET category = 'Footwear' WHERE description = 'Product 1';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
--- Test 4: Update Product 3 to Electronics - should increase results to 6  
+-- Test 4: Update Product 3 to Electronics - should increase results to 6
 UPDATE paradedb.test_partial_index SET category = 'Electronics' WHERE description = 'Product 3';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
-SELECT description, rating, category 
+SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
 
 -- Test 5: Verify that non-Electronics items are not returned even if they match the query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, category 
+SELECT description, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
 
-SELECT description, category 
+SELECT description, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
 
 -- Cleanup
 DROP INDEX partial_idx;
-DROP TABLE paradedb.test_partial_index; 
+DROP TABLE paradedb.test_partial_index;

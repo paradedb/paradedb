@@ -2,51 +2,40 @@ mod fixtures;
 
 use fixtures::*;
 use rstest::*;
-use rustc_hash::FxHashSet as HashSet;
 use serde_json::Value;
 use sqlx::PgConnection;
 
-/// Helper function to verify that a query plan uses ParadeDB's custom scan operator
-/// This checks if the plan node is either:
-/// 1. A "Custom Scan" node directly, or
-/// 2. A "Gather" node with a "Custom Scan" child node
+/// Helper function to verify that a query plan uses ParadeDB's custom scan operator.
+/// It recursively searches the plan and asserts that exactly one "Custom Scan" node is found.
 #[track_caller]
 fn verify_custom_scan(plan: &Value, description: &str) {
-    let plan_node = plan
-        .pointer("/0/Plan/Plans/0")
-        .unwrap_or_else(|| panic!("Could not find plan node in: {plan:?}"))
-        .as_object()
-        .unwrap();
+    fn find_custom_scan_nodes<'a>(plan_node: &'a Value, nodes: &mut Vec<&'a Value>) {
+        if let Some(obj) = plan_node.as_object() {
+            if let Some("Custom Scan") = obj.get("Node Type").and_then(Value::as_str) {
+                nodes.push(plan_node);
+            }
 
-    let node_type = plan_node
-        .get("Node Type")
-        .unwrap_or_else(|| panic!("Could not find Node Type in plan node"))
-        .as_str()
-        .unwrap();
-
-    if node_type == "Custom Scan" {
-        assert_eq!("Custom Scan", node_type, "{description}");
-    } else {
-        assert_eq!(
-            "Gather", node_type,
-            "Expected either Custom Scan or Gather but got {node_type}"
-        );
-        let child_node = plan_node
-            .get("Plans")
-            .unwrap_or_else(|| panic!("Could not find child plans in Gather node"))
-            .as_array()
-            .unwrap()
-            .first()
-            .unwrap()
-            .as_object()
-            .unwrap();
-
-        assert_eq!(
-            "Custom Scan",
-            child_node.get("Node Type").unwrap().as_str().unwrap(),
-            "Child node of Gather should be Custom Scan for {description}"
-        );
+            if let Some(plans) = obj.get("Plans").and_then(Value::as_array) {
+                for child_plan in plans {
+                    find_custom_scan_nodes(child_plan, nodes);
+                }
+            }
+        }
     }
+
+    let root_plan_node = plan
+        .pointer("/0/Plan")
+        .unwrap_or_else(|| panic!("Could not find plan node in: {plan:?}"));
+
+    let mut custom_scan_nodes = Vec::new();
+    find_custom_scan_nodes(root_plan_node, &mut custom_scan_nodes);
+
+    assert_eq!(
+        1,
+        custom_scan_nodes.len(),
+        "Expected to find exactly one Custom Scan node for '{description}', but found {}. Plan: {plan:#?}",
+        custom_scan_nodes.len()
+    );
 }
 
 #[rstest]
@@ -80,38 +69,35 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
 #[rstest]
 fn pushdown(mut conn: PgConnection) {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
-    const TYPES: &[[&str; 2]] = &[
-        ["int2", "0"],
-        ["int4", "0"],
-        ["int8", "0"],
-        ["float4", "0"],
-        ["float8", "0"],
-        ["date", "now()"],
-        ["time", "now()"],
-        ["timetz", "now()"],
-        ["timestamp", "now()"],
-        ["timestamptz", "now()"],
-        ["text", "'foo'::text"],
-        ["text", "'foo'::varchar"],
-        ["varchar", "'foo'::varchar"],
-        ["varchar", "'foo'::text"],
-        ["uuid", "gen_random_uuid()"],
+
+    // colname, sqltype, default value
+    const TYPES: &[[&str; 3]] = &[
+        ["int2", "int2", "0"],
+        ["int4", "int4", "0"],
+        ["int8", "int8", "0"],
+        ["float4", "float4", "0"],
+        ["float8", "float8", "0"],
+        ["date", "date", "now()"],
+        ["time", "time", "now()"],
+        ["timetz", "timetz", "now()"],
+        ["timestamp", "timestamp", "now()"],
+        ["timestamptz", "timestamptz", "now()"],
+        ["text", "text", "'foo'::text"],
+        ["text_1", "text", "'foo'::varchar"],
+        ["varchar", "varchar", "'foo'::varchar"],
+        ["varchar_1", "varchar", "'foo'::text"],
+        ["uuid", "uuid", "gen_random_uuid()"],
     ];
 
     let sqlname = |sqltype: &str| -> String { String::from("col_") + &sqltype.replace('"', "") };
 
-    let mut used_types = HashSet::<&str>::default();
     let mut sql = String::new();
     sql += "CREATE TABLE test (id SERIAL8 NOT NULL PRIMARY KEY, col_boolean boolean DEFAULT false";
-    for [sqltype, default] in TYPES {
-        if used_types.contains(sqltype) {
-            continue;
-        }
+    for [colname, sqltype, default] in TYPES {
         sql += &format!(
             ", {} {sqltype} NOT NULL DEFAULT {default}",
-            sqlname(sqltype)
+            sqlname(colname)
         );
-        used_types.insert(sqltype);
     }
     sql += ");";
 
@@ -127,7 +113,9 @@ fn pushdown(mut conn: PgConnection) {
                     key_field='id',
                         text_fields = '{{
                             "col_text": {{"tokenizer": {{"type":"keyword"}} }},
-                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }}
+                            "col_text_1": {{"tokenizer": {{"type":"keyword"}} }},
+                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }},
+                            "col_varchar_1": {{"tokenizer": {{"type":"keyword"}} }}
                          }}'
                     );"#,
         TYPES
@@ -147,8 +135,8 @@ fn pushdown(mut conn: PgConnection) {
     "SET paradedb.enable_custom_scan_without_operator TO on;".execute(&mut conn);
 
     for operator in OPERATORS {
-        for [sqltype, default] in TYPES {
-            let sqlname = sqlname(sqltype);
+        for [colname, sqltype, default] in TYPES {
+            let sqlname = sqlname(colname);
             let sql = format!(
                 r#"
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)

@@ -227,7 +227,46 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "v2/indexing/create_index"
+                          "v2/indexing/create_index",
+                          "v2/indexing/indexing_expressions",
+                          "v2/indexing/indexing_json",
+                          "v2/indexing/reindexing"
+
+                        ]
+                      },
+                      {
+                        "group": "Tokenizers",
+                        "pages": [
+                          "v2/tokenizers/overview",
+                          {
+                            "group": "Available Tokenizers",
+                            "pages": [
+                              "v2/tokenizers/available_tokenizers/simple",
+                              "v2/tokenizers/available_tokenizers/exact",
+                              "v2/tokenizers/available_tokenizers/literal_normalized",
+                              "v2/tokenizers/available_tokenizers/whitespace",
+                              "v2/tokenizers/available_tokenizers/ngrams",
+                              "v2/tokenizers/available_tokenizers/regex",
+                              "v2/tokenizers/available_tokenizers/chinese_compatible",
+                              "v2/tokenizers/available_tokenizers/lindera",
+                              "v2/tokenizers/available_tokenizers/icu",
+                              "v2/tokenizers/available_tokenizers/jieba",
+                              "v2/tokenizers/available_tokenizers/source_code"
+                            ]
+                          },
+                          "v2/tokenizers/multiple_per_field"
+                        ]
+                      },
+                      {
+                        "group": "Token Filters",
+                        "pages": [
+                          "v2/token_filters/overview",
+                          "v2/token_filters/alpha_numeric",
+                          "v2/token_filters/ascii_folding",
+                          "v2/token_filters/lowercase",
+                          "v2/token_filters/stopwords",
+                          "v2/token_filters/stemming",
+                          "v2/token_filters/token_length"
                         ]
                       },
                       {
@@ -237,8 +276,10 @@
                           "v2/full-text/match",
                           "v2/full-text/phrase",
                           "v2/full-text/term",
+                          "v2/full-text/term_set",
                           "v2/full-text/fuzzy",
                           "v2/full-text/score",
+                          "v2/full-text/topn",
                           "v2/full-text/highlight",
                           "v2/full-text/boost",
                           "v2/full-text/proximity"

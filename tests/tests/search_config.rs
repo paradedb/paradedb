@@ -224,25 +224,8 @@ fn default_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING bm25 (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-
-    let rows: Vec<()> = "
-    SELECT * FROM paradedb.tokenizer_config
-    WHERE tokenizer_config @@@ 'description:earbud' ORDER BY id"
-        .fetch(&mut conn);
-
-    assert!(rows.is_empty());
-}
-
-#[rstest]
-fn en_stem_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING bm25 (id, description) 
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem"}}}')"#
+        USING bm25 (id, description)
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default"}}}')"#
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
@@ -250,7 +233,7 @@ fn en_stem_tokenizer_config(mut conn: PgConnection) {
     WHERE tokenizer_config @@@ 'description:earbud' ORDER BY id"
         .fetch(&mut conn);
 
-    assert_eq!(rows[0], (12,));
+    assert!(rows.is_empty())
 }
 
 #[rstest]
@@ -311,30 +294,6 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn lowercase_tokenizer_config(mut conn: PgConnection) {
-    r#"
-    CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
-
-    CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description)
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "lowercase"}}}');
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) = "
-    SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:shoes'"
-        .fetch_one(&mut conn);
-    assert_eq!(count.0, 0);
-
-    let count: (i64,) = r#"
-    SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:"GENERIC SHOES"'"#
-        .fetch_one(&mut conn);
-    assert_eq!(count.0, 1);
-}
-
-#[rstest]
 fn raw_tokenizer_config(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
@@ -372,7 +331,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
     r#"CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "regex", "pattern": "\\b\\w{4,}\\b"}}}');
-    INSERT INTO paradedb.bm25_search (id, description) VALUES 
+    INSERT INTO paradedb.bm25_search (id, description) VALUES
         (11001, 'This is a simple test'),
         (11002, 'Rust is awesome'),
         (11003, 'Regex patterns are powerful'),
@@ -394,59 +353,6 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         "SELECT COUNT(*) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:longer'"
             .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
-}
-
-#[rstest]
-fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
-    for (language, data, author_query, title_query, message_query) in LANGUAGES {
-        let language_str = language_to_str(language);
-        let setup_query = format!(
-            r#"
-            DROP TABLE IF EXISTS test_table;
-            CREATE TABLE IF NOT EXISTS test_table(
-                id SERIAL PRIMARY KEY,
-                author TEXT,
-                title TEXT,
-                message TEXT
-            );
-            INSERT INTO test_table (author, title, message)
-            VALUES {data};
-            CREATE INDEX stem_test ON test_table
-                USING bm25 (id, author, title, message)
-                WITH (key_field='id', text_fields='{{
-                    "author": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}},
-                    "title": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}},
-                    "message": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}}
-                }}');"#
-        );
-
-        setup_query.execute(&mut conn);
-
-        let author_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'author:{author_query}' ORDER BY id"
-        );
-        let title_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'title:{title_query}' ORDER BY id"
-        );
-        let message_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'message:{message_query}' ORDER BY id"
-        );
-
-        let row: (i32,) = author_search_query.fetch_one(&mut conn);
-        assert_eq!(row.0, 1);
-
-        let row: (i32,) = title_search_query.fetch_one(&mut conn);
-        assert_eq!(row.0, 2);
-
-        let row: (i32,) = message_search_query.fetch_one(&mut conn);
-        assert_eq!(row.0, 3);
-
-        r#"
-        DROP INDEX IF EXISTS stem_test;
-        DROP TABLE IF EXISTS test_table;
-        "#
-        .execute(&mut conn);
-    }
 }
 
 #[rstest]

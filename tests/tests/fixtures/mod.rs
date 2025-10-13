@@ -46,13 +46,6 @@ pub fn conn(database: Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
 
-        // You can hijack a test run to debug, like so:
-        // let mut conn = <PgConnection as sqlx::Connection>::connect(
-        //     "postgres://neilhansen@localhost:5432/postgres",
-        // )
-        // .await
-        // .unwrap();
-
         sqlx::query("CREATE EXTENSION pg_search;")
             .execute(&mut conn)
             .await
@@ -62,6 +55,13 @@ pub fn conn(database: Db) -> PgConnection {
             .execute(&mut conn)
             .await
             .expect("could not adjust log_error_verbosity");
+
+        // Setting to 1 provides test coverage for both mutable and immutable segments, because
+        // bulk insert statements will create both a mutable and immutable segment.
+        sqlx::query("SET paradedb.global_mutable_segment_rows TO 1;")
+            .execute(&mut conn)
+            .await
+            .expect("could not adjust mutable_segment_rows");
 
         sqlx::query("SET log_min_duration_statement TO 1000;")
             .execute(&mut conn)

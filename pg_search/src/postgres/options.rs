@@ -15,21 +15,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
+use std::cell::{Ref, RefCell};
+use std::ffi::CStr;
+use std::num::NonZeroUsize;
+use std::rc::Rc;
+
+use crate::api::{FieldName, HashMap};
+use crate::gucs;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
-use std::cell::{Ref, RefCell};
 
+use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use serde_json::Map;
-use std::ffi::CStr;
-use std::rc::Rc;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 /* ADDING OPTIONS
@@ -184,7 +187,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 11;
+const NUM_REL_OPTS: usize = 12;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -245,6 +248,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "background_layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, background_layer_sizes_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "mutable_segment_rows".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -321,6 +329,10 @@ impl BM25IndexOptions {
             .target_segment_count()
             .map(|count| count as usize)
             .unwrap_or_else(crate::available_parallelism)
+    }
+
+    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        gucs::global_mutable_segment_rows().or_else(|| self.options_data().mutable_segment_rows())
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -417,6 +429,16 @@ impl BM25IndexOptions {
                 // otherwise we'll use the default config for key_fields in general
                 _ => self.get_field_type(field_name).map(key_field_config),
             };
+        }
+
+        let field_type = self.get_field_type(field_name);
+
+        if field_name.root() == data.key_field_name()?.root() {
+            return field_type.map(key_field_config);
+        } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
+            field_type
+        {
+            return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
         }
 
         self.text_config()
@@ -588,6 +610,7 @@ struct BM25IndexOptionsData {
     inet_fields_offset: i32,
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
+    mutable_segment_rows: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -616,6 +639,14 @@ impl BM25IndexOptionsData {
             None
         } else {
             Some(self.target_segment_count)
+        }
+    }
+
+    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        if self.mutable_segment_rows > 0 {
+            NonZeroUsize::new(self.mutable_segment_rows as usize)
+        } else {
+            None
         }
     }
 
@@ -776,6 +807,15 @@ pub unsafe fn init() {
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "mutable_segment_rows".as_pg_cstr(),
+        "The size of mutable segments.".as_pg_cstr(),
+        0,
+        0,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
         "background_layer_sizes".as_pg_cstr(),
@@ -837,6 +877,9 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
+        SearchFieldType::Tokenized(..) => {
+            panic!("the key_field cannot use a custom tokenizer configuration")
+        }
         SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
             indexed: true,
             fast: true,

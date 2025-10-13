@@ -19,12 +19,12 @@ INSERT INTO t (description, org_id) VALUES
 CREATE INDEX t_idx ON t USING bm25
 (id, description, org_id) WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
 SELECT * FROM paradedb.schema('t_idx');
-    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         |  record  | normalizer 
--------------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
- ctid        | U64        | f      | t       | t    | f          |             |                                                           |          | 
- description | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
- id          | I64        | f      | t       | t    | f          |             |                                                           |          | 
- org_id      | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
+ ctid        | U64        | f      | t       | t    | f          |             |                          |          | 
+ description | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
+ id          | I64        | f      | t       | t    | f          |             |                          |          | 
+ org_id      | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
 (4 rows)
 
 DROP TABLE t;

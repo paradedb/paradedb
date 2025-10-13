@@ -18,6 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils;
 use pgrx::pg_sys;
+use pgrx::PgList;
 
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to
 /// a snapshot
@@ -120,5 +121,64 @@ impl Drop for HeapFetchState {
             pg_sys::ExecDropSingleTupleTableSlot(self.slot);
             pg_sys::table_index_fetch_end(self.scan);
         }
+    }
+}
+
+/// A wrapper for expression evaluation state.
+#[derive(Debug)]
+pub struct ExpressionState {
+    econtext: *mut pg_sys::ExprContext,
+    expr_states: Vec<*mut pg_sys::ExprState>,
+}
+
+impl ExpressionState {
+    /// Create an ExpressionState for the given index relation.
+    pub fn new(indexrel: &PgSearchRelation) -> Self {
+        let index_exprs = unsafe { pg_sys::RelationGetIndexExpressions(indexrel.as_ptr()) };
+        let mut econtext: *mut pg_sys::ExprContext = std::ptr::null_mut();
+        let expr_states = if !index_exprs.is_null() {
+            econtext = unsafe {
+                pgrx::PgMemoryContexts::TopTransactionContext
+                    .switch_to(|_| pg_sys::CreateStandaloneExprContext())
+            };
+            let expr_list: PgList<pg_sys::Node> = unsafe { PgList::from_pg(index_exprs) };
+
+            let old_context =
+                unsafe { pg_sys::MemoryContextSwitchTo((*econtext).ecxt_per_query_memory) };
+
+            let states = expr_list
+                .iter_ptr()
+                .map(|expr_node| unsafe {
+                    pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut())
+                })
+                .collect::<Vec<_>>();
+
+            unsafe { pg_sys::MemoryContextSwitchTo(old_context) };
+            states
+        } else {
+            vec![]
+        };
+
+        Self {
+            econtext,
+            expr_states,
+        }
+    }
+
+    /// Evaluate expressions for the tuple in the given slot.
+    pub fn evaluate(&self, slot: *mut pg_sys::TupleTableSlot) -> Vec<(pg_sys::Datum, bool)> {
+        let mut expr_results = Vec::new();
+        if !self.econtext.is_null() {
+            unsafe {
+                (*self.econtext).ecxt_scantuple = slot;
+            }
+            for expr_state in &self.expr_states {
+                let mut is_null = false;
+                let datum =
+                    unsafe { pg_sys::ExecEvalExpr(*expr_state, self.econtext, &mut is_null) };
+                expr_results.push((datum, is_null));
+            }
+        }
+        expr_results
     }
 }

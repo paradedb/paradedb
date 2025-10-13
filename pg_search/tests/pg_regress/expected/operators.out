@@ -26,14 +26,14 @@ SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_3","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description_lower","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
@@ -65,14 +65,14 @@ SELECT * FROM regress.mock_items WHERE description &&& 'running shoes' ORDER BY 
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes' ORDER BY id;
@@ -104,14 +104,14 @@ SELECT * FROM regress.mock_items WHERE description ||| 'running shoes' ORDER BY 
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes' ORDER BY id;
@@ -143,14 +143,14 @@ SELECT * FROM regress.mock_items WHERE description ### 'running shoes' ORDER BY 
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes';
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"_pg_search_3","phrase":"running shoes","slop":null}}}}
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description_lower","phrase":"running shoes","slop":null}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes' ORDER BY id;
@@ -182,14 +182,14 @@ SELECT * FROM regress.mock_items WHERE description === 'shoes' ORDER BY id;
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes';
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"_pg_search_3","value":"shoes","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description_lower","value":"shoes","is_datetime":false}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY id;
@@ -223,14 +223,14 @@ SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] O
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"_pg_search_3","terms":["shoes","SHOES"]}}}}
+   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description_lower","terms":["shoes","SHOES"]}}}}
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;
@@ -279,40 +279,15 @@ select * from regress.mock_items where description === case when id = 1 then 'ke
 -- these are types that postgres will coerce to TEXT
 --
 SELECT * FROM regress.mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `@@@(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
-(2 rows)
-
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `keyboard`
 SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
@@ -373,42 +348,42 @@ SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
 -- these will all produce an error
 --
 SELECT * FROM regress.mock_items WHERE id &&& '42';
-ERROR:  operator does not exist: integer &&& unknown at character 43
+ERROR:  type `int4` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid &&& unknown at character 44
+ERROR:  type `uuid` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE in_stock &&& 'true';
-ERROR:  operator does not exist: boolean &&& unknown at character 49
+ERROR:  type `bool` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date &&& now()::date::text;
-ERROR:  operator does not exist: date &&& text at character 58
+ERROR:  type `date` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time &&& now()::date::text;
-ERROR:  operator does not exist: time without time zone &&& text at character 62
+ERROR:  type `time` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE id ||| '42';
-ERROR:  operator does not exist: integer ||| unknown at character 43
+ERROR:  type `int4` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid ||| unknown at character 44
+ERROR:  type `uuid` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE in_stock ||| 'true';
-ERROR:  operator does not exist: boolean ||| unknown at character 49
+ERROR:  type `bool` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date ||| now()::date::text;
-ERROR:  operator does not exist: date ||| text at character 58
+ERROR:  type `date` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time ||| now()::date::text;
-ERROR:  operator does not exist: time without time zone ||| text at character 62
+ERROR:  type `time` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE id ### '42';
-ERROR:  operator does not exist: integer ### unknown at character 43
+ERROR:  type `int4` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid ### unknown at character 44
+ERROR:  type `uuid` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE in_stock ### 'true';
-ERROR:  operator does not exist: boolean ### unknown at character 49
+ERROR:  type `bool` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date ### now()::date::text;
-ERROR:  operator does not exist: date ### text at character 58
+ERROR:  type `date` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time ### now()::date::text;
-ERROR:  operator does not exist: time without time zone ### text at character 62
+ERROR:  type `time` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE id === '42';
-ERROR:  operator does not exist: integer === unknown at character 43
+ERROR:  type `int4` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid === unknown at character 44
+ERROR:  type `uuid` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE in_stock === 'true';
-ERROR:  operator does not exist: boolean === unknown at character 49
+ERROR:  type `bool` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date === now()::date::text;
-ERROR:  operator does not exist: date === text at character 58
+ERROR:  type `date` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time === now()::date::text;
-ERROR:  operator does not exist: time without time zone === text at character 62
+ERROR:  type `time` is not compatible with the `===` operator

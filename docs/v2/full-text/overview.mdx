@@ -1,10 +1,8 @@
 ---
-title: Overview
+title: How Text Search Works
 noindex: true
 canonical: https://docs.paradedb.com/documentation/full-text/overview
 ---
-
-## How Text Search Works
 
 Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
 
@@ -24,8 +22,6 @@ While ParadeDB supports substring matching via [regex](/v2/query-builder/term/re
 same as substring matching.
 
 Token matching is a much more versatile and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
-
-For example, a substring search for `run` might miss `running`, while a token-based match query will correctly match if the tokenizer includes [stemming](documentation/indexing/token_filters#stemmer). This makes token matching a fit for search and discovery use cases where users expect flexible, intelligent results.
 
 ## Similarity Search
 

@@ -24,6 +24,7 @@ pub mod builder_fns;
 pub mod config;
 pub mod operator;
 pub mod tokenize;
+pub mod tokenizers;
 pub mod window_function;
 
 use pgrx::{

@@ -13,7 +13,7 @@ To boost a query, cast the query to the `boost` type. In this example, the `shoe
 ```sql
 SELECT id, paradedb.score(id), description, category
 FROM mock_items
-WHERE description ||| 'shoes'::boost(2) OR category ||| 'footwear'
+WHERE description ||| 'shoes'::pdb.boost(2) OR category ||| 'footwear'
 ORDER BY score DESC
 LIMIT 5;
 ```
@@ -25,7 +25,7 @@ LIMIT 5;
 ```sql
 SELECT id, description, category, paradedb.score(id)
 FROM mock_items
-WHERE description @@@ pdb.regex('key.*')::boost(2)
+WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
 ORDER BY score DESC
 LIMIT 5;
 ```
@@ -35,7 +35,7 @@ Boost can be used in conjunction with other type casts, like [fuzzy](/v2/full-te
 ```sql
 SELECT id, description, category, paradedb.score(id)
 FROM mock_items
-WHERE description ||| 'shose'::fuzzy(2)::boost(2)
+WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
 ORDER BY score DESC
 LIMIT 5;
 ```

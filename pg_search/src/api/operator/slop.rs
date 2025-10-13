@@ -76,11 +76,11 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for SlopType {
         fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("slop".into()))
+            Ok(SqlMapping::As("pdb.slop".into()))
         }
 
         fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("slop".into())))
+            Ok(Returns::One(SqlMapping::As("pdb.slop".into())))
         }
     }
 
@@ -119,7 +119,8 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.slop;
+            CREATE SCHEMA IF NOT EXISTS pdb;
+            CREATE TYPE pdb.slop;
         "#,
         name = "SlopType_shell",
         creates = [Type(SlopType)]
@@ -161,7 +162,7 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE TYPE pg_catalog.slop (
+            CREATE TYPE pdb.slop (
                 INPUT = slop_in,
                 OUTPUT = slop_out,
                 INTERNALLENGTH = VARIABLE,
@@ -185,6 +186,17 @@ mod typedef {
 fn query_to_slop(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> SlopType {
     input.apply_slop_data((typmod != -1).then(|| typmod.into()));
     SlopType(input)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn text_array_to_slop(array: Vec<String>, typmod: i32, _is_explicit: bool) -> SlopType {
+    let mut query = pdb::Query::UnclassifiedArray {
+        array,
+        fuzzy_data: None,
+        slop_data: None,
+    };
+    query.apply_slop_data((typmod != -1).then(|| typmod.into()));
+    SlopType(query)
 }
 
 #[pg_cast(implicit, immutable, parallel_safe)]
@@ -218,10 +230,17 @@ pub fn slop_to_slop(input: SlopType, typmod: i32, is_explicit: bool) -> SlopType
 
 extension_sql!(
     r#"
-        CREATE CAST (pdb.query AS pg_catalog.slop) WITH FUNCTION query_to_slop(pdb.query, integer, boolean) AS ASSIGNMENT;
-        CREATE CAST (pg_catalog.slop AS pg_catalog.boost) WITH FUNCTION slop_to_boost(pg_catalog.slop, integer, boolean) AS IMPLICIT;
-        CREATE CAST (pg_catalog.slop AS pg_catalog.slop) WITH FUNCTION slop_to_slop(pg_catalog.slop, integer, boolean) AS IMPLICIT;
+        CREATE CAST (text[] AS pdb.slop) WITH FUNCTION text_array_to_slop(text[], integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.query AS pdb.slop) WITH FUNCTION query_to_slop(pdb.query, integer, boolean) AS ASSIGNMENT;
+        CREATE CAST (pdb.slop AS pdb.boost) WITH FUNCTION slop_to_boost(pdb.slop, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.slop AS pdb.slop) WITH FUNCTION slop_to_slop(pdb.slop, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_slop",
-    requires = [query_to_slop, slop_to_boost, slop_to_slop, "SlopType_final"]
+    requires = [
+        query_to_slop,
+        slop_to_boost,
+        slop_to_slop,
+        text_array_to_slop,
+        "SlopType_final"
+    ]
 );

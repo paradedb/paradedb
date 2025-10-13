@@ -18,13 +18,14 @@
 use std::cell::UnsafeCell;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::qual_inspect::Qual;
-use crate::postgres::customscan::CustomScanState;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
@@ -135,19 +136,6 @@ impl PdbScanState {
         self.base_search_query_input = input;
     }
 
-    pub fn prepare_query_for_execution(
-        &mut self,
-        planstate: *mut pg_sys::PlanState,
-        expr_context: *mut pg_sys::ExprContext,
-    ) {
-        self.search_query_input = self.base_search_query_input.clone();
-        if self.search_query_input.has_postgres_expressions() {
-            self.search_query_input.init_postgres_expressions(planstate);
-            self.search_query_input
-                .solve_postgres_expressions(expr_context);
-        }
-    }
-
     pub fn search_query_input(&self) -> &SearchQueryInput {
         if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
@@ -210,10 +198,6 @@ impl PdbScanState {
 
     pub fn has_postgres_expressions(&mut self) -> bool {
         self.base_search_query_input.has_postgres_expressions()
-    }
-
-    pub fn has_heap_filters(&mut self) -> bool {
-        self.base_search_query_input.has_heap_filters()
     }
 
     #[inline(always)]
@@ -454,5 +438,28 @@ impl PdbScanState {
             pg_sys::heap_freetuple(htup);
         }
         result
+    }
+}
+
+impl SolvePostgresExpressions for PdbScanState {
+    fn init_search_query_input(&mut self) {
+        self.search_query_input = self.base_search_query_input.clone();
+    }
+
+    fn has_heap_filters(&mut self) -> bool {
+        self.base_search_query_input.has_heap_filters()
+    }
+
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.search_query_input.has_postgres_expressions()
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.search_query_input.init_postgres_expressions(planstate);
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.search_query_input
+            .solve_postgres_expressions(expr_context);
     }
 }

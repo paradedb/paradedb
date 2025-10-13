@@ -254,10 +254,6 @@ impl MVCCEntry for MergeEntry {
                 && !pg_sys::TransactionIdIsInProgress(self.xmin)
         }
     }
-
-    unsafe fn mergeable(&self) -> bool {
-        unimplemented!("`MVCCEntry::mergeable()` is not supported for `MergeEntry")
-    }
 }
 
 impl MergeEntry {

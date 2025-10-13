@@ -28,14 +28,14 @@ fn expression_paradedb_func(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
-        USING bm25 (id, lower(description)) WITH (key_field='id');
+        USING bm25 (id, (lower(description)::pdb.simple)) WITH (key_field='id');
 
     INSERT INTO paradedb.index_config (description) VALUES ('Test description');
     "#
     .execute(&mut conn);
 
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('_pg_search_1', 'test')"
+        "SELECT count(*) FROM paradedb.index_config WHERE index_config @@@ paradedb.term('description', 'test')"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
@@ -50,7 +50,7 @@ fn expression_paradedb_op(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
-        USING bm25 (id, (description || ' with cats')) WITH (key_field='id');
+        USING bm25 (id, ((description || ' with cats')::pdb.simple)) WITH (key_field='id');
 
     INSERT INTO paradedb.index_config (description) VALUES ('Test description');
     "#
@@ -74,7 +74,7 @@ fn expression_conflicting_query_string(mut conn: PgConnection) {
     CREATE TABLE expression_test (id SERIAL PRIMARY KEY, firstname TEXT, lastname TEXT);
 
     CREATE INDEX expression_test_idx ON expression_test
-        USING bm25 (id, lower(firstname), lower(lastname)) WITH (key_field='id');
+        USING bm25 (id, (lower(firstname)::pdb.simple), (lower(lastname)::pdb.simple)) WITH (key_field='id');
 
     INSERT INTO expression_test (firstname, lastname) VALUES ('John', 'Doe');
     "#

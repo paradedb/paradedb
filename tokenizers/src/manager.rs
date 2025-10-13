@@ -24,27 +24,29 @@ use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
-    DEFAULT_REMOVE_TOKEN_LENGTH,
+    token_length::TokenLengthFilter,
 };
 use anyhow::Result;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    RemoveLongFilter, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
+    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
+    pub remove_short: Option<usize>,
     pub remove_long: Option<usize>,
     pub lowercase: Option<bool>,
     pub stemmer: Option<Language>,
     pub stopwords_language: Option<Language>,
     pub stopwords: Option<Vec<String>>,
+    pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
+    pub normalizer: Option<SearchNormalizer>,
 }
 
 impl SearchTokenizerFilters {
@@ -55,12 +57,15 @@ impl SearchTokenizerFilters {
     /// text types that don't want tokenization too.
     pub const fn keyword() -> &'static Self {
         &SearchTokenizerFilters {
-            remove_long: Some(usize::MAX),
+            remove_short: None,
+            remove_long: None,
             lowercase: Some(false),
             stemmer: None,
             stopwords_language: None,
             stopwords: None,
             ascii_folding: None,
+            alpha_num_only: None,
+            normalizer: Some(SearchNormalizer::Raw),
         }
     }
 
@@ -72,6 +77,14 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!(
                     "a 'remove_long' value passed to the pg_search tokenizer configuration \
                      must be of type u64, found: {remove_long:#?}"
+                )
+            })? as usize);
+        }
+        if let Some(remove_short) = value.get("remove_short") {
+            filters.remove_short = Some(remove_short.as_u64().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'remove_short' value passed to the pg_search tokenizer configuration \
+                     must be of type u64, found: {remove_short:#?}"
                 )
             })? as usize);
         }
@@ -102,7 +115,11 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("stopwords tokenizer requires a valid 'stopwords' field")
             })?);
         }
-
+        if let Some(alpha_num_only) = value.get("alpha_num_only") {
+            filters.alpha_num_only = Some(alpha_num_only.as_bool().ok_or_else(|| {
+                anyhow::anyhow!("ascii_folding tokenizer requires a valid 'alpha_num_only' field")
+            })?);
+        }
         if let Some(ascii_folding) = value.get("ascii_folding") {
             filters.ascii_folding = Some(ascii_folding.as_bool().ok_or_else(|| {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
@@ -110,28 +127,6 @@ impl SearchTokenizerFilters {
         }
 
         Ok(filters)
-    }
-
-    fn to_json_value(&self, enclosing: &mut serde_json::Value) {
-        let enclosing = enclosing.as_object_mut().expect("object value");
-        if let Some(value) = self.remove_long {
-            let v = serde_json::Value::Number(value.into());
-            enclosing.insert("remove_long".to_string(), v);
-        }
-        if let Some(value) = self.lowercase {
-            let v = serde_json::Value::Bool(value);
-            enclosing.insert("lowercase".to_string(), v);
-        }
-
-        if let Some(stopwords) = self.stopwords.as_ref() {
-            let v = serde_json::Value::Array(
-                stopwords
-                    .iter()
-                    .map(|s| serde_json::Value::String(s.clone()))
-                    .collect(),
-            );
-            enclosing.insert("stopwords".to_string(), v);
-        }
     }
 
     fn name_suffix(&self) -> String {
@@ -146,6 +141,11 @@ impl SearchTokenizerFilters {
             }
         }
 
+        if let Some(value) = self.remove_short {
+            write!(buffer, "{}remove_short={value}", sep(is_empty))
+                .expect("Writing to String buffer should never fail");
+            is_empty = false;
+        }
         if let Some(value) = self.remove_long {
             write!(buffer, "{}remove_long={value}", sep(is_empty))
                 .expect("Writing to String buffer should never fail");
@@ -169,7 +169,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}stopwords={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
         }
-
+        if let Some(value) = self.alpha_num_only {
+            write!(buffer, "{}alpha_num_only={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
         if let Some(value) = self.ascii_folding {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
@@ -182,9 +185,11 @@ impl SearchTokenizerFilters {
         }
     }
 
-    fn remove_long_filter(&self) -> Option<RemoveLongFilter> {
-        let limit = self.remove_long.unwrap_or(DEFAULT_REMOVE_TOKEN_LENGTH);
-        Some(RemoveLongFilter::limit(limit))
+    fn token_length_filter(&self) -> Option<TokenLengthFilter> {
+        match (self.remove_short, self.remove_long) {
+            (None, None) => None,
+            (remove_short, remove_long) => Some(TokenLengthFilter::new(remove_short, remove_long)),
+        }
     }
 
     fn lower_caser(&self) -> Option<LowerCaser> {
@@ -211,20 +216,47 @@ impl SearchTokenizerFilters {
             .map(|stop_words| StopWordFilter::remove(stop_words.clone()))
     }
 
+    fn alpha_num_only(&self) -> Option<AlphaNumOnlyFilter> {
+        match self.alpha_num_only {
+            Some(true) => Some(AlphaNumOnlyFilter), // Only enable if explicitly requested.
+            _ => None,
+        }
+    }
+
     fn ascii_folding(&self) -> Option<AsciiFoldingFilter> {
         match self.ascii_folding {
             Some(true) => Some(AsciiFoldingFilter), // Only enable if explicitly requested.
             _ => None,
         }
     }
+
+    fn normalizer(&self) -> Option<SearchNormalizer> {
+        self.normalizer
+    }
+}
+
+macro_rules! add_filters {
+    ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
+        tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
+            .filter($filters.token_length_filter())
+            .filter($filters.lower_caser())
+            .filter($filters.stemmer())
+            .filter($filters.stopwords_language())
+            .filter($filters.stopwords())
+            .filter($filters.ascii_folding())
+            $(
+                .filter($extra_filter)
+            )*
+            .filter($filters.alpha_num_only())
+            .build()
+    }};
 }
 
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
 //
-// Ensure that new variants are added to the `to_json_value` and
-// `from_json_value` methods. We don't use serde_json to ser/de the
+// Ensure that new variants are added to `from_json_value`. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -238,13 +270,7 @@ pub enum SearchTokenizer {
         note = "use the `SearchTokenizer::Keyword` variant instead"
     )]
     Raw(SearchTokenizerFilters),
-
-    EnStem(SearchTokenizerFilters),
-    Stem {
-        language: Language,
-        filters: SearchTokenizerFilters,
-    },
-    Lowercase(SearchTokenizerFilters),
+    LiteralNormalized(SearchTokenizerFilters),
     WhiteSpace(SearchTokenizerFilters),
     RegexTokenizer {
         pattern: String,
@@ -265,6 +291,17 @@ pub enum SearchTokenizer {
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba(SearchTokenizerFilters),
+
+    Lindera(LinderaLanguage, SearchTokenizerFilters),
+}
+
+#[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
+pub enum LinderaLanguage {
+    #[default]
+    Unspecified,
+    Chinese,
+    Japanese,
+    Korean,
 }
 
 impl Default for SearchTokenizer {
@@ -274,52 +311,6 @@ impl Default for SearchTokenizer {
 }
 
 impl SearchTokenizer {
-    pub fn to_json_value(&self) -> serde_json::Value {
-        let mut json = match self {
-            SearchTokenizer::Default(_filters) => json!({ "type": "default" }),
-            SearchTokenizer::Keyword => json!({ "type": "keyword" }),
-            #[allow(deprecated)]
-            SearchTokenizer::Raw(_filters) => json!({ "type": "raw" }),
-            SearchTokenizer::EnStem(_filters) => json!({ "type": "en_stem" }),
-            SearchTokenizer::Stem {
-                language,
-                filters: _,
-            } => json!({ "type": "stem", "language": language }),
-            SearchTokenizer::Lowercase(_filters) => json!({ "type": "lowercase" }),
-            SearchTokenizer::WhiteSpace(_filters) => json!({ "type": "whitespace" }),
-            SearchTokenizer::RegexTokenizer {
-                pattern,
-                filters: _,
-            } => {
-                json!({ "type": "regex", "pattern": pattern })
-            }
-            SearchTokenizer::ChineseCompatible(_filters) => json!({ "type": "chinese_compatible" }),
-            SearchTokenizer::SourceCode(_filters) => json!({ "type": "source_code" }),
-            SearchTokenizer::Ngram {
-                min_gram,
-                max_gram,
-                prefix_only,
-                filters: _,
-            } => json!({
-                "type": "ngram",
-                "min_gram": min_gram,
-                "max_gram": max_gram,
-                "prefix_only": prefix_only,
-            }),
-            SearchTokenizer::ChineseLindera(_filters) => json!({ "type": "chinese_lindera" }),
-            SearchTokenizer::JapaneseLindera(_filters) => json!({ "type": "japanese_lindera" }),
-            SearchTokenizer::KoreanLindera(_filters) => json!({ "type": "korean_lindera" }),
-            #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
-            SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
-        };
-
-        // Serialize filters to the enclosing json object.
-        self.filters().to_json_value(&mut json);
-
-        json
-    }
-
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         // We use the `type` field of a JSON object to distinguish the tokenizer variant.
         // Deserialized in this "tagged enum" fashion is not supported by bincode, which
@@ -336,15 +327,7 @@ impl SearchTokenizer {
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
-            "en_stem" => Ok(SearchTokenizer::EnStem(filters)),
-            "stem" => {
-                let language: Language = serde_json::from_value(value["language"].clone())
-                    .map_err(|_| {
-                        anyhow::anyhow!("stem tokenizer requires a valid 'language' field")
-                    })?;
-                Ok(SearchTokenizer::Stem { language, filters })
-            }
-            "lowercase" => Ok(SearchTokenizer::Lowercase(filters)),
+            "literal_normalized" => Ok(SearchTokenizer::LiteralNormalized(filters)),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace(filters)),
             "regex" => {
                 let pattern: String =
@@ -389,181 +372,77 @@ impl SearchTokenizer {
     }
 
     pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
-        match self {
-            SearchTokenizer::Default(filters) => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-
-            SearchTokenizer::Keyword => {
-                Some(TextAnalyzer::builder(RawTokenizer::default()).build())
+        let analyzer = match self {
+            SearchTokenizer::Default(filters) => {
+                add_filters!(SimpleTokenizer::default(), filters)
             }
-
-            // this Tokenizer is deprecated because it's bugged.  The `filters.remove_long_filter()`
-            // and `filters.lower_caser()` provide defaults that do those things, but that is the
+            // the keyword tokenizer is a special case that does not have filters
+            SearchTokenizer::Keyword => TextAnalyzer::builder(RawTokenizer::default()).build(),
+            SearchTokenizer::LiteralNormalized(filters) => {
+                add_filters!(RawTokenizer::default(), filters)
+            }
+            SearchTokenizer::WhiteSpace(filters) => {
+                add_filters!(WhitespaceTokenizer::default(), filters)
+            }
+            // this Tokenizer is deprecated because it's bugged. `filters.lower_caser()` provides defaults, but that is the
             // opposite of what the `raw` tokenizer should do.
             //
             // the decision was made to introduce the `keyword` tokenizer which does the correct thing
             // that is, doesn't mutate the input tokens
             #[allow(deprecated)]
-            SearchTokenizer::Raw(filters) => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            // Deprecated, use `raw` with `lowercase` filter instead
-            SearchTokenizer::Lowercase(filters) => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::WhiteSpace(filters) => Some(
-                TextAnalyzer::builder(WhitespaceTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::RegexTokenizer { pattern, filters } => Some(
-                TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
+            SearchTokenizer::Raw(filters) => {
+                add_filters!(RawTokenizer::default(), filters)
+            }
+            SearchTokenizer::RegexTokenizer { pattern, filters } => {
+                add_filters!(RegexTokenizer::new(pattern.as_str()).unwrap(), filters)
+            }
             SearchTokenizer::Ngram {
                 min_gram,
                 max_gram,
                 prefix_only,
                 filters,
-            } => Some(
-                TextAnalyzer::builder(
-                    NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
-                        .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
-                )
-                .filter(filters.remove_long_filter())
-                .filter(filters.lower_caser())
-                .filter(filters.stemmer())
-                .filter(filters.stopwords_language())
-                .filter(filters.stopwords())
-                .filter(filters.ascii_folding())
-                .build(),
+            } => add_filters!(
+                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
+                    .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
+                filters
             ),
-            SearchTokenizer::ChineseCompatible(filters) => Some(
-                TextAnalyzer::builder(ChineseTokenizer)
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::SourceCode(filters) => Some(
-                TextAnalyzer::builder(CodeTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(AsciiFoldingFilter)
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::ChineseLindera(filters) => Some(
-                TextAnalyzer::builder(LinderaChineseTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::JapaneseLindera(filters) => Some(
-                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::KoreanLindera(filters) => Some(
-                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .build(),
-            ),
-            // Deprecated, use `stemmer` filter instead
-            SearchTokenizer::EnStem(filters) => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(Stemmer::new(Language::English))
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            // Deprecated, use `stemmer` filter instead
-            SearchTokenizer::Stem { language, filters } => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(Stemmer::new(*language))
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .build(),
-            ),
+            SearchTokenizer::ChineseCompatible(filters) => {
+                add_filters!(ChineseTokenizer, filters)
+            }
+            SearchTokenizer::SourceCode(filters) => {
+                // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
+                // if it's not explicitly set
+                if filters.ascii_folding().is_none() {
+                    add_filters!(CodeTokenizer::default(), filters, AsciiFoldingFilter)
+                } else {
+                    add_filters!(CodeTokenizer::default(), filters)
+                }
+            }
+            SearchTokenizer::ChineseLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
+                add_filters!(LinderaChineseTokenizer::default(), filters)
+            }
+            SearchTokenizer::JapaneseLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
+                add_filters!(LinderaJapaneseTokenizer::default(), filters)
+            }
+            SearchTokenizer::KoreanLindera(filters)
+            | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
+                add_filters!(LinderaKoreanTokenizer::default(), filters)
+            }
             #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer(filters) => Some(
-                TextAnalyzer::builder(ICUTokenizer)
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-            SearchTokenizer::Jieba(filters) => Some(
-                TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(filters.stemmer())
-                    .filter(filters.stopwords_language())
-                    .filter(filters.stopwords())
-                    .filter(filters.ascii_folding())
-                    .build(),
-            ),
-        }
+            SearchTokenizer::ICUTokenizer(filters) => {
+                add_filters!(ICUTokenizer, filters)
+            }
+            SearchTokenizer::Jieba(filters) => {
+                add_filters!(tantivy_jieba::JiebaTokenizer {}, filters)
+            }
+            SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
+                panic!("LinderaStyle::Unspecified is not supported")
+            }
+        };
+
+        Some(analyzer)
     }
 
     fn filters(&self) -> &SearchTokenizerFilters {
@@ -572,9 +451,7 @@ impl SearchTokenizer {
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => filters,
-            SearchTokenizer::EnStem(filters) => filters,
-            SearchTokenizer::Stem { filters, .. } => filters,
-            SearchTokenizer::Lowercase(filters) => filters,
+            SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
             SearchTokenizer::RegexTokenizer { filters, .. } => filters,
             SearchTokenizer::ChineseCompatible(filters) => filters,
@@ -583,10 +460,15 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseLindera(filters) => filters,
             SearchTokenizer::JapaneseLindera(filters) => filters,
             SearchTokenizer::KoreanLindera(filters) => filters,
+            SearchTokenizer::Lindera(_, filters) => filters,
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba(filters) => filters,
         }
+    }
+
+    pub fn normalizer(&self) -> Option<SearchNormalizer> {
+        self.filters().normalizer()
     }
 }
 
@@ -621,15 +503,7 @@ impl SearchTokenizer {
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
-            SearchTokenizer::EnStem(_filters) => format!("en_stem{filters_suffix}"),
-            SearchTokenizer::Stem {
-                language,
-                filters: _,
-            } => {
-                let language_suffix = language_to_str(language);
-                format!("stem_{language_suffix}{filters_suffix}")
-            }
-            SearchTokenizer::Lowercase(_filters) => format!("lowercase{filters_suffix}"),
+            SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {
@@ -647,6 +521,12 @@ impl SearchTokenizer {
                 format!("japanese_lindera{filters_suffix}")
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
+            SearchTokenizer::Lindera(style, _filters) => match style {
+                LinderaLanguage::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaLanguage::Chinese => format!("chinese_lindera{filters_suffix}"),
+                LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
+                LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
+            }
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
@@ -693,19 +573,6 @@ mod tests {
         let tokenizer = SearchTokenizer::default();
         assert_eq!(tokenizer.name(), "default".to_string());
 
-        let tokenizer = SearchTokenizer::EnStem(SearchTokenizerFilters {
-            remove_long: Some(999),
-            lowercase: Some(true),
-            stemmer: None,
-            stopwords_language: None,
-            stopwords: None,
-            ascii_folding: None,
-        });
-        assert_eq!(
-            tokenizer.name(),
-            "en_stem[remove_long=999,lowercase=true]".to_string()
-        );
-
         let json = r#"{
             "type": "ngram",
             "min_gram": 20,
@@ -725,12 +592,15 @@ mod tests {
                 max_gram: 60,
                 prefix_only: true,
                 filters: SearchTokenizerFilters {
+                    remove_short: None,
                     remove_long: Some(123),
                     lowercase: Some(false),
                     stemmer: None,
                     stopwords_language: None,
                     stopwords: None,
                     ascii_folding: None,
+                    normalizer: None,
+                    alpha_num_only: None,
                 }
             }
         );
@@ -746,12 +616,15 @@ mod tests {
         let tokenizer = SearchTokenizer::RegexTokenizer {
             pattern: "a+b*".to_string(),
             filters: SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: Some(100),
                 lowercase: None,
                 stemmer: None,
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
+                normalizer: None,
+                alpha_num_only: None,
             },
         };
 
@@ -783,6 +656,7 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: None,
                 lowercase: None,
                 stemmer: None,
@@ -793,6 +667,8 @@ mod tests {
                     "公园".to_string()
                 ]),
                 ascii_folding: None,
+                normalizer: None,
+                alpha_num_only: None,
             })
         );
 
@@ -836,12 +712,15 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
                 remove_long: None,
                 lowercase: None,
                 stemmer: None,
                 stopwords_language: Some(Language::English),
                 stopwords: None,
                 ascii_folding: None,
+                normalizer: None,
+                alpha_num_only: None,
             })
         );
 

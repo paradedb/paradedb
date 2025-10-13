@@ -16,10 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateType};
+use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
@@ -41,16 +40,18 @@ impl TargetList {
     }
 }
 
-impl AggregateClause for TargetList {
-    fn add_to_custom_path<CS>(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
-    where
-        CS: CustomScan,
-    {
+impl AggregateClause<AggregateScan> for TargetList {
+    type Args = <AggregateScan as CustomScan>::Args;
+
+    fn add_to_custom_path(
+        &self,
+        builder: CustomPathBuilder<AggregateScan>,
+    ) -> CustomPathBuilder<AggregateScan> {
         builder
     }
 
     fn from_pg(
-        args: &CreateUpperPathsHookArgs,
+        args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {

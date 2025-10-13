@@ -478,7 +478,6 @@ pub struct PrivateData {
     pub has_order_by: bool,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
-    pub filter_groups: Vec<super::FilterGroup>,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

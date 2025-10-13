@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::OrderByInfo;
-use crate::gucs;
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, TargetListEntry,
@@ -25,8 +24,6 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
 use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
@@ -73,8 +70,6 @@ pub struct AggregateScanState {
     pub limit: Option<u32>,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
-    // Filter groups for optimization (filter_expr, aggregate_indices)
-    pub filter_groups: Vec<super::FilterGroup>,
 }
 
 impl AggregateScanState {

@@ -18,10 +18,9 @@
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
-use crate::postgres::customscan::aggregatescan::AggregateClause;
+use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan};
 use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
 use crate::postgres::customscan::pdbscan::PathKeyInfo;
-use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
@@ -43,11 +42,13 @@ impl OrderByClause {
     }
 }
 
-impl AggregateClause for OrderByClause {
-    fn add_to_custom_path<CS>(&self, mut builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
-    where
-        CS: CustomScan,
-    {
+impl AggregateClause<AggregateScan> for OrderByClause {
+    type Args = <AggregateScan as CustomScan>::Args;
+
+    fn add_to_custom_path(
+        &self,
+        mut builder: CustomPathBuilder<AggregateScan>,
+    ) -> CustomPathBuilder<AggregateScan> {
         if let Some(pathkeys) = self.pathkeys.pathkeys() {
             for pathkey_style in pathkeys {
                 builder = builder.add_path_key(pathkey_style);
@@ -58,7 +59,7 @@ impl AggregateClause for OrderByClause {
     }
 
     fn from_pg(
-        args: &CreateUpperPathsHookArgs,
+        args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {

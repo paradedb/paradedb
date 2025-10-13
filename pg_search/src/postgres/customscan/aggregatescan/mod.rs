@@ -23,13 +23,11 @@ pub mod quals;
 pub mod scan_state;
 pub mod targetlist;
 
-use std::ffi::CStr;
+use crate::gucs;
+use crate::nodecast;
 
 use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::gucs;
-use crate::index::mvcc::MvccSatisfies;
-use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
@@ -41,9 +39,7 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, RestrictInfoType,
-};
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, RestrictInfoType};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -60,13 +56,11 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use std::ffi::CStr;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
-use tantivy::Index;
-
-/// A group of aggregate indices that share the same filter condition
-type FilterGroup = (Option<SearchQueryInput>, Vec<usize>);
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -77,55 +71,45 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        let args = builder.args();
-        let parse = args.root().parse;
-
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         // We can only handle single base relations as input
-        if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
         }
 
-        let parent_relids = args.input_rel().relids;
+        let parent_relids = builder.args().input_rel().relids;
         let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
         let heap_rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
             range_table::get_rte(
-                args.root().simple_rel_array_size as usize,
-                args.root().simple_rte_array,
+                builder.args().root().simple_rel_array_size as usize,
+                builder.args().root().simple_rte_array,
                 heap_rti,
             )?
         };
-        let (table, bm25_index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
-        let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-        let schema = bm25_index.schema().ok()?;
-
-        let grouping_columns =
-            GroupByClause::from_pg(args, heap_rti, &bm25_index)?.grouping_columns();
-        let aggregates = TargetList::from_pg(args, heap_rti, &bm25_index)?;
-        let orderby_clause = OrderByClause::from_pg(args, heap_rti, &bm25_index)?;
-        let limit_offset_clause = LimitOffsetClause::from_pg(args, heap_rti, &bm25_index)?;
-        let where_clause = WhereClause::from_pg(args, heap_rti, &bm25_index)?;
-
-        // let where_uses_search_operator = where_qual_state.uses_our_operator;
-        // let has_search_operator = where_uses_search_operator || target_list.uses_our_operator();
-        // if !gucs::enable_custom_scan_without_operator() && !has_search_operator {
-        //     return None;
-        // }
+        let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
+        let (builder, groupby_clause) = GroupByClause::build(builder, heap_rti, &index)?;
+        let (builder, aggregates) = TargetList::build(builder, heap_rti, &index)?;
+        let (builder, orderby_clause) = OrderByClause::build(builder, heap_rti, &index)?;
+        let (builder, limit_offset_clause) = LimitOffsetClause::build(builder, heap_rti, &index)?;
+        let (builder, where_clause) = WhereClause::build(builder, heap_rti, &index)?;
 
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
         //
         // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
         // them with.
+        let grouping_columns = groupby_clause.grouping_columns();
+        let parse = builder.args().root().parse;
         let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
         for (te_idx, input_te) in target_list.iter_ptr().enumerate() {
             unsafe {
-                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+                let var_context =
+                    VarContext::from_planner(builder.args().root() as *const _ as *mut _);
 
                 if let Some((var, field_name)) =
                     find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
@@ -154,22 +138,17 @@ impl CustomScan for AggregateScan {
             };
         }
 
-        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
-        // To do this, we set pathkeys for ORDER BY if present.
-        builder = orderby_clause.add_to_custom_path(builder);
-
         Some(builder.build(PrivateData {
             heap_rti,
             target_list_mapping,
             grouping_columns,
-            indexrelid: bm25_index.oid(),
+            indexrelid: index.oid(),
             aggregate_types: aggregates.aggregates(),
             query: where_clause.query().clone(),
             orderby_info: orderby_clause.orderby_info(),
             has_order_by: orderby_clause.has_order_by(),
             limit: limit_offset_clause.limit(),
             offset: limit_offset_clause.offset(),
-            filter_groups: Default::default(),
         }))
     }
 
@@ -219,7 +198,6 @@ impl CustomScan for AggregateScan {
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.custom_state().limit = builder.custom_private().limit;
         builder.custom_state().offset = builder.custom_private().offset;
-        builder.custom_state().filter_groups = builder.custom_private().filter_groups.clone();
         builder.build()
     }
 
@@ -533,7 +511,7 @@ fn combine_query_with_filter(
 /// Extract filter expression from a FILTER clause and track @@@ operator usage
 pub unsafe fn extract_filter_clause(
     filter_expr: *mut pg_sys::Expr,
-    bm25_index: &PgSearchRelation,
+    index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
     qual_state: &mut QualExtractState,
@@ -554,7 +532,7 @@ pub unsafe fn extract_filter_clause(
         filter_node,
         anyelement_query_input_opoid(),
         RestrictInfoType::BaseRelation,
-        bm25_index,
+        index,
         false,
         qual_state, // Pass the state to track @@@ operator usage
         true,       // attempt_pushdown
@@ -689,16 +667,25 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 }
 
-pub trait AggregateClause {
-    fn from_pg(
-        args: &CreateUpperPathsHookArgs,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Option<Self>
+pub trait AggregateClause<CS: CustomScan> {
+    type Args;
+
+    fn from_pg(args: &CS::Args, heap_rti: pg_sys::Index, index: &PgSearchRelation) -> Option<Self>
     where
         Self: Sized;
 
-    fn add_to_custom_path<CS>(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>
+    fn add_to_custom_path(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>;
+
+    fn build(
+        builder: CustomPathBuilder<CS>,
+        heap_rti: pg_sys::Index,
+        index: &PgSearchRelation,
+    ) -> Option<(CustomPathBuilder<CS>, Self)>
     where
-        CS: CustomScan;
+        Self: Sized,
+    {
+        let clause = Self::from_pg(builder.args(), heap_rti, index)?;
+        let builder = clause.add_to_custom_path(builder);
+        Some((builder, clause))
+    }
 }

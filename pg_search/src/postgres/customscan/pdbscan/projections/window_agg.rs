@@ -19,13 +19,15 @@ use crate::api::{
     operator::anyelement_query_input_opoid, FieldName, OrderByFeature, OrderByInfo, SortDirection,
 };
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::get_var_relation_oid;
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
-use pgrx::{pg_sys, FromDatum, PgList};
+use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
 /// Feature flags for window functions.
@@ -302,67 +304,34 @@ unsafe fn extract_standard_aggregate(
     }
 
     let first_arg = args.get_ptr(0)?;
-    let field = extract_field_name(parse, first_arg)?;
 
-    // Extract missing value for COALESCE support (window functions can have COALESCE too)
-    let missing = if !args.is_empty() {
-        let first_arg = args.get_ptr(0)?;
-        parse_coalesce_from_node(first_arg)
-    } else {
-        None
-    };
+    // Extract field name and missing value using the same logic as aggregatescan
+    let (field, missing) = parse_aggregate_field_from_node(parse, first_arg)?;
 
-    // Use OID-based matching (same as aggregatescan) to avoid duplication
     let agg_type =
         AggregateType::create_aggregate_from_oid(aggfnoid, field.into_inner(), missing, filter)?;
-
     Some(agg_type)
 }
 
-/// Parse COALESCE expression from a Node to extract missing value
-/// This is similar to parse_coalesce_expression in aggregatescan but works with Node instead of TargetEntry
-unsafe fn parse_coalesce_from_node(node: *mut pg_sys::Node) -> Option<f64> {
-    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-        if args.len() >= 2 {
-            // Second argument should be the default value (missing value)
-            if let Some(const_node) = args.get_ptr(1) {
-                if let Some(const_val) = nodecast!(Const, T_Const, const_node) {
-                    if !(*const_val).constisnull {
-                        // Try to extract the numeric value
-                        match (*const_val).consttype {
-                            pg_sys::FLOAT8OID => {
-                                let datum = (*const_val).constvalue;
-                                return Some(f64::from_datum(datum, false).unwrap_or(0.0));
-                            }
-                            pg_sys::FLOAT4OID => {
-                                let datum = (*const_val).constvalue;
-                                return Some(f32::from_datum(datum, false).unwrap_or(0.0) as f64);
-                            }
-                            pg_sys::INT8OID => {
-                                let datum = (*const_val).constvalue;
-                                return Some(i64::from_datum(datum, false).unwrap_or(0) as f64);
-                            }
-                            pg_sys::INT4OID => {
-                                let datum = (*const_val).constvalue;
-                                return Some(i32::from_datum(datum, false).unwrap_or(0) as f64);
-                            }
-                            pg_sys::NUMERICOID => {
-                                let datum = (*const_val).constvalue;
-                                // For NUMERIC, we need to convert through pgrx's AnyNumeric type
-                                if let Some(numeric) = pgrx::AnyNumeric::from_datum(datum, false) {
-                                    // Convert to f64 - AnyNumeric can be converted to f64
-                                    return Some(numeric.try_into().unwrap_or(0.0));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
+/// Parse field name and missing value from a Node argument (for window functions)
+/// This is similar to aggregatescan's parse_aggregate_field but works with Node instead of TargetEntry
+unsafe fn parse_aggregate_field_from_node(
+    parse: *mut pg_sys::Query,
+    arg_node: *mut pg_sys::Node,
+) -> Option<(FieldName, Option<f64>)> {
+    let (var, missing) =
+        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
+            parse_coalesce_expression(coalesce_node)?
+        } else if let Some(var) = nodecast!(Var, T_Var, arg_node) {
+            (var, None)
+        } else {
+            return None;
+        };
+
+    // Get heaprelid from the rtable using the helper function
+    let heaprelid = get_var_relation_oid(parse, var)?;
+    let field = fieldname_from_var(heaprelid, var, (*var).varattno as pg_sys::AttrNumber)?;
+    Some((field, missing))
 }
 
 /// Extract FILTER expression by serializing it for later conversion
@@ -710,31 +679,6 @@ unsafe fn resolve_var_with_parse(
         }
     }
 
-    None
-}
-
-/// Extract field name from a node (Var or COALESCE expression) using parse context
-unsafe fn extract_field_name(
-    parse: *mut pg_sys::Query,
-    node: *mut pg_sys::Node,
-) -> Option<FieldName> {
-    // Try to extract from Var
-    if let Some(var) = nodecast!(Var, T_Var, node) {
-        return resolve_var_with_parse(parse, var);
-    }
-
-    // Handle COALESCE expressions - extract field name from first argument
-    if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-        if !args.is_empty() {
-            // Recursively extract field name from the first argument of COALESCE
-            if let Some(first_arg) = args.get_ptr(0) {
-                return extract_field_name(parse, first_arg);
-            }
-        }
-    }
-
-    // TODO: Handle more complex expressions (JSON operators, etc.)
     None
 }
 

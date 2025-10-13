@@ -152,6 +152,46 @@ pub unsafe fn find_var_relation(
     }
 }
 
+/// Given a [`pg_sys::Query`] and a [`pg_sys::Var`], extract the relation Oid from the rtable.
+///
+/// This is a simpler version of `find_var_relation` for cases where we only have a Query
+/// (not a full PlannerInfo) and only need the base relation Oid.
+///
+/// Returns `None` if:
+/// - The Var's varno is out of bounds
+/// - The RTE is not a base relation (e.g., subquery, CTE, etc.)
+pub unsafe fn get_var_relation_oid(
+    parse: *mut pg_sys::Query,
+    var: *mut pg_sys::Var,
+) -> Option<pg_sys::Oid> {
+    if var.is_null() || parse.is_null() {
+        return None;
+    }
+
+    let varno = (*var).varno;
+    let rtable = (*parse).rtable;
+
+    if rtable.is_null() || varno <= 0 {
+        return None;
+    }
+
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+    let rte_index = (varno - 1) as usize;
+
+    if rte_index >= rtable_list.len() {
+        return None;
+    }
+
+    let rte = rtable_list.get_ptr(rte_index)?;
+
+    // Only return Oid for base relations (not subqueries, CTEs, etc.)
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+        Some((*rte).relid)
+    } else {
+        None
+    }
+}
+
 /// Find all the Vars referenced in the specified node
 pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]

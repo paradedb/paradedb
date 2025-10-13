@@ -597,7 +597,7 @@ unsafe fn parse_aggregate_field(
 }
 
 /// Parse COALESCE expression to extract variable and missing value
-unsafe fn parse_coalesce_expression(
+pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
 ) -> Option<(*mut pg_sys::Var, Option<f64>)> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);

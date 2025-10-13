@@ -19,6 +19,7 @@ pub mod groupby;
 pub mod limit_offset;
 pub mod orderby;
 pub mod privdat;
+pub mod quals;
 pub mod scan_state;
 pub mod targetlist;
 
@@ -35,6 +36,7 @@ use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, AggregateValue, PrivateData, TargetListEntry,
 };
+use crate::postgres::customscan::aggregatescan::quals::WhereClause;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
@@ -84,21 +86,6 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // Check if there are restrictions (WHERE clause)
-        let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
-        if matches!(ri_type, RestrictInfoType::Join) {
-            // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
-            // for us to do anything.
-            return None;
-        }
-        let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
-
-        // Are there any group (/distinct/order-by) or having clauses?
-        if args.root().hasHavingQual {
-            // We can't handle HAVING yet
-            return None;
-        }
-
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
@@ -131,14 +118,6 @@ impl CustomScan for AggregateScan {
         let target_list = TargetList::from_pg(args, heap_rti, &bm25_index)?;
         let aggregate_types = target_list.aggregates();
 
-        let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
-        let handle_query_without_op = !gucs::enable_custom_scan_without_operator();
-        // If we don't have a WHERE clause and we don't have FILTER clauses,
-        // we'd only handle the query if the GUC is enabled
-        if handle_query_without_op && !has_where_clause && !has_filters {
-            return None;
-        }
-
         // Extract ORDER BY pathkeys if present
         let orderby_clause = OrderByClause::from_pg(args, heap_rti, &bm25_index)?;
         let orderby_info = orderby_clause.orderby_info();
@@ -159,32 +138,13 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // Extract the WHERE clause query if present and track @@@ operator usage
-        let mut where_qual_state = QualExtractState::default();
-        let query = if has_where_clause {
-            unsafe {
-                let result = extract_quals(
-                    args.root,
-                    heap_rti,
-                    restrict_info.as_ptr().cast(),
-                    anyelement_query_input_opoid(),
-                    ri_type,
-                    &bm25_index,
-                    false, // Base relation quals should not convert external to all
-                    &mut where_qual_state,
-                    true,
-                );
-                SearchQueryInput::from(&result?)
-            }
-        } else {
-            // No WHERE clause - use an "All" query that matches everything
-            SearchQueryInput::All
-        };
-        let where_uses_search_operator = where_qual_state.uses_our_operator;
-        let has_search_operator = where_uses_search_operator || target_list.uses_our_operator();
-        if handle_query_without_op && !has_search_operator {
-            return None;
-        }
+        let where_clause = WhereClause::from_pg(args, heap_rti, &bm25_index)?;
+        let query = where_clause.query().clone();
+        // let where_uses_search_operator = where_qual_state.uses_our_operator;
+        // let has_search_operator = where_uses_search_operator || target_list.uses_our_operator();
+        // if !gucs::enable_custom_scan_without_operator() && !has_search_operator {
+        //     return None;
+        // }
 
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.

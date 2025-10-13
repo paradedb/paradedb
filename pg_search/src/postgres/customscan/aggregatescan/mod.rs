@@ -18,7 +18,6 @@
 pub mod privdat;
 pub mod scan_state;
 
-// Re-export commonly used types
 pub use privdat::AggregateType;
 
 use std::ffi::CStr;

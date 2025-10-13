@@ -21,8 +21,8 @@ use crate::postgres::customscan::aggregatescan::extract_filter_clause;
 use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-use crate::postgres::var::fieldname_from_var;
 use crate::postgres::var::get_var_relation_oid;
+use crate::postgres::var::{fieldname_from_var, resolve_var_with_parse};
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
@@ -643,41 +643,6 @@ unsafe fn extract_frame_clause(
         start_bound,
         end_bound,
     })
-}
-
-/// Resolve Var node to actual column name using existing fieldname_from_var utility
-unsafe fn resolve_var_with_parse(
-    parse: *mut pg_sys::Query,
-    var: *mut pg_sys::Var,
-) -> Option<FieldName> {
-    if parse.is_null() || var.is_null() {
-        return None;
-    }
-
-    let varno = (*var).varno;
-    let varattno = (*var).varattno;
-    let rtable = (*parse).rtable;
-    if rtable.is_null() {
-        return None;
-    }
-
-    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-
-    // varno is 1-based index into the range table
-    if varno <= 0 || varno as usize > rtable_list.len() {
-        return None;
-    }
-
-    let rte_index = (varno - 1) as usize;
-    if let Some(rte) = rtable_list.get_ptr(rte_index) {
-        // Check if this is a base relation (RTE_RELATION)
-        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-            let relation_oid = (*rte).relid;
-            return fieldname_from_var(relation_oid, var, varattno as pg_sys::AttrNumber);
-        }
-    }
-
-    None
 }
 
 /// Format aggregate type for display

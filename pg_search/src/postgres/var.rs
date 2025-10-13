@@ -192,6 +192,41 @@ pub unsafe fn get_var_relation_oid(
     }
 }
 
+/// Resolve Var node to actual column name using existing fieldname_from_var utility
+pub unsafe fn resolve_var_with_parse(
+    parse: *mut pg_sys::Query,
+    var: *mut pg_sys::Var,
+) -> Option<FieldName> {
+    if parse.is_null() || var.is_null() {
+        return None;
+    }
+
+    let varno = (*var).varno;
+    let varattno = (*var).varattno;
+    let rtable = (*parse).rtable;
+    if rtable.is_null() {
+        return None;
+    }
+
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+
+    // varno is 1-based index into the range table
+    if varno <= 0 || varno as usize > rtable_list.len() {
+        return None;
+    }
+
+    let rte_index = (varno - 1) as usize;
+    if let Some(rte) = rtable_list.get_ptr(rte_index) {
+        // Check if this is a base relation (RTE_RELATION)
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            let relation_oid = (*rte).relid;
+            return fieldname_from_var(relation_oid, var, varattno as pg_sys::AttrNumber);
+        }
+    }
+
+    None
+}
+
 /// Find all the Vars referenced in the specified node
 pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]

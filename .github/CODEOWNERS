@@ -1,12 +1,11 @@
 # Order is important. The last matching pattern has the most precedence
 
 /.cargo/                                                       @philippemnoel @rebasedming
-/.cursor/                                                      @philippemnoel @mdashti
 /.github/                                                      @philippemnoel @rebasedming @stuhood
 /benchmarks/                                                   @philippemnoel @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @philippemnoel @rebasedming @stuhood
 /pg_search/                                                    @rebasedming @eeeebbbbrrrr @stuhood @mdashti
-/scripts/                                                      @philippemnoel @mdashti @stuhood
+/scripts/                                                      @philippemnoel @rebasedming @stuhood @mdashti
 /tests/                                                        @rebasedming @eeeebbbbrrrr @stuhood @mdashti
 /tokenizers/                                                   @rebasedming @eeeebbbbrrrr

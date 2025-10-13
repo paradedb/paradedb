@@ -54,11 +54,17 @@ impl AggregateClause for TargetList {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
-        let schema = index.schema().ok()?;
+        // Check for DISTINCT - we can't handle DISTINCT queries
+        unsafe {
+            let parse = args.root().parse;
+            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
+                return None;
+            }
+        }
 
+        let schema = index.schema().ok()?;
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
-
         if target_list.is_empty() {
             return None;
         }

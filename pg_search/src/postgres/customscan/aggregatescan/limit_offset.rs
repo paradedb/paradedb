@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::AggregateClause;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
-use pgrx::pg_sys;
-use pgrx::FromDatum;
+use pgrx::{pg_sys, FromDatum, PgList};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LimitOffsetClause {
@@ -56,7 +56,6 @@ impl AggregateClause for LimitOffsetClause {
         let (limit, offset) = unsafe {
             let limit_count = (*parse).limitCount;
             let offset_count = (*parse).limitOffset;
-
             let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
                 let const_node = nodecast!(Const, T_Const, node);
                 if let Some(const_node) = const_node {
@@ -68,6 +67,15 @@ impl AggregateClause for LimitOffsetClause {
 
             (extract_const(limit_count), extract_const(offset_count))
         };
+
+        unsafe {
+            let sort_clause = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+            if !(*parse).groupClause.is_null()
+                && limit.unwrap_or(0) + offset.unwrap_or(0) > gucs::max_term_agg_buckets() as u32
+            {
+                return None;
+            }
+        }
 
         Some(LimitOffsetClause { limit, offset })
     }

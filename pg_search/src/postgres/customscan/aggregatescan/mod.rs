@@ -86,14 +86,6 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // Check for DISTINCT - we can't handle DISTINCT queries
-        unsafe {
-            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return None;
-            }
-        }
-
-        // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
         let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
         let heap_rte = unsafe {
@@ -107,39 +99,15 @@ impl CustomScan for AggregateScan {
         };
         let (table, bm25_index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
         let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-        let index =
-            Index::open(directory).expect("aggregate_custom_scan: should be able to open index");
-        let schema = bm25_index
-            .schema()
-            .expect("aggregate_custom_scan: should have a schema");
+        let schema = bm25_index.schema().ok()?;
 
         let grouping_columns =
             GroupByClause::from_pg(args, heap_rti, &bm25_index)?.grouping_columns();
-        let target_list = TargetList::from_pg(args, heap_rti, &bm25_index)?;
-        let aggregate_types = target_list.aggregates();
-
-        // Extract ORDER BY pathkeys if present
+        let aggregates = TargetList::from_pg(args, heap_rti, &bm25_index)?;
         let orderby_clause = OrderByClause::from_pg(args, heap_rti, &bm25_index)?;
-        let orderby_info = orderby_clause.orderby_info();
-
-        // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
-        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
-
         let limit_offset_clause = LimitOffsetClause::from_pg(args, heap_rti, &bm25_index)?;
-        let (limit, offset) = (limit_offset_clause.limit(), limit_offset_clause.offset());
-
-        // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
-        // or if it orders by columns that we cannot push down
-        let sort_clause = unsafe { orderby_clause.sort_clause() };
-        if unsafe { !(*parse).groupClause.is_null() }
-            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
-                || orderby_info.len() != sort_clause.len())
-        {
-            return None;
-        }
-
         let where_clause = WhereClause::from_pg(args, heap_rti, &bm25_index)?;
-        let query = where_clause.query().clone();
+
         // let where_uses_search_operator = where_qual_state.uses_our_operator;
         // let has_search_operator = where_uses_search_operator || target_list.uses_our_operator();
         // if !gucs::enable_custom_scan_without_operator() && !has_search_operator {
@@ -186,34 +154,21 @@ impl CustomScan for AggregateScan {
             };
         }
 
-        // Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
-        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
-        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
-        // the aggregate_custom_scan/test_count test failure
-        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
-
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
         builder = orderby_clause.add_to_custom_path(builder);
 
-        // A GROUP BY...ORDER BY query could have some results truncated
-        let maybe_truncated = !parse.is_null()
-            && unsafe { !(*parse).groupClause.is_null() }
-            && unsafe { !(*parse).sortClause.is_null() }
-            && limit.is_none();
-
         Some(builder.build(PrivateData {
-            aggregate_types,
-            indexrelid: bm25_index.oid(),
             heap_rti,
-            query,
-            grouping_columns,
-            orderby_info,
             target_list_mapping,
-            has_order_by,
-            limit,
-            offset,
-            maybe_truncated,
+            grouping_columns,
+            indexrelid: bm25_index.oid(),
+            aggregate_types: aggregates.aggregates(),
+            query: where_clause.query().clone(),
+            orderby_info: orderby_clause.orderby_info(),
+            has_order_by: orderby_clause.has_order_by(),
+            limit: limit_offset_clause.limit(),
+            offset: limit_offset_clause.offset(),
             filter_groups: Default::default(),
         }))
     }
@@ -264,7 +219,6 @@ impl CustomScan for AggregateScan {
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.custom_state().limit = builder.custom_private().limit;
         builder.custom_state().offset = builder.custom_private().offset;
-        builder.custom_state().maybe_truncated = builder.custom_private().maybe_truncated;
         builder.custom_state().filter_groups = builder.custom_private().filter_groups.clone();
         builder.build()
     }

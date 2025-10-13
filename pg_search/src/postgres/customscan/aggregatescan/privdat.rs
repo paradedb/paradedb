@@ -478,7 +478,6 @@ pub struct PrivateData {
     pub has_order_by: bool,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
-    pub maybe_truncated: bool,
     pub filter_groups: Vec<super::FilterGroup>,
 }
 

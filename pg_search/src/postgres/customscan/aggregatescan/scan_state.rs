@@ -73,8 +73,6 @@ pub struct AggregateScanState {
     pub limit: Option<u32>,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
-    // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
-    pub maybe_truncated: bool,
     // Filter groups for optimization (filter_expr, aggregate_indices)
     pub filter_groups: Vec<super::FilterGroup>,
 }
@@ -273,18 +271,6 @@ impl AggregateScanState {
                 &mut Vec::new(),
                 &mut rows,
             );
-        }
-
-        // Check for truncation
-        if self.maybe_truncated && self.was_truncated(&result) {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-                format!("query cancelled because result was truncated due to more than {} groups being returned", gucs::max_term_agg_buckets()),
-                function_name!(),
-            )
-            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` were truncated")
-            .set_hint("consider lowering the query's `LIMIT` or `OFFSET`")
-            .report(PgLogLevel::ERROR);
         }
 
         rows
@@ -506,33 +492,6 @@ impl AggregateScanState {
                 panic!("Failed to deserialize aggregate result: {e}, value: {agg_obj:?}");
             }
         }
-    }
-
-    fn was_truncated(&self, result: &serde_json::Value) -> bool {
-        result
-            .as_object()
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(key, value)| {
-                        if key.starts_with("group_") {
-                            value
-                                .as_object()
-                                .and_then(|group_obj| group_obj.get("sum_other_doc_count"))
-                                .and_then(|v| v.as_i64())
-                        } else {
-                            None
-                        }
-                    })
-                    .sum::<i64>()
-            })
-            .unwrap_or(0)
-            > 0
-    }
-
-    fn has_filters(&self) -> bool {
-        self.aggregate_types
-            .iter()
-            .any(|agg| agg.filter_expr().is_some())
     }
 }
 

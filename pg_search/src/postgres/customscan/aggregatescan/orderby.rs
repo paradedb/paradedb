@@ -28,18 +28,18 @@ use pgrx::pg_sys;
 use pgrx::PgList;
 
 pub(crate) struct OrderByClause {
-    sort_clause: *mut pg_sys::List,
     pathkeys: PathKeyInfo,
     orderby_info: Vec<OrderByInfo>,
+    has_order_by: bool,
 }
 
 impl OrderByClause {
-    pub fn orderby_info(&self) -> Vec<OrderByInfo> {
-        self.orderby_info.clone()
+    pub fn has_order_by(&self) -> bool {
+        self.has_order_by
     }
 
-    pub unsafe fn sort_clause(&self) -> PgList<pg_sys::SortGroupClause> {
-        PgList::from_pg(self.sort_clause)
+    pub fn orderby_info(&self) -> Vec<OrderByInfo> {
+        self.orderby_info.clone()
     }
 }
 
@@ -104,10 +104,16 @@ impl AggregateClause for OrderByClause {
             })
             .collect::<Vec<_>>();
 
+        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
+
+        if unsafe { !(*parse).groupClause.is_null() } && orderby_info.len() != sort_clause.len() {
+            return None;
+        }
+
         Some(Self {
-            sort_clause: unsafe { (*parse).sortClause },
             pathkeys,
             orderby_info,
+            has_order_by,
         })
     }
 }

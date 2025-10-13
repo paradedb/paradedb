@@ -23,6 +23,7 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::pdbscan::projections::window_agg::{self, WindowAggregateInfo};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
+use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::hash_map::Entry;
@@ -341,108 +342,6 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
                 return true;
             }
         }
-    }
-
-    false
-}
-
-/// Recursively check if an expression tree contains any of the specified operators
-unsafe fn expr_contains_any_operator(
-    node: *mut pg_sys::Node,
-    target_opnos: &[pg_sys::Oid],
-) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    let node_type = (*node).type_;
-
-    match node_type {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = node as *mut pg_sys::OpExpr;
-            if target_opnos.contains(&(*opexpr).opno) {
-                return true;
-            }
-            // Check arguments
-            if !(*opexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node as *mut pg_sys::BoolExpr;
-            if !(*boolexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-        }
-        pg_sys::NodeTag::T_RestrictInfo => {
-            // RestrictInfo wraps the actual clause
-            let rinfo = node as *mut pg_sys::RestrictInfo;
-            if !(*rinfo).clause.is_null() {
-                return expr_contains_any_operator(
-                    (*rinfo).clause as *mut pg_sys::Node,
-                    target_opnos,
-                );
-            }
-        }
-        pg_sys::NodeTag::T_Aggref => {
-            // Check aggregate function arguments and FILTER clause
-            let aggref = node as *mut pg_sys::Aggref;
-
-            // Check aggregate arguments
-            if !(*aggref).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check FILTER clause
-            if !(*aggref).aggfilter.is_null()
-                && expr_contains_any_operator(
-                    (*aggref).aggfilter as *mut pg_sys::Node,
-                    target_opnos,
-                )
-            {
-                return true;
-            }
-        }
-        pg_sys::NodeTag::T_WindowFunc => {
-            // Check window function arguments and FILTER clause
-            let winfunc = node as *mut pg_sys::WindowFunc;
-
-            // Check window function arguments
-            if !(*winfunc).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*winfunc).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check FILTER clause
-            if !(*winfunc).aggfilter.is_null()
-                && expr_contains_any_operator(
-                    (*winfunc).aggfilter as *mut pg_sys::Node,
-                    target_opnos,
-                )
-            {
-                return true;
-            }
-        }
-        _ => {}
     }
 
     false

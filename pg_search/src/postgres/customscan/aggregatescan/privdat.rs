@@ -145,6 +145,18 @@ impl AggregateType {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// Helper function to get mutable filter from an aggregate type
+    pub fn get_filter_mut(&mut self) -> Option<&mut SearchQueryInput> {
+        match self {
+            AggregateType::CountAny { filter } => filter.as_mut(),
+            AggregateType::Count { filter, .. } => filter.as_mut(),
+            AggregateType::Sum { filter, .. } => filter.as_mut(),
+            AggregateType::Avg { filter, .. } => filter.as_mut(),
+            AggregateType::Min { filter, .. } => filter.as_mut(),
+            AggregateType::Max { filter, .. } => filter.as_mut(),
+        }
+    }
 }
 
 impl ExplainFormat for AggregateType {

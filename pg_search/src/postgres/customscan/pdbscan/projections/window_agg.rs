@@ -645,36 +645,6 @@ unsafe fn extract_frame_clause(
     })
 }
 
-/// Format aggregate type for display
-#[allow(dead_code)]
-fn format_aggregate_type(agg_type: &AggregateType) -> String {
-    match agg_type {
-        AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
-        AggregateType::Count { field, .. } => format!("COUNT({})", field),
-        AggregateType::Sum { field, .. } => format!("SUM({})", field),
-        AggregateType::Avg { field, .. } => format!("AVG({})", field),
-        AggregateType::Min { field, .. } => format!("MIN({})", field),
-        AggregateType::Max { field, .. } => format!("MAX({})", field),
-    }
-}
-
-/// Get filter info from aggregate type
-#[allow(dead_code)]
-fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
-    let filter = match agg_type {
-        AggregateType::CountAny { filter } => filter,
-        AggregateType::Count { filter, .. } => filter,
-        AggregateType::Sum { filter, .. } => filter,
-        AggregateType::Avg { filter, .. } => filter,
-        AggregateType::Min { filter, .. } => filter,
-        AggregateType::Max { filter, .. } => filter,
-    };
-
-    filter
-        .as_ref()
-        .map(|_| "WHERE (filter expression)".to_string())
-}
-
 /// Extract window_func(json) calls from the processed target list at planning time
 /// Convert PostgresExpression filters to SearchQueryInput
 ///
@@ -694,7 +664,7 @@ pub unsafe fn convert_window_aggregate_filters(
         }
 
         // Try to get the filter
-        let filter_opt = get_aggregate_filter_mut(&mut window_agg.window_spec.agg_type);
+        let filter_opt = window_agg.window_spec.agg_type.get_filter_mut();
         if let Some(filter) = filter_opt {
             // Check if it's a PostgresExpression that needs conversion
             if let SearchQueryInput::PostgresExpression { expr } = filter {
@@ -720,18 +690,6 @@ pub unsafe fn convert_window_aggregate_filters(
                 }
             }
         }
-    }
-}
-
-/// Helper function to get mutable filter from an aggregate type
-fn get_aggregate_filter_mut(agg_type: &mut AggregateType) -> Option<&mut SearchQueryInput> {
-    match agg_type {
-        AggregateType::CountAny { filter } => filter.as_mut(),
-        AggregateType::Count { filter, .. } => filter.as_mut(),
-        AggregateType::Sum { filter, .. } => filter.as_mut(),
-        AggregateType::Avg { filter, .. } => filter.as_mut(),
-        AggregateType::Min { filter, .. } => filter.as_mut(),
-        AggregateType::Max { filter, .. } => filter.as_mut(),
     }
 }
 

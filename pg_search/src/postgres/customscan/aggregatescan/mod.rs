@@ -27,7 +27,6 @@ use crate::gucs;
 use crate::nodecast;
 
 use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
@@ -39,14 +38,13 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, RestrictInfoType};
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -506,40 +504,6 @@ fn combine_query_with_filter(
         },
         None => query.clone(),
     }
-}
-
-/// Extract filter expression from a FILTER clause and track @@@ operator usage
-pub unsafe fn extract_filter_clause(
-    filter_expr: *mut pg_sys::Expr,
-    index: &PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    qual_state: &mut QualExtractState,
-) -> Option<SearchQueryInput> {
-    // The filter expression is an Expr
-    if filter_expr.is_null() {
-        return None;
-    }
-
-    // Log the node type to understand what we're dealing with
-    let node_type = (*filter_expr).type_;
-
-    // Extract quals from the filter expression
-    let filter_node = filter_expr as *mut pg_sys::Node;
-    let result = extract_quals(
-        root,
-        heap_rti,
-        filter_node,
-        anyelement_query_input_opoid(),
-        RestrictInfoType::BaseRelation,
-        index,
-        false,
-        qual_state, // Pass the state to track @@@ operator usage
-        true,       // attempt_pushdown
-    );
-
-    // Convert Qual to SearchQueryInput
-    result.map(|qual| SearchQueryInput::from(&qual))
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::aggregatescan::GroupingColumn;
+use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::explain::ExplainFormat;
-use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -241,17 +243,26 @@ impl AggregateType {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
-        let filter_expr = crate::postgres::customscan::aggregatescan::extract_filter_clause(
-            (*aggref).aggfilter,
-            bm25_index,
-            root,
-            heap_rti,
-            qual_state,
-        );
+        let filter_expr = if (*aggref).aggfilter.is_null() {
+            None
+        } else {
+            extract_quals(
+                root,
+                heap_rti,
+                (*aggref).aggfilter as *mut pg_sys::Node,
+                anyelement_query_input_opoid(),
+                RestrictInfoType::BaseRelation,
+                bm25_index,
+                false,
+                qual_state,
+                true,
+            )
+        };
+        let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Some(AggregateType::CountAny {
-                filter: filter_expr,
+                filter: filter_query,
             });
         }
 
@@ -261,7 +272,7 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
+        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_query)?;
 
         Some(agg_type)
     }

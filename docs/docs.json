@@ -278,11 +278,16 @@
                           "v2/full-text/term",
                           "v2/full-text/term_set",
                           "v2/full-text/fuzzy",
-                          "v2/full-text/score",
-                          "v2/full-text/topn",
                           "v2/full-text/highlight",
-                          "v2/full-text/boost",
                           "v2/full-text/proximity"
+                        ]
+                      },
+                      {
+                        "group": "Sorting",
+                        "pages": [
+                          "v2/sorting/score",
+                          "v2/sorting/boost",
+                          "v2/sorting/topn"
                         ]
                       },
                       {

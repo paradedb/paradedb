@@ -1707,3 +1707,14 @@ CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, int
 ALTER FUNCTION paradedb."more_like_this"() SET SCHEMA pdb;
 ALTER FUNCTION paradedb."more_like_this"(TEXT,INT, INT, INT, INT, INT, INT, real, TEXT[]) SET SCHEMA pdb;
 ALTER FUNCTION paradedb."more_like_this"(anyelement, INT, INT, INT, INT, INT, INT, real, TEXT[] ) SET SCHEMA pdb;
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/window_function.rs:28
+-- pg_search::api::window_function::window_func
+CREATE  FUNCTION "window_func"(
+	"window_aggregate_json" TEXT /* &str */
+) RETURNS bigint /* i64 */
+STRICT VOLATILE PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'window_func_placeholder_wrapper';

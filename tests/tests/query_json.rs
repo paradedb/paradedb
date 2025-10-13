@@ -504,7 +504,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with only one of document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either document_id or document_fields")
         }
         _ => panic!("document_id or document_fields validation failed"),
     }

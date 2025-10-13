@@ -844,7 +844,7 @@ impl SearchQueryInput {
                         ))
                     }
                     _ => {
-                        panic!("more_like_this must be called with only one of document_id or document_fields")
+                        panic!("more_like_this must be called with either document_id or document_fields")
                     }
                 }
             }

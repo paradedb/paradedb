@@ -527,103 +527,48 @@ pub unsafe fn determine_sort_direction(sort_op: pg_sys::Oid) -> SortDirection {
 }
 
 /// Recursively check if an expression tree contains any of the specified operators
+/// Uses PostgreSQL's expression_tree_walker for robust traversal
 pub unsafe fn expr_contains_any_operator(
     node: *mut pg_sys::Node,
     target_opnos: &[pg_sys::Oid],
 ) -> bool {
-    if node.is_null() {
-        return false;
-    }
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
 
-    let node_type = (*node).type_;
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
 
-    match node_type {
-        pg_sys::NodeTag::T_OpExpr => {
+        let context = &*(data as *const Context);
+        let node_type = (*node).type_;
+
+        // Check if this node is an OpExpr with one of our target operators
+        if node_type == pg_sys::NodeTag::T_OpExpr {
             let opexpr = node as *mut pg_sys::OpExpr;
-            if target_opnos.contains(&(*opexpr).opno) {
-                return true;
-            }
-            // Check arguments
-            if !(*opexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
+            if context.target_opnos.contains(&(*opexpr).opno) {
+                // Found a match! Set the flag and stop walking
+                (*(data as *mut Context)).found = true;
+                return true; // Stop walking
             }
         }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node as *mut pg_sys::BoolExpr;
-            if !(*boolexpr).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-        }
-        pg_sys::NodeTag::T_RestrictInfo => {
-            // RestrictInfo wraps the actual clause
-            let rinfo = node as *mut pg_sys::RestrictInfo;
-            if !(*rinfo).clause.is_null() {
-                return expr_contains_any_operator(
-                    (*rinfo).clause as *mut pg_sys::Node,
-                    target_opnos,
-                );
-            }
-        }
-        pg_sys::NodeTag::T_Aggref => {
-            // Check aggregate function arguments and FILTER clause
-            let aggref = node as *mut pg_sys::Aggref;
-
-            // Check aggregate arguments
-            if !(*aggref).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check FILTER clause
-            if !(*aggref).aggfilter.is_null()
-                && expr_contains_any_operator(
-                    (*aggref).aggfilter as *mut pg_sys::Node,
-                    target_opnos,
-                )
-            {
-                return true;
-            }
-        }
-        pg_sys::NodeTag::T_WindowFunc => {
-            // Check window function arguments and FILTER clause
-            let winfunc = node as *mut pg_sys::WindowFunc;
-
-            // Check window function arguments
-            if !(*winfunc).args.is_null() {
-                let args = PgList::<pg_sys::Node>::from_pg((*winfunc).args);
-                for arg in args.iter_ptr() {
-                    if expr_contains_any_operator(arg, target_opnos) {
-                        return true;
-                    }
-                }
-            }
-
-            // Check FILTER clause
-            if !(*winfunc).aggfilter.is_null()
-                && expr_contains_any_operator(
-                    (*winfunc).aggfilter as *mut pg_sys::Node,
-                    target_opnos,
-                )
-            {
-                return true;
-            }
-        }
-        _ => {}
+        pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
-    false
+    struct Context {
+        target_opnos: Vec<pg_sys::Oid>,
+        found: bool,
+    }
+
+    let mut context = Context {
+        target_opnos: target_opnos.to_vec(),
+        found: false,
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.found
 }

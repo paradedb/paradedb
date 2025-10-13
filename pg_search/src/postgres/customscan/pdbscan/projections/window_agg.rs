@@ -15,9 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::OrderByInfo;
+use crate::api::{
+    operator::anyelement_query_input_opoid, FieldName, OrderByFeature, OrderByInfo, SortDirection,
+};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::AggregateType;
+use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+use crate::postgres::var::fieldname_from_var;
+use crate::postgres::PgSearchRelation;
+use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, FromDatum, PgList};
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +117,7 @@ pub struct FrameClause {
     pub end_bound: Option<FrameBound>,
 }
 
+/// Frame type (ROWS, RANGE, or GROUPS)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FrameType {
     Rows,
@@ -117,6 +125,7 @@ pub enum FrameType {
     Groups,
 }
 
+/// Frame boundary specification
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FrameBound {
     UnboundedPreceding,
@@ -170,11 +179,12 @@ impl WindowSpecification {
     }
 }
 
-/// Extract window aggregates from the target list with full context
+/// Extract window aggregates from a query with all-or-nothing support
 ///
-/// Uses an all-or-nothing approach: either ALL window functions in the query are supported
-/// and get replaced with window_func placeholders, or NONE of them are replaced and
-/// PostgreSQL handles all window functions with standard execution.
+/// This function implements an all-or-nothing approach: either ALL window functions
+/// in the query are supported (and get replaced with window_func placeholders),
+/// or NONE of them are replaced and PostgreSQL handles all window functions with
+/// standard execution.
 ///
 /// This ensures consistent execution - we don't mix our custom window function execution
 /// with PostgreSQL's standard window function execution in the same query.
@@ -224,10 +234,9 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
-            if let Some((agg_type, result_oid)) = extract_standard_aggregate(window_func) {
+            if let Some((agg_type, result_oid)) = extract_standard_aggregate(parse, window_func) {
                 // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
-                let window_spec =
-                    extract_window_specification(window_func, (*parse).windowClause, agg_type);
+                let window_spec = extract_window_specification(parse, agg_type, window_func);
 
                 let window_agg_info = WindowAggregateInfo {
                     target_entry_index: idx,
@@ -258,6 +267,7 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
 ///
 /// Returns: (AggregateType, result_type_oid)
 unsafe fn extract_standard_aggregate(
+    parse: *mut pg_sys::Query,
     window_func: *mut pg_sys::WindowFunc,
 ) -> Option<(AggregateType, pg_sys::Oid)> {
     use pg_sys::*;
@@ -283,7 +293,7 @@ unsafe fn extract_standard_aggregate(
     }
 
     let first_arg = args.get_ptr(0)?;
-    let field = extract_field_name(first_arg)?;
+    let field = extract_field_name(parse, first_arg)?;
 
     // Extract missing value for COALESCE support (window functions can have COALESCE too)
     let missing = if !args.is_empty() {
@@ -294,7 +304,8 @@ unsafe fn extract_standard_aggregate(
     };
 
     // Use OID-based matching (same as aggregatescan) to avoid duplication
-    let agg_type = AggregateType::create_aggregate_from_oid(aggfnoid, field, missing, filter)?;
+    let agg_type =
+        AggregateType::create_aggregate_from_oid(aggfnoid, field.into_inner(), missing, filter)?;
 
     // Determine result type based on aggregate type
     let result_oid = match &agg_type {
@@ -371,16 +382,14 @@ unsafe fn parse_coalesce_from_node(node: *mut pg_sys::Node) -> Option<f64> {
 /// - nodeToString creates a new string copy (not a pointer to planner hook memory)
 /// - stringToNode allocates new nodes in current memory context
 /// - The deserialized nodes live as long as needed for planning and execution
-unsafe fn extract_filter_expression(
-    filter_expr: *mut pg_sys::Expr,
-) -> Option<crate::query::SearchQueryInput> {
+unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<SearchQueryInput> {
     if filter_expr.is_null() {
         return None;
     }
     // Serialize the filter expression - nodeToString will be called during JSON serialization
     let filter_node = filter_expr as *mut pg_sys::Node;
-    Some(crate::query::SearchQueryInput::PostgresExpression {
-        expr: crate::query::PostgresExpression::new(filter_node),
+    Some(SearchQueryInput::PostgresExpression {
+        expr: PostgresExpression::new(filter_node),
     })
 }
 
@@ -392,9 +401,9 @@ unsafe fn extract_filter_expression(
 /// - ORDER BY specification
 /// - Frame clause (ROWS/RANGE/GROUPS BETWEEN...)
 unsafe fn extract_window_specification(
-    window_func: *mut pg_sys::WindowFunc,
-    window_clause_list: *mut pg_sys::List,
+    parse: *mut pg_sys::Query,
     agg_type: AggregateType,
+    window_func: *mut pg_sys::WindowFunc,
 ) -> WindowSpecification {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
@@ -411,7 +420,7 @@ unsafe fn extract_window_specification(
     }
 
     // Access the WindowClause from the list
-    if window_clause_list.is_null() {
+    if (*parse).windowClause.is_null() {
         return WindowSpecification {
             agg_type,
             partition_by: Vec::new(),
@@ -420,7 +429,7 @@ unsafe fn extract_window_specification(
         };
     }
 
-    let window_clauses = PgList::<pg_sys::WindowClause>::from_pg(window_clause_list);
+    let window_clauses = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause);
 
     // winref is 1-based, but list is 0-indexed
     let window_clause_idx = (winref - 1) as usize;
@@ -436,11 +445,8 @@ unsafe fn extract_window_specification(
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
 
-    // Extract PARTITION BY columns
-    let partition_by = extract_partition_by((*window_clause).partitionClause);
-
-    // Extract ORDER BY specification
-    let order_by = extract_order_by((*window_clause).orderClause);
+    let partition_by = extract_partition_by(parse, (*window_clause).partitionClause);
+    let order_by = extract_order_by(parse, (*window_clause).orderClause);
 
     // Extract frame clause
     let frame_clause = extract_frame_clause(
@@ -458,27 +464,44 @@ unsafe fn extract_window_specification(
 }
 
 /// Extract PARTITION BY columns from partitionClause
-unsafe fn extract_partition_by(partition_clause: *mut pg_sys::List) -> Vec<String> {
-    if partition_clause.is_null() {
+unsafe fn extract_partition_by(
+    parse: *mut pg_sys::Query,
+    partition_clause: *mut pg_sys::List,
+) -> Vec<String> {
+    if partition_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
         return Vec::new();
     }
 
-    let mut columns = Vec::new();
     let partition_list = PgList::<pg_sys::Node>::from_pg(partition_clause);
-
-    for node in partition_list.iter_ptr() {
-        // Each node is a SortGroupClause or similar
-        // For now, we'll extract a placeholder name
-        // TODO: Properly extract column names from Var nodes
-        columns.push(format!("partition_col_{}", columns.len()));
+    if partition_list.is_empty() {
+        return Vec::new();
     }
 
-    columns
+    let mut column_names = Vec::new();
+    for (idx, node) in partition_list.iter_ptr().enumerate() {
+        // Each node should be a SortGroupClause
+        if let Some(sort_clause) = nodecast!(SortGroupClause, T_SortGroupClause, node) {
+            let tle_ref = (*sort_clause).tleSortGroupRef;
+
+            // Resolve directly using target_list
+            let column_name = resolve_tle_ref(tle_ref, (*parse).targetList)
+                .unwrap_or(format!("unresolved_tle_{}", tle_ref));
+            column_names.push(column_name);
+        } else if let Some(var) = nodecast!(Var, T_Var, node) {
+            let field_name = resolve_var_with_parse(parse, var)
+                .unwrap_or(format!("unresolved_var_{}", (*var).varattno).into());
+            column_names.push(field_name.into_inner());
+        }
+    }
+    column_names
 }
 
 /// Extract ORDER BY specification from orderClause
-unsafe fn extract_order_by(order_clause: *mut pg_sys::List) -> Option<Vec<OrderByInfo>> {
-    if order_clause.is_null() {
+unsafe fn extract_order_by(
+    parse: *mut pg_sys::Query,
+    order_clause: *mut pg_sys::List,
+) -> Option<Vec<OrderByInfo>> {
+    if order_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
         return None;
     }
 
@@ -489,21 +512,96 @@ unsafe fn extract_order_by(order_clause: *mut pg_sys::List) -> Option<Vec<OrderB
 
     let mut order_by_infos = Vec::new();
 
-    for node in order_list.iter_ptr() {
-        // Each node is a SortGroupClause
-        // For now, create a placeholder OrderByInfo
-        // TODO: Properly extract from SortGroupClause and map to OrderByFeature
-        use crate::api::{FieldName, OrderByFeature, SortDirection};
+    for (idx, node) in order_list.iter_ptr().enumerate() {
+        // Each node should be a SortGroupClause
+        if let Some(sort_clause) = nodecast!(SortGroupClause, T_SortGroupClause, node) {
+            let tle_ref = (*sort_clause).tleSortGroupRef;
+            let sort_op = (*sort_clause).sortop;
 
-        let field_name: FieldName = format!("order_col_{}", order_by_infos.len()).into();
+            // Resolve column name directly using target_list
+            let column_name = resolve_tle_ref(tle_ref, (*parse).targetList)
+                .unwrap_or(format!("unresolved_tle_{}", tle_ref));
+            // Determine sort direction from sort operator
+            let direction = determine_sort_direction(sort_op);
 
-        order_by_infos.push(OrderByInfo {
-            feature: OrderByFeature::Field(field_name),
-            direction: SortDirection::Asc,
-        });
+            let field_name = FieldName::from(column_name.as_str());
+            order_by_infos.push(OrderByInfo {
+                feature: OrderByFeature::Field(field_name),
+                direction,
+            });
+        }
     }
 
-    Some(order_by_infos)
+    if order_by_infos.is_empty() {
+        None
+    } else {
+        Some(order_by_infos)
+    }
+}
+
+/// Direct resolution of tleSortGroupRef using target_list (Phase 1)
+unsafe fn resolve_tle_ref(
+    tle_ref: pg_sys::Index,
+    target_list: *mut pg_sys::List,
+) -> Option<String> {
+    if target_list.is_null() || tle_ref == 0 {
+        return None;
+    }
+
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+
+    // Find the TargetEntry with matching ressortgroupref
+    for (i, te) in tlist.iter_ptr().enumerate() {
+        let resname = if (*te).resname.is_null() {
+            "NULL".to_string()
+        } else {
+            std::ffi::CStr::from_ptr((*te).resname)
+                .to_str()
+                .unwrap_or("INVALID")
+                .to_string()
+        };
+
+        if (*te).ressortgroupref == tle_ref && !(*te).resname.is_null() {
+            let column_name = std::ffi::CStr::from_ptr((*te).resname)
+                .to_str()
+                .unwrap_or("INVALID")
+                .to_string();
+            return Some(column_name);
+        }
+    }
+    None
+}
+
+/// Determine sort direction from PostgreSQL sort operator OID
+/// Uses PostgreSQL's operator system to determine if the operator represents ASC or DESC ordering
+unsafe fn determine_sort_direction(sort_op: pg_sys::Oid) -> SortDirection {
+    use SortDirection;
+
+    if sort_op == pg_sys::InvalidOid {
+        // No explicit sort operator means default ASC ordering
+        return SortDirection::Asc;
+    }
+
+    let sort_op_u32 = sort_op.to_u32();
+
+    // Use PostgreSQL constants where available, fallback to numeric values for others
+    // TODO(@mdashti): this is very brittle. We should make it more robust.
+    match sort_op_u32 {
+        // Common "less than" operators (ASC ordering)
+        pg_sys::Int4LessOperator
+        | pg_sys::TIDLessOperator
+        | pg_sys::Int8LessOperator
+        | pg_sys::TextLessOperator
+        | pg_sys::Float8LessOperator
+        | pg_sys::BpcharLessOperator
+        | pg_sys::ByteaLessOperator
+        | pg_sys::TextPatternLessOperator
+        | pg_sys::BpcharPatternLessOperator
+        | pg_sys::F_NUMERIC_LT
+        | pg_sys::F_TIMESTAMP_LT
+        | 1754 => SortDirection::Asc, // "less than" operators (numeric values - constants not available in pgrx)
+        _ => SortDirection::Desc,
+    }
 }
 
 /// Extract frame clause from frameOptions and offset expressions
@@ -580,13 +678,49 @@ unsafe fn extract_frame_clause(
     })
 }
 
-/// Extract field name from a Var or expression
-unsafe fn extract_field_name(node: *mut pg_sys::Node) -> Option<String> {
+/// Resolve Var node to actual column name using existing fieldname_from_var utility
+unsafe fn resolve_var_with_parse(
+    parse: *mut pg_sys::Query,
+    var: *mut pg_sys::Var,
+) -> Option<FieldName> {
+    if parse.is_null() || var.is_null() {
+        return None;
+    }
+
+    let varno = (*var).varno;
+    let varattno = (*var).varattno;
+    let rtable = (*parse).rtable;
+    if rtable.is_null() {
+        return None;
+    }
+
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+
+    // varno is 1-based index into the range table
+    if varno <= 0 || varno as usize > rtable_list.len() {
+        return None;
+    }
+
+    let rte_index = (varno - 1) as usize;
+    if let Some(rte) = rtable_list.get_ptr(rte_index) {
+        // Check if this is a base relation (RTE_RELATION)
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+            let relation_oid = (*rte).relid;
+            return fieldname_from_var(relation_oid, var, varattno as pg_sys::AttrNumber);
+        }
+    }
+
+    None
+}
+
+/// Extract field name from a node (Var or COALESCE expression) using parse context
+unsafe fn extract_field_name(
+    parse: *mut pg_sys::Query,
+    node: *mut pg_sys::Node,
+) -> Option<FieldName> {
     // Try to extract from Var
     if let Some(var) = nodecast!(Var, T_Var, node) {
-        // Get the attribute name from the relation
-        // For now, return a placeholder - we'll need to look this up properly
-        return Some(format!("field_{}", (*var).varattno));
+        return resolve_var_with_parse(parse, var);
     }
 
     // Handle COALESCE expressions - extract field name from first argument
@@ -595,7 +729,7 @@ unsafe fn extract_field_name(node: *mut pg_sys::Node) -> Option<String> {
         if !args.is_empty() {
             // Recursively extract field name from the first argument of COALESCE
             if let Some(first_arg) = args.get_ptr(0) {
-                return extract_field_name(first_arg);
+                return extract_field_name(parse, first_arg);
             }
         }
     }
@@ -641,14 +775,10 @@ fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
 /// allowing us to use extract_quals to properly convert FILTER expressions.
 pub unsafe fn convert_window_aggregate_filters(
     window_aggregates: &mut [WindowAggregateInfo],
-    bm25_index: &crate::postgres::PgSearchRelation,
+    bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
 ) {
-    use crate::api::operator::anyelement_query_input_opoid;
-    use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-    use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
-
     for window_agg in window_aggregates.iter_mut() {
         // Check if this aggregate has a FILTER
         if !window_agg.window_spec.agg_type.has_filter() {
@@ -659,7 +789,7 @@ pub unsafe fn convert_window_aggregate_filters(
         let filter_opt = get_aggregate_filter_mut(&mut window_agg.window_spec.agg_type);
         if let Some(filter) = filter_opt {
             // Check if it's a PostgresExpression that needs conversion
-            if let crate::query::SearchQueryInput::PostgresExpression { expr } = filter {
+            if let SearchQueryInput::PostgresExpression { expr } = filter {
                 let filter_node = expr.node();
                 if !filter_node.is_null() {
                     // Use extract_quals to convert the expression
@@ -678,7 +808,7 @@ pub unsafe fn convert_window_aggregate_filters(
 
                     // Replace the PostgresExpression with the converted SearchQueryInput
                     if let Some(qual) = result {
-                        let converted = crate::query::SearchQueryInput::from(&qual);
+                        let converted = SearchQueryInput::from(&qual);
                         *filter = converted;
                     }
                 }
@@ -688,9 +818,7 @@ pub unsafe fn convert_window_aggregate_filters(
 }
 
 /// Helper function to get mutable filter from an aggregate type
-fn get_aggregate_filter_mut(
-    agg_type: &mut AggregateType,
-) -> Option<&mut crate::query::SearchQueryInput> {
+fn get_aggregate_filter_mut(agg_type: &mut AggregateType) -> Option<&mut SearchQueryInput> {
     match agg_type {
         AggregateType::CountAny { filter } => filter.as_mut(),
         AggregateType::Count { filter, .. } => filter.as_mut(),

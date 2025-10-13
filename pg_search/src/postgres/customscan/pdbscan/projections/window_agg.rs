@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{
-    operator::anyelement_query_input_opoid, FieldName, OrderByFeature, OrderByInfo, SortDirection,
-};
+use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
 use crate::nodecast;
+use crate::postgres::customscan::aggregatescan::extract_filter_clause;
 use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
-use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::var::fieldname_from_var;
 use crate::postgres::var::get_var_relation_oid;
 use crate::postgres::PgSearchRelation;
@@ -716,7 +714,8 @@ fn get_filter_info(agg_type: &AggregateType) -> Option<String> {
 /// Convert PostgresExpression filters to SearchQueryInput
 ///
 /// This is called at plan_custom_path time when we have access to root (PlannerInfo),
-/// allowing us to use extract_quals to properly convert FILTER expressions.
+/// allowing us to use extract_filter_clause to properly convert FILTER expressions
+/// (same logic as aggregatescan).
 pub unsafe fn convert_window_aggregate_filters(
     window_aggregates: &mut [WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
@@ -736,24 +735,22 @@ pub unsafe fn convert_window_aggregate_filters(
             if let SearchQueryInput::PostgresExpression { expr } = filter {
                 let filter_node = expr.node();
                 if !filter_node.is_null() {
-                    // Use extract_quals to convert the expression
+                    // Cast Node back to Expr for extract_filter_clause
+                    let filter_expr = filter_node as *mut pg_sys::Expr;
+
+                    // Use the same logic as aggregatescan to convert the filter
                     let mut filter_qual_state = QualExtractState::default();
-                    let result = extract_quals(
+                    let converted = extract_filter_clause(
+                        filter_expr,
+                        bm25_index,
                         root,
                         heap_rti,
-                        filter_node,
-                        anyelement_query_input_opoid(),
-                        RestrictInfoType::BaseRelation,
-                        bm25_index,
-                        false,
                         &mut filter_qual_state,
-                        true, // attempt_pushdown
                     );
 
                     // Replace the PostgresExpression with the converted SearchQueryInput
-                    if let Some(qual) = result {
-                        let converted = SearchQueryInput::from(&qual);
-                        *filter = converted;
+                    if let Some(search_query) = converted {
+                        *filter = search_query;
                     }
                 }
             }

@@ -591,14 +591,13 @@ impl CustomScan for PdbScan {
 
             // Extract window_func(json) calls from processed_tlist using expression tree walker
             // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
-            let window_func_procid = window_func_oid();
             let processed_tlist = (*builder.args().root).processed_tlist;
 
-            let mut window_aggregates =
-                extract_window_func_calls(processed_tlist.cast(), window_func_procid);
+            let mut window_aggregates = extract_window_func_calls(processed_tlist.cast());
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
+                // Note: root was not available in the planner hook, so we needed to delay this until now.
                 let private_data = builder.custom_private();
                 if let Some(heaprelid) = private_data.heaprelid() {
                     if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
@@ -627,8 +626,7 @@ impl CustomScan for PdbScan {
                 .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
-            let processed_tlist =
-                PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
+            let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(processed_tlist);
 
             let mut attname_lookup = HashMap::default();
             let score_funcoid = score_funcoid();

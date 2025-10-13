@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::window_function::window_func_oid;
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
@@ -630,10 +631,7 @@ pub unsafe fn convert_window_aggregate_filters(
 }
 
 /// Similar to uses_scores/uses_snippets, this walks the expression tree to find our placeholders
-pub unsafe fn extract_window_func_calls(
-    node: *mut pg_sys::Node,
-    window_func_procid: pg_sys::Oid,
-) -> Vec<WindowAggregateInfo> {
+pub unsafe fn extract_window_func_calls(node: *mut pg_sys::Node) -> Vec<WindowAggregateInfo> {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
     use std::ffi::CStr;
@@ -685,7 +683,7 @@ pub unsafe fn extract_window_func_calls(
     }
 
     let mut context = Context {
-        window_func_procid,
+        window_func_procid: window_func_oid(),
         window_aggs: Vec::new(),
     };
 

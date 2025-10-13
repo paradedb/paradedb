@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
 use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::utils::{determine_sort_direction, resolve_tle_ref};
 use crate::postgres::var::get_var_relation_oid;
 use crate::postgres::var::{fieldname_from_var, resolve_var_with_parse};
 use crate::postgres::PgSearchRelation;
@@ -503,71 +504,6 @@ unsafe fn extract_order_by(
         None
     } else {
         Some(order_by_infos)
-    }
-}
-
-/// Direct resolution of tleSortGroupRef using target_list (Phase 1)
-unsafe fn resolve_tle_ref(
-    tle_ref: pg_sys::Index,
-    target_list: *mut pg_sys::List,
-) -> Option<String> {
-    if target_list.is_null() || tle_ref == 0 {
-        return None;
-    }
-
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-
-    // Find the TargetEntry with matching ressortgroupref
-    for (i, te) in tlist.iter_ptr().enumerate() {
-        let resname = if (*te).resname.is_null() {
-            "NULL".to_string()
-        } else {
-            std::ffi::CStr::from_ptr((*te).resname)
-                .to_str()
-                .unwrap_or("INVALID")
-                .to_string()
-        };
-
-        if (*te).ressortgroupref == tle_ref && !(*te).resname.is_null() {
-            let column_name = std::ffi::CStr::from_ptr((*te).resname)
-                .to_str()
-                .unwrap_or("INVALID")
-                .to_string();
-            return Some(column_name);
-        }
-    }
-    None
-}
-
-/// Determine sort direction from PostgreSQL sort operator OID
-/// Uses PostgreSQL's operator system to determine if the operator represents ASC or DESC ordering
-unsafe fn determine_sort_direction(sort_op: pg_sys::Oid) -> SortDirection {
-    use SortDirection;
-
-    if sort_op == pg_sys::InvalidOid {
-        // No explicit sort operator means default ASC ordering
-        return SortDirection::Asc;
-    }
-
-    let sort_op_u32 = sort_op.to_u32();
-
-    // Use PostgreSQL constants where available, fallback to numeric values for others
-    // TODO(@mdashti): this is very brittle. We should make it more robust.
-    match sort_op_u32 {
-        // Common "less than" operators (ASC ordering)
-        pg_sys::Int4LessOperator
-        | pg_sys::TIDLessOperator
-        | pg_sys::Int8LessOperator
-        | pg_sys::TextLessOperator
-        | pg_sys::Float8LessOperator
-        | pg_sys::BpcharLessOperator
-        | pg_sys::ByteaLessOperator
-        | pg_sys::TextPatternLessOperator
-        | pg_sys::BpcharPatternLessOperator
-        | pg_sys::F_NUMERIC_LT
-        | pg_sys::F_TIMESTAMP_LT
-        | 1754 => SortDirection::Asc, // "less than" operators (numeric values - constants not available in pgrx)
-        _ => SortDirection::Desc,
     }
 }
 

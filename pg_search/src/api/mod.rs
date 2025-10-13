@@ -284,6 +284,15 @@ impl From<SortDirection> for tantivy::Order {
     }
 }
 
+impl From<SortDirection> for tantivy::aggregation::bucket::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => tantivy::aggregation::bucket::Order::Asc,
+            SortDirection::Desc => tantivy::aggregation::bucket::Order::Desc,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score,

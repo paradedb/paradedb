@@ -89,10 +89,20 @@ pub mod window_functions {
 pub struct WindowAggregateInfo {
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
-    /// Result type OID for the aggregate
-    pub result_type_oid: pg_sys::Oid,
     /// Window specification (aggregate type (with optional FILTER), PARTITION BY, ORDER BY, frame clause)
     pub window_spec: WindowSpecification,
+}
+
+impl WindowAggregateInfo {
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        match &self.window_spec.agg_type {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+        }
+    }
 }
 
 /// Window specification from the OVER clause
@@ -234,13 +244,12 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
-            if let Some((agg_type, result_oid)) = extract_standard_aggregate(parse, window_func) {
+            if let Some(agg_type) = extract_standard_aggregate(parse, window_func) {
                 // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
                 let window_spec = extract_window_specification(parse, agg_type, window_func);
 
                 let window_agg_info = WindowAggregateInfo {
                     target_entry_index: idx,
-                    result_type_oid: result_oid,
                     window_spec,
                 };
 
@@ -265,11 +274,11 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
 
 /// Extract window aggregate function using OID-based approach (same as aggregatescan)
 ///
-/// Returns: (AggregateType, result_type_oid)
+/// Returns: AggregateType
 unsafe fn extract_standard_aggregate(
     parse: *mut pg_sys::Query,
     window_func: *mut pg_sys::WindowFunc,
-) -> Option<(AggregateType, pg_sys::Oid)> {
+) -> Option<AggregateType> {
     use pg_sys::*;
 
     let aggfnoid = (*window_func).winfnoid.to_u32();
@@ -284,7 +293,7 @@ unsafe fn extract_standard_aggregate(
 
     // Handle COUNT(*) special case - same logic as aggregatescan
     if aggfnoid == F_COUNT_ && args.is_empty() {
-        return Some((AggregateType::CountAny { filter }, INT8OID));
+        return Some(AggregateType::CountAny { filter });
     }
 
     // For other aggregates, we need a field name
@@ -307,16 +316,7 @@ unsafe fn extract_standard_aggregate(
     let agg_type =
         AggregateType::create_aggregate_from_oid(aggfnoid, field.into_inner(), missing, filter)?;
 
-    // Determine result type based on aggregate type
-    let result_oid = match &agg_type {
-        AggregateType::CountAny { .. } | AggregateType::Count { .. } => INT8OID,
-        AggregateType::Sum { .. }
-        | AggregateType::Avg { .. }
-        | AggregateType::Min { .. }
-        | AggregateType::Max { .. } => FLOAT8OID,
-    };
-
-    Some((agg_type, result_oid))
+    Some(agg_type)
 }
 
 /// Parse COALESCE expression from a Node to extract missing value

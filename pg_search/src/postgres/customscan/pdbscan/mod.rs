@@ -1417,17 +1417,17 @@ unsafe fn inject_window_aggregate_placeholders(
                 if (*funcexpr).funcid == window_func_procid {
                     // Create a placeholder Const node with the appropriate type
                     let const_node = pg_sys::makeConst(
-                        agg_info.result_type_oid,
+                        agg_info.result_type_oid(),
                         -1,
                         pg_sys::DEFAULT_COLLATION_OID,
-                        if agg_info.result_type_oid == pg_sys::INT8OID {
+                        if agg_info.result_type_oid() == pg_sys::INT8OID {
                             8
                         } else {
                             -1
                         },
                         pg_sys::Datum::null(),
-                        true,                                        // constisnull
-                        agg_info.result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                        true,                                          // constisnull
+                        agg_info.result_type_oid() == pg_sys::INT8OID, // constbyval (true for INT8)
                     );
 
                     // Replace the window_func FuncExpr with our Const node

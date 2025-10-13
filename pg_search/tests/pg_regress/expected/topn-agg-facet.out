@@ -93,12 +93,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
+   Output: id, name, rating, (paradedb.window_func('{"target_entry_index":3,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, paradedb.window_func('{"target_entry_index":3,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
+         Output: id, name, rating, paradedb.window_func('{"target_entry_index":3,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1675,12 +1675,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"target_entry_index":4,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)), (paradedb.window_func('{"target_entry_index":5,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"result_type_oid":20,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"target_entry_index":4,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text), paradedb.window_func('{"target_entry_index":5,"window_spec":{"agg_type":{"CountAny":{"filter":null}},"partition_by":[],"order_by":null,"frame_clause":null}}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState

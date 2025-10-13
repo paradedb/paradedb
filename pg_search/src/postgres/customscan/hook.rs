@@ -528,7 +528,7 @@ unsafe fn replace_windowfuncs_in_query(
                 // Create a FuncExpr that calls paradedb.window_func(json)
                 let funcexpr = pg_sys::makeFuncExpr(
                     window_func_procid,
-                    agg_info.result_type_oid,
+                    agg_info.result_type_oid(),
                     args.into_pg(),
                     pg_sys::InvalidOid,
                     pg_sys::InvalidOid,

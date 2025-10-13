@@ -315,12 +315,6 @@
                               "v2/query-builder/term/term_set"
                             ]
                           },
-                          {
-                            "group": "Specialized",
-                            "pages": [
-                              "v2/query-builder/specialized/mlt"
-                            ]
-                          },
                           "v2/query-builder/json"
                         ]
                       },

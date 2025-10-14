@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760454157111,
+  "lastUpdate": 1760461468223,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3094,6 +3094,72 @@ window.BENCHMARK_DATA = {
             "value": 187.22801853817006,
             "unit": "median tps",
             "extra": "avg tps: 214.55701936345764, max tps: 708.6501737787389, count: 55288"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7b561efba690df7b6ea6f39f0dd76357213f578",
+          "message": "chore: rename the new `pdb.regex` tokenizer to `pdb.regex_pattern` (#3333)\n\n## What\n\nThe `::pdb.regex` tokenizer type is ambiguous with the existing\n`pdb.regex()` function, making queries like this impossible for Postgres\nto figure out:\n\n```sql\nSELECT * FROM t WHERE f @@@ pdb.regex('b..r');\n```\n\n## Why\n\nIt makes a lot more sense to rename the thing we haven't released yet as\nopposed to the thing we have.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T12:47:59-04:00",
+          "tree_id": "66760231bf612b171f8bba7602676313aaf9f453",
+          "url": "https://github.com/paradedb/paradedb/commit/d7b561efba690df7b6ea6f39f0dd76357213f578"
+        },
+        "date": 1760461466325,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 787.8717204786959,
+            "unit": "median tps",
+            "extra": "avg tps: 787.2043969356195, max tps: 876.2576633081729, count: 54990"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3420.3532008582642,
+            "unit": "median tps",
+            "extra": "avg tps: 3387.036812083581, max tps: 3432.3950252473396, count: 54990"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 778.9289816074893,
+            "unit": "median tps",
+            "extra": "avg tps: 779.5799820302835, max tps: 839.2537020379997, count: 54990"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 688.2243577712716,
+            "unit": "median tps",
+            "extra": "avg tps: 686.0029296621663, max tps: 696.1758733407833, count: 54990"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1731.3168425635556,
+            "unit": "median tps",
+            "extra": "avg tps: 1716.3073196457308, max tps: 1741.3930067072072, count: 109980"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1317.7518963408825,
+            "unit": "median tps",
+            "extra": "avg tps: 1302.7638704197846, max tps: 1323.6119070769807, count: 54990"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 226.75411629766597,
+            "unit": "median tps",
+            "extra": "avg tps: 234.66340960819338, max tps: 523.9780201700099, count: 54990"
           }
         ]
       }

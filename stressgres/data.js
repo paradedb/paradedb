@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760453429081,
+  "lastUpdate": 1760453432252,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19186,6 +19186,108 @@ window.BENCHMARK_DATA = {
             "value": 156.29296875,
             "unit": "median mem",
             "extra": "avg mem: 174.50367794686238, max mem: 215.76953125, count: 56189"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760453430315,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0626607766955843, max background_merging: 1.0, count: 56367"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7970200559884, max cpu: 9.825998, count: 56367"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 18.07882957614828, max mem: 20.09765625, count: 56367"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.971624855997478, max cpu: 28.015566, count: 56367"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 169.50983038613018, max mem: 171.08984375, count: 56367"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51394,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51255.63106072702, max block_count: 51394.0, count: 56367"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.633420263629425, max segment_count: 55.0, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.695693226878047, max cpu: 28.070175, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 140.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 131.36009509941545, max mem: 152.48828125, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.753932173479766, max cpu: 28.318584, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.60583770479624, max mem: 170.859375, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.88512476435067, max cpu: 33.802814, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 173.84122143996044, max mem: 216.2109375, count: 56367"
           }
         ]
       }

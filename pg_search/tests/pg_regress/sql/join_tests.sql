@@ -140,8 +140,8 @@ CREATE INDEX publishers_bm25_idx ON publishers USING bm25 (id, name, description
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
@@ -151,8 +151,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
@@ -162,8 +162,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
@@ -173,8 +173,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
@@ -188,8 +188,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
@@ -200,8 +200,8 @@ LIMIT 10;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
@@ -211,8 +211,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
@@ -222,8 +222,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
@@ -237,8 +237,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.content as book_content,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR b.content @@@ 'performance')
@@ -250,9 +250,9 @@ SELECT
     a.name as author_name,
     b.title as book_title,
     c.name as category_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(c.id) as category_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score,
+    pdb.score(c.id) as category_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 CROSS JOIN categories c
@@ -265,8 +265,8 @@ SELECT
     a.name as author_name,
     a.country as author_country,
     b.content as book_content,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR a.country @@@ 'British' OR b.content @@@ 'performance')
@@ -281,8 +281,8 @@ LIMIT 10;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
@@ -292,8 +292,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
@@ -305,9 +305,9 @@ SELECT
     a.name as author_name,
     b.title as book_title,
     r.content as review_content,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(r.id) as review_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score,
+    pdb.score(r.id) as review_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN reviews r ON b.id = r.book_id
@@ -318,7 +318,7 @@ ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM authors a
 JOIN categories c ON a.id = c.id
 WHERE (a.bio @@@ 'laptop')
@@ -334,8 +334,8 @@ ORDER BY a.id, author_score DESC;
 SELECT 
     a1.name as author1_name,
     a2.name as author2_name,
-    paradedb.score(a1.id) as author1_score,
-    paradedb.score(a2.id) as author2_score
+    pdb.score(a1.id) as author1_score,
+    pdb.score(a2.id) as author2_score
 FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
 WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
@@ -345,8 +345,8 @@ ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
@@ -356,8 +356,8 @@ ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
@@ -368,9 +368,9 @@ SELECT
     a.name as author_name,
     b.title as book_title,
     c.name as category_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(c.id) as category_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score,
+    pdb.score(c.id) as category_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
@@ -384,8 +384,8 @@ SELECT
     a.name as author_name,
     b.title as book_title,
     br.relationship_type,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 JOIN bridge_table br ON a.id = br.author_id
 JOIN books b ON b.id = br.book_id
@@ -400,14 +400,14 @@ ORDER BY a.id, b.id, author_score DESC;
 -- Test 6.1: Score consistency check - direct vs join query
 SELECT 
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM authors a
 WHERE a.bio @@@ 'author'
 ORDER BY a.id, author_score DESC;
 
 SELECT 
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author'
@@ -416,8 +416,8 @@ ORDER BY a.id, author_score DESC;
 -- Test 6.2: Performance vs correctness trade-off
 SELECT 
     COUNT(*) as total_results,
-    AVG(paradedb.score(a.id)) as avg_author_score,
-    AVG(paradedb.score(b.id)) as avg_book_score
+    AVG(pdb.score(a.id)) as avg_author_score,
+    AVG(pdb.score(b.id)) as avg_book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
@@ -427,8 +427,8 @@ WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
 SELECT 
     a.name as author_name,
     b.title as book_title,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR a.birth_year = b.publication_year)
@@ -444,9 +444,9 @@ SELECT
     a.name as author_name,
     b.title as book_title,
     r.content as review_content,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(r.id) as review_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score,
+    pdb.score(r.id) as review_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 LEFT JOIN reviews r ON b.id = r.book_id
@@ -464,8 +464,8 @@ LIMIT 10;
 SELECT 
     a.name as author_name,
     c.name as category_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(c.id) as category_score
+    pdb.score(a.id) as author_score,
+    pdb.score(c.id) as category_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN categories c ON b.category_id = c.id
@@ -479,12 +479,12 @@ ORDER BY a.id, c.id, author_score DESC, category_score DESC;
 
 -- Test 8.1: Single-table queries for comparison
 SELECT 'Single table A - smartphone' as query_type, 
-       a.name, paradedb.score(a.id) as score
+       a.name, pdb.score(a.id) as score
 FROM authors a 
 WHERE a.bio @@@ 'smartphone'
 UNION ALL
 SELECT 'Single table B - performance' as query_type,
-       b.title, paradedb.score(b.id) as score  
+       b.title, pdb.score(b.id) as score
 FROM books b
 WHERE b.content @@@ 'performance'
 ORDER BY score DESC;
@@ -495,10 +495,10 @@ SELECT
     b.title as book_title,
     c.name as category_name,
     p.name as publisher_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(c.id) as category_score,
-    paradedb.score(p.id) as publisher_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score,
+    pdb.score(c.id) as category_score,
+    pdb.score(p.id) as publisher_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id

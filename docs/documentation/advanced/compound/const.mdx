@@ -8,7 +8,7 @@ Applies a constant score across all documents matched by the underlying query. I
 
 <CodeGroup>
 ```sql Function Syntax
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
   should => ARRAY[
@@ -18,7 +18,7 @@ WHERE id @@@ paradedb.boolean(
 );
 ```
 ```sql JSON Syntax
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE id @@@
 '{

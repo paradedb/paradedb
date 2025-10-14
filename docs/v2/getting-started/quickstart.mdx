@@ -98,10 +98,10 @@ LIMIT 5;
 
 ## BM25 Scoring
 
-Next, let's add BM25 scoring to the results, which allows us to sort matches by relevance. To do this, we'll use `paradedb.score`.
+Next, let's add BM25 scoring to the results, which allows us to sort matches by relevance. To do this, we'll use `pdb.score`.
 
 ```sql
-SELECT description, paradedb.score(id)
+SELECT description, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
@@ -126,7 +126,7 @@ To do this, we'll use `paradedb.snippet`.
 
 
 ```sql
-SELECT description, paradedb.snippet(description), paradedb.score(id)
+SELECT description, paradedb.snippet(description), pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC

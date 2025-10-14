@@ -12,7 +12,7 @@ The first is boosting, which increases or decreases the impact of a specific que
 To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
 
 ```sql
-SELECT id, paradedb.score(id), description, category
+SELECT id, pdb.score(id), description, category
 FROM mock_items
 WHERE description ||| 'shoes'::pdb.boost(2) OR category ||| 'footwear'
 ORDER BY score DESC
@@ -24,7 +24,7 @@ LIMIT 5;
 [Query builder functions](/v2/query-builder/overview) can also be boosted:
 
 ```sql
-SELECT id, description, category, paradedb.score(id)
+SELECT id, description, category, pdb.score(id)
 FROM mock_items
 WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
 ORDER BY score DESC
@@ -34,7 +34,7 @@ LIMIT 5;
 Boost can be used in conjunction with other type casts, like [fuzzy](/v2/full-text/fuzzy):
 
 ```sql
-SELECT id, description, category, paradedb.score(id)
+SELECT id, description, category, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
 ORDER BY score DESC
@@ -49,7 +49,7 @@ numeric value.
 For instance, the following query assigns a score of `1` to all documents matching the query `shoes`.
 
 ```sql
-SELECT id, paradedb.score(id), description, category
+SELECT id, pdb.score(id), description, category
 FROM mock_items
 WHERE description ||| 'shoes'::pdb.const(1)
 ORDER BY score DESC

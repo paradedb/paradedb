@@ -18,21 +18,26 @@
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoid;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::ptr::addr_of_mut;
 
-#[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
-    None
-}
+#[pgrx::pg_schema]
+mod pdb {
+    use pgrx::{extension_sql, pg_extern, AnyElement};
 
-extension_sql!(
-    r#"
-ALTER FUNCTION score SUPPORT placeholder_support;
-"#,
-    name = "score_placeholder",
-    requires = [score_from_relation, placeholder_support]
-);
+    #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
+    fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
+        None
+    }
+
+    extension_sql!(
+        r#"
+    ALTER FUNCTION pdb.score SUPPORT paradedb.placeholder_support;
+    "#,
+        name = "score_placeholder",
+        requires = [score_from_relation, placeholder_support]
+    );
+}
 
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,

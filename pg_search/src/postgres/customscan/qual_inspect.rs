@@ -742,7 +742,7 @@ unsafe fn opexpr(
         ),
 
         pg_sys::NodeTag::T_FuncExpr => {
-            // direct support for paradedb.score() in the WHERE clause
+            // direct support for pdb.score() in the WHERE clause
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
             if (*funcexpr).funcid != score_funcoid() {
                 return node_opexpr(

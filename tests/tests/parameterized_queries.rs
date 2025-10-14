@@ -146,10 +146,10 @@ fn test_issue2061(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let results = r#"
-    SELECT id, description, paradedb.score(id)
+    SELECT id, description, pdb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.match('description', (SELECT description FROM mock_items WHERE id = 1))
-    ORDER BY paradedb.score(id) DESC;    
+    ORDER BY pdb.score(id) DESC;
     "#
     .fetch::<(i32, String, f32)>(&mut conn);
 

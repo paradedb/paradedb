@@ -58,7 +58,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
         FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
     ),
     bm25_search AS (
-        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
+        SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
         FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
     )
     SELECT
@@ -105,7 +105,7 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
         LIMIT 20
     ),
     bm25 AS (
-        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
+        SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
         FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' LIMIT 20
     )
     SELECT

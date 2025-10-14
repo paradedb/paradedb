@@ -26,12 +26,12 @@ WHERE category = 'Electronics';
 
 -- Test Case 1: Query with only indexed field - should work correctly
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, category, paradedb.score(id) as score
+SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
 
-SELECT id, description, category, paradedb.score(id) as score
+SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
@@ -40,12 +40,12 @@ ORDER BY score DESC;
 -- This should use the partial index predicate (category = 'Electronics')
 -- instead of All query for the non-indexed rating filter
 -- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT id, description, category, rating, paradedb.score(id) as score
+-- SELECT id, description, category, rating, pdb.score(id) as score
 -- FROM partial_test
 -- WHERE description @@@ 'Apple' AND rating >= 4
 -- ORDER BY score DESC;
 
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND rating >= 4
 ORDER BY score DESC;
@@ -53,12 +53,12 @@ ORDER BY score DESC;
 -- Test Case 3: Query with only non-indexed predicate
 -- This should still use the partial index predicate for the base query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;
 
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;

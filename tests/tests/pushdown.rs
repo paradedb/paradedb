@@ -219,7 +219,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let (plan, ) = r#"
-        EXPLAIN (VERBOSE, FORMAT JSON) SELECT ms1.id, ms1.name, paradedb.score (ms1.id)
+        EXPLAIN (VERBOSE, FORMAT JSON) SELECT ms1.id, ms1.name, pdb.score (ms1.id)
         FROM mcp_server ms1
         WHERE
           ms1.synced_at IS NOT NULL
@@ -232,7 +232,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
                 ]
               }
             }'::jsonb
-        ORDER BY paradedb.score (ms1.id) DESC;
+        ORDER BY pdb.score (ms1.id) DESC;
     "#.fetch_one::<(Value, )>(&mut conn);
 
     eprintln!("{plan:#?}");
@@ -708,7 +708,7 @@ mod pushdown_is_bool_operator {
         let sql = format!(
             r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
+            SELECT *, pdb.score(id) FROM is_true
             WHERE bool_field {condition} AND message @@@ 'beer';
             "#
         );
@@ -723,7 +723,7 @@ mod pushdown_is_bool_operator {
         // Verify query results
         let results: Vec<(i64, bool, String, f32)> = format!(
             r#"
-            SELECT id, bool_field, message, paradedb.score(id)
+            SELECT id, bool_field, message, pdb.score(id)
             FROM is_true
             WHERE bool_field {condition} AND message @@@ 'beer'
             ORDER BY id;
@@ -747,7 +747,7 @@ mod pushdown_is_bool_operator {
         let sql = format!(
             r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-            SELECT *, paradedb.score(id) FROM is_true
+            SELECT *, pdb.score(id) FROM is_true
             WHERE {condition} AND message @@@ 'beer';
             "#
         );
@@ -762,7 +762,7 @@ mod pushdown_is_bool_operator {
         // Just verify the query results
         let results: Vec<(i64, bool, String, Option<f32>)> = format!(
             r#"
-            SELECT id, bool_field, message, paradedb.score(id)
+            SELECT id, bool_field, message, pdb.score(id)
             FROM is_true
             WHERE {condition} AND message @@@ 'beer'
             ORDER BY id;
@@ -882,7 +882,7 @@ mod pushdown_is_bool_operator {
             let sql = format!(
                 r#"
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-                SELECT *, paradedb.score(id) FROM bool_null_test
+                SELECT *, pdb.score(id) FROM bool_null_test
                 WHERE {condition} AND message @@@ 'beer';
                 "#
             );
@@ -897,7 +897,7 @@ mod pushdown_is_bool_operator {
             // Get actual results
             let results: Vec<(i64, Option<bool>, String, f32)> = format!(
                 r#"
-                SELECT id, bool_field, message, paradedb.score(id)
+                SELECT id, bool_field, message, pdb.score(id)
                 FROM bool_null_test
                 WHERE {condition} AND message @@@ 'beer'
                 ORDER BY id;

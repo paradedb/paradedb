@@ -351,10 +351,10 @@ WITH (
 );
 -- Test 1: Basic score function with text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, paradedb.score(id), rating
+SELECT title, pdb.score(id), rating
 FROM score_test
 WHERE content @@@ 'technology'
-ORDER BY title, paradedb.score(id), rating DESC
+ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -364,15 +364,15 @@ LIMIT 10;
          Index: score_test_idx
          Exec Method: TopNScanExecState
          Scores: true
-            TopN Order By: title asc, paradedb.score() asc, rating desc
+            TopN Order By: title asc, pdb.score() asc, rating desc
             TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
-SELECT title, paradedb.score(id), rating
+SELECT title, pdb.score(id), rating
 FROM score_test
 WHERE content @@@ 'technology'
-ORDER BY title, paradedb.score(id), rating DESC
+ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
   title   |    score    | rating 
 ----------+-------------+--------
@@ -390,16 +390,16 @@ LIMIT 10;
 
 -- Test 2: Score function with mixed field types in selection
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, rating, views, paradedb.score(id)
+SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'research'
-ORDER BY title, author, rating, views, paradedb.score(id) DESC
+ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: title, author, rating, views, (paradedb.score(id)) DESC
+         Sort Key: title, author, rating, views, (pdb.score(id)) DESC
          ->  Custom Scan (ParadeDB Scan) on score_test
                Table: score_test
                Index: score_test_idx
@@ -409,10 +409,10 @@ LIMIT 5;
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
-SELECT title, author, rating, views, paradedb.score(id)
+SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'research'
-ORDER BY title, author, rating, views, paradedb.score(id) DESC
+ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
            title           |    author     | rating | views |    score    
 ---------------------------+---------------+--------+-------+-------------
@@ -425,14 +425,14 @@ LIMIT 5;
 
 -- Test 3: Score function with multiple conditions on different field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, paradedb.score(id)
+SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: title, author, (paradedb.score(id)) DESC
+   Sort Key: title, author, (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
@@ -442,10 +442,10 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
 (9 rows)
 
-SELECT title, author, paradedb.score(id)
+SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
            title            |    author     |   score   
 ----------------------------+---------------+-----------
  Post 14                    | Author 5      | 2.8002355
@@ -461,7 +461,7 @@ ORDER BY title, author, paradedb.score(id) DESC;
 -- Test 4: Using score in a CTE with mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH scored_posts AS (
-    SELECT title, author, rating, paradedb.score(id) as relevance
+    SELECT title, author, rating, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'science OR research'
 )
@@ -478,13 +478,13 @@ LIMIT 10;
          Index: score_test_idx
          Exec Method: TopNScanExecState
          Scores: true
-            TopN Order By: title asc, author asc, paradedb.score() desc
+            TopN Order By: title asc, author asc, pdb.score() desc
             TopN Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
 WITH scored_posts AS (
-    SELECT title, author, rating, paradedb.score(id) as relevance
+    SELECT title, author, rating, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'science OR research'
 )
@@ -511,7 +511,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT sp.title, sp.author, sp.relevance
 FROM (
-    SELECT title, author, paradedb.score(id) as relevance
+    SELECT title, author, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'technology' AND rating > 3
 ) sp
@@ -520,7 +520,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: score_test.title, score_test.author, (paradedb.score(score_test.id)) DESC
+   Sort Key: score_test.title, score_test.author, (pdb.score(score_test.id)) DESC
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
@@ -532,7 +532,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
 
 SELECT sp.title, sp.author, sp.relevance
 FROM (
-    SELECT title, author, paradedb.score(id) as relevance
+    SELECT title, author, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'technology' AND rating > 3
 ) sp
@@ -586,11 +586,11 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
 
 -- Test 6: Score function with UNION
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology'
 UNION ALL
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
@@ -599,7 +599,7 @@ LIMIT 10;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: score_test.title, score_test.author, (paradedb.score(score_test.id)) DESC
+         Sort Key: score_test.title, score_test.author, (pdb.score(score_test.id)) DESC
          ->  Append
                ->  Custom Scan (ParadeDB Scan) on score_test
                      Table: score_test
@@ -617,11 +617,11 @@ LIMIT 10;
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (18 rows)
 
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology'
 UNION ALL
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
@@ -644,7 +644,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
+    SELECT title, author, rating, pdb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
     ORDER BY score DESC
@@ -659,7 +659,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: score_test_2.title, score_test_2.author, score_test_2.rating, (paradedb.score(score_test_2.id)), score_test.title
+   Sort Key: score_test_2.title, score_test_2.author, score_test_2.rating, (pdb.score(score_test_2.id)), score_test.title
    ->  Hash Semi Join
          Hash Cond: (score_test.author = score_test_1.author)
          ->  Hash Join
@@ -673,7 +673,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                  Index: score_test_idx
                                  Exec Method: TopNScanExecState
                                  Scores: true
-                                    TopN Order By: paradedb.score() desc
+                                    TopN Order By: pdb.score() desc
                                     TopN Limit: 5
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
@@ -688,7 +688,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
+    SELECT title, author, rating, pdb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
     ORDER BY score DESC
@@ -772,17 +772,17 @@ SELECT
     author,
     rating,
     CASE
-        WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
-        WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
+        WHEN pdb.score(id) > 0.8 THEN 'High Relevance'
+        WHEN pdb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
                                                                                                                                             QUERY PLAN                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: title, author, (paradedb.score(id)) DESC
+   Sort Key: title, author, (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
@@ -797,13 +797,13 @@ SELECT
     author,
     rating,
     CASE
-        WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
-        WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
+        WHEN pdb.score(id) > 0.8 THEN 'High Relevance'
+        WHEN pdb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
            title           |    author     | rating | relevance_category 
 ---------------------------+---------------+--------+--------------------
  Advanced Science Research | Author Expert |      5 | High Relevance
@@ -831,7 +831,7 @@ ORDER BY title, author, paradedb.score(id) DESC;
 (22 rows)
 
 -- Verify actual results of score function (not just execution method)
-SELECT title, author, rating, paradedb.score(id) as relevance
+SELECT title, author, rating, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology' AND rating > 4
 ORDER BY title, author, relevance DESC;

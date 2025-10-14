@@ -5,8 +5,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
@@ -17,8 +17,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
@@ -29,8 +29,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
@@ -41,8 +41,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
@@ -53,8 +53,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
@@ -65,8 +65,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
@@ -77,8 +77,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
@@ -89,8 +89,8 @@ SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
@@ -101,8 +101,8 @@ WITH book_snippets AS (
         b.id as book_id,
         paradedb.snippet(a.name) as author_snippet,
         paradedb.snippet_positions(a.name) as author_positions,
-        paradedb.score(a.id) as author_score,
-        paradedb.score(b.id) as book_score
+        pdb.score(a.id) as author_score,
+        pdb.score(b.id) as book_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
     WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
@@ -112,7 +112,7 @@ SELECT
     r.review,
     paradedb.snippet(r.review) as review_snippet,
     paradedb.snippet_positions(r.review) as review_positions,
-    paradedb.score(r.id) as review_score
+    pdb.score(r.id) as review_score
 FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
@@ -126,9 +126,9 @@ SELECT
     paradedb.snippet_positions(a.name) as author_positions,
     paradedb.snippet(r.review) as review_snippet,
     paradedb.snippet_positions(r.review) as review_positions,
-    paradedb.score(b.id) as book_score,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(r.id) as review_score
+    pdb.score(b.id) as book_score,
+    pdb.score(a.id) as author_score,
+    pdb.score(r.id) as review_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 LEFT JOIN reviews r ON r.book_id = b.id

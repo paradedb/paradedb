@@ -79,6 +79,9 @@ ALTER TYPE pg_catalog.fuzzy SET SCHEMA pdb;
 ALTER TYPE pg_catalog.boost SET SCHEMA pdb;
 ALTER TYPE pg_catalog.slop SET SCHEMA pdb;
 
+--
+-- relocate the paradedb.score function to the `pdb` schema
+ALTER FUNCTION paradedb.score SET SCHEMA pdb;
 
 --
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work

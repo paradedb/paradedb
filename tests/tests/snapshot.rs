@@ -29,7 +29,7 @@ async fn score_bm25_after_delete(mut conn: PgConnection) {
     "DELETE FROM paradedb.bm25_search WHERE id = 3 OR id = 4".execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id, paradedb.score(id) FROM paradedb.bm25_search
+    SELECT id, pdb.score(id) FROM paradedb.bm25_search
     WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -58,13 +58,13 @@ async fn score_bm25_after_update(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:sandals' ORDER BY score DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:sandals' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [3]);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 4]);
@@ -100,7 +100,7 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
     "BEGIN".execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 4".execute(&mut conn);
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
@@ -108,7 +108,7 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
     "ROLLBACK".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 4]);
@@ -144,7 +144,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC, id DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC, id DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);
@@ -152,7 +152,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM FULL paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC, id DESC"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC, id DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);

@@ -3,7 +3,7 @@
 -- Directly, without a CTE.
 SELECT
   *,
-  paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+  pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM
   documents JOIN files ON documents.id = files."documentId" JOIN pages ON pages."fileId" = files.id
 WHERE
@@ -17,7 +17,7 @@ WITH topn AS (
     documents.id AS doc_id,
     files.id AS file_id,
     pages.id AS page_id,
-    paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+    pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
   FROM
     documents
     JOIN files ON documents.id = files."documentId"

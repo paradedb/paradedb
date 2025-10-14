@@ -37,7 +37,7 @@ use tantivy::snippet::SnippetGenerator;
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
-    // we will "simply" calls to `paradedb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
+    // we will "simply" calls to `pdb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
     // node in a `PlaceHolderVar`.  This ensures that Postgres won't lose the scores when they're
     // emitted by our custom scan from underneath JOIN nodes (Hash Join, Merge Join, etc).
     if let Some(srs) = nodecast!(

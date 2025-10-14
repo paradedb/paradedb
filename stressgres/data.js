@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760468324923,
+  "lastUpdate": 1760469673507,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3292,6 +3292,72 @@ window.BENCHMARK_DATA = {
             "value": 99.34489441614345,
             "unit": "median tps",
             "extra": "avg tps: 121.38458867646305, max tps: 560.7931559307801, count: 54491"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58511ea3e6a898e6fcc4da395eeac5010b8cb747",
+          "message": "chore: move `paradedb.score/snippet/snippet_positions` to the `pdb` schema (#3334)\n\n## What\n\nWe have decided to move `paradedb.score()`, `paradedb.snippet()` and\n`paradedb.snippet_positions()` to the `pdb` schema.\n\n\n🚨This will break all existing queries that use these functions.\n\n## Why\n\nPart of the SQL UX work.\n\n## How\n\nsearch-n-replace\n\n## Tests\n\nMany existing tests updated.",
+          "timestamp": "2025-10-14T14:10:38-04:00",
+          "tree_id": "273a49d6ef01b89216a6ea0f69ed6c0c7bbbb150",
+          "url": "https://github.com/paradedb/paradedb/commit/58511ea3e6a898e6fcc4da395eeac5010b8cb747"
+        },
+        "date": 1760469671522,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 762.9536332705808,
+            "unit": "median tps",
+            "extra": "avg tps: 762.6069904212196, max tps: 776.6179215632791, count: 55431"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3381.6916623581055,
+            "unit": "median tps",
+            "extra": "avg tps: 3335.0763703514303, max tps: 3400.1113611383907, count: 55431"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 762.3150335880609,
+            "unit": "median tps",
+            "extra": "avg tps: 763.1034963306632, max tps: 835.153149721776, count: 55431"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 661.3340311981967,
+            "unit": "median tps",
+            "extra": "avg tps: 659.0652032560555, max tps: 706.3643926230411, count: 55431"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1666.6371172623567,
+            "unit": "median tps",
+            "extra": "avg tps: 1676.9650532219237, max tps: 1729.4020472746051, count: 110862"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1264.4920644703056,
+            "unit": "median tps",
+            "extra": "avg tps: 1252.1977377215917, max tps: 1272.4069815420012, count: 55431"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 177.33739389326158,
+            "unit": "median tps",
+            "extra": "avg tps: 180.947226957587, max tps: 862.5872614838398, count: 55431"
           }
         ]
       }

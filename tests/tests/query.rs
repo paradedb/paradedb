@@ -402,7 +402,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -413,7 +413,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_id => 2
+        key_value => 2
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -485,7 +485,7 @@ fn more_like_this_text(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -518,7 +518,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     pdb.more_like_this(
        min_doc_frequency => 0,
        min_term_frequency => 0,
-       document_fields => '{"flavour": "banana"}'
+       document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -552,7 +552,7 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -587,7 +587,7 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -621,7 +621,7 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -655,7 +655,7 @@ fn more_like_this_literal_cast(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"year": 2012}'
+        document => '{"year": 2012}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -689,7 +689,7 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -723,7 +723,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -757,7 +757,7 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -791,7 +791,7 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -824,7 +824,7 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@  pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -859,7 +859,7 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -894,7 +894,7 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -929,7 +929,7 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"flavour": "banana"}'
+        document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -962,7 +962,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     WHERE test_more_like_this_table @@@ pdb.more_like_this(
             min_doc_frequency => 0,
             min_term_frequency => 0,
-            document_fields => '{"flavour": "banana"}'
+            document => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);

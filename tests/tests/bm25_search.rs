@@ -1525,7 +1525,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     WHERE id @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
-        document_fields => '{"taste": "banana"}'
+        document => '{"taste": "banana"}'
     );
     "#
     .fetch_collect(&mut conn);

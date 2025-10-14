@@ -47,7 +47,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         must => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -63,7 +63,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         must_not => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -79,7 +79,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         should => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -96,7 +96,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         query => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -113,7 +113,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         query => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -130,12 +130,12 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
             pdb.more_like_this(
                 min_doc_frequency => 2,
                 min_term_frequency => 1,
-                document_fields => '{"description": "keyboard"}'
+                document => '{"description": "keyboard"}'
             ),
             pdb.more_like_this(
                 min_doc_frequency => 2,
                 min_term_frequency => 1,
-                document_fields => '{"description": "shoes"}'
+                document => '{"description": "shoes"}'
             )
         ]
     )
@@ -157,13 +157,13 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
                     query => pdb.more_like_this(
                         min_doc_frequency => 2,
                         min_term_frequency => 1,
-                        document_fields => '{"description": "keyboard"}'
+                        document => '{"description": "keyboard"}'
                     )
                 ),
                 pdb.more_like_this(
                     min_doc_frequency => 2,
                     min_term_frequency => 1,
-                    document_fields => '{"description": "shoes"}'
+                    document => '{"description": "shoes"}'
                 )
             ]
         )

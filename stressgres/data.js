@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760463714829,
+  "lastUpdate": 1760466071772,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3160,6 +3160,72 @@ window.BENCHMARK_DATA = {
             "value": 226.75411629766597,
             "unit": "median tps",
             "extra": "avg tps: 234.66340960819338, max tps: 523.9780201700099, count: 54990"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760466069798,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 808.1285953652277,
+            "unit": "median tps",
+            "extra": "avg tps: 806.2344590312805, max tps: 810.1344201905911, count: 55357"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3376.881767996894,
+            "unit": "median tps",
+            "extra": "avg tps: 3367.5485025016947, max tps: 3392.6643091546243, count: 55357"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 768.315057269957,
+            "unit": "median tps",
+            "extra": "avg tps: 767.7841263352033, max tps: 865.634879976784, count: 55357"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 678.563162346563,
+            "unit": "median tps",
+            "extra": "avg tps: 673.6789600266297, max tps: 680.359160640895, count: 55357"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1750.4972113081808,
+            "unit": "median tps",
+            "extra": "avg tps: 1745.3161131451527, max tps: 1758.5814271175998, count: 110714"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1300.2636052450796,
+            "unit": "median tps",
+            "extra": "avg tps: 1292.1462271475411, max tps: 1309.5885262700542, count: 55357"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 127.43474814818032,
+            "unit": "median tps",
+            "extra": "avg tps: 167.54605618514648, max tps: 903.1041495829465, count: 55357"
           }
         ]
       }

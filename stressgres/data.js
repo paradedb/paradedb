@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760466819278,
+  "lastUpdate": 1760466822347,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13726,6 +13726,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.85550192883215, max segment_count: 108.0, count: 57807"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760466820384,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.934912,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.82068655005089, max cpu: 42.60355, count: 57895"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.2361559720183, max mem: 229.71875, count: 57895"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.5361066723576, max cpu: 33.333336, count: 57895"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 169.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.9586368641506, max mem: 171.14453125, count: 57895"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24437,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23323.7867518784, max block_count: 25985.0, count: 57895"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.40761723810347, max segment_count: 107.0, count: 57895"
           }
         ]
       }

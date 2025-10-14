@@ -407,8 +407,8 @@ mod pdb {
     }
 
     #[builder_fn]
-    #[pg_extern(immutable, parallel_safe, name = "regex")]
-    pub fn regex(pattern: String) -> pdb::Query {
+    #[pg_extern(immutable, parallel_safe, name = "regex_term")]
+    pub fn regex_term(pattern: String) -> pdb::Query {
         pdb::Query::Regex { pattern }
     }
 

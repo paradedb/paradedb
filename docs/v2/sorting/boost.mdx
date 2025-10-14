@@ -26,7 +26,7 @@ LIMIT 5;
 ```sql
 SELECT id, description, category, paradedb.score(id)
 FROM mock_items
-WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
+WHERE description @@@ pdb.regex_term('key.*')::pdb.boost(2)
 ORDER BY score DESC
 LIMIT 5;
 ```

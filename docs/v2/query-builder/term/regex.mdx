@@ -9,7 +9,7 @@ Regex queries search for terms that follow a pattern. For example, the wildcard 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ pdb.regex('key.*');
+WHERE description @@@ pdb.regex_term('key.*');
 ```
 
 ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:

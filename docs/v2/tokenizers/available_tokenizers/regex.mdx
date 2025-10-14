@@ -1,13 +1,13 @@
 ---
-title: Regex
+title: Regex Patterns
 ---
 
-The regex tokenizer tokenizes text using a regular expression. The regular expression can be specified with the pattern parameter.
+The `regex_pattern` tokenizer tokenizes text using a regular expression. The regular expression can be specified with the pattern parameter.
 For instance, the following tokenizer creates tokens only for words starting with the letter `h`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.regex('(?i)\bh\w*')))
+USING bm25 (id, (description::pdb.regex_pattern('(?i)\bh\w*')))
 WITH (key_field='id');
 ```
 
@@ -20,7 +20,7 @@ exceptions:
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
 ```sql
-SELECT 'Hello world!'::pdb.regex('(?i)\bh\w*')::text[];
+SELECT 'Hello world!'::pdb.regex_pattern('(?i)\bh\w*')::text[];
 ```
 
 ```ini Expected Response

@@ -295,15 +295,15 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 
  {Run,Shoe,ole}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.regex::text[]; -- error, needs a regular expression
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern::text[]; -- error, needs a regular expression
 ERROR:  typmod lookup should not fail: MissingKey("pattern")
-SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes')::text[];
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern('ing|oes')::text[];
    text    
 -----------
  {ing,oes}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern('ing|oes', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
    text   
 ----------
  {ing,oe}

@@ -31,6 +31,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
 
+use anyhow::Result;
 use pgrx::pg_sys;
 use pgrx::PgList;
 use std::collections::HashMap;
@@ -42,7 +43,7 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::query::{AllQuery, Query, QueryParser};
 
-pub(crate) struct AggregationsClause {
+pub(crate) struct AggregateCSClause {
     aggregates: TargetList,
     groupby: GroupByClause,
     orderby: OrderByClause,
@@ -51,7 +52,7 @@ pub(crate) struct AggregationsClause {
     indexrelid: pg_sys::Oid,
 }
 
-impl AggregateClause<AggregateScan> for AggregationsClause {
+impl AggregateClause<AggregateScan> for AggregateCSClause {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(
@@ -88,74 +89,6 @@ impl AggregateClause<AggregateScan> for AggregationsClause {
     }
 }
 
-pub(crate) struct TantivyAggregations(Aggregations);
-
-impl TantivyAggregations {
-    pub fn new(aggregations: Aggregations) -> Self {
-        Self(aggregations)
-    }
-}
-
-impl TryFrom<AggregationsClause> for TantivyAggregations {
-    type Error = anyhow::Error;
-
-    fn try_from(clause: AggregationsClause) -> Result<Self, Self::Error> {
-        let mut aggregations = Aggregations::new();
-        let standalone_context = ExprContextGuard::new();
-
-        let index = PgSearchRelation::with_lock(clause.indexrelid, pg_sys::AccessShareLock as _);
-        let schema = index.schema()?;
-        let reader = SearchIndexReader::open_with_context(
-            &index,
-            clause.quals.query().clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?;
-        let parser = || {
-            QueryParser::for_index(
-                reader.searcher().index(),
-                schema.fields().map(|(f, _)| f).collect(),
-            )
-        };
-        let heap_oid = index.heap_relation().map(|r| r.oid());
-
-        let qual = FilterAggregation::new_with_query(Box::new(
-            clause.quals.query().clone().into_tantivy_query(
-                &schema,
-                &parser,
-                reader.searcher(),
-                index.oid(),
-                heap_oid,
-                NonNull::new(standalone_context.as_ptr()),
-                None,
-            )?,
-        ));
-
-        let filter_aggs = clause.aggregates.aggregates().iter().map(|agg| {
-            if let Some(agg) = agg.filter_expr() {
-                FilterAggregation::new_with_query(Box::new(
-                    agg.clone()
-                        .into_tantivy_query(
-                            &schema,
-                            &parser,
-                            reader.searcher(),
-                            index.oid(),
-                            heap_oid,
-                            NonNull::new(standalone_context.as_ptr()),
-                            None,
-                        )
-                        .unwrap(),
-                ))
-            } else {
-                FilterAggregation::new_with_query(Box::new(AllQuery))
-            }
-        });
-        todo!()
-    }
-}
-
 trait AggregationKey {
     const NAME: &'static str;
 }
@@ -176,28 +109,28 @@ impl AggregationKey for FilterKey {
 }
 
 trait CollectAggregations<Leaf, Key: AggregationKey> {
-    fn aggregation_variant(&self, leaf: Leaf) -> AggregationVariants;
-    fn iter_leaves(&self) -> impl Iterator<Item = Leaf>;
+    fn variant(&self, leaf: Leaf) -> AggregationVariants;
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, sub_aggregations: Aggregations) -> Aggregations {
+    fn collect(&self, sub_aggregations: Aggregations) -> Result<Aggregations> {
         let mut aggregations = sub_aggregations;
-        for leaf in self.iter_leaves() {
+        for leaf in self.iter_leaves()? {
             let aggregation = Aggregation {
-                agg: self.aggregation_variant(leaf),
+                agg: self.variant(leaf),
                 sub_aggregation: aggregations,
             };
             aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
         }
-        aggregations
+        Ok(aggregations)
     }
 }
 
-impl CollectAggregations<TermsAggregation, GroupedKey> for AggregationsClause {
-    fn aggregation_variant(&self, leaf: TermsAggregation) -> AggregationVariants {
+impl CollectAggregations<TermsAggregation, GroupedKey> for AggregateCSClause {
+    fn variant(&self, leaf: TermsAggregation) -> AggregationVariants {
         AggregationVariants::Terms(leaf)
     }
 
-    fn iter_leaves(&self) -> impl Iterator<Item = TermsAggregation> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = TermsAggregation>> {
         let orderby_info = self.orderby.orderby_info();
 
         let size = {
@@ -211,7 +144,7 @@ impl CollectAggregations<TermsAggregation, GroupedKey> for AggregationsClause {
         };
 
         let grouping_columns = self.groupby.grouping_columns();
-        grouping_columns.into_iter().map(move |column| {
+        Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
                     field_name == &FieldName::from(column.field_name.clone())
@@ -233,6 +166,47 @@ impl CollectAggregations<TermsAggregation, GroupedKey> for AggregationsClause {
             }
 
             terms_agg
-        })
+        }))
+    }
+}
+
+impl CollectAggregations<FilterAggregation, QualKey> for AggregateCSClause {
+    fn variant(&self, leaf: FilterAggregation) -> AggregationVariants {
+        AggregationVariants::Filter(leaf)
+    }
+
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
+        let standalone_context = ExprContextGuard::new();
+        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
+        let schema = index.schema()?;
+        let reader = SearchIndexReader::open_with_context(
+            &index,
+            self.quals.query().clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context.as_ptr()),
+            None,
+        )?;
+        let parser = || {
+            QueryParser::for_index(
+                reader.searcher().index(),
+                schema.fields().map(|(f, _)| f).collect(),
+            )
+        };
+        let heap_oid = index.heap_relation().map(|r| r.oid());
+
+        let qual = FilterAggregation::new_with_query(Box::new(
+            self.quals.query().clone().into_tantivy_query(
+                &schema,
+                &parser,
+                reader.searcher(),
+                index.oid(),
+                heap_oid,
+                NonNull::new(standalone_context.as_ptr()),
+                None,
+            )?,
+        ));
+
+        Ok(vec![qual].into_iter())
     }
 }

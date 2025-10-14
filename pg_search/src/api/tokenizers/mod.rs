@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::typmod::{
-    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod,
+    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod, lookup_unicode_words_typmod,
 };
 use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
 use once_cell::sync::Lazy;
@@ -86,6 +86,10 @@ pub fn search_field_config_from_type(
             filters: Default::default(),
         },
         "source_code" => SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
+        "unicode_words" => SearchTokenizer::UnicodeWords {
+            remove_emojis: false,
+            filters: SearchTokenizerFilters::default(),
+        },
         _ => return None,
     };
 
@@ -173,6 +177,16 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             let generic_typmod =
                 lookup_generic_typmod(typmod).expect("typmod lookup should not fail");
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::UnicodeWords {
+            remove_emojis,
+            filters,
+        } => {
+            let unicode_typmod =
+                lookup_unicode_words_typmod(typmod).expect("typmod lookup should not fail");
+            *remove_emojis = unicode_typmod.remove_emojis;
+            *filters = unicode_typmod.filters;
         }
 
         SearchTokenizer::Keyword => {}

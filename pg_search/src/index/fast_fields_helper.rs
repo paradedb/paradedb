@@ -280,7 +280,7 @@ impl<S: AsRef<str>> From<(S, FastFieldType)> for WhichFastField {
         match name {
             "ctid" => WhichFastField::Ctid,
             "tableoid" => WhichFastField::TableOid,
-            "paradedb.score()" => WhichFastField::Score,
+            "pdb.score()" => WhichFastField::Score,
             other => {
                 if other.starts_with("junk(") && other.ends_with(")") {
                     WhichFastField::Junk(String::from(
@@ -300,7 +300,7 @@ impl WhichFastField {
             WhichFastField::Junk(s) => format!("junk({s})"),
             WhichFastField::Ctid => "ctid".into(),
             WhichFastField::TableOid => "tableoid".into(),
-            WhichFastField::Score => "paradedb.score()".into(),
+            WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
         }
     }

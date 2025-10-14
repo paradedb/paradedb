@@ -8,7 +8,7 @@ Returns documents that match one or more of the specified subqueries. If a docum
 
 <CodeGroup>
 ```sql Function Syntax
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.disjunction_max(ARRAY[
   paradedb.term('description', 'shoes'),
@@ -16,7 +16,7 @@ WHERE id @@@ paradedb.disjunction_max(ARRAY[
 ]);
 ```
 ```sql JSON Syntax
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE id @@@
 '{

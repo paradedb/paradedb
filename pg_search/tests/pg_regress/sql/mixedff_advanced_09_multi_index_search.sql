@@ -184,7 +184,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating, paradedb.score(p.id) DESC;
+ORDER BY avg_rating, pdb.score(p.id) DESC;
 
 SELECT p.name, c.name as category, AVG(r.rating) as avg_rating
 FROM products p
@@ -194,7 +194,7 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
-ORDER BY avg_rating, paradedb.score(p.id) DESC;
+ORDER BY avg_rating, pdb.score(p.id) DESC;
 
 -- Test 4: Complex query with multiple indices and mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -220,7 +220,7 @@ JOIN product_ratings pr ON tp.id = pr.product_id
 JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
+ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
@@ -244,7 +244,7 @@ JOIN product_ratings pr ON tp.id = pr.product_id
 JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
-ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
+ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -325,7 +325,7 @@ ORDER BY
         WHEN r.rating IS NULL THEN 0
         ELSE r.rating
     END DESC,
-    paradedb.score(p.id),
+    pdb.score(p.id),
     p.price;
 
 SELECT 
@@ -351,7 +351,7 @@ ORDER BY
         WHEN r.rating IS NULL THEN 0
         ELSE r.rating
     END DESC,
-    paradedb.score(p.id),
+    pdb.score(p.id),
     p.price;
 
 -- Test 8: Multi-index intersection

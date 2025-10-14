@@ -1150,7 +1150,7 @@ async fn direct_prepared_statement_replanning(mut conn: PgConnection) {
 async fn direct_prepared_statement_replanning_custom_scan(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "PREPARE stmt(text) AS SELECT paradedb.score(id), id FROM paradedb.bm25_search WHERE description @@@ $1 ORDER BY score desc LIMIT 10"
+    "PREPARE stmt(text) AS SELECT pdb.score(id), id FROM paradedb.bm25_search WHERE description @@@ $1 ORDER BY score desc LIMIT 10"
         .execute(&mut conn);
 
     // ensure our plan doesn't change into a sequential scan after the 5th execution

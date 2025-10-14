@@ -33,7 +33,7 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
            SELECT f.title
            FROM files f
            WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY paradedb.score(f.id) DESC LIMIT 1
+           ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
 WHERE d.parents @@@ 'Factures'
@@ -43,7 +43,7 @@ SELECT d.id, d.title, d.parents,
            SELECT f.title
            FROM files f
            WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY paradedb.score(f.id) DESC LIMIT 1
+           ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
 WHERE d.parents @@@ 'Factures'

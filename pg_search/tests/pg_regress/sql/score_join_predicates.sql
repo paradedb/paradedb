@@ -61,8 +61,8 @@ CREATE INDEX ON books USING bm25 (
 -- EXPLAIN (VERBOSE, COSTS OFF) 
 -- SELECT
 --     b.id as book_id,
---     paradedb.score(a.id) as author_score,
---     paradedb.score(b.id) as book_score
+--     pdb.score(a.id) as author_score,
+--     pdb.score(b.id) as book_score
 -- FROM books b
 -- JOIN authors a ON b.author_id = a.id
 -- WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
@@ -73,8 +73,8 @@ CREATE INDEX ON books USING bm25 (
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
@@ -85,7 +85,7 @@ ORDER BY b.id, a.id;
 SELECT
     a.id as author_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM authors a
 WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
@@ -93,7 +93,7 @@ ORDER BY a.id;
 -- Show another working case with books
 SELECT
     b.id as book_id,
-    paradedb.score(b.id) as book_score
+    pdb.score(b.id) as book_score
 FROM books b
 WHERE b.content @@@ 'test'
 ORDER BY b.id;
@@ -103,8 +103,8 @@ ORDER BY b.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
@@ -115,8 +115,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
@@ -125,8 +125,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
@@ -135,8 +135,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
@@ -145,8 +145,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
@@ -159,7 +159,7 @@ SELECT
     'Direct Query' as query_type,
     a.id as author_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM authors a 
 WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
@@ -169,7 +169,7 @@ SELECT
     'Join Query' as query_type,
     a.id as author_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score
+    pdb.score(a.id) as author_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE a.name @@@ 'Rowling'
@@ -180,8 +180,8 @@ ORDER BY a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
@@ -191,8 +191,8 @@ ORDER BY b.id, a.id;
 SELECT
     a.id as author_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    COALESCE(paradedb.score(b.id), 0) as book_score
+    pdb.score(a.id) as author_score,
+    COALESCE(pdb.score(b.id), 0) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
@@ -203,10 +203,10 @@ ORDER BY a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score_1,
-    paradedb.score(a.id) as author_score_2,  -- Should be same as author_score_1
-    paradedb.score(b.id) as book_score_1,
-    paradedb.score(b.id) as book_score_2     -- Should be same as book_score_1
+    pdb.score(a.id) as author_score_1,
+    pdb.score(a.id) as author_score_2,  -- Should be same as author_score_1
+    pdb.score(b.id) as book_score_1,
+    pdb.score(b.id) as book_score_2     -- Should be same as book_score_1
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
@@ -217,12 +217,12 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
+    pdb.score(a.id) as author_score,
+    pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
-ORDER BY paradedb.score(a.id) DESC, paradedb.score(b.id) DESC, b.id, a.id
+ORDER BY pdb.score(a.id) DESC, pdb.score(b.id) DESC, b.id, a.id
 GROUP BY b.id, a.id;
 
 -- Test combining scores and snippets to show they should be consistent
@@ -230,24 +230,24 @@ GROUP BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.score(a.id) as author_score,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.score(b.id) as book_score,
-    paradedb.snippet(b.content) as book_snippet
+    pdb.score(a.id) as author_score,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.score(b.id) as book_score,
+    pdb.snippet(b.content) as book_snippet
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
 
 -- Test LEFT JOIN behavior
-SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+SELECT b.id, a.name, pdb.score(a.id) as author_score, pdb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
 
 -- Test RIGHT JOIN behavior
-SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+SELECT b.id, a.name, pdb.score(a.id) as author_score, pdb.score(b.id) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')

@@ -4,11 +4,11 @@ title: Sorting
 
 ## Order by Relevance
 
-The `score` column returned by [`paradedb.score`](/documentation/full-text/scoring) can be used to sort results by
+The `score` column returned by [`pdb.score`](/documentation/full-text/scoring) can be used to sort results by
 BM25 relevance.
 
 ```sql
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes'
 ORDER BY score DESC
@@ -33,7 +33,7 @@ Postgres can `ORDER BY` multiple columns to break ties in BM25 scores. In the fo
 `score` will be sorted by `rating` in descending order.
 
 ```sql
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE category @@@ 'electronics'
 ORDER BY score DESC, rating DESC
@@ -134,7 +134,7 @@ When using `ORDER BY` with multiple sort fields, ParadeDB can partially push dow
 For example, in the following query with multiple sort fields, sorting by `sale_date` is pushed down to the BM25 index, while sorting by `amount` is handled by PostgreSQL:
 
 ```sql
-SELECT description, sale_date, amount, paradedb.score(id) as score
+SELECT description, sale_date, amount, pdb.score(id) as score
 FROM sales
 WHERE description @@@ 'laptop'
 ORDER BY score, sale_date, amount
@@ -152,8 +152,8 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
   Limit  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
    ->  Incremental Sort  (cost=0.19..0.34 rows=10 width=44) (actual time=1.113..1.114 rows=0 loops=1)
-         Sort Key: (paradedb.score(id)), sale_date, amount
-         Presorted Key: (paradedb.score(id))
+         Sort Key: (pdb.score(id)), sale_date, amount
+         Presorted Key: (pdb.score(id))
          Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
          ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=1.055..1.055 rows=0 loops=1)
                Table: sales
@@ -162,7 +162,7 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
                Heap Fetches: 0
                Exec Method: TopNScanExecState
                Scores: true
-                  Sort Field: paradedb.score()
+                  Sort Field: pdb.score()
                   Sort Direction: asc
                   Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}

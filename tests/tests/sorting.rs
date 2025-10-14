@@ -175,8 +175,8 @@ async fn compound_sort_expression(mut conn: PgConnection) {
 
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-        SELECT *, paradedb.score(id) * 2 FROM paradedb.bm25_search
-        WHERE description @@@ 'shoes' ORDER BY 2, paradedb.score(id) LIMIT 10"#
+        SELECT *, pdb.score(id) * 2 FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes' ORDER BY 2, pdb.score(id) LIMIT 10"#
         .fetch_one(&mut conn);
 
     eprintln!("plan: {plan:#?}");

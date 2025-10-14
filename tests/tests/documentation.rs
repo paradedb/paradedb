@@ -72,7 +72,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[4].0, "White jogging shoes".to_string());
 
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
     ORDER BY score DESC, description
@@ -387,7 +387,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // BM25 scoring
     let rows: Vec<(i32, f32)> = r#"
-    SELECT id, paradedb.score(id)
+    SELECT id, pdb.score(id)
     FROM mock_items
     WHERE description @@@ 'shoes'
     LIMIT 5
@@ -414,7 +414,7 @@ fn full_text_search(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, f32)> = r#"
-    SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+    SELECT o.order_id, pdb.score(o.order_id) + pdb.score(m.id) as score
     FROM orders o
     JOIN mock_items m ON o.product_id = m.id
     WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
@@ -426,7 +426,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Highlighting
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, paradedb.snippet(description)
+    SELECT id, pdb.snippet(description)
     FROM mock_items
     WHERE description @@@ 'shoes'
     LIMIT 5
@@ -435,7 +435,7 @@ fn full_text_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, paradedb.snippet(description, start_tag => '<i>', end_tag => '</i>')
+    SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
     FROM mock_items
     WHERE description @@@ 'shoes'
     LIMIT 5
@@ -447,7 +447,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Order by score
     let rows: Vec<(String, i32, String, f32)> = r#"
-        SELECT description, rating, category, paradedb.score(id)
+        SELECT description, rating, category, pdb.score(id)
         FROM mock_items
         WHERE description @@@ 'shoes'
         ORDER BY score DESC
@@ -479,7 +479,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Tiebreaking
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE category @@@ 'electronics'
     ORDER BY score DESC, rating DESC
@@ -495,7 +495,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Constant boosting
     let rows: Vec<(i32, f32)> = r#"
-    SELECT id, paradedb.score(id)
+    SELECT id, pdb.score(id)
     FROM mock_items
     WHERE description @@@ 'shoes^2' OR category @@@ 'footwear'
     ORDER BY score DESC
@@ -511,7 +511,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Boost by field
     let rows: Vec<(i32, f64)> = r#"
-    SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
+    SELECT id, pdb.score(id) * COALESCE(rating, 1) as score
     FROM mock_items
     WHERE description @@@ 'shoes'
     ORDER BY score DESC
@@ -1473,7 +1473,7 @@ fn compound_queries(mut conn: PgConnection) {
 
     // Boost
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
       should => ARRAY[
@@ -1486,7 +1486,7 @@ fn compound_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@
     '{
@@ -1503,7 +1503,7 @@ fn compound_queries(mut conn: PgConnection) {
 
     // Const score
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
       should => ARRAY[
@@ -1516,7 +1516,7 @@ fn compound_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@
     '{
@@ -1534,7 +1534,7 @@ fn compound_queries(mut conn: PgConnection) {
     // Disjunction max
     // Test both function and JSON syntax for disjunction_max
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.disjunction_max(ARRAY[
       paradedb.term('description', 'shoes'),
@@ -1545,7 +1545,7 @@ fn compound_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@
     '{
@@ -1561,7 +1561,7 @@ fn compound_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(String, i32, String, f32)> = r#"
-    SELECT description, rating, category, paradedb.score(id)
+    SELECT description, rating, category, pdb.score(id)
     FROM mock_items
     WHERE id @@@
     '{
@@ -1977,10 +1977,10 @@ fn hybrid_search(mut conn: PgConnection) {
     WITH bm25_ranked AS (
         SELECT id, RANK() OVER (ORDER BY score DESC) AS rank
         FROM (
-            SELECT id, paradedb.score(id) AS score
+            SELECT id, pdb.score(id) AS score
             FROM mock_items
             WHERE description @@@ 'keyboard'
-            ORDER BY paradedb.score(id) DESC
+            ORDER BY pdb.score(id) DESC
             LIMIT 20
         ) AS bm25_score
     ),

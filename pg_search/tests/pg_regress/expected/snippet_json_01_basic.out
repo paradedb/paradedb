@@ -32,8 +32,8 @@ CREATE INDEX ON snippet_test USING bm25 (
     key_field = 'id'
 );
 SELECT id,
-       paradedb.snippet(metadata_jsonb->'details'->'author'->>'description'),
-       paradedb.snippet_positions(metadata_jsonb->'details'->'author'->>'description')
+       pdb.snippet(metadata_jsonb->'details'->'author'->>'description'),
+       pdb.snippet_positions(metadata_jsonb->'details'->'author'->>'description')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
@@ -42,8 +42,8 @@ WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
 (1 row)
 
 SELECT id,
-       paradedb.snippet(metadata_jsonb#>'{details,author,description}'),
-       paradedb.snippet_positions(metadata_jsonb#>'{details,author,description}')
+       pdb.snippet(metadata_jsonb#>'{details,author,description}'),
+       pdb.snippet_positions(metadata_jsonb#>'{details,author,description}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
@@ -52,8 +52,8 @@ WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
 (1 row)
 
 SELECT id,
-       paradedb.snippet(metadata_jsonb#>>'{details,author,description}'),
-       paradedb.snippet_positions(metadata_jsonb#>>'{details,author,description}')
+       pdb.snippet(metadata_jsonb#>>'{details,author,description}'),
+       pdb.snippet_positions(metadata_jsonb#>>'{details,author,description}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
@@ -62,8 +62,8 @@ WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
 (1 row)
 
 SELECT id,
-       paradedb.snippet(metadata_json->'tags'),
-       paradedb.snippet_positions(metadata_json->'tags')
+       pdb.snippet(metadata_json->'tags'),
+       pdb.snippet_positions(metadata_json->'tags')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
@@ -72,8 +72,8 @@ WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
 (1 row)
 
 SELECT id,
-       paradedb.snippet(metadata_json#>'{tags}'),
-       paradedb.snippet_positions(metadata_json#>'{tags}')
+       pdb.snippet(metadata_json#>'{tags}'),
+       pdb.snippet_positions(metadata_json#>'{tags}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
@@ -82,8 +82,8 @@ WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
 (1 row)
 
 SELECT id,
-       paradedb.snippet(metadata_json#>>'{tags}'),
-       paradedb.snippet_positions(metadata_json#>>'{tags}')
+       pdb.snippet(metadata_json#>>'{tags}'),
+       pdb.snippet_positions(metadata_json#>>'{tags}')
 FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 

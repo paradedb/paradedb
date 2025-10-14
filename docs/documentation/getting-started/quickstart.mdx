@@ -77,10 +77,10 @@ LIMIT 5;
 </Accordion>
 
 The ParadeDB-specific `@@@` operator instructs ParadeDB to execute a full-text search using the BM25 index. Its job is to return matching rows as quickly as possible in no
-particular order. To sort by relevance, the `paradedb.score` function generates BM25 scores for each row.
+particular order. To sort by relevance, the `pdb.score` function generates BM25 scores for each row.
 
 ```sql
-SELECT description, rating, category, paradedb.score(id)
+SELECT description, rating, category, pdb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
 ORDER BY score DESC, description

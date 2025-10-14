@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760452656222,
+  "lastUpdate": 1760453429081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15094,6 +15094,54 @@ window.BENCHMARK_DATA = {
             "value": 5.995670462289634,
             "unit": "median tps",
             "extra": "avg tps: 5.982875813111046, max tps: 7.238120790729663, count: 56189"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760453427136,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1180.7782693217887,
+            "unit": "median tps",
+            "extra": "avg tps: 1174.2282929692217, max tps: 1243.065898617268, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1286.5706166331374,
+            "unit": "median tps",
+            "extra": "avg tps: 1249.1041040167754, max tps: 1308.7826325478588, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1883.3943035614998,
+            "unit": "median tps",
+            "extra": "avg tps: 1800.9765402832027, max tps: 2106.004398333993, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.916770005184801,
+            "unit": "median tps",
+            "extra": "avg tps: 5.910849966670128, max tps: 7.480613018881876, count: 56367"
           }
         ]
       }

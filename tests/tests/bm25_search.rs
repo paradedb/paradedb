@@ -361,7 +361,7 @@ fn multi_tree(mut conn: PgConnection) {
 fn snippet(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description), pdb.score(id)
+        SELECT id, pdb.snippet(description), pdb.score(id)
         FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
@@ -370,7 +370,7 @@ fn snippet(mut conn: PgConnection) {
     assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description, '<h1>', '</h1>'), pdb.score(id)
+        SELECT id, pdb.snippet(description, '<h1>', '</h1>'), pdb.score(id)
         FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
@@ -379,7 +379,7 @@ fn snippet(mut conn: PgConnection) {
     assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description, max_num_chars=>14), pdb.score(id)
+        SELECT id, pdb.snippet(description, max_num_chars=>14), pdb.score(id)
         FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id;"
         .fetch_one(&mut conn);
 
@@ -388,7 +388,7 @@ fn snippet(mut conn: PgConnection) {
     assert_relative_eq!(row.2, 2.821378, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description, max_num_chars=>17), pdb.score(id)
+        SELECT id, pdb.snippet(description, max_num_chars=>17), pdb.score(id)
         FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
         .fetch_one(&mut conn);
 
@@ -414,7 +414,7 @@ fn snippet_text_array(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let results: Vec<(i32, String, String)> = "
-        SELECT id, paradedb.snippet(names), paradedb.snippet(locations)
+        SELECT id, pdb.snippet(names), pdb.snippet(locations)
         FROM people WHERE names @@@ 'alice' AND locations @@@ 'new'"
         .fetch(&mut conn);
     assert_eq!(

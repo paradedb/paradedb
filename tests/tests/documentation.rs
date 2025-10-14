@@ -426,7 +426,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Highlighting
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, paradedb.snippet(description)
+    SELECT id, pdb.snippet(description)
     FROM mock_items
     WHERE description @@@ 'shoes'
     LIMIT 5
@@ -435,7 +435,7 @@ fn full_text_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, paradedb.snippet(description, start_tag => '<i>', end_tag => '</i>')
+    SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
     FROM mock_items
     WHERE description @@@ 'shoes'
     LIMIT 5

@@ -300,9 +300,9 @@ SELECT
     b.id as book_id,
     a.name as author_name,
     pdb.score(a.id) as author_score,
-    paradedb.snippet(a.name) as author_snippet,
+    pdb.snippet(a.name) as author_snippet,
     pdb.score(b.id) as book_score,
-    paradedb.snippet(b.content) as book_snippet
+    pdb.snippet(b.content) as book_snippet
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'

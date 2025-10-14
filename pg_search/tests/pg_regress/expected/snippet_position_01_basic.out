@@ -19,7 +19,7 @@ CREATE INDEX ON snippet_test USING bm25 (
 ) WITH (
     key_field = 'id'
 );
-SELECT id, paradedb.snippet(content), paradedb.snippet_positions(content)
+SELECT id, pdb.snippet(content), pdb.snippet_positions(content)
 FROM snippet_test
 WHERE content @@@ 'test' OR content @@@ 'snippet';
  id |                                                                         snippet                                                                          |             snippet_positions             
@@ -30,7 +30,7 @@ WHERE content @@@ 'test' OR content @@@ 'snippet';
   4 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{0,4}","{1317,1321}","{2167,2171}"}
 (4 rows)
 
-SELECT id, paradedb.snippet(titles), paradedb.snippet_positions(titles)
+SELECT id, pdb.snippet(titles), pdb.snippet_positions(titles)
 FROM snippet_test
 WHERE titles @@@ 'test' OR titles @@@ 'snippet';
  id |                snippet                 |      snippet_positions       
@@ -41,7 +41,7 @@ WHERE titles @@@ 'test' OR titles @@@ 'snippet';
   4 | <b>test</b> <b>snippet</b> function    | {"{0,4}","{5,12}"}
 (4 rows)
 
-SELECT id, paradedb.snippet(content) as content_snippet, paradedb.snippet_positions(content) as content_snippet_positions, paradedb.snippet(titles) as titles_snippet, paradedb.snippet_positions(titles) as titles_snippet_positions, pdb.score(id) as score
+SELECT id, pdb.snippet(content) as content_snippet, pdb.snippet_positions(content) as content_snippet_positions, pdb.snippet(titles) as titles_snippet, pdb.snippet_positions(titles) as titles_snippet_positions, pdb.score(id) as score
 FROM snippet_test
 WHERE titles @@@ 'test' OR content @@@ 'ipsum'
 ORDER BY score DESC
@@ -54,7 +54,7 @@ LIMIT 5;
   1 |                                                                                                                                                          |                           | <b>test</b> snippet function     | {"{0,4}"}                | 0.10536056
 (4 rows)
 
-SELECT id, paradedb.snippet(content) as content_snippet, paradedb.snippet_positions(content) as content_snippet_positions, paradedb.snippet(titles) as titles_snippet, paradedb.snippet_positions(titles) as titles_snippet_positions, pdb.score(id) as score
+SELECT id, pdb.snippet(content) as content_snippet, pdb.snippet_positions(content) as content_snippet_positions, pdb.snippet(titles) as titles_snippet, pdb.snippet_positions(titles) as titles_snippet_positions, pdb.score(id) as score
 FROM snippet_test
 WHERE titles @@@ 'test' OR content @@@ 'ipsum'
 ORDER BY id ASC

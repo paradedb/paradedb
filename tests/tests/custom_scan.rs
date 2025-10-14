@@ -130,7 +130,7 @@ fn snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(snippet, String::from("Plastic <b>Keyboard</b>"));
@@ -141,7 +141,7 @@ fn scores_and_snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score, snippet) =
-        "SELECT id, pdb.score(id), paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.score(id), pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -153,7 +153,7 @@ fn mingets(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
+        "SELECT id, pdb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 40);
     assert_eq!(

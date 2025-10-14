@@ -40,10 +40,10 @@ SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with BIGINT key'
-SELECT id, paradedb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with BIGINT key'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
 UNION
-SELECT id, paradedb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Test 2: UUID as key field
@@ -78,10 +78,10 @@ SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with UUID key'
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with UUID key'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Test 3: TIMESTAMPTZ as key field
@@ -116,10 +116,10 @@ SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test 
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with TIMESTAMPTZ key'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Clean up

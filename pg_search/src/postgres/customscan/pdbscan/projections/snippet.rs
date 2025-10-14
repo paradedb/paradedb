@@ -21,10 +21,7 @@ use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::var::find_one_var;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{
-    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    FromDatum, IntoDatum, PgList,
-};
+use pgrx::{direct_function_call, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ptr::addr_of_mut;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -106,50 +103,55 @@ struct Context<'a> {
     snippet_type: Vec<SnippetType>,
 }
 
-#[pg_extern(name = "snippet", stable, parallel_safe)]
-fn snippet_from_relation(
-    field: AnyElement,
-    start_tag: default!(String, "'<b>'"),
-    end_tag: default!(String, "'</b>'"),
-    max_num_chars: default!(i32, "150"),
-    limit: default!(Option<i32>, "NULL"),
-    offset: default!(Option<i32>, "NULL"),
-) -> Option<String> {
-    None
+#[pgrx::pg_schema]
+mod pdb {
+    use pgrx::{default, extension_sql, pg_extern, AnyElement};
+
+    #[pg_extern(name = "snippet", stable, parallel_safe)]
+    fn snippet_from_relation(
+        field: AnyElement,
+        start_tag: default!(String, "'<b>'"),
+        end_tag: default!(String, "'</b>'"),
+        max_num_chars: default!(i32, "150"),
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
+    ) -> Option<String> {
+        None
+    }
+
+    #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+    fn snippet_positions_from_relation(
+        field: AnyElement,
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
+    ) -> Option<Vec<Vec<i32>>> {
+        None
+    }
+
+    extension_sql!(
+        r#"
+    ALTER FUNCTION pdb.snippet SUPPORT paradedb.placeholder_support;
+    "#,
+        name = "snippet_placeholder",
+        requires = [snippet_from_relation, placeholder_support]
+    );
+
+    extension_sql!(
+        r#"
+    ALTER FUNCTION pdb.snippet_positions SUPPORT paradedb.placeholder_support;
+    "#,
+        name = "snippet_positions_placeholder",
+        requires = [snippet_positions_from_relation, placeholder_support]
+    );
 }
-
-#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
-fn snippet_positions_from_relation(
-    field: AnyElement,
-    limit: default!(Option<i32>, "NULL"),
-    offset: default!(Option<i32>, "NULL"),
-) -> Option<Vec<Vec<i32>>> {
-    None
-}
-
-extension_sql!(
-    r#"
-ALTER FUNCTION snippet SUPPORT placeholder_support;
-"#,
-    name = "snippet_placeholder",
-    requires = [snippet_from_relation, placeholder_support]
-);
-
-extension_sql!(
-    r#"
-ALTER FUNCTION snippet_positions SUPPORT placeholder_support;
-"#,
-    name = "snippet_positions_placeholder",
-    requires = [snippet_positions_from_relation, placeholder_support]
-);
 
 pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet(anyelement, text, text, int, int, int)".into_datum()],
+            &[c"pdb.snippet(anyelement, text, text, int, int, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet(anyelement, text, text, int, int, int) type should exist")
+        .expect("the `pdb.snippet(anyelement, text, text, int, int, int) type should exist")
     }
 }
 
@@ -157,9 +159,9 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet_positions(anyelement, int, int)".into_datum()],
+            &[c"pdb.snippet_positions(anyelement, int, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet_positions(anyelement, int, int) type should exist")
+        .expect("the `pdb.snippet_positions(anyelement, int, int) type should exist")
     }
 }
 
@@ -192,7 +194,7 @@ pub unsafe fn uses_snippets(
                 ) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
-                    panic!("`paradedb.snippet()`'s arguments must be literals")
+                    panic!("`pdb.snippet()`'s arguments must be literals")
                 }
             }
 
@@ -206,7 +208,7 @@ pub unsafe fn uses_snippets(
                 ) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
-                    panic!("`paradedb.snippet_positions()`'s arguments must be literals")
+                    panic!("`pdb.snippet_positions()`'s arguments must be literals")
                 }
             }
         }

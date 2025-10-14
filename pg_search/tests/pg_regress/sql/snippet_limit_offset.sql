@@ -19,19 +19,19 @@ CREATE INDEX ON snippet_test USING bm25 (
     key_field = 'id'
 );
 
-SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content), pdb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 1), pdb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 1, "offset" => 1), pdb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 5, "offset" => 2), pdb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
 
 -- Edge cases
-SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => -1), paradedb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 0), pdb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => -1), pdb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "offset" => 1000), pdb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => null), pdb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
 
 -- With max num chars
-SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
 
 DROP TABLE snippet_test;

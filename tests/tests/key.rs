@@ -135,9 +135,9 @@ fn uuid_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -198,9 +198,9 @@ fn i64_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(i64, String)> = r#"
-    SELECT id, paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT id, pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT id, paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT id, pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -765,9 +765,9 @@ fn timestamptz_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
+    SELECT CAST(id AS TEXT), pdb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);

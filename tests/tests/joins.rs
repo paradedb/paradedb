@@ -100,16 +100,16 @@ fn snippet_from_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     "#
         .execute(&mut conn);
 
-    let (snippet, ) = r#"select paradedb.snippet(a.value) from a left join b on a.id = b.id where a.value @@@ 'beer';"#
+    let (snippet, ) = r#"select pdb.snippet(a.value) from a left join b on a.id = b.id where a.value @@@ 'beer';"#
         .fetch_one::<(String,)>(&mut conn);
     assert_eq!(snippet, String::from("<b>beer</b>"));
 
-    let (snippet, ) = r#"select paradedb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' and b.value @@@ 'beer';"#
+    let (snippet, ) = r#"select pdb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' and b.value @@@ 'beer';"#
         .fetch_one::<(String,)>(&mut conn);
     assert_eq!(snippet, String::from("<b>beer</b>"));
 
     // NB:  the result of this is wrong for now...
-    let results = r#"select a.id, b.id, paradedb.snippet(a.value), paradedb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' or b.value @@@ 'wine' order by a.id, b.id;"#
+    let results = r#"select a.id, b.id, pdb.snippet(a.value), pdb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' or b.value @@@ 'wine' order by a.id, b.id;"#
         .fetch_result::<(i64, i64, Option<String>, Option<String>)>(&mut conn)?;
 
     // ... this is what we'd actually expect from the above query

@@ -56,11 +56,11 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 (6 rows)
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with BIGINT key'
-Testing paradedb.snippet with BIGINT key
-SELECT id, paradedb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with BIGINT key'
+Testing pdb.snippet with BIGINT key
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
 UNION
-SELECT id, paradedb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
  id |         snippet          |   score    
 ----+--------------------------+------------
@@ -124,11 +124,11 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 (6 rows)
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with UUID key'
-Testing paradedb.snippet with UUID key
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with UUID key'
+Testing pdb.snippet with UUID key
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
 ORDER BY id;
                   id                  |         snippet          
 --------------------------------------+--------------------------
@@ -192,11 +192,11 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 (6 rows)
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with TIMESTAMPTZ key'
-Testing paradedb.snippet with TIMESTAMPTZ key
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with TIMESTAMPTZ key'
+Testing pdb.snippet with TIMESTAMPTZ key
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
 ORDER BY id;
               id              |         snippet          
 ------------------------------+--------------------------

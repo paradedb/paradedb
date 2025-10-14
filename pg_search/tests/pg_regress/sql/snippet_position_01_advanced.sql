@@ -3,8 +3,8 @@
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -15,8 +15,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -27,8 +27,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -39,8 +39,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -51,8 +51,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -63,8 +63,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -75,8 +75,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -87,8 +87,8 @@ ORDER BY b.id, a.id;
 SELECT
     b.id as book_id,
     a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score,
     pdb.score(b.id) as book_score
 FROM books b
@@ -99,8 +99,8 @@ ORDER BY b.id, a.id;
 WITH book_snippets AS (
     SELECT
         b.id as book_id,
-        paradedb.snippet(a.name) as author_snippet,
-        paradedb.snippet_positions(a.name) as author_positions,
+        pdb.snippet(a.name) as author_snippet,
+        pdb.snippet_positions(a.name) as author_positions,
         pdb.score(a.id) as author_score,
         pdb.score(b.id) as book_score
     FROM books b
@@ -110,8 +110,8 @@ WITH book_snippets AS (
 SELECT
     bs.*,
     r.review,
-    paradedb.snippet(r.review) as review_snippet,
-    paradedb.snippet_positions(r.review) as review_positions,
+    pdb.snippet(r.review) as review_snippet,
+    pdb.snippet_positions(r.review) as review_positions,
     pdb.score(r.id) as review_score
 FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
@@ -120,12 +120,12 @@ ORDER BY bs.book_id, r.id;
 
 SELECT
     b.id as book_id,
-    paradedb.snippet(b.content) as book_snippet,
-    paradedb.snippet_positions(b.content) as book_positions,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.snippet(r.review) as review_snippet,
-    paradedb.snippet_positions(r.review) as review_positions,
+    pdb.snippet(b.content) as book_snippet,
+    pdb.snippet_positions(b.content) as book_positions,
+    pdb.snippet(a.name) as author_snippet,
+    pdb.snippet_positions(a.name) as author_positions,
+    pdb.snippet(r.review) as review_snippet,
+    pdb.snippet_positions(r.review) as review_positions,
     pdb.score(b.id) as book_score,
     pdb.score(a.id) as author_score,
     pdb.score(r.id) as review_score

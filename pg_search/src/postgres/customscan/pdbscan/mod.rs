@@ -246,7 +246,7 @@ impl PdbScan {
             // However, the Join quals help with scoring and snippet generation, as the documents
             // that match partially the Join quals will be scored and snippets generated. That is
             // why it only makes sense to use the Join quals if we have used our operator and
-            // also used pdb.score or paradedb.snippet functions in the query.
+            // also used pdb.score or pdb.snippet functions in the query.
             if state.uses_our_operator && uses_score_or_snippet {
                 (quals, RestrictInfoType::Join, joinri)
             } else {

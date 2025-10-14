@@ -43,7 +43,7 @@ async fn snippet_after_delete(mut conn: PgConnection) {
     "DELETE FROM paradedb.bm25_search WHERE id = 3 OR id = 4".execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    SELECT id, pdb.snippet(description) FROM paradedb.bm25_search
     WHERE description @@@ 'shoes' ORDER BY id"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -78,14 +78,14 @@ async fn snippet_after_update(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-        SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+        SELECT id, pdb.snippet(description) FROM paradedb.bm25_search
         WHERE description @@@ 'sandals' ORDER BY id"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [3]);
 
     let rows: Vec<(i32,)> = "
-        SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+        SELECT id, pdb.snippet(description) FROM paradedb.bm25_search
         WHERE description @@@ 'shoes' ORDER BY id"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -122,7 +122,7 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
     "BEGIN".execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 4".execute(&mut conn);
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
+        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
@@ -130,7 +130,7 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
     "ROLLBACK".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
+        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [4, 5]);
@@ -166,7 +166,7 @@ async fn snippet_after_vacuum(mut conn: PgConnection) {
     "VACUUM paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    SELECT id, pdb.snippet(description) FROM paradedb.bm25_search
     WHERE description @@@ 'description:shoes' ORDER BY id"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -175,7 +175,7 @@ async fn snippet_after_vacuum(mut conn: PgConnection) {
     "VACUUM FULL paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    SELECT id, pdb.snippet(description) FROM paradedb.bm25_search
     WHERE description @@@ 'description:shoes' ORDER BY id"
         .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();

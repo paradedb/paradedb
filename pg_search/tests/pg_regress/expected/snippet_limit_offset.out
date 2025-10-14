@@ -15,7 +15,7 @@ CREATE INDEX ON snippet_test USING bm25 (
 ) WITH (
     key_field = 'id'
 );
-SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content), pdb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
                                           snippet                                          |        snippet_positions        
 -------------------------------------------------------------------------------------------+---------------------------------
  This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"}
@@ -24,7 +24,7 @@ SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snipp
  <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {"{0,4}","{34,38}"}
 (4 rows)
 
-SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 1), pdb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
                                      snippet                                     | snippet_positions 
 ---------------------------------------------------------------------------------+-------------------
  This is a <b>test</b> test of the snippet function with multiple test words     | {"{10,14}"}
@@ -33,7 +33,7 @@ SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(conte
  <b>test</b> Lorem ipsum dolor sit amet...test                                   | {"{0,4}"}
 (4 rows)
 
-SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 1, "offset" => 1), pdb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
  This is a test <b>test</b> of the snippet function with multiple test words | {"{15,19}"}
@@ -42,7 +42,7 @@ SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_
  test Lorem ipsum dolor sit amet...<b>test</b>                               | {"{34,38}"}
 (4 rows)
 
-SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 5, "offset" => 2), pdb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
  This is a test test of the snippet function with multiple <b>test</b> words | {"{58,62}"}
@@ -52,7 +52,7 @@ SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_
 (4 rows)
 
 -- Edge cases
-SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => 0), pdb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
  snippet | snippet_positions 
 ---------+-------------------
          | 
@@ -61,9 +61,9 @@ SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(conte
          | 
 (4 rows)
 
-SELECT paradedb.snippet(content, "limit" => -1), paradedb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => -1), pdb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
 ERROR:  limit must not be negative
-SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "offset" => 1000), pdb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
  snippet | snippet_positions 
 ---------+-------------------
          | 
@@ -72,7 +72,7 @@ SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(c
          | 
 (4 rows)
 
-SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, "limit" => null), pdb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
                                           snippet                                          |        snippet_positions        
 -------------------------------------------------------------------------------------------+---------------------------------
  This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"}
@@ -82,7 +82,7 @@ SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(co
 (4 rows)
 
 -- With max num chars
-SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
           snippet           
 ----------------------------
  multiple <b>test</b> words
@@ -91,7 +91,7 @@ SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippe
  
 (4 rows)
 
-SELECT paradedb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT pdb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
    snippet   
 -------------
  <b>test</b>

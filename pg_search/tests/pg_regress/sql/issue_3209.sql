@@ -6,5 +6,5 @@ CREATE INDEX filing_idx ON filing USING bm25 (id, form, filing) with (key_field 
 CREATE TABLE filing_10_k PARTITION OF filing FOR VALUES IN ('10-K', '10-K/A');
 INSERT INTO filing (form, filing) VALUES ('10-K', 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.');
 INSERT INTO filing (form, filing) VALUES ('10-K/A', 'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua');
-SELECT paradedb.snippet(filing) FROM filing WHERE filing @@@ 'lorem';
+SELECT pdb.snippet(filing) FROM filing WHERE filing @@@ 'lorem';
 DROP TABLE filing;

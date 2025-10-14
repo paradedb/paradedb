@@ -4,7 +4,7 @@ title: Highlighting
 
 <Note>
 Highlighting is an expensive process and can slow down query times.
-We recommend passing a `LIMIT` to any query where `paradedb.snippet` is called to restrict the
+We recommend passing a `LIMIT` to any query where `pdb.snippet` is called to restrict the
 number of snippets that need to be generated.
 </Note>
 
@@ -17,11 +17,11 @@ search query.
 
 ## Basic Usage
 
-`paradedb.snippet(<column>)` can be added to any query where an `@@@` operator is present.
+`pdb.snippet(<column>)` can be added to any query where an `@@@` operator is present.
 The following query generates highlighted snippets against the `description` field.
 
 ```sql
-SELECT id, paradedb.snippet(description)
+SELECT id, pdb.snippet(description)
 FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
@@ -30,7 +30,7 @@ LIMIT 5;
 By default, `<b></b>` encloses the snippet. This can be configured with `start_tag` and `end_tag`:
 
 ```sql
-SELECT id, paradedb.snippet(description, start_tag => '<i>', end_tag => '</i>')
+SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
 FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
@@ -42,24 +42,24 @@ For every highlighted term, a fragment of size `max_num_chars` is created contai
 multiple highlighted terms if they are within `max_num_chars` distance of one another. By default, `max_num_chars` is set to `150`.
 
 ```sql
-SELECT id, paradedb.snippet(description, max_num_chars => 100)
+SELECT id, pdb.snippet(description, max_num_chars => 100)
 FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
 
-If multiple fragments are found, `paradedb.snippet` uses a two-tiered scoring system to determine which fragment to display:
+If multiple fragments are found, `pdb.snippet` uses a two-tiered scoring system to determine which fragment to display:
 
 1. Each highlighted term receives a score based on its inverse document frequency. This means that fragments containing rarer terms will score higher.
 2. If there is a tie, the fragment that appears earlier in the source text will be displayed.
 
 ## Byte Offsets
 
-`paradedb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns an array of
+`pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns an array of
 tuples, where the the first element of the tuple is the byte index of the first byte of the highlighted region, and the second element is the byte index after the last byte of the region.
 
 ```sql
-SELECT id, paradedb.snippet(description), paradedb.snippet_positions(description)
+SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
 FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
@@ -78,12 +78,12 @@ LIMIT 5;
 
 ## Snippet Limit and Offset
 
-Both `paradedb.snippet` and `paradedb.snippet_positions` accept `limit` and `offset` arguments. A `limit` restricts the number of
+Both `pdb.snippet` and `pdb.snippet_positions` accept `limit` and `offset` arguments. A `limit` restricts the number of
 highlighted terms, while an `offset` ignores the first `offset` highlighted terms. This can be useful for paginating
 through documents that contain large numbers of highlighted terms.
 
 ```sql
-SELECT id, paradedb.snippet(description, "limit" => 1, "offset" => 1)
+SELECT id, pdb.snippet(description, "limit" => 1, "offset" => 1)
 FROM mock_items
 WHERE description @@@ 'shoes' AND description @@@ 'sleek' AND description @@@ 'running';
 ```

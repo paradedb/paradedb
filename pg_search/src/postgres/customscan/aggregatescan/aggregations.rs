@@ -156,9 +156,27 @@ impl TryFrom<AggregationsClause> for TantivyAggregations {
     }
 }
 
-trait CollectAggregations<Leaf> {
+trait AggregationKey {
+    const NAME: &'static str;
+}
+
+struct GroupedKey;
+impl AggregationKey for GroupedKey {
+    const NAME: &'static str = "grouped";
+}
+
+struct QualKey;
+impl AggregationKey for QualKey {
+    const NAME: &'static str = "filter_sentinel";
+}
+
+struct FilterKey;
+impl AggregationKey for FilterKey {
+    const NAME: &'static str = "filtered_agg";
+}
+
+trait CollectAggregations<Leaf, Key: AggregationKey> {
     fn aggregation_variant(&self, leaf: Leaf) -> AggregationVariants;
-    fn key_name(&self) -> &str;
     fn iter_leaves(&self) -> impl Iterator<Item = Leaf>;
 
     fn collect(&self, sub_aggregations: Aggregations) -> Aggregations {
@@ -168,19 +186,15 @@ trait CollectAggregations<Leaf> {
                 agg: self.aggregation_variant(leaf),
                 sub_aggregation: aggregations,
             };
-            aggregations = HashMap::from([(self.key_name().to_string(), aggregation)]);
+            aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
         }
         aggregations
     }
 }
 
-impl CollectAggregations<TermsAggregation> for AggregationsClause {
+impl CollectAggregations<TermsAggregation, GroupedKey> for AggregationsClause {
     fn aggregation_variant(&self, leaf: TermsAggregation) -> AggregationVariants {
         AggregationVariants::Terms(leaf)
-    }
-
-    fn key_name(&self) -> &str {
-        "grouped"
     }
 
     fn iter_leaves(&self) -> impl Iterator<Item = TermsAggregation> {

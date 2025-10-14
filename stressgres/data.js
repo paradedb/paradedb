@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760467186141,
+  "lastUpdate": 1760467189240,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13822,6 +13822,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.40761723810347, max segment_count: 107.0, count: 57895"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58511ea3e6a898e6fcc4da395eeac5010b8cb747",
+          "message": "chore: move `paradedb.score/snippet/snippet_positions` to the `pdb` schema (#3334)\n\n## What\n\nWe have decided to move `paradedb.score()`, `paradedb.snippet()` and\n`paradedb.snippet_positions()` to the `pdb` schema.\n\n\n🚨This will break all existing queries that use these functions.\n\n## Why\n\nPart of the SQL UX work.\n\n## How\n\nsearch-n-replace\n\n## Tests\n\nMany existing tests updated.",
+          "timestamp": "2025-10-14T14:10:38-04:00",
+          "tree_id": "273a49d6ef01b89216a6ea0f69ed6c0c7bbbb150",
+          "url": "https://github.com/paradedb/paradedb/commit/58511ea3e6a898e6fcc4da395eeac5010b8cb747"
+        },
+        "date": 1760467187318,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.991098,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.87299928647568, max cpu: 42.985077, count: 57310"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.5999860953586, max mem: 231.43359375, count: 57310"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.518417991546126, max cpu: 33.168808, count: 57310"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.83183331333973, max mem: 163.5234375, count: 57310"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24341,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23172.30225091607, max block_count: 25935.0, count: 57310"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.09858663409527, max segment_count: 105.0, count: 57310"
           }
         ]
       }

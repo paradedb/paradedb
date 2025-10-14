@@ -1824,7 +1824,7 @@ fn specialized_queries(mut conn: PgConnection) {
     WHERE id @@@
     '{
         "more_like_this": {
-            "key_field": 3,
+            "key_value": 3,
             "min_term_frequency": 1
         }
     }'::jsonb;

@@ -495,7 +495,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         '{"more_like_this": {
-            "key_field": 0,
+            "key_value": 0,
             "document": [["flavour", "banana"]]
         }}'::jsonb;
     "#
@@ -528,7 +528,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "key_field": 2
+            "key_value": 2
         }
     }'::jsonb ORDER BY id;
     "#

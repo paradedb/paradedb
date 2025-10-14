@@ -486,16 +486,16 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 
     // Conflicting keys should fail.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         '{"more_like_this": {
-            "document_id": 0,
+            "key_field": 0,
             "document": [["flavour", "banana"]]
         }}'::jsonb;
     "#
@@ -504,9 +504,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 
     let rows: Vec<(i32, String)> = r#"
@@ -528,7 +528,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_id": 2
+            "key_field": 2
         }
     }'::jsonb ORDER BY id;
     "#
@@ -568,9 +568,9 @@ fn more_like_this_empty(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 }
 

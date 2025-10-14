@@ -25,13 +25,13 @@ mod pdb {
 
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_empty() -> SearchQueryInput {
-        panic!("more_like_this must be called with either document_id or document_fields");
+        panic!("more_like_this must be called with either key_field or document");
     }
 
     #[allow(clippy::too_many_arguments)]
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_fields(
-        document_fields: String,
+        document: String,
         min_doc_frequency: default!(Option<i32>, "NULL"),
         max_doc_frequency: default!(Option<i32>, "NULL"),
         min_term_frequency: default!(Option<i32>, "NULL"),
@@ -41,8 +41,8 @@ mod pdb {
         boost_factor: default!(Option<f32>, "NULL"),
         stopwords: default!(Option<Vec<String>>, "NULL"),
     ) -> SearchQueryInput {
-        let document_fields: HashMap<String, tantivy::schema::OwnedValue> =
-            json5::from_str(&document_fields).expect("could not parse document_fields");
+        let document: HashMap<String, tantivy::schema::OwnedValue> =
+            json5::from_str(&document).expect("could not parse document_fields");
 
         SearchQueryInput::MoreLikeThis {
             min_doc_frequency: min_doc_frequency.map(|n| n as u64),
@@ -53,8 +53,8 @@ mod pdb {
             max_word_length: max_word_length.map(|n| n as usize),
             boost_factor,
             stopwords,
-            document: Some(document_fields.into_iter().collect()),
-            document_id: None,
+            document: Some(document.into_iter().collect()),
+            key_value: None,
             fields: None,
         }
     }
@@ -62,7 +62,7 @@ mod pdb {
     #[allow(clippy::too_many_arguments)]
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_id(
-        document_id: AnyElement,
+        key_value: AnyElement,
         fields: default!(Option<Vec<String>>, "NULL"),
         min_doc_frequency: default!(Option<i32>, "NULL"),
         max_doc_frequency: default!(Option<i32>, "NULL"),
@@ -83,15 +83,13 @@ mod pdb {
             boost_factor,
             stopwords,
             fields: fields.map(|fields| fields.into_iter().collect()),
-            document_id: unsafe {
+            key_value: unsafe {
                 Some(
                     TantivyValue::try_from_datum(
-                        document_id.datum(),
-                        PgOid::from_untagged(document_id.oid()),
+                        key_value.datum(),
+                        PgOid::from_untagged(key_value.oid()),
                     )
-                    .unwrap_or_else(|err| {
-                        panic!("could not read more_like_this document_id: {err}")
-                    })
+                    .unwrap_or_else(|err| panic!("could not read more_like_this key_value: {err}"))
                     .0,
                 )
             },

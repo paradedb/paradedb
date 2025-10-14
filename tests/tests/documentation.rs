@@ -1798,7 +1798,7 @@ fn specialized_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ pdb.more_like_this(
-      document_id => 3,
+      key_value => 3,
       min_term_frequency => 1
     );
     "#
@@ -1824,7 +1824,7 @@ fn specialized_queries(mut conn: PgConnection) {
     WHERE id @@@
     '{
         "more_like_this": {
-            "document_id": 3,
+            "key_field": 3,
             "min_term_frequency": 1
         }
     }'::jsonb;

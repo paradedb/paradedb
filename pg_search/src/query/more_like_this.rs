@@ -110,7 +110,7 @@ impl MoreLikeThisQueryBuilder {
         self
     }
 
-    pub fn with_document_id(
+    pub fn with_key_value(
         self,
         key_value: OwnedValue,
         fields: Option<Vec<String>>,

@@ -134,7 +134,7 @@ pub enum SearchQueryInput {
         boost_factor: Option<f32>,
         stopwords: Option<Vec<String>>,
         document: Option<Vec<(String, OwnedValue)>>,
-        document_id: Option<OwnedValue>,
+        key_value: Option<OwnedValue>,
         fields: Option<Vec<String>>,
     },
     Parse {
@@ -781,7 +781,7 @@ impl SearchQueryInput {
                 boost_factor,
                 stopwords,
                 document,
-                document_id,
+                key_value,
                 fields,
             } => {
                 let mut builder = MoreLikeThisQuery::builder();
@@ -817,13 +817,13 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stopwords);
                 }
 
-                match (document_id, fields, document) {
-                    (Some(key_value), fields, None) => Ok(
-                        match builder.with_document_id(key_value, fields, index_oid) {
+                match (key_value, fields, document) {
+                    (Some(key_value), fields, None) => {
+                        Ok(match builder.with_key_value(key_value, fields, index_oid) {
                             Some(query) => Box::new(query),
                             None => Box::new(EmptyQuery),
-                        },
-                    ),
+                        })
+                    }
                     (None, None, Some(doc)) => {
                         let mut fields_map = HashMap::default();
                         for (field, mut value) in doc {
@@ -844,7 +844,7 @@ impl SearchQueryInput {
                         ))
                     }
                     _ => {
-                        panic!("more_like_this must be called with either document_id or document_fields")
+                        panic!("more_like_this must be called with either key_value or document")
                     }
                 }
             }

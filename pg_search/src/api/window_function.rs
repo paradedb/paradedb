@@ -21,7 +21,7 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum};
 /// Internal placeholder function for window aggregates
 ///
 /// This function is used as a replacement for WindowFunc nodes during planning.
-/// The JSON parameter contains the serialized WindowAggregateInfo that will be
+/// The JSON parameter contains the serialized WindowSpecification that will be
 /// deserialized during custom scan planning.
 ///
 /// Users should never call this directly - it's injected by the planner hook.

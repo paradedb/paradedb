@@ -17,16 +17,15 @@
 
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::api::window_function::window_func_oid;
-use crate::api::HashMap;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::pdbscan::projections::window_agg::{self, WindowAggregateInfo};
+use crate::postgres::customscan::pdbscan::projections::window_agg::{self, WindowSpecification};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
-use std::collections::hash_map::Entry;
+use std::collections::{hash_map::Entry, HashMap};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -353,10 +352,11 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         return;
     }
 
-    // Replace window functions in current query
-    let window_aggs = window_agg::extract_window_aggregates(parse);
-    if !window_aggs.is_empty() {
-        replace_windowfuncs_in_query(parse, &window_aggs);
+    // Extract window functions from current query
+    let window_specs = window_agg::extract_window_specifications(parse);
+    if !window_specs.is_empty() {
+        // Replace window functions in current query
+        replace_windowfuncs_in_query(parse, &window_specs);
     }
 
     // Recursively process subqueries in RTEs
@@ -376,9 +376,12 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
 }
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
+///
+/// Takes a map of target_entry_index -> WindowSpecification and replaces each WindowFunc
+/// with a paradedb.window_func(json) call containing the serialized WindowSpecification.
 unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
-    window_aggs: &[WindowAggregateInfo],
+    window_specs: &HashMap<usize, WindowSpecification>,
 ) {
     if (*parse).targetList.is_null() {
         return;
@@ -389,22 +392,15 @@ unsafe fn replace_windowfuncs_in_query(
     let window_func_procid = window_func_oid();
     let mut replaced_count = 0;
 
-    // Create a map from target entry index to window aggregate info for quick lookup
-    let window_agg_map: HashMap<usize, &WindowAggregateInfo> = window_aggs
-        .iter()
-        .map(|agg| (agg.target_entry_index, agg))
-        .collect();
-
     for (idx, te) in original_tlist.iter_ptr().enumerate() {
         if let Some(_window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Create a flat copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
-            // Get the window aggregate info for this target entry
-            if let Some(agg_info) = window_agg_map.get(&idx) {
-                // Serialize the window aggregate info to JSON
-                let json = serde_json::to_string(agg_info)
-                    .expect("Failed to serialize WindowAggregateInfo");
+            // Get the window specification for this target entry
+            if let Some(window_spec) = window_specs.get(&idx) {
+                let json = serde_json::to_string(window_spec)
+                    .expect("Failed to serialize WindowSpecification");
 
                 // Create a Const node for the JSON string
                 let json_cstring = std::ffi::CString::new(json).expect("Invalid JSON string");
@@ -427,7 +423,7 @@ unsafe fn replace_windowfuncs_in_query(
                 // Create a FuncExpr that calls paradedb.window_func(json)
                 let funcexpr = pg_sys::makeFuncExpr(
                     window_func_procid,
-                    agg_info.result_type_oid(),
+                    window_spec.result_type_oid(),
                     args.into_pg(),
                     pg_sys::InvalidOid,
                     pg_sys::InvalidOid,

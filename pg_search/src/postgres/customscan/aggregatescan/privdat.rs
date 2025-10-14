@@ -158,6 +158,16 @@ impl AggregateType {
             AggregateType::Max { filter, .. } => filter.as_mut(),
         }
     }
+
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        match &self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+        }
+    }
 }
 
 impl ExplainFormat for AggregateType {

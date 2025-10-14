@@ -32,6 +32,7 @@ use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Feature flags for window functions.
 ///
@@ -100,13 +101,7 @@ pub struct WindowAggregateInfo {
 
 impl WindowAggregateInfo {
     pub fn result_type_oid(&self) -> pg_sys::Oid {
-        match &self.window_spec.agg_type {
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
-            AggregateType::Sum { .. }
-            | AggregateType::Avg { .. }
-            | AggregateType::Min { .. }
-            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
-        }
+        self.window_spec.result_type_oid()
     }
 }
 
@@ -124,6 +119,12 @@ pub struct WindowSpecification {
     pub orderby_info: Vec<OrderByInfo>,
     /// Window frame clause (None if default)
     pub frame_clause: Option<FrameClause>,
+}
+
+impl WindowSpecification {
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        self.agg_type.result_type_oid()
+    }
 }
 
 /// Window frame clause
@@ -264,23 +265,27 @@ impl WindowSpecification {
 ///
 /// Parameters:
 /// - parse: The Query object containing all query information
-pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<WindowAggregateInfo> {
+///
+/// Returns a HashMap mapping target_entry_index -> WindowSpecification
+pub unsafe fn extract_window_specifications(
+    parse: *mut pg_sys::Query,
+) -> HashMap<usize, WindowSpecification> {
     // Check TopN context requirement if enabled
     if window_functions::ONLY_ALLOW_TOP_N {
         let has_order_by = !(*parse).sortClause.is_null();
         let has_limit = !(*parse).limitCount.is_null();
         let is_top_n_query = has_order_by && has_limit;
         if !is_top_n_query {
-            // Not a TopN query - return empty vec so PostgreSQL handles all window functions
-            return Vec::new();
+            // Not a TopN query - return empty map so PostgreSQL handles all window functions
+            return HashMap::new();
         }
     }
 
     // Check query context features
     // Check HAVING clause support
     if !window_functions::HAVING_SUPPORT && !(*parse).havingQual.is_null() {
-        // Query has HAVING clause but we don't support it - return empty vec
-        return Vec::new();
+        // Query has HAVING clause but we don't support it - return empty map
+        return HashMap::new();
     }
 
     // Check JOIN support
@@ -293,17 +298,17 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
 
         if relation_count > 1 {
             // Query has multiple relations (likely JOINs) but we don't support it
-            return Vec::new();
+            return HashMap::new();
         }
     }
 
     // Note: SUBQUERY_SUPPORT is checked at a higher level in the planner hook
     // since subqueries are processed recursively
 
-    let mut potential_window_aggs = Vec::new();
+    let mut window_aggs = HashMap::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // First pass: extract all window functions and check if they're supported
+    // Extract all window functions and check if they're supported
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
@@ -311,28 +316,19 @@ pub unsafe fn extract_window_aggregates(parse: *mut pg_sys::Query) -> Vec<Window
                 // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
                 let window_spec = extract_window_specification(parse, agg_type, window_func);
 
-                let window_agg_info = WindowAggregateInfo {
-                    target_entry_index: idx,
-                    window_spec,
-                };
-
-                potential_window_aggs.push(window_agg_info);
+                // Only include supported window functions
+                if window_spec.is_supported() {
+                    window_aggs.insert(idx, window_spec);
+                } else {
+                    // Found an unsupported window function - abort and return empty map
+                    // so PostgreSQL handles ALL window functions in this query
+                    return HashMap::new();
+                }
             }
         }
     }
 
-    // Second pass: check if ALL window functions are supported
-    let all_supported = potential_window_aggs
-        .iter()
-        .all(|agg| agg.window_spec.is_supported());
-
-    if all_supported {
-        // All window functions are supported - return them for custom execution
-        potential_window_aggs
-    } else {
-        // Some window functions are not supported - return empty vec so PostgreSQL handles all
-        Vec::new()
-    }
+    window_aggs
 }
 
 /// Extract window aggregate function using OID-based approach (same as aggregatescan)
@@ -702,12 +698,22 @@ pub unsafe fn convert_window_aggregate_filters(
     }
 }
 
-/// Similar to uses_scores/uses_snippets, this walks the expression tree to find our placeholders
-pub unsafe fn extract_window_func_calls(node: *mut pg_sys::Node) -> Vec<WindowAggregateInfo> {
+/// Extract window_func(json) calls from a target list and create WindowAggregateInfo
+///
+/// This function:
+/// 1. Iterates through target entries in the PROVIDED target list (usually processed_tlist)
+/// 2. Finds `paradedb.window_func(json)` calls
+/// 3. Deserializes the JSON to get `WindowSpecification`
+/// 4. Creates `WindowAggregateInfo` with the CURRENT position as target_entry_index
+pub unsafe fn extract_window_func_calls(tlist: *mut pg_sys::List) -> Vec<WindowAggregateInfo> {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
     use std::ffi::CStr;
     use std::ptr::addr_of_mut;
+
+    if tlist.is_null() {
+        return Vec::new();
+    }
 
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -734,8 +740,14 @@ pub unsafe fn extract_window_func_calls(node: *mut pg_sys::Node) -> Vec<WindowAg
                             let json_str =
                                 CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
 
-                            match serde_json::from_str::<WindowAggregateInfo>(json_str) {
-                                Ok(info) => {
+                            // Deserialize WindowSpecification and create WindowAggregateInfo
+                            // with the correct target_entry_index from the current position
+                            match serde_json::from_str::<WindowSpecification>(json_str) {
+                                Ok(window_spec) => {
+                                    let info = WindowAggregateInfo {
+                                        target_entry_index: (*context).current_te_index,
+                                        window_spec,
+                                    };
                                     (*context).window_aggs.push(info);
                                 }
                                 Err(e) => {}
@@ -752,13 +764,21 @@ pub unsafe fn extract_window_func_calls(node: *mut pg_sys::Node) -> Vec<WindowAg
     struct Context {
         window_func_procid: pg_sys::Oid,
         window_aggs: Vec<WindowAggregateInfo>,
+        current_te_index: usize,
     }
 
     let mut context = Context {
         window_func_procid: window_func_oid(),
         window_aggs: Vec::new(),
+        current_te_index: 0,
     };
 
-    walker(node, addr_of_mut!(context).cast());
+    // Iterate through target entries explicitly to track their indices
+    let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+    for (idx, te) in target_entries.iter_ptr().enumerate() {
+        context.current_te_index = idx;
+        walker((*te).expr.cast(), addr_of_mut!(context).cast());
+    }
+
     context.window_aggs
 }

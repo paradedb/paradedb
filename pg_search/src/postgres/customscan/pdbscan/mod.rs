@@ -591,9 +591,10 @@ impl CustomScan for PdbScan {
 
             // Extract window_func(json) calls from processed_tlist using expression tree walker
             // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
+            // Note: This updates target_entry_index to match the processed_tlist positions
             let processed_tlist = (*builder.args().root).processed_tlist;
 
-            let mut window_aggregates = extract_window_func_calls(processed_tlist.cast());
+            let mut window_aggregates = extract_window_func_calls(processed_tlist);
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root

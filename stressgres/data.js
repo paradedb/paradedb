@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760451907585,
+  "lastUpdate": 1760451910723,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8608,6 +8608,126 @@ window.BENCHMARK_DATA = {
             "value": 148.01171875,
             "unit": "median mem",
             "extra": "avg mem: 127.45301539250782, max mem: 152.0625, count: 55311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760451908768,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.875328596208793, max cpu: 15.828525, count: 55288"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 157.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.3685732833074, max mem: 157.46484375, count: 55288"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.68668122533165, max cpu: 9.467456, count: 55288"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.88021897834973, max mem: 33.19921875, count: 55288"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.887524329506293, max cpu: 14.159292, count: 55288"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.55897520427126, max mem: 156.7578125, count: 55288"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.548953245550852, max cpu: 4.7151275, count: 55288"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.7389173368317, max mem: 157.43359375, count: 55288"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.635846905952564, max cpu: 9.836065, count: 110576"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 153.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.59446970437753, max mem: 157.89453125, count: 110576"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27861,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27976.460968021995, max block_count: 54104.0, count: 55288"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.721838373607294, max segment_count: 58.0, count: 55288"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569787011572936, max cpu: 9.230769, count: 55288"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 154.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.28755943310483, max mem: 160.21484375, count: 55288"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.119119730660741, max cpu: 4.733728, count: 55288"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 149.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 129.5813498747468, max mem: 154.57421875, count: 55288"
           }
         ]
       }

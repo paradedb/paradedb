@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760466071772,
+  "lastUpdate": 1760466075367,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8980,6 +8980,126 @@ window.BENCHMARK_DATA = {
             "value": 145.02734375,
             "unit": "median mem",
             "extra": "avg mem: 129.50918874454447, max mem: 153.0, count: 54990"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760466073446,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.838065875145125, max cpu: 14.414414, count: 55357"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 157.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.19131719735083, max mem: 157.51953125, count: 55357"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604661030741918, max cpu: 9.60961, count: 55357"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.77825876244197, max mem: 32.12890625, count: 55357"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.900735349477178, max cpu: 14.708885, count: 55357"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.50145963078293, max mem: 156.30078125, count: 55357"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.59806134361693, max cpu: 4.729064, count: 55357"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.1155360038026, max mem: 156.56640625, count: 55357"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.64389962958406, max cpu: 9.486166, count: 110714"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 157.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.00148545746248, max mem: 159.2734375, count: 110714"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26497,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27004.970699279223, max block_count: 54596.0, count: 55357"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.572484058023374, max segment_count: 58.0, count: 55357"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.537411715403603, max cpu: 4.824121, count: 55357"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.03395227511876, max mem: 160.74609375, count: 55357"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.818616,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5006435624831114, max cpu: 4.738401, count: 55357"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 126.81556878816139, max mem: 153.5625, count: 55357"
           }
         ]
       }

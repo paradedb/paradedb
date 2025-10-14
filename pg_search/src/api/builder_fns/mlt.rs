@@ -25,7 +25,7 @@ mod pdb {
 
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
     pub fn more_like_this_empty() -> SearchQueryInput {
-        panic!("more_like_this must be called with either key_field or document");
+        panic!("more_like_this must be called with either key_value or document");
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760467970909,
+  "lastUpdate": 1760468321743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23062,6 +23062,60 @@ window.BENCHMARK_DATA = {
             "value": 18.617345539636414,
             "unit": "median tps",
             "extra": "avg tps: 18.7985125339842, max tps: 23.37450497862931, count: 55229"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760468319734,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.364854851369735,
+            "unit": "median tps",
+            "extra": "avg tps: 35.70846869674327, max tps: 42.13380711207709, count: 55310"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.30201470121375,
+            "unit": "median tps",
+            "extra": "avg tps: 268.6589773821625, max tps: 3023.2025522860245, count: 55310"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1056.1820811209868,
+            "unit": "median tps",
+            "extra": "avg tps: 1050.1327751135047, max tps: 1078.030193540351, count: 55310"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 117.09450754894026,
+            "unit": "median tps",
+            "extra": "avg tps: 155.29110728342476, max tps: 856.5733973588827, count: 110620"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.71507261030769,
+            "unit": "median tps",
+            "extra": "avg tps: 17.707561447818794, max tps: 19.928665938134426, count: 55310"
           }
         ]
       }

@@ -15,9 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{AsCStr, OrderByInfo};
+use crate::api::AsCStr;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
+use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
@@ -549,12 +550,11 @@ pub enum TargetListEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
-    pub aggregate_types: Vec<AggregateType>,
+    /// Unified aggregation specification (shared with pdbscan window functions)
+    pub agg_spec: AggregationSpec,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
-    pub grouping_columns: Vec<GroupingColumn>,
-    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
     pub has_order_by: bool,
     pub limit: Option<u32>,

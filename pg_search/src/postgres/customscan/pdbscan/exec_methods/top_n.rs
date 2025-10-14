@@ -168,7 +168,13 @@ impl TopNScanExecState {
         let mut results = HashMap::default();
 
         for agg_info in window_aggs {
-            let datum = match &agg_info.window_spec.agg_type {
+            // For window functions, we expect exactly one aggregate type
+            let agg_type = agg_info
+                .agg_spec
+                .agg_types
+                .first()
+                .expect("WindowAggregateInfo should have at least one aggregate");
+            let datum = match agg_type {
                 AggregateType::CountAny { .. } => {
                     // For COUNT(*) OVER (), we need to count ALL matching documents in the index
                     // Use the search_reader to perform a full search and count all results
@@ -183,10 +189,7 @@ impl TopNScanExecState {
 
                     (total_count as i64).into_datum().unwrap()
                 }
-                _ => panic!(
-                    "Unsupported window aggregate type: {:?}",
-                    agg_info.window_spec.agg_type
-                ),
+                _ => panic!("Unsupported window aggregate type: {:?}", agg_type),
             };
 
             results.insert(agg_info.target_entry_index, datum);

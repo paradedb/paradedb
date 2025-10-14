@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::OrderByInfo;
 use crate::gucs;
+use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
@@ -52,12 +52,8 @@ pub enum ExecutionState {
 pub struct AggregateScanState {
     // The state of this scan.
     pub state: ExecutionState,
-    // The aggregate types that we are executing for.
-    pub aggregate_types: Vec<AggregateType>,
-    // The grouping columns for GROUP BY
-    pub grouping_columns: Vec<GroupingColumn>,
-    // The ORDER BY information for sorting
-    pub orderby_info: Vec<OrderByInfo>,
+    /// aggregation specification
+    pub agg_spec: AggregationSpec,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -98,7 +94,7 @@ impl AggregateScanState {
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        if self.grouping_columns.is_empty() {
+        if self.agg_spec.grouping_columns.is_empty() {
             // No GROUP BY - simple aggregation results
             self.process_simple_filter_aggregation_results(result)
         } else {
@@ -117,7 +113,8 @@ impl AggregateScanState {
             None => {
                 // Handle null or empty results - return appropriate empty values
                 let row = self
-                    .aggregate_types
+                    .agg_spec
+                    .agg_types
                     .iter()
                     .map(|aggregate| aggregate.empty_value())
                     .collect::<AggregateRow>();
@@ -140,7 +137,8 @@ impl AggregateScanState {
 
         // Extract aggregate values
         let aggregate_values = self
-            .aggregate_types
+            .agg_spec
+            .agg_types
             .iter()
             .enumerate()
             .map(|(idx, aggregate)| {
@@ -262,11 +260,11 @@ impl AggregateScanState {
             None => return,
         };
 
-        if depth >= self.grouping_columns.len() {
+        if depth >= self.agg_spec.grouping_columns.len() {
             return;
         }
 
-        let grouping_column = &self.grouping_columns[depth];
+        let grouping_column = &self.agg_spec.grouping_columns[depth];
 
         for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
@@ -276,7 +274,7 @@ impl AggregateScanState {
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
             group_keys.push(key_owned.clone());
 
-            if depth + 1 == self.grouping_columns.len() {
+            if depth + 1 == self.agg_spec.grouping_columns.len() {
                 // Leaf level - extract aggregate values
                 let aggregate_values =
                     self.extract_aggregates_for_group(filter_results, group_keys);
@@ -308,11 +306,12 @@ impl AggregateScanState {
         filter_results: &[(usize, &serde_json::Value)],
         group_keys: &[OwnedValue],
     ) -> AggregateRow {
-        if self.aggregate_types.is_empty() {
+        if self.agg_spec.agg_types.is_empty() {
             return AggregateRow::default();
         }
 
-        self.aggregate_types
+        self.agg_spec
+            .agg_types
             .iter()
             .enumerate()
             .map(|(agg_idx, aggregate)| {
@@ -353,7 +352,7 @@ impl AggregateScanState {
         for level in depth..group_keys.len() {
             let buckets = grouped.get("buckets")?.as_array()?;
             let target_key = &group_keys[level];
-            let grouping_column = &self.grouping_columns[level];
+            let grouping_column = &self.agg_spec.grouping_columns[level];
 
             // Find bucket matching this group key
             let matching_bucket = buckets.iter().find_map(|bucket| {

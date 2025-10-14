@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::aggregate::AggQueryParams;
 use crate::api::window_function::window_func_oid;
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::nodecast;
+use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
 use crate::postgres::customscan::aggregatescan::privdat::{
     parse_coalesce_expression, GroupingColumn,
@@ -92,55 +92,40 @@ pub mod window_functions {
 pub struct WindowAggregateInfo {
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
-    /// Window specification (aggregate type (with optional FILTER), PARTITION BY, ORDER BY, frame clause)
-    pub window_spec: WindowSpecification,
+    /// Aggregation specification (shared with aggregatescan)
+    pub agg_spec: AggregationSpec,
 }
 
 impl WindowAggregateInfo {
     pub fn result_type_oid(&self) -> pg_sys::Oid {
-        self.window_spec.result_type_oid()
+        self.agg_spec.result_type_oid()
     }
-}
 
-/// Window specification from the OVER clause
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WindowSpecification {
-    /// The aggregate type (COUNT, SUM, AVG, MIN, MAX with optional filter support)
-    pub agg_type: AggregateType,
-    /// PARTITION BY columns (empty if no partitioning)
-    /// Note: At planner hook time, attno will be 0 (invalid). It's filled in during
-    /// custom scan planning when we have access to the relation descriptor.
-    pub partition_by: Vec<GroupingColumn>,
-    /// ORDER BY specification (empty if no ordering)
-    /// Reuses existing OrderByInfo structure from api module
-    pub orderby_info: Vec<OrderByInfo>,
-}
-
-impl WindowSpecification {
-    pub fn result_type_oid(&self) -> pg_sys::Oid {
-        self.agg_type.result_type_oid()
-    }
-}
-
-impl WindowSpecification {
-    /// Check if we can handle this window specification
+    /// Check if we can handle this aggregation specification
+    ///
+    /// This is primarily used by window functions to check feature flag support.
     /// Execution capability is determined by feature flags.
-    pub fn is_supported(&self) -> bool {
-        // First check if the aggregate function itself is supported
-        if !self.is_aggregate_supported() {
+    pub fn is_supported(agg_spec: &AggregationSpec) -> bool {
+        // Check if all aggregate functions are supported
+        for agg_type in &agg_spec.agg_types {
+            if !Self::is_window_agg_supported(agg_type) {
+                return false;
+            }
+            // Check if this aggregate has a filter
+            let has_filter = agg_type.has_filter();
+            if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
+                return false;
+            }
+        }
+
+        // Check grouping/partitioning support
+        let has_grouping = !agg_spec.grouping_columns.is_empty();
+        if has_grouping && !window_functions::WINDOW_AGG_PARTITION_BY {
             return false;
         }
 
-        // Check each feature against its flag
-        let has_filter = self.agg_type.has_filter();
-        if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
-            return false;
-        }
-        let has_partition_by = !self.partition_by.is_empty();
-        if has_partition_by && !window_functions::WINDOW_AGG_PARTITION_BY {
-            return false;
-        }
-        let has_order_by = !self.orderby_info.is_empty();
+        // Check ordering support
+        let has_order_by = !agg_spec.orderby_info.is_empty();
         if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
             return false;
         }
@@ -149,9 +134,11 @@ impl WindowSpecification {
         true
     }
 
-    /// Check if the aggregate function type is supported
-    fn is_aggregate_supported(&self) -> bool {
-        match &self.agg_type {
+    /// Check if a specific aggregate type is supported (for window functions)
+    fn is_window_agg_supported(agg_type: &AggregateType) -> bool {
+        use crate::postgres::customscan::pdbscan::projections::window_agg::window_functions;
+
+        match agg_type {
             AggregateType::CountAny { .. } => window_functions::aggregates::COUNT_ANY,
             AggregateType::Count { .. } => window_functions::aggregates::COUNT,
             AggregateType::Sum { .. } => window_functions::aggregates::SUM,
@@ -161,9 +148,9 @@ impl WindowSpecification {
         }
     }
 
-    /// Fill in the attno field for GroupingColumns in partition_by
+    /// Fill in the attno field for GroupingColumns
     ///
-    /// During planner hook time, partition_by GroupingColumns have attno=0 (placeholder).
+    /// During planner hook time, GroupingColumns have attno=0 (placeholder).
     /// This function fills in the real attno values using the relation descriptor.
     ///
     /// # Safety
@@ -172,7 +159,7 @@ impl WindowSpecification {
         let heap_relation = heaprel.heap_relation().unwrap();
         let tuple_desc = heap_relation.tuple_desc();
 
-        for grouping_col in &mut self.partition_by {
+        for grouping_col in &mut self.agg_spec.grouping_columns {
             if grouping_col.attno == 0 {
                 // Find the attribute number for this field name
                 for i in 0..tuple_desc.len() {
@@ -184,33 +171,6 @@ impl WindowSpecification {
                     }
                 }
             }
-        }
-    }
-
-    /// Convert WindowSpecification to AggQueryParams for execution
-    ///
-    /// This function allows window functions to reuse the existing Tantivy aggregation
-    /// infrastructure (build_aggregation_query_from_search_input) that's used by GROUP BY queries.
-    ///
-    /// # Arguments
-    /// * `base_query` - The search query from the WHERE clause
-    ///
-    /// # Returns
-    /// A tuple of (AggQueryParams, Vec<GroupingColumn>) where the Vec must be kept alive
-    /// for the lifetime of the AggQueryParams since AggQueryParams holds a reference to it.
-    ///
-    /// # Note
-    /// At this point (execution time), the `attno` field in `partition_by` should already
-    /// be filled in by fill_partition_by_attnos() during custom scan planning. If attno is
-    /// still 0, that indicates a bug in the planning phase.
-    pub fn to_agg_params<'a>(&'a self, base_query: &'a SearchQueryInput) -> AggQueryParams<'a> {
-        AggQueryParams {
-            base_query,
-            aggregate_types: std::slice::from_ref(&self.agg_type),
-            grouping_columns: &self.partition_by,
-            orderby_info: &self.orderby_info,
-            limit: &None,  // TopN LIMIT is separate from window function
-            offset: &None, // TopN OFFSET is separate from window function
         }
     }
 }
@@ -231,7 +191,7 @@ impl WindowSpecification {
 /// Returns a HashMap mapping target_entry_index -> WindowSpecification
 pub unsafe fn extract_window_specifications(
     parse: *mut pg_sys::Query,
-) -> HashMap<usize, WindowSpecification> {
+) -> HashMap<usize, AggregationSpec> {
     // Check TopN context requirement if enabled
     if window_functions::ONLY_ALLOW_TOP_N {
         let has_order_by = !(*parse).sortClause.is_null();
@@ -275,12 +235,12 @@ pub unsafe fn extract_window_specifications(
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
             if let Some(agg_type) = extract_standard_aggregate(parse, window_func) {
-                // Extract complete window specification (aggregate type, PARTITION BY, ORDER BY, frame, etc.)
-                let window_spec = extract_window_specification(parse, agg_type, window_func);
+                // Extract complete aggregation specification (aggregate type, PARTITION BY, ORDER BY)
+                let agg_spec = extract_aggregation_spec(parse, agg_type, window_func);
 
                 // Only include supported window functions
-                if window_spec.is_supported() {
-                    window_aggs.insert(idx, window_spec);
+                if WindowAggregateInfo::is_supported(&agg_spec) {
+                    window_aggs.insert(idx, agg_spec);
                 } else {
                     // Found an unsupported window function - abort and return empty map
                     // so PostgreSQL handles ALL window functions in this query
@@ -381,36 +341,35 @@ unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<Se
     })
 }
 
-/// Extract complete window specification from a WindowFunc node
+/// Extract complete aggregation specification from a WindowFunc node
 ///
 /// This function extracts:
 /// - Aggregate type (with FILTER clause)
-/// - PARTITION BY columns
+/// - PARTITION BY columns (grouping_columns)
 /// - ORDER BY specification
-/// - Frame clause (ROWS/RANGE/GROUPS BETWEEN...)
-unsafe fn extract_window_specification(
+unsafe fn extract_aggregation_spec(
     parse: *mut pg_sys::Query,
     agg_type: AggregateType,
     window_func: *mut pg_sys::WindowFunc,
-) -> WindowSpecification {
+) -> AggregationSpec {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
     let winref = (*window_func).winref;
 
     if winref == 0 {
         // No window clause - means empty OVER ()
-        return WindowSpecification {
-            agg_type,
-            partition_by: Vec::new(),
+        return AggregationSpec {
+            agg_types: vec![agg_type],
+            grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
         };
     }
 
     // Access the WindowClause from the list
     if (*parse).windowClause.is_null() {
-        return WindowSpecification {
-            agg_type,
-            partition_by: Vec::new(),
+        return AggregationSpec {
+            agg_types: vec![agg_type],
+            grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
         };
     }
@@ -421,22 +380,22 @@ unsafe fn extract_window_specification(
     let window_clause_idx = (winref - 1) as usize;
 
     if window_clause_idx >= window_clauses.len() {
-        return WindowSpecification {
-            agg_type,
-            partition_by: Vec::new(),
+        return AggregationSpec {
+            agg_types: vec![agg_type],
+            grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
         };
     }
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
 
-    let partition_by = extract_partition_by(parse, (*window_clause).partitionClause);
-    let order_by = extract_order_by(parse, (*window_clause).orderClause);
+    let grouping_columns = extract_partition_by(parse, (*window_clause).partitionClause);
+    let orderby_info = extract_order_by(parse, (*window_clause).orderClause);
 
-    WindowSpecification {
-        agg_type,
-        partition_by,
-        orderby_info: order_by,
+    AggregationSpec {
+        agg_types: vec![agg_type],
+        grouping_columns,
+        orderby_info,
     }
 }
 
@@ -536,38 +495,41 @@ pub unsafe fn convert_window_aggregate_filters(
     heap_rti: pg_sys::Index,
 ) {
     for window_agg in window_aggregates.iter_mut() {
-        // Fill in attno values for PARTITION BY columns
+        // Fill in attno values for GROUP BY/PARTITION BY columns
         // During planner hook time, these were set to 0 (placeholder)
-        window_agg.window_spec.fill_partition_by_attnos(bm25_index);
+        window_agg.fill_partition_by_attnos(bm25_index);
 
-        // Check if this aggregate has a FILTER
-        if !window_agg.window_spec.agg_type.has_filter() {
-            continue;
-        }
+        // Convert filters for all aggregates in this spec
+        for agg_type in &mut window_agg.agg_spec.agg_types {
+            // Check if this aggregate has a FILTER
+            if !agg_type.has_filter() {
+                continue;
+            }
 
-        // Try to get the filter
-        let filter_opt = window_agg.window_spec.agg_type.get_filter_mut();
-        if let Some(filter) = filter_opt {
-            // Check if it's a PostgresExpression that needs conversion
-            if let SearchQueryInput::PostgresExpression { expr } = filter {
-                let filter_node = expr.node();
-                if !filter_node.is_null() {
-                    // Cast Node back to Expr for extract_filter_clause
-                    let filter_expr = filter_node as *mut pg_sys::Expr;
+            // Try to get the filter
+            let filter_opt = agg_type.get_filter_mut();
+            if let Some(filter) = filter_opt {
+                // Check if it's a PostgresExpression that needs conversion
+                if let SearchQueryInput::PostgresExpression { expr } = filter {
+                    let filter_node = expr.node();
+                    if !filter_node.is_null() {
+                        // Cast Node back to Expr for extract_filter_clause
+                        let filter_expr = filter_node as *mut pg_sys::Expr;
 
-                    // Use the same logic as aggregatescan to convert the filter
-                    let mut filter_qual_state = QualExtractState::default();
-                    let converted = extract_filter_clause(
-                        filter_expr,
-                        bm25_index,
-                        root,
-                        heap_rti,
-                        &mut filter_qual_state,
-                    );
+                        // Use the same logic as aggregatescan to convert the filter
+                        let mut filter_qual_state = QualExtractState::default();
+                        let converted = extract_filter_clause(
+                            filter_expr,
+                            bm25_index,
+                            root,
+                            heap_rti,
+                            &mut filter_qual_state,
+                        );
 
-                    // Replace the PostgresExpression with the converted SearchQueryInput
-                    if let Some(search_query) = converted {
-                        *filter = search_query;
+                        // Replace the PostgresExpression with the converted SearchQueryInput
+                        if let Some(search_query) = converted {
+                            *filter = search_query;
+                        }
                     }
                 }
             }
@@ -617,13 +579,13 @@ pub unsafe fn extract_window_func_calls(tlist: *mut pg_sys::List) -> Vec<WindowA
                             let json_str =
                                 CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
 
-                            // Deserialize WindowSpecification and create WindowAggregateInfo
+                            // Deserialize AggregationSpec and create WindowAggregateInfo
                             // with the correct target_entry_index from the current position
-                            match serde_json::from_str::<WindowSpecification>(json_str) {
-                                Ok(window_spec) => {
+                            match serde_json::from_str::<AggregationSpec>(json_str) {
+                                Ok(agg_spec) => {
                                     let info = WindowAggregateInfo {
                                         target_entry_index: (*context).current_te_index,
-                                        window_spec,
+                                        agg_spec,
                                     };
                                     (*context).window_aggs.push(info);
                                 }

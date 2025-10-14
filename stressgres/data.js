@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760451910723,
+  "lastUpdate": 1760452653272,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10306,6 +10306,42 @@ window.BENCHMARK_DATA = {
             "value": 5.132518642798454,
             "unit": "median tps",
             "extra": "avg tps: 4.615729664180124, max tps: 5.741464267360192, count: 57304"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760452651387,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.512114887895523,
+            "unit": "median tps",
+            "extra": "avg tps: 7.278146381971529, max tps: 11.365200366054744, count: 57562"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.033336870659261,
+            "unit": "median tps",
+            "extra": "avg tps: 4.548986472472239, max tps: 5.594176418348343, count: 57562"
           }
         ]
       }

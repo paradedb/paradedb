@@ -1786,3 +1786,30 @@ CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, int
 ALTER FUNCTION paradedb."more_like_this"() SET SCHEMA pdb;
 ALTER FUNCTION paradedb."more_like_this"(TEXT,INT, INT, INT, INT, INT, INT, real, TEXT[]) SET SCHEMA pdb;
 ALTER FUNCTION paradedb."more_like_this"(anyelement, INT, INT, INT, INT, INT, INT, real, TEXT[] ) SET SCHEMA pdb;
+
+--
+-- rename the `pdb.regex` function to `pdb.regex_term`
+--
+DROP FUNCTION IF EXISTS regex(field fieldname, pattern text);
+DROP FUNCTION IF EXISTS pdb.regex(pattern text);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/pdb.rs:410
+-- pg_search::api::builder_fns::pdb::pdb::_69a84f7a037444d7ae0bc9cb103a45bc::regex_term
+CREATE  FUNCTION "regex_term"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "pattern" TEXT /* alloc::string::String */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'regex_term_bfn_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/pdb.rs:410
+-- pg_search::api::builder_fns::pdb::pdb::regex_term
+CREATE  FUNCTION pdb."regex_term"(
+    "pattern" TEXT /* alloc::string::String */
+) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'regex_term_wrapper';

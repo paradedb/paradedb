@@ -15,11 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::aggregate::AggQueryParams;
 use crate::api::window_function::window_func_oid;
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
-use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
+use crate::postgres::customscan::aggregatescan::privdat::{
+    parse_coalesce_expression, GroupingColumn,
+};
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::utils::{determine_sort_direction, resolve_tle_ref};
@@ -113,10 +116,12 @@ pub struct WindowSpecification {
     /// The aggregate type (COUNT, SUM, AVG, MIN, MAX with optional filter support)
     pub agg_type: AggregateType,
     /// PARTITION BY columns (empty if no partitioning)
-    pub partition_by: Vec<String>,
-    /// ORDER BY specification (None if no ordering)
+    /// Note: At planner hook time, attno will be 0 (invalid). It's filled in during
+    /// custom scan planning when we have access to the relation descriptor.
+    pub partition_by: Vec<GroupingColumn>,
+    /// ORDER BY specification (empty if no ordering)
     /// Reuses existing OrderByInfo structure from api module
-    pub order_by: Option<Vec<OrderByInfo>>,
+    pub orderby_info: Vec<OrderByInfo>,
     /// Window frame clause (None if default)
     pub frame_clause: Option<FrameClause>,
 }
@@ -165,7 +170,7 @@ impl WindowSpecification {
         if has_partition_by && !window_functions::WINDOW_AGG_PARTITION_BY {
             return false;
         }
-        let has_order_by = self.order_by.is_some();
+        let has_order_by = !self.orderby_info.is_empty();
         if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
             return false;
         }
@@ -187,6 +192,62 @@ impl WindowSpecification {
             AggregateType::Avg { .. } => window_functions::aggregates::AVG,
             AggregateType::Min { .. } => window_functions::aggregates::MIN,
             AggregateType::Max { .. } => window_functions::aggregates::MAX,
+        }
+    }
+
+    /// Fill in the attno field for GroupingColumns in partition_by
+    ///
+    /// During planner hook time, partition_by GroupingColumns have attno=0 (placeholder).
+    /// This function fills in the real attno values using the relation descriptor.
+    ///
+    /// # Safety
+    /// Must be called with a valid relation descriptor.
+    pub unsafe fn fill_partition_by_attnos(&mut self, heaprel: &PgSearchRelation) {
+        let heap_relation = heaprel.heap_relation().unwrap();
+        let tuple_desc = heap_relation.tuple_desc();
+
+        for grouping_col in &mut self.partition_by {
+            if grouping_col.attno == 0 {
+                // Find the attribute number for this field name
+                for i in 0..tuple_desc.len() {
+                    if let Some(attr) = tuple_desc.get(i) {
+                        if attr.name() == grouping_col.field_name {
+                            grouping_col.attno = (i + 1) as pg_sys::AttrNumber;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convert WindowSpecification to AggQueryParams for execution
+    ///
+    /// This function allows window functions to reuse the existing Tantivy aggregation
+    /// infrastructure (build_aggregation_query_from_search_input) that's used by GROUP BY queries.
+    ///
+    /// # Arguments
+    /// * `base_query` - The search query from the WHERE clause
+    ///
+    /// # Returns
+    /// A tuple of (AggQueryParams, Vec<GroupingColumn>) where the Vec must be kept alive
+    /// for the lifetime of the AggQueryParams since AggQueryParams holds a reference to it.
+    ///
+    /// # Note
+    /// At this point (execution time), the `attno` field in `partition_by` should already
+    /// be filled in by fill_partition_by_attnos() during custom scan planning. If attno is
+    /// still 0, that indicates a bug in the planning phase.
+    pub fn window_spec_to_agg_params<'a>(
+        &'a self,
+        base_query: &'a SearchQueryInput,
+    ) -> AggQueryParams<'a> {
+        AggQueryParams {
+            base_query,
+            aggregate_types: std::slice::from_ref(&self.agg_type),
+            grouping_columns: &self.partition_by,
+            orderby_info: &self.orderby_info,
+            limit: &None,  // TopN LIMIT is separate from window function
+            offset: &None, // TopN OFFSET is separate from window function
         }
     }
 }
@@ -383,7 +444,7 @@ unsafe fn extract_window_specification(
         return WindowSpecification {
             agg_type,
             partition_by: Vec::new(),
-            order_by: None,
+            orderby_info: Vec::new(),
             frame_clause: None,
         };
     }
@@ -393,7 +454,7 @@ unsafe fn extract_window_specification(
         return WindowSpecification {
             agg_type,
             partition_by: Vec::new(),
-            order_by: None,
+            orderby_info: Vec::new(),
             frame_clause: None,
         };
     }
@@ -407,7 +468,7 @@ unsafe fn extract_window_specification(
         return WindowSpecification {
             agg_type,
             partition_by: Vec::new(),
-            order_by: None,
+            orderby_info: Vec::new(),
             frame_clause: None,
         };
     }
@@ -427,16 +488,20 @@ unsafe fn extract_window_specification(
     WindowSpecification {
         agg_type,
         partition_by,
-        order_by,
+        orderby_info: order_by,
         frame_clause,
     }
 }
 
 /// Extract PARTITION BY columns from partitionClause
+///
+/// Returns GroupingColumn with field_name set and attno=0 (placeholder).
+/// The attno will be filled in later during custom scan planning when we have
+/// access to the relation descriptor.
 unsafe fn extract_partition_by(
     parse: *mut pg_sys::Query,
     partition_clause: *mut pg_sys::List,
-) -> Vec<String> {
+) -> Vec<GroupingColumn> {
     if partition_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
         return Vec::new();
     }
@@ -446,7 +511,7 @@ unsafe fn extract_partition_by(
         return Vec::new();
     }
 
-    let mut column_names = Vec::new();
+    let mut grouping_columns = Vec::new();
     for (idx, node) in partition_list.iter_ptr().enumerate() {
         // Each node should be a SortGroupClause
         if let Some(sort_clause) = nodecast!(SortGroupClause, T_SortGroupClause, node) {
@@ -455,28 +520,35 @@ unsafe fn extract_partition_by(
             // Resolve directly using target_list
             let column_name = resolve_tle_ref(tle_ref, (*parse).targetList)
                 .unwrap_or(format!("unresolved_tle_{}", tle_ref));
-            column_names.push(column_name);
+            grouping_columns.push(GroupingColumn {
+                field_name: column_name,
+                attno: 0, // Placeholder - will be filled in during custom scan planning
+            });
         } else if let Some(var) = nodecast!(Var, T_Var, node) {
             let field_name = resolve_var_with_parse(parse, var)
                 .unwrap_or(format!("unresolved_var_{}", (*var).varattno).into());
-            column_names.push(field_name.into_inner());
+            grouping_columns.push(GroupingColumn {
+                field_name: field_name.into_inner(),
+                attno: 0, // Placeholder - will be filled in during custom scan planning
+            });
         }
     }
-    column_names
+    grouping_columns
 }
 
 /// Extract ORDER BY specification from orderClause
+/// Returns empty Vec if no ORDER BY
 unsafe fn extract_order_by(
     parse: *mut pg_sys::Query,
     order_clause: *mut pg_sys::List,
-) -> Option<Vec<OrderByInfo>> {
+) -> Vec<OrderByInfo> {
     if order_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
-        return None;
+        return Vec::new();
     }
 
     let order_list = PgList::<pg_sys::Node>::from_pg(order_clause);
     if order_list.is_empty() {
-        return None;
+        return Vec::new();
     }
 
     let mut order_by_infos = Vec::new();
@@ -501,11 +573,7 @@ unsafe fn extract_order_by(
         }
     }
 
-    if order_by_infos.is_empty() {
-        None
-    } else {
-        Some(order_by_infos)
-    }
+    order_by_infos
 }
 
 /// Extract frame clause from frameOptions and offset expressions
@@ -595,6 +663,10 @@ pub unsafe fn convert_window_aggregate_filters(
     heap_rti: pg_sys::Index,
 ) {
     for window_agg in window_aggregates.iter_mut() {
+        // Fill in attno values for PARTITION BY columns
+        // During planner hook time, these were set to 0 (placeholder)
+        window_agg.window_spec.fill_partition_by_attnos(bm25_index);
+
         // Check if this aggregate has a FILTER
         if !window_agg.window_spec.agg_type.has_filter() {
             continue;

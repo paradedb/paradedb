@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760462980766,
+  "lastUpdate": 1760463711823,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22144,6 +22144,60 @@ window.BENCHMARK_DATA = {
             "value": 18.69651612135556,
             "unit": "median tps",
             "extra": "avg tps: 18.849653613266025, max tps: 22.738783719740304, count: 55393"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7b561efba690df7b6ea6f39f0dd76357213f578",
+          "message": "chore: rename the new `pdb.regex` tokenizer to `pdb.regex_pattern` (#3333)\n\n## What\n\nThe `::pdb.regex` tokenizer type is ambiguous with the existing\n`pdb.regex()` function, making queries like this impossible for Postgres\nto figure out:\n\n```sql\nSELECT * FROM t WHERE f @@@ pdb.regex('b..r');\n```\n\n## Why\n\nIt makes a lot more sense to rename the thing we haven't released yet as\nopposed to the thing we have.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T12:47:59-04:00",
+          "tree_id": "66760231bf612b171f8bba7602676313aaf9f453",
+          "url": "https://github.com/paradedb/paradedb/commit/d7b561efba690df7b6ea6f39f0dd76357213f578"
+        },
+        "date": 1760463709937,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.50893564997206,
+            "unit": "median tps",
+            "extra": "avg tps: 35.82803743432684, max tps: 42.98467106880993, count: 55229"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 250.10490179528662,
+            "unit": "median tps",
+            "extra": "avg tps: 281.04374751120264, max tps: 2929.4053587856347, count: 55229"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1038.3242793885263,
+            "unit": "median tps",
+            "extra": "avg tps: 1028.4879346181751, max tps: 1093.95084836572, count: 55229"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 122.53349165194308,
+            "unit": "median tps",
+            "extra": "avg tps: 157.93513945399698, max tps: 859.8367068079248, count: 110458"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.617345539636414,
+            "unit": "median tps",
+            "extra": "avg tps: 18.7985125339842, max tps: 23.37450497862931, count: 55229"
           }
         ]
       }

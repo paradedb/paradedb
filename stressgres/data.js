@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760462977687,
+  "lastUpdate": 1760462980766,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19618,6 +19618,108 @@ window.BENCHMARK_DATA = {
             "value": 155.24609375,
             "unit": "median mem",
             "extra": "avg mem: 173.84122143996044, max mem: 216.2109375, count: 56367"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7b561efba690df7b6ea6f39f0dd76357213f578",
+          "message": "chore: rename the new `pdb.regex` tokenizer to `pdb.regex_pattern` (#3333)\n\n## What\n\nThe `::pdb.regex` tokenizer type is ambiguous with the existing\n`pdb.regex()` function, making queries like this impossible for Postgres\nto figure out:\n\n```sql\nSELECT * FROM t WHERE f @@@ pdb.regex('b..r');\n```\n\n## Why\n\nIt makes a lot more sense to rename the thing we haven't released yet as\nopposed to the thing we have.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T12:47:59-04:00",
+          "tree_id": "66760231bf612b171f8bba7602676313aaf9f453",
+          "url": "https://github.com/paradedb/paradedb/commit/d7b561efba690df7b6ea6f39f0dd76357213f578"
+        },
+        "date": 1760462978884,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06045959917852843, max background_merging: 1.0, count: 56484"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7742943063418215, max cpu: 9.533267, count: 56484"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.976663399701685, max mem: 20.28515625, count: 56484"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.962635036715319, max cpu: 23.645319, count: 56484"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.60297855366122, max mem: 167.859375, count: 56484"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51012,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50906.50614333263, max block_count: 51012.0, count: 56484"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.42203101763331, max segment_count: 55.0, count: 56484"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.726926009085722, max cpu: 32.526623, count: 56484"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 148.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.57727769147016, max mem: 155.8203125, count: 56484"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.760535904653033, max cpu: 27.853, count: 56484"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 169.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 166.6309873841486, max mem: 169.89453125, count: 56484"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.755528219728134, max cpu: 33.7011, count: 56484"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 176.08476418653956, max mem: 216.80859375, count: 56484"
           }
         ]
       }

@@ -86,6 +86,17 @@ impl<'a> QueryContext<'a> {
             context,
         }
     }
+
+    pub fn parser(&self) -> QueryParser {
+        QueryParser::for_index(
+            &self.reader.searcher().index(),
+            self.schema.fields().map(|(f, _)| f).collect(),
+        )
+    }
+
+    pub fn heap_oid(&self) -> Option<pg_sys::Oid> {
+        self.index.heap_relation().map(|r| r.oid())
+    }
 }
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]

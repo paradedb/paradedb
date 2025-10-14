@@ -28,7 +28,7 @@ fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
 
     let (id,) = "
     SELECT id FROM paradedb.bm25_search WHERE id @@@ pdb.more_like_this(
-        document_id => 3,
+        key_value => 3,
         min_term_frequency => 1
     ) ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
@@ -42,12 +42,12 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // Boolean must
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.boolean(
         must => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -58,12 +58,12 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // Boolean must_not
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.boolean(
         must_not => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -74,12 +74,12 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // Boolean should
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.boolean(
         should => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -90,13 +90,13 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // Boost
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.boost(
         factor => 1.5,
         query => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -107,13 +107,13 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // ConstScore
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.const_score(
         score => 5,
         query => pdb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
-            document_fields => '{"description": "keyboard"}'
+            document => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -124,19 +124,19 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // DisjunctionMax
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.disjunction_max(
         disjuncts => ARRAY[
             pdb.more_like_this(
                 min_doc_frequency => 2,
                 min_term_frequency => 1,
-                document_fields => '{"description": "keyboard"}'
-            ), 
+                document => '{"description": "keyboard"}'
+            ),
             pdb.more_like_this(
                 min_doc_frequency => 2,
                 min_term_frequency => 1,
-                document_fields => '{"description": "shoes"}'
-            )            
+                document => '{"description": "shoes"}'
+            )
         ]
     )
     ORDER BY id
@@ -147,7 +147,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     // Multiple nested
     let results: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE id @@@ 
+    WHERE id @@@
     paradedb.boolean(
         must_not => paradedb.parse('description:plastic'),
         should => paradedb.disjunction_max(
@@ -157,14 +157,14 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
                     query => pdb.more_like_this(
                         min_doc_frequency => 2,
                         min_term_frequency => 1,
-                        document_fields => '{"description": "keyboard"}'
-                    ) 
+                        document => '{"description": "keyboard"}'
+                    )
                 ),
                 pdb.more_like_this(
                     min_doc_frequency => 2,
                     min_term_frequency => 1,
-                    document_fields => '{"description": "shoes"}'
-                )            
+                    document => '{"description": "shoes"}'
+                )
             ]
         )
     )

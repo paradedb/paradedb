@@ -486,17 +486,17 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 
     // Conflicting keys should fail.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         '{"more_like_this": {
-            "document_id": 0,
-            "document_fields": [["flavour", "banana"]]
+            "key_value": 0,
+            "document": [["flavour", "banana"]]
         }}'::jsonb;
     "#
     .fetch_result::<()>(&mut conn)
@@ -504,9 +504,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with only one of document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 
     let rows: Vec<(i32, String)> = r#"
@@ -515,7 +515,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -528,7 +528,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_id": 2
+            "key_value": 2
         }
     }'::jsonb ORDER BY id;
     "#
@@ -568,9 +568,9 @@ fn more_like_this_empty(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either document_id or document_fields")
+            , "error returned from database: more_like_this must be called with either key_value or document")
         }
-        _ => panic!("document_id or document_fields validation failed"),
+        _ => panic!("key_value or document validation failed"),
     }
 }
 
@@ -602,7 +602,7 @@ fn more_like_this_text(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -636,7 +636,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -672,7 +672,7 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -708,7 +708,7 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -744,7 +744,7 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -780,7 +780,7 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -816,7 +816,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -851,7 +851,7 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -887,7 +887,7 @@ fn more_like_this_literal_cast(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [
+            "document": [
                 ["year", 2012]
             ]
         }
@@ -925,7 +925,7 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -960,7 +960,7 @@ fn more_like_this_date_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -996,7 +996,7 @@ fn more_like_this_time_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -1032,7 +1032,7 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -1068,7 +1068,7 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#
@@ -1102,7 +1102,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
-            "document_fields": [["flavour", "banana"]]
+            "document": [["flavour", "banana"]]
         }
     }'::jsonb ORDER BY id;
     "#

@@ -214,7 +214,7 @@ impl SearchTokenizerFilters {
     fn stopwords(&self) -> Option<StopWordFilter> {
         self.stopwords
             .as_ref()
-            .map(|stop_words| StopWordFilter::remove(stop_words.clone()))
+            .map(|stopwords| StopWordFilter::remove(stopwords.clone()))
     }
 
     fn alpha_num_only(&self) -> Option<AlphaNumOnlyFilter> {

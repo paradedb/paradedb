@@ -936,7 +936,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', '(plush|leather)');
+    WHERE id @@@ paradedb.regex_term('description', '(plush|leather)');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -958,7 +958,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', 'key.*rd');
+    WHERE id @@@ paradedb.regex_term('description', 'key.*rd');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);

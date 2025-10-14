@@ -201,7 +201,7 @@ fn single_queries(mut conn: PgConnection) {
 
     // Regex
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_term(
         field => 'description',
         pattern => '(hardcover|plush|leather|running|wireless)'
     ) ORDER BY id"#
@@ -210,7 +210,7 @@ fn single_queries(mut conn: PgConnection) {
 
     // Test regex anchors
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_term(
         field => 'description',
         pattern => '^running'
     ) ORDER BY id"#
@@ -222,7 +222,7 @@ fn single_queries(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_term(
         field => 'description',
         pattern => 'keyboard$'
     ) ORDER BY id"#
@@ -297,7 +297,7 @@ fn single_queries(mut conn: PgConnection) {
     match r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term_set(
         terms => ARRAY[
-            paradedb.regex(field => 'description', pattern => '.+')
+            paradedb.regex_term(field => 'description', pattern => '.+')
         ]
     ) ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)

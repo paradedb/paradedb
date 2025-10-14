@@ -25,7 +25,7 @@ A list of regex flags and grouping options can be [found here](https://docs.rs/r
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.regex('description', '(plush|leather)');
+WHERE id @@@ paradedb.regex_term('description', '(plush|leather)');
 ```
 ```sql JSON Syntax
 SELECT description, rating, category
@@ -57,7 +57,7 @@ The following query finds all documents that match a wildcard pattern.
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.regex('description', 'key.*rd');
+WHERE id @@@ paradedb.regex_term('description', 'key.*rd');
 ```
 ```sql JSON Syntax
 SELECT description, rating, category

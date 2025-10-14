@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 /// This is the **core struct** that captures aggregation parameters at the SQL level,
 /// shared between:
-/// - **pdbscan**: Window functions (`COUNT(*) OVER (PARTITION BY ...)`)
+/// - **pdbscan**: Window functions (`COUNT(*) OVER ()`)
 /// - **aggregatescan**: GROUP BY queries (`SELECT ... GROUP BY ... HAVING ...`)
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AggregationSpec {
@@ -35,7 +35,7 @@ pub struct AggregationSpec {
     /// For window functions, this typically contains one aggregate per window function
     /// For GROUP BY queries, this contains all aggregates in the query
     pub agg_types: Vec<AggregateType>,
-    /// PARTITION BY / GROUP BY columns (empty if no grouping)
+    /// GROUP BY columns (empty if no grouping)
     /// Note: At planner hook time, attno will be 0 (invalid). It's filled in during
     /// custom scan planning when we have access to the relation descriptor.
     pub grouping_columns: Vec<GroupingColumn>,
@@ -65,11 +65,6 @@ impl AggregationSpec {
     /// * `base_query` - The search query from the WHERE clause
     /// * `limit` - Optional LIMIT (for GROUP BY queries, None for window functions)
     /// * `offset` - Optional OFFSET (for GROUP BY queries, None for window functions)
-    ///
-    /// # Note
-    /// At execution time, the `attno` field in `grouping_columns` should already be filled
-    /// by `fill_partition_by_attnos()` during custom scan planning. If attno is still 0,
-    /// that indicates a bug in the planning phase.
     pub fn to_agg_params<'a>(
         &'a self,
         base_query: &'a SearchQueryInput,

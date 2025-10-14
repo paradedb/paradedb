@@ -20,14 +20,12 @@ use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
-use crate::postgres::customscan::aggregatescan::privdat::{
-    parse_coalesce_expression, GroupingColumn,
-};
+use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::utils::{determine_sort_direction, resolve_tle_ref};
+use crate::postgres::var::fieldname_from_var;
 use crate::postgres::var::get_var_relation_oid;
-use crate::postgres::var::{fieldname_from_var, resolve_var_with_parse};
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
@@ -55,9 +53,6 @@ pub mod window_functions {
 
     /// Enable support for window functions in queries with JOINs.
     pub const JOIN_SUPPORT: bool = false;
-
-    /// Enable support for `PARTITION BY` clause in window functions.
-    pub const WINDOW_AGG_PARTITION_BY: bool = false;
 
     /// Enable support for `ORDER BY` clause in window functions.
     pub const WINDOW_AGG_ORDER_BY: bool = false;
@@ -105,7 +100,12 @@ impl WindowAggregateInfo {
     ///
     /// This is primarily used by window functions to check feature flag support.
     /// Execution capability is determined by feature flags.
-    pub fn is_supported(agg_spec: &AggregationSpec) -> bool {
+    pub fn is_supported(agg_spec: &Option<AggregationSpec>) -> bool {
+        if agg_spec.is_none() {
+            return false;
+        }
+        let agg_spec = agg_spec.as_ref().unwrap();
+
         // Check if all aggregate functions are supported
         for agg_type in &agg_spec.agg_types {
             if !Self::is_window_agg_supported(agg_type) {
@@ -118,15 +118,16 @@ impl WindowAggregateInfo {
             }
         }
 
-        // Check grouping/partitioning support
-        let has_grouping = !agg_spec.grouping_columns.is_empty();
-        if has_grouping && !window_functions::WINDOW_AGG_PARTITION_BY {
-            return false;
-        }
-
         // Check ordering support
         let has_order_by = !agg_spec.orderby_info.is_empty();
         if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
+            return false;
+        }
+
+        // Note: PARTITION BY is not supported for window functions in our use case,
+        // because we compute facets over the entire result set, not partitioned subsets.
+        // If grouping_columns is non-empty, we reject the query.
+        if !agg_spec.grouping_columns.is_empty() {
             return false;
         }
 
@@ -145,32 +146,6 @@ impl WindowAggregateInfo {
             AggregateType::Avg { .. } => window_functions::aggregates::AVG,
             AggregateType::Min { .. } => window_functions::aggregates::MIN,
             AggregateType::Max { .. } => window_functions::aggregates::MAX,
-        }
-    }
-
-    /// Fill in the attno field for GroupingColumns
-    ///
-    /// During planner hook time, GroupingColumns have attno=0 (placeholder).
-    /// This function fills in the real attno values using the relation descriptor.
-    ///
-    /// # Safety
-    /// Must be called with a valid relation descriptor.
-    pub unsafe fn fill_partition_by_attnos(&mut self, heaprel: &PgSearchRelation) {
-        let heap_relation = heaprel.heap_relation().unwrap();
-        let tuple_desc = heap_relation.tuple_desc();
-
-        for grouping_col in &mut self.agg_spec.grouping_columns {
-            if grouping_col.attno == 0 {
-                // Find the attribute number for this field name
-                for i in 0..tuple_desc.len() {
-                    if let Some(attr) = tuple_desc.get(i) {
-                        if attr.name() == grouping_col.field_name {
-                            grouping_col.attno = (i + 1) as pg_sys::AttrNumber;
-                            break;
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -235,12 +210,12 @@ pub unsafe fn extract_window_specifications(
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
             if let Some(agg_type) = extract_standard_aggregate(parse, window_func) {
-                // Extract complete aggregation specification (aggregate type, PARTITION BY, ORDER BY)
+                // Extract complete aggregation specification (aggregate type and ORDER BY)
                 let agg_spec = extract_aggregation_spec(parse, agg_type, window_func);
 
                 // Only include supported window functions
                 if WindowAggregateInfo::is_supported(&agg_spec) {
-                    window_aggs.insert(idx, agg_spec);
+                    window_aggs.insert(idx, agg_spec.unwrap());
                 } else {
                     // Found an unsupported window function - abort and return empty map
                     // so PostgreSQL handles ALL window functions in this query
@@ -345,33 +320,32 @@ unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<Se
 ///
 /// This function extracts:
 /// - Aggregate type (with FILTER clause)
-/// - PARTITION BY columns (grouping_columns)
 /// - ORDER BY specification
 unsafe fn extract_aggregation_spec(
     parse: *mut pg_sys::Query,
     agg_type: AggregateType,
     window_func: *mut pg_sys::WindowFunc,
-) -> AggregationSpec {
+) -> Option<AggregationSpec> {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
     let winref = (*window_func).winref;
 
     if winref == 0 {
         // No window clause - means empty OVER ()
-        return AggregationSpec {
+        return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
-        };
+        });
     }
 
     // Access the WindowClause from the list
     if (*parse).windowClause.is_null() {
-        return AggregationSpec {
+        return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
-        };
+        });
     }
 
     let window_clauses = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause);
@@ -380,66 +354,53 @@ unsafe fn extract_aggregation_spec(
     let window_clause_idx = (winref - 1) as usize;
 
     if window_clause_idx >= window_clauses.len() {
-        return AggregationSpec {
+        return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
-        };
+        });
     }
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
 
-    let grouping_columns = extract_partition_by(parse, (*window_clause).partitionClause);
+    let has_partition_by = has_partition_by(parse, (*window_clause).partitionClause);
+    let has_frame_clause = has_frame_clause(
+        (*window_clause).frameOptions,
+        (*window_clause).startOffset,
+        (*window_clause).endOffset,
+    );
     let orderby_info = extract_order_by(parse, (*window_clause).orderClause);
 
-    AggregationSpec {
-        agg_types: vec![agg_type],
-        grouping_columns,
-        orderby_info,
+    if has_partition_by || has_frame_clause {
+        return None;
     }
+
+    Some(AggregationSpec {
+        agg_types: vec![agg_type],
+        grouping_columns: Vec::new(), // PARTITION BY is not supported for window functions
+        orderby_info,
+    })
 }
 
-/// Extract PARTITION BY columns from partitionClause
-///
-/// Returns GroupingColumn with field_name set and attno=0 (placeholder).
-/// The attno will be filled in later during custom scan planning when we have
-/// access to the relation descriptor.
-unsafe fn extract_partition_by(
-    parse: *mut pg_sys::Query,
-    partition_clause: *mut pg_sys::List,
-) -> Vec<GroupingColumn> {
+/// Check if there's a frame clause
+unsafe fn has_frame_clause(
+    frame_options: i32, // frameOptions is a bitmask containing frame type and bounds
+    start_offset: *mut pg_sys::Node,
+    end_offset: *mut pg_sys::Node,
+) -> bool {
+    const FRAMEOPTION_NONDEFAULT: i32 = 0x00001;
+    // Check if there's a non-default frame clause
+    frame_options & FRAMEOPTION_NONDEFAULT != 0
+}
+
+/// Check if there's a PARTITION BY clause
+unsafe fn has_partition_by(parse: *mut pg_sys::Query, partition_clause: *mut pg_sys::List) -> bool {
     if partition_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
-        return Vec::new();
+        return false;
     }
 
     let partition_list = PgList::<pg_sys::Node>::from_pg(partition_clause);
-    if partition_list.is_empty() {
-        return Vec::new();
-    }
-
-    let mut grouping_columns = Vec::new();
-    for (idx, node) in partition_list.iter_ptr().enumerate() {
-        // Each node should be a SortGroupClause
-        if let Some(sort_clause) = nodecast!(SortGroupClause, T_SortGroupClause, node) {
-            let tle_ref = (*sort_clause).tleSortGroupRef;
-
-            // Resolve directly using target_list
-            let column_name = resolve_tle_ref(tle_ref, (*parse).targetList)
-                .unwrap_or(format!("unresolved_tle_{}", tle_ref));
-            grouping_columns.push(GroupingColumn {
-                field_name: column_name,
-                attno: 0, // Placeholder - will be filled in during custom scan planning
-            });
-        } else if let Some(var) = nodecast!(Var, T_Var, node) {
-            let field_name = resolve_var_with_parse(parse, var)
-                .unwrap_or(format!("unresolved_var_{}", (*var).varattno).into());
-            grouping_columns.push(GroupingColumn {
-                field_name: field_name.into_inner(),
-                attno: 0, // Placeholder - will be filled in during custom scan planning
-            });
-        }
-    }
-    grouping_columns
+    !partition_list.is_empty()
 }
 
 /// Extract ORDER BY specification from orderClause
@@ -495,10 +456,6 @@ pub unsafe fn convert_window_aggregate_filters(
     heap_rti: pg_sys::Index,
 ) {
     for window_agg in window_aggregates.iter_mut() {
-        // Fill in attno values for GROUP BY/PARTITION BY columns
-        // During planner hook time, these were set to 0 (placeholder)
-        window_agg.fill_partition_by_attnos(bm25_index);
-
         // Convert filters for all aggregates in this spec
         for agg_type in &mut window_agg.agg_spec.agg_types {
             // Check if this aggregate has a FILTER

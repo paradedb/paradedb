@@ -112,7 +112,7 @@ trait CollectAggregations<Leaf, Key: AggregationKey> {
     fn variant(&self, leaf: Leaf) -> AggregationVariants;
     fn iter_leaves(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, sub_aggregations: Aggregations) -> Result<Aggregations> {
+    fn collect_nested(&self, sub_aggregations: Aggregations) -> Result<Aggregations> {
         let mut aggregations = sub_aggregations;
         for leaf in self.iter_leaves()? {
             let aggregation = Aggregation {
@@ -120,6 +120,18 @@ trait CollectAggregations<Leaf, Key: AggregationKey> {
                 sub_aggregation: aggregations,
             };
             aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
+        }
+        Ok(aggregations)
+    }
+
+    fn collect_flat(&self, sub_aggregations: Aggregations) -> Result<Aggregations> {
+        let mut aggregations = sub_aggregations;
+        for (idx, leaf) in self.iter_leaves()?.enumerate() {
+            let aggregation = Aggregation {
+                agg: self.variant(leaf),
+                sub_aggregation: aggregations,
+            };
+            aggregations.insert(format!("{}_{}", Key::NAME, idx).to_string(), aggregation);
         }
         Ok(aggregations)
     }

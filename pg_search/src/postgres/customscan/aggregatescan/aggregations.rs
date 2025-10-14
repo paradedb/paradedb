@@ -161,8 +161,8 @@ trait CollectAggregations<Leaf> {
     fn key_name(&self) -> &str;
     fn iter_leaves(&self) -> impl Iterator<Item = Leaf>;
 
-    fn collect(&self) -> Aggregations {
-        let mut aggregations = Aggregations::new();
+    fn collect(&self, sub_aggregations: Aggregations) -> Aggregations {
+        let mut aggregations = sub_aggregations;
         for leaf in self.iter_leaves() {
             let aggregation = Aggregation {
                 agg: self.aggregation_variant(leaf),

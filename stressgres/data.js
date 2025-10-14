@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760471218114,
+  "lastUpdate": 1760471957196,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23548,6 +23548,60 @@ window.BENCHMARK_DATA = {
             "value": 17.71507261030769,
             "unit": "median tps",
             "extra": "avg tps: 17.707561447818794, max tps: 19.928665938134426, count: 55310"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58511ea3e6a898e6fcc4da395eeac5010b8cb747",
+          "message": "chore: move `paradedb.score/snippet/snippet_positions` to the `pdb` schema (#3334)\n\n## What\n\nWe have decided to move `paradedb.score()`, `paradedb.snippet()` and\n`paradedb.snippet_positions()` to the `pdb` schema.\n\n\n🚨This will break all existing queries that use these functions.\n\n## Why\n\nPart of the SQL UX work.\n\n## How\n\nsearch-n-replace\n\n## Tests\n\nMany existing tests updated.",
+          "timestamp": "2025-10-14T14:10:38-04:00",
+          "tree_id": "273a49d6ef01b89216a6ea0f69ed6c0c7bbbb150",
+          "url": "https://github.com/paradedb/paradedb/commit/58511ea3e6a898e6fcc4da395eeac5010b8cb747"
+        },
+        "date": 1760471955264,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.22168107653903,
+            "unit": "median tps",
+            "extra": "avg tps: 39.23573048567576, max tps: 42.57629719290896, count: 55581"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.41369984195674,
+            "unit": "median tps",
+            "extra": "avg tps: 275.14945805137756, max tps: 2900.145541991434, count: 55581"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1050.211500670278,
+            "unit": "median tps",
+            "extra": "avg tps: 1037.1810085159866, max tps: 1068.322557134024, count: 55581"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 117.64904781948877,
+            "unit": "median tps",
+            "extra": "avg tps: 157.07227880146277, max tps: 893.9583941317117, count: 111162"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.15811161998487,
+            "unit": "median tps",
+            "extra": "avg tps: 19.29508518594185, max tps: 20.326267342138472, count: 55581"
           }
         ]
       }

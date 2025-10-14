@@ -65,9 +65,6 @@ pub mod window_functions {
     /// Enable support for `FILTER` clause in window functions.
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 
-    /// Enable support for custom frame clauses (e.g., `ROWS BETWEEN ...`, `RANGE BETWEEN ...`).
-    pub const WINDOW_AGG_FRAME_CLAUSES: bool = false;
-
     /// Supported aggregate functions in window functions
     pub mod aggregates {
         /// Enable support for `COUNT(*)` in window functions.
@@ -117,40 +114,12 @@ pub struct WindowSpecification {
     /// ORDER BY specification (empty if no ordering)
     /// Reuses existing OrderByInfo structure from api module
     pub orderby_info: Vec<OrderByInfo>,
-    /// Window frame clause (None if default)
-    pub frame_clause: Option<FrameClause>,
 }
 
 impl WindowSpecification {
     pub fn result_type_oid(&self) -> pg_sys::Oid {
         self.agg_type.result_type_oid()
     }
-}
-
-/// Window frame clause
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FrameClause {
-    pub frame_type: FrameType,
-    pub start_bound: FrameBound,
-    pub end_bound: Option<FrameBound>,
-}
-
-/// Frame type (ROWS, RANGE, or GROUPS)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum FrameType {
-    Rows,
-    Range,
-    Groups,
-}
-
-/// Frame boundary specification
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum FrameBound {
-    UnboundedPreceding,
-    Preceding(i64),
-    CurrentRow,
-    Following(i64),
-    UnboundedFollowing,
 }
 
 impl WindowSpecification {
@@ -173,10 +142,6 @@ impl WindowSpecification {
         }
         let has_order_by = !self.orderby_info.is_empty();
         if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
-            return false;
-        }
-        let has_frame = self.frame_clause.is_some();
-        if has_frame && !window_functions::WINDOW_AGG_FRAME_CLAUSES {
             return false;
         }
 
@@ -438,7 +403,6 @@ unsafe fn extract_window_specification(
             agg_type,
             partition_by: Vec::new(),
             orderby_info: Vec::new(),
-            frame_clause: None,
         };
     }
 
@@ -448,7 +412,6 @@ unsafe fn extract_window_specification(
             agg_type,
             partition_by: Vec::new(),
             orderby_info: Vec::new(),
-            frame_clause: None,
         };
     }
 
@@ -462,7 +425,6 @@ unsafe fn extract_window_specification(
             agg_type,
             partition_by: Vec::new(),
             orderby_info: Vec::new(),
-            frame_clause: None,
         };
     }
 
@@ -471,18 +433,10 @@ unsafe fn extract_window_specification(
     let partition_by = extract_partition_by(parse, (*window_clause).partitionClause);
     let order_by = extract_order_by(parse, (*window_clause).orderClause);
 
-    // Extract frame clause
-    let frame_clause = extract_frame_clause(
-        (*window_clause).frameOptions,
-        (*window_clause).startOffset,
-        (*window_clause).endOffset,
-    );
-
     WindowSpecification {
         agg_type,
         partition_by,
         orderby_info: order_by,
-        frame_clause,
     }
 }
 
@@ -567,80 +521,6 @@ unsafe fn extract_order_by(
     }
 
     order_by_infos
-}
-
-/// Extract frame clause from frameOptions and offset expressions
-unsafe fn extract_frame_clause(
-    frame_options: i32,
-    start_offset: *mut pg_sys::Node,
-    end_offset: *mut pg_sys::Node,
-) -> Option<FrameClause> {
-    // frameOptions is a bitmask containing frame type and bounds
-    // Defined in windowDefs.h
-
-    const FRAMEOPTION_NONDEFAULT: i32 = 0x00001;
-    #[allow(dead_code)]
-    const FRAMEOPTION_RANGE: i32 = 0x00002;
-    const FRAMEOPTION_ROWS: i32 = 0x00004;
-    const FRAMEOPTION_GROUPS: i32 = 0x00008;
-    const FRAMEOPTION_START_UNBOUNDED_PRECEDING: i32 = 0x00010;
-    const FRAMEOPTION_END_UNBOUNDED_FOLLOWING: i32 = 0x00020;
-    const FRAMEOPTION_START_CURRENT_ROW: i32 = 0x00040;
-    const FRAMEOPTION_END_CURRENT_ROW: i32 = 0x00080;
-    const FRAMEOPTION_START_OFFSET_PRECEDING: i32 = 0x00100;
-    const FRAMEOPTION_END_OFFSET_PRECEDING: i32 = 0x00200;
-    const FRAMEOPTION_START_OFFSET_FOLLOWING: i32 = 0x00400;
-    const FRAMEOPTION_END_OFFSET_FOLLOWING: i32 = 0x00800;
-
-    // Check if there's a non-default frame clause
-    if frame_options & FRAMEOPTION_NONDEFAULT == 0 {
-        return None;
-    }
-
-    // Determine frame type
-    let frame_type = if frame_options & FRAMEOPTION_ROWS != 0 {
-        FrameType::Rows
-    } else if frame_options & FRAMEOPTION_GROUPS != 0 {
-        FrameType::Groups
-    } else {
-        FrameType::Range
-    };
-
-    // Extract start bound
-    let start_bound = if frame_options & FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0 {
-        FrameBound::UnboundedPreceding
-    } else if frame_options & FRAMEOPTION_START_CURRENT_ROW != 0 {
-        FrameBound::CurrentRow
-    } else if frame_options & FRAMEOPTION_START_OFFSET_PRECEDING != 0 {
-        // TODO: Extract offset value from start_offset node
-        FrameBound::Preceding(1)
-    } else if frame_options & FRAMEOPTION_START_OFFSET_FOLLOWING != 0 {
-        // TODO: Extract offset value from start_offset node
-        FrameBound::Following(1)
-    } else {
-        FrameBound::UnboundedPreceding
-    };
-
-    // Extract end bound
-    let end_bound = if frame_options & FRAMEOPTION_END_UNBOUNDED_FOLLOWING != 0 {
-        Some(FrameBound::UnboundedFollowing)
-    } else if frame_options & FRAMEOPTION_END_CURRENT_ROW != 0 {
-        Some(FrameBound::CurrentRow)
-    } else if frame_options & FRAMEOPTION_END_OFFSET_PRECEDING != 0 {
-        // TODO: Extract offset value from end_offset node
-        Some(FrameBound::Preceding(1))
-    } else if frame_options & FRAMEOPTION_END_OFFSET_FOLLOWING != 0 {
-        // TODO: Extract offset value from end_offset node
-        Some(FrameBound::Following(1))
-    } else {
-        None
-    };
-
-    Some(FrameClause {
-        frame_type,
-        start_bound,
-        end_bound,
-    })
 }
 
 /// Extract window_func(json) calls from the processed target list at planning time

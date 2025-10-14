@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760209543499,
+  "lastUpdate": 1760451907585,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3028,6 +3028,72 @@ window.BENCHMARK_DATA = {
             "value": 126.20974907580691,
             "unit": "median tps",
             "extra": "avg tps: 128.3640157935075, max tps: 519.3577621912743, count: 55311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760451905591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 798.24566152953,
+            "unit": "median tps",
+            "extra": "avg tps: 796.4682535566689, max tps: 855.7207850268386, count: 55288"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3364.2531143906276,
+            "unit": "median tps",
+            "extra": "avg tps: 3334.4265511710432, max tps: 3386.642173716014, count: 55288"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 769.5536203981092,
+            "unit": "median tps",
+            "extra": "avg tps: 770.1727788350452, max tps: 793.708649233367, count: 55288"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 683.4911670332682,
+            "unit": "median tps",
+            "extra": "avg tps: 681.0973463676564, max tps: 690.7384885495245, count: 55288"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1718.9180946327765,
+            "unit": "median tps",
+            "extra": "avg tps: 1707.2180870532254, max tps: 1732.2423237216526, count: 110576"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1299.3226217633342,
+            "unit": "median tps",
+            "extra": "avg tps: 1287.7807583302276, max tps: 1307.9775237611607, count: 55288"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 187.22801853817006,
+            "unit": "median tps",
+            "extra": "avg tps: 214.55701936345764, max tps: 708.6501737787389, count: 55288"
           }
         ]
       }

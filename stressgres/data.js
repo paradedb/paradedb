@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760454154270,
+  "lastUpdate": 1760454157111,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26434,6 +26434,114 @@ window.BENCHMARK_DATA = {
             "value": 157.0390625,
             "unit": "median mem",
             "extra": "avg mem: 155.31723493167812, max mem: 157.87109375, count: 55491"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7dd0373aa9ee409c97022d51ba132d3dd7b5707",
+          "message": "feat: add a `unicode_words` tokenizer that keeps emojis by default (#3326)\n\n## What\n\nThis adds a new tokenizer: `pdb.unicode_words` that follows the unicode\nword segmentation rules to split text, along with a special\n`remove_emojis` option (defaults to off). By default\n`::pdb.unicode_words` will preserve emojis as individual tokens\n\n## Why\n\nThe unicode word segmentation rules are good to follow. And many users\nhave asked for emojis, so this understands how to preserve them.\n\n## How\n\n## Tests\n\nyeah, new tests",
+          "timestamp": "2025-10-14T10:07:06-04:00",
+          "tree_id": "0aef76872b3066fe61acd1f86610510480a681f2",
+          "url": "https://github.com/paradedb/paradedb/commit/f7dd0373aa9ee409c97022d51ba132d3dd7b5707"
+        },
+        "date": 1760454155334,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.927206005531744, max cpu: 41.458733, count: 55393"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 156.08392552702958, max mem: 157.12890625, count: 55393"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.67451526935879, max cpu: 28.015566, count: 55393"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.20309968373711, max mem: 113.41015625, count: 55393"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.978756765805831, max cpu: 9.430255, count: 55393"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 144.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 123.37218933066904, max mem: 144.83984375, count: 55393"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30864,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31286.217771198528, max block_count: 63708.0, count: 55393"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.090259720955391, max cpu: 4.655674, count: 55393"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.43469285661094, max mem: 132.45703125, count: 55393"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.83219901431589, max segment_count: 55.0, count: 55393"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.832599063593042, max cpu: 28.015566, count: 110786"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.8736742105839, max mem: 159.10546875, count: 110786"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.136777712327175, max cpu: 27.745665, count: 55393"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 156.100413748127, max mem: 159.28515625, count: 55393"
           }
         ]
       }

@@ -759,12 +759,12 @@ ALTER TYPE pdb.jieba SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_ty
 --   Type(pg_search::api::tokenizers::definitions::pdb::Regex)
 
 
-CREATE TYPE pdb.regex;
-CREATE OR REPLACE FUNCTION pdb.regex_in(cstring) RETURNS pdb.regex AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_out(pdb.regex) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_send(pdb.regex) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_recv(internal) RETURNS pdb.regex AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
-CREATE TYPE pdb.regex (
+CREATE TYPE pdb.regex_pattern;
+CREATE OR REPLACE FUNCTION pdb.regex_in(cstring) RETURNS pdb.regex_pattern AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_out(pdb.regex_pattern) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_send(pdb.regex_pattern) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_recv(internal) RETURNS pdb.regex_pattern AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.regex_pattern (
                           INPUT = pdb.regex_in,
                           OUTPUT = pdb.regex_out,
                           SEND = pdb.regex_send,
@@ -783,7 +783,7 @@ CREATE TYPE pdb.regex (
 --   generic_typmod_out
 --   regex_definition
 
-ALTER TYPE pdb.regex SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+ALTER TYPE pdb.regex_pattern SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -863,7 +863,7 @@ AS 'MODULE_PATHNAME', 'json_to_simple_wrapper';
 -- pg_search/src/api/tokenizers/definitions.rs:297
 -- pg_search::api::tokenizers::definitions::pdb::tokenize_regex
 CREATE  FUNCTION pdb."tokenize_regex"(
-    "s" pdb.regex /* pg_search::api::tokenizers::definitions::pdb::Regex */
+    "s" pdb.regex_pattern /* pg_search::api::tokenizers::definitions::pdb::Regex */
 ) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
@@ -876,7 +876,7 @@ AS 'MODULE_PATHNAME', 'tokenize_regex_wrapper';
 --   regex_definition
 --   tokenize_regex
 
-CREATE CAST (pdb.regex AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
+CREATE CAST (pdb.regex_pattern AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -886,7 +886,7 @@ CREATE CAST (pdb.regex AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
 --   tokenize_regex
 CREATE  FUNCTION pdb."json_to_regex"(
     "json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
-) RETURNS pdb.regex /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
+) RETURNS pdb.regex_pattern /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'json_to_regex_wrapper';
@@ -1053,7 +1053,7 @@ CREATE CAST (jsonb AS pdb.literal) WITH FUNCTION pdb.jsonb_to_literal AS ASSIGNM
 --   tokenize_regex
 CREATE  FUNCTION pdb."jsonb_to_regex"(
     "jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
-) RETURNS pdb.regex /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
+) RETURNS pdb.regex_pattern /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'jsonb_to_regex_wrapper';
@@ -1067,8 +1067,8 @@ AS 'MODULE_PATHNAME', 'jsonb_to_regex_wrapper';
 --   jsonb_to_regex
 
 
-CREATE CAST (json AS pdb.regex) WITH FUNCTION pdb.json_to_regex AS ASSIGNMENT;
-CREATE CAST (jsonb AS pdb.regex) WITH FUNCTION pdb.jsonb_to_regex AS ASSIGNMENT;
+CREATE CAST (json AS pdb.regex_pattern) WITH FUNCTION pdb.json_to_regex AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.regex_pattern) WITH FUNCTION pdb.jsonb_to_regex AS ASSIGNMENT;
 /* </end connected objects> */
 
 /* <begin connected objects> */

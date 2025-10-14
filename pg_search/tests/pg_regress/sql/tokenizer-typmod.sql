@@ -60,9 +60,9 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=turkish')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=foo')::text[]; -- error
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 'ascii_folding=true')::text[];
 
-SELECT 'Running Shoes.  olé'::pdb.regex::text[]; -- error, needs a regular expression
-SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes')::text[];
-SELECT 'Running Shoes.  olé'::pdb.regex('ing|oes', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern::text[]; -- error, needs a regular expression
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern('ing|oes')::text[];
+SELECT 'Running Shoes.  olé'::pdb.regex_pattern('ing|oes', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.source_code::text[];
 SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false')::text[];

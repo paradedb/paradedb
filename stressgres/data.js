@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760468321743,
+  "lastUpdate": 1760468324923,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28054,6 +28054,114 @@ window.BENCHMARK_DATA = {
             "value": 160.95703125,
             "unit": "median mem",
             "extra": "avg mem: 159.2710632944196, max mem: 163.01171875, count: 55229"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760468322927,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.034992213323882, max cpu: 41.901066, count: 55310"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.375,
+            "unit": "median mem",
+            "extra": "avg mem: 133.45322140266228, max mem: 155.375, count: 55310"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.648258483892231, max cpu: 28.070175, count: 55310"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.14457284792533, max mem: 112.40234375, count: 55310"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.967373209607353, max cpu: 9.467456, count: 55310"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 143.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 123.41491840026669, max mem: 144.609375, count: 55310"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 31082,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31540.062267221118, max block_count: 64390.0, count: 55310"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4469206963793635, max cpu: 4.655674, count: 55310"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.15899009559755, max mem: 130.515625, count: 55310"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.7664075212439, max segment_count: 52.0, count: 55310"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.032085666323445, max cpu: 28.318584, count: 110620"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.71747568392922, max mem: 156.33984375, count: 110620"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.47505593700893, max cpu: 32.463768, count: 55310"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 160.625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.52710715738564, max mem: 161.3203125, count: 55310"
           }
         ]
       }

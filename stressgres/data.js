@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760467591606,
+  "lastUpdate": 1760467595165,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20332,6 +20332,108 @@ window.BENCHMARK_DATA = {
             "value": 156.94140625,
             "unit": "median mem",
             "extra": "avg mem: 176.08476418653956, max mem: 216.80859375, count: 56484"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee822a69aa2dad317598beb21f3e19513c029f59",
+          "message": "feat: Make more-like-this (MLT) more usable (#3328)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDocs, various fixing, and testing for the various\nbehaviors/configurations of MLT.\n\n- By default, the MLT query was silently excluding terms that appeared\nless than twice in the input doc, or in fewer than 5 documents in the\nentire index. These defaults have been removed so that no terms are\nsilently excluded by default.\n- By default the MLT query would match against every field in the index,\nbut there was no way to specify a list of fields. Elastic has this\n[ability](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query)\nand now so do we.\n- The various configuration options of MLT were entirely untested and\nundocumented, now they have been.\n- Tantivy's MLT query does not support JSON fields or JSON paths -- we\nnow have an error/docs for this.\n- If a `document_id` is provided that does not exist in the heap, we\nreturn an empty result set instead of erroring.\n- The \"stopwords\" argument was snake case `stop_words` which I didn't\nlike because our stopwords filter is just one word. Now it's just\n`stopwords`.\n\n## Why\n\nBetter UX\n\n## How\n\n## Tests\n\nAdded a regression test",
+          "timestamp": "2025-10-14T14:04:45-04:00",
+          "tree_id": "d7765f2c9a3850136cedfd709015f6a74025aac5",
+          "url": "https://github.com/paradedb/paradedb/commit/ee822a69aa2dad317598beb21f3e19513c029f59"
+        },
+        "date": 1760467593198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.044186501931601715, max background_merging: 1.0, count: 56171"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.826225111771414, max cpu: 9.687184, count: 56171"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 20.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.55305812830464, max mem: 23.0, count: 56171"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.979353579622732, max cpu: 13.832853, count: 56171"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.52473731162434, max mem: 164.96875, count: 56171"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55151,
+            "unit": "median block_count",
+            "extra": "avg block_count: 54992.404372362966, max block_count: 55151.0, count: 56171"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.03386088907087, max segment_count: 55.0, count: 56171"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.005128066637676, max cpu: 32.589718, count: 56171"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 193.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 195.05385730626125, max mem: 246.140625, count: 56171"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.817170173910719, max cpu: 32.36994, count: 56171"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.38702111910504, max mem: 170.49609375, count: 56171"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.781487600939837, max cpu: 33.136093, count: 56171"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157,
+            "unit": "median mem",
+            "extra": "avg mem: 174.48663748308735, max mem: 216.5859375, count: 56171"
           }
         ]
       }

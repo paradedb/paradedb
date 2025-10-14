@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760462212259,
+  "lastUpdate": 1760462215390,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13258,6 +13258,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.86188805114486, max segment_count: 106.0, count: 57562"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7b561efba690df7b6ea6f39f0dd76357213f578",
+          "message": "chore: rename the new `pdb.regex` tokenizer to `pdb.regex_pattern` (#3333)\n\n## What\n\nThe `::pdb.regex` tokenizer type is ambiguous with the existing\n`pdb.regex()` function, making queries like this impossible for Postgres\nto figure out:\n\n```sql\nSELECT * FROM t WHERE f @@@ pdb.regex('b..r');\n```\n\n## Why\n\nIt makes a lot more sense to rename the thing we haven't released yet as\nopposed to the thing we have.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T12:47:59-04:00",
+          "tree_id": "66760231bf612b171f8bba7602676313aaf9f453",
+          "url": "https://github.com/paradedb/paradedb/commit/d7b561efba690df7b6ea6f39f0dd76357213f578"
+        },
+        "date": 1760462213436,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.12893958325835, max cpu: 42.60355, count: 57807"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 230.87282560394934, max mem: 233.5234375, count: 57807"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.590932784899273, max cpu: 33.267326, count: 57807"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.33354862408532, max mem: 163.30859375, count: 57807"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24584,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23453.650198072897, max block_count: 26217.0, count: 57807"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.85550192883215, max segment_count: 108.0, count: 57807"
           }
         ]
       }

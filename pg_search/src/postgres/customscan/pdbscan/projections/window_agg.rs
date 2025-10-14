@@ -238,10 +238,7 @@ impl WindowSpecification {
     /// At this point (execution time), the `attno` field in `partition_by` should already
     /// be filled in by fill_partition_by_attnos() during custom scan planning. If attno is
     /// still 0, that indicates a bug in the planning phase.
-    pub fn window_spec_to_agg_params<'a>(
-        &'a self,
-        base_query: &'a SearchQueryInput,
-    ) -> AggQueryParams<'a> {
+    pub fn to_agg_params<'a>(&'a self, base_query: &'a SearchQueryInput) -> AggQueryParams<'a> {
         AggQueryParams {
             base_query,
             aggregate_types: std::slice::from_ref(&self.agg_type),

@@ -784,6 +784,10 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
 fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     // Setup tables and test data
     r#"
+    -- Create extension
+    DROP EXTENSION IF EXISTS pg_search CASCADE;
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+
     -- Create tables
     CREATE TABLE IF NOT EXISTS company (
         id BIGINT PRIMARY KEY,

@@ -237,10 +237,10 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 ) -> *mut pg_sys::PlannedStmt {
     // Check if this is a SELECT query with window functions that we can handle
     if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
-        let has_window_funcs = query_has_window_functions(parse);
-        let has_search_op = query_has_search_operator(parse);
-
-        if has_window_funcs && has_search_op {
+        // Note: it's important to check for window functions first, then search operator,
+        // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
+        // would cause a panic.
+        if query_has_window_functions(parse) && query_has_search_operator(parse) {
             // Extract and replace window functions recursively (including subqueries)
             replace_windowfuncs_recursively(parse);
         }

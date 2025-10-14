@@ -105,7 +105,8 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("korean_lindera".into(),),
                 ("icu".into(),),
                 ("jieba".into(),),
-                ("lindera".into(),)
+                ("lindera".into(),),
+                ("unicode_words".into(),)
             ]
         );
     } else {
@@ -125,7 +126,8 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("japanese_lindera".into(),),
                 ("korean_lindera".into(),),
                 ("jieba".into(),),
-                ("lindera".into(),)
+                ("lindera".into(),),
+                ("unicode_words".into(),)
             ]
         );
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760572633829,
+  "lastUpdate": 1760572636906,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30802,6 +30802,114 @@ window.BENCHMARK_DATA = {
             "value": 158.01953125,
             "unit": "median mem",
             "extra": "avg mem: 156.40132729701816, max mem: 159.23828125, count: 55670"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49df33136846817586f79ce0d61a736cc2f86e19",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3349)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-15T16:02:41-07:00",
+          "tree_id": "305abe3407bb754ce2daed0320231841d19f521f",
+          "url": "https://github.com/paradedb/paradedb/commit/49df33136846817586f79ce0d61a736cc2f86e19"
+        },
+        "date": 1760572634966,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.561466372484514, max cpu: 37.907207, count: 55406"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 148.46159021022092, max mem: 157.4609375, count: 55406"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.682947458914583, max cpu: 41.65863, count: 55406"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 111.57074897969083, max mem: 112.828125, count: 55406"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.95711880468665, max cpu: 13.899614, count: 55406"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 143.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 122.779518393202, max mem: 144.40234375, count: 55406"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30826,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31254.28150380825, max block_count: 63823.0, count: 55406"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.403721533810523, max cpu: 4.64666, count: 55406"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.1391491050157, max mem: 130.17578125, count: 55406"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.848373822329712, max segment_count: 54.0, count: 55406"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.83729573142142, max cpu: 37.029896, count: 110812"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 143.923417660655, max mem: 160.32421875, count: 110812"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.427056518066866, max cpu: 27.934044, count: 55406"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.5509314903846, max mem: 157.9609375, count: 55406"
           }
         ]
       }

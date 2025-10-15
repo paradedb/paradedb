@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Bundle the Release
         run: make dist

@@ -2,6 +2,12 @@
 title: 0.19.0
 ---
 
+<Note>
+  `0.19.0` contains breaking changes to a few query functions: `paradedb.score`,
+  `paradeb.snippet`, and `paradedb.more_like_this`. These functions have been
+  renamed to `pdb.score`, `pdb.snippet`, and `pdb.more_like_this`.
+</Note>
+
 ## New Features 🎉
 
 ### Broadened Aggregate Pushdown Support
@@ -37,6 +43,17 @@ Previously, logical replication was an enterprise-only feature. We have made thi
 which means that ParadeDB Community can now run as a logical replica.
 
 <Note>Logical replication in ParadeDB is supported for PG17+ only.</Note>
+
+### New v2 API Capabilities
+
+We have made significant progress on the new [v2 API](/v2/overview). A non-exhaustive list of additions includes:
+
+- A new way to specify index configuration options like [tokenizers](/v2/tokenizers/overview) and [token filters](/v2/token_filters/overview) without the
+  old JSON string syntax
+- First class support for [multiple tokenizers per field](/v2/tokenizers/multiple_per_field)
+- New token filters like [alpha numeric only](/v2/token_filters/alpha_numeric) and [token length](/v2/token_filters/token_length)
+- A new way to cast queries to [fuzzy](/v2/full-text/fuzzy), [slop](/v2/full-text/phrase#adding-slop), and [boost](/v2/sorting/boost)
+- An improved [more like this](/v2/query-builder/specialized/more_like_this) function
 
 ## Performance Improvements 🚀
 

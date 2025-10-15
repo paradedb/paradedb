@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760566360305,
+  "lastUpdate": 1760567138044,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17260,6 +17260,54 @@ window.BENCHMARK_DATA = {
             "value": 5.946834789299193,
             "unit": "median tps",
             "extra": "avg tps: 5.930044912669032, max tps: 7.467561045500664, count: 56356"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2dc15e747e59dd0526f12700cd75bbf4b466a5e",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3336)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.",
+          "timestamp": "2025-10-15T14:43:30-07:00",
+          "tree_id": "cb0105fd474cbf8eb168cf6429befb2da9ebabf9",
+          "url": "https://github.com/paradedb/paradedb/commit/d2dc15e747e59dd0526f12700cd75bbf4b466a5e"
+        },
+        "date": 1760567136033,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 848.3666141305544,
+            "unit": "median tps",
+            "extra": "avg tps: 781.1519322971076, max tps: 1066.0281936971687, count: 56050"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1221.0523522130597,
+            "unit": "median tps",
+            "extra": "avg tps: 1170.1719250064994, max tps: 1281.0349390696203, count: 56050"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1975.7618801024087,
+            "unit": "median tps",
+            "extra": "avg tps: 1928.759889637862, max tps: 2144.9320625063515, count: 56050"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.875764603071318,
+            "unit": "median tps",
+            "extra": "avg tps: 5.884469989393043, max tps: 7.442957397792044, count: 56050"
           }
         ]
       }

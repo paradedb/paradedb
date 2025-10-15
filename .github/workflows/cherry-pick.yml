@@ -7,21 +7,38 @@ on:
     types: [closed]
 
 jobs:
-  cherry-pick-to-0-18:
-    name: Cherry Pick to 0.18.x
-    if: |
-      github.event.pull_request.merged == true &&
-      contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.18.x')
+  get-branches:
+    name: Get Cherry Pick Branches
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      branches: ${{ steps.set-branches.outputs.branches }}
+    steps:
+      - name: Set cherry-pick branches
+        id: set-branches
+        run: |
+          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
+          echo "branches=${branches}" >> $GITHUB_OUTPUT
+
+  cherry-pick:
+    name: Cherry Pick
+    needs: get-branches
+    if: needs.get-branches.outputs.branches != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.get-branches.outputs.branches) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Cherry Pick
+      - name: Cherry Pick to ${{ matrix.branch }}
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
-          branch: "0.18.x"
+          branch: ${{ matrix.branch }}
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           inherit_labels: false
           labels: automated-cherry-pick

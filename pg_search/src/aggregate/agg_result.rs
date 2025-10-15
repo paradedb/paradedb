@@ -15,6 +15,48 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Aggregation result processing and format detection
+//!
+//! This module handles the conversion of Tantivy's JSON aggregation results into PostgreSQL
+//! tuples. It supports two distinct JSON formats that Tantivy can produce:
+//!
+//! ## Formats
+//!
+//! ### Direct Format
+//! Used for queries without FILTER clauses:
+//! ```json
+//! {
+//!   "0": {"value": 42},           // First aggregate
+//!   "1": {"value": 3.14},         // Second aggregate
+//!   "grouped": {                  // GROUP BY buckets
+//!     "buckets": [
+//!       {"key": "category1", "doc_count": 10, "0": {...}, "1": {...}},
+//!       {"key": "category2", "doc_count": 20, "0": {...}, "1": {...}}
+//!     ]
+//!   }
+//! }
+//! ```
+//!
+//! ### Filter Format
+//! Used for queries with FILTER clauses (uses Tantivy's FilterAggregation):
+//! ```json
+//! {
+//!   "filter_sentinel": {          // Base query results (all groups)
+//!     "filtered_agg": {
+//!       "grouped": {
+//!         "buckets": [...]
+//!       }
+//!     }
+//!   },
+//!   "filter_0": {                  // First FILTER clause results
+//!     "filtered_agg": {...}
+//!   },
+//!   "filter_1": {                  // Second FILTER clause results
+//!     "filtered_agg": {...}
+//!   }
+//! }
+//! ```
+
 use super::tantivy_keys::{
     DOC_COUNT, FILTERED_AGG, FILTER_PREFIX, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT,
     SUM_OTHER_DOC_COUNT,

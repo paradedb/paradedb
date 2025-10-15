@@ -15,6 +15,74 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Tantivy aggregation execution and result processing
+//!
+//! This module provides the infrastructure for executing SQL aggregations using Tantivy's
+//! aggregation framework. It supports both simple aggregations and GROUP BY queries with
+//! optional FILTER clauses.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! SQL Query (with aggregations)
+//!     ↓
+//! AggregationSpec                    ← Captures what to aggregate
+//!     ↓
+//! AggQueryBuilder                    ← Builds Tantivy aggregation JSON
+//!     ↓
+//! execute_aggregation()              ← Executes query (parallel or sequential)
+//!     ↓
+//! Tantivy JSON Results
+//!     ↓
+//! AggResult::process_results()       ← Converts JSON to PostgreSQL tuples
+//!     ↓
+//! PostgreSQL Result Set
+//! ```
+//!
+//! ## Supported Queries
+//!
+//! ### Simple Aggregations
+//! ```sql
+//! SELECT COUNT(*), SUM(price) FROM products WHERE description @@@ 'search';
+//! ```
+//!
+//! ### GROUP BY
+//! ```sql
+//! SELECT category, COUNT(*) FROM products GROUP BY category;
+//! ```
+//!
+//! ### FILTER Clauses
+//! ```sql
+//! SELECT
+//!     COUNT(*) FILTER (WHERE price > 100),
+//!     COUNT(*) FILTER (WHERE in_stock @@@ 'true')
+//! FROM products;
+//! ```
+//!
+//! ### Mixed Aggregations
+//! ```sql
+//! SELECT
+//!     category,
+//!     COUNT(*),
+//!     COUNT(*) FILTER (WHERE rating @@@ '[4 TO *]')
+//! FROM products
+//! GROUP BY category;
+//! ```
+//!
+//! ## Parallelization
+//!
+//! For large indexes, aggregations can be parallelized across segments:
+//! - Each worker processes a subset of segments
+//! - Results are merged using Tantivy's `DistributedAggregationCollector`
+//! - Parallelization is automatic based on segment count and work_mem
+//!
+//! ## MVCC Support
+//!
+//! The module integrates with PostgreSQL's MVCC system to ensure transaction isolation:
+//! - Uses `MVCCFilterCollector` to filter out invisible documents
+//! - Respects snapshot visibility rules
+//! - Ensures correct results for concurrent transactions
+
 mod agg_builder;
 pub mod agg_result;
 pub mod agg_spec;

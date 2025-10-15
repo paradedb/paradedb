@@ -69,95 +69,7 @@ pub enum AggregateType {
     },
 }
 
-impl AggregateType {
-    pub fn empty_value(&self) -> AggregateValue {
-        match self {
-            // COUNT of empty set is 0
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
-            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-            _ => AggregateValue::Null,
-        }
-    }
-
-    /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
-    pub fn to_tantivy_agg(
-        &self,
-    ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
-        let unfiltered = if self.filter_expr().is_some() {
-            self.convert_filtered_aggregate_to_unfiltered()
-        } else {
-            self.clone()
-        };
-        Ok(serde_json::from_value(unfiltered.to_json())?)
-    }
-    /// Helper function to convert a single filtered aggregate to unfiltered
-    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
-        match self {
-            Self::CountAny { .. } => Self::CountAny { filter: None },
-            Self::Count { field, missing, .. } => Self::Count {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Sum { field, missing, .. } => Self::Sum {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Avg { field, missing, .. } => Self::Avg {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Min { field, missing, .. } => Self::Min {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Max { field, missing, .. } => Self::Max {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-        }
-    }
-
-    fn format_aggregate(&self) -> String {
-        let base = match self {
-            AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
-            AggregateType::Count { field, .. } => format!("COUNT({field})"),
-            AggregateType::Sum { field, .. } => format!("SUM({field})"),
-            AggregateType::Avg { field, .. } => format!("AVG({field})"),
-            AggregateType::Min { field, .. } => format!("MIN({field})"),
-            AggregateType::Max { field, .. } => format!("MAX({field})"),
-        };
-
-        match self.filter_expr() {
-            Some(filter) => {
-                format!("{base} FILTER (WHERE {})", filter.explain_format())
-            }
-            None => base,
-        }
-    }
-
-    pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
-        indices
-            .iter()
-            .map(|&idx| aggregate_types[idx].format_aggregate())
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
-    pub fn result_type_oid(&self) -> pg_sys::Oid {
-        match &self {
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
-            AggregateType::Sum { .. }
-            | AggregateType::Avg { .. }
-            | AggregateType::Min { .. }
-            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
-        }
-    }
-}
+// Moved to consolidate with other impl AggregateType block below
 
 impl ExplainFormat for AggregateType {
     fn explain_format(&self) -> String {
@@ -271,6 +183,99 @@ impl AggregateType {
         let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
 
         Some((agg_type, filter_uses_search_operator))
+    }
+
+    /// Returns the appropriate value for an empty result set
+    pub fn empty_value(&self) -> AggregateValue {
+        match self {
+            // COUNT of empty set is 0
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
+            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
+            _ => AggregateValue::Null,
+        }
+    }
+
+    /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
+    pub fn to_tantivy_agg(
+        &self,
+    ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
+        let unfiltered = if self.filter_expr().is_some() {
+            self.convert_filtered_aggregate_to_unfiltered()
+        } else {
+            self.clone()
+        };
+        Ok(serde_json::from_value(unfiltered.to_json())?)
+    }
+
+    /// Helper function to convert a single filtered aggregate to unfiltered
+    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
+        match self {
+            Self::CountAny { .. } => Self::CountAny { filter: None },
+            Self::Count { field, missing, .. } => Self::Count {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Sum { field, missing, .. } => Self::Sum {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Avg { field, missing, .. } => Self::Avg {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Min { field, missing, .. } => Self::Min {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Max { field, missing, .. } => Self::Max {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+        }
+    }
+
+    /// Format an aggregate for display in EXPLAIN output
+    fn format_aggregate(&self) -> String {
+        let base = match self {
+            AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
+            AggregateType::Count { field, .. } => format!("COUNT({field})"),
+            AggregateType::Sum { field, .. } => format!("SUM({field})"),
+            AggregateType::Avg { field, .. } => format!("AVG({field})"),
+            AggregateType::Min { field, .. } => format!("MIN({field})"),
+            AggregateType::Max { field, .. } => format!("MAX({field})"),
+        };
+
+        match self.filter_expr() {
+            Some(filter) => {
+                format!("{base} FILTER (WHERE {})", filter.explain_format())
+            }
+            None => base,
+        }
+    }
+
+    /// Format multiple aggregates by index for display
+    pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
+        indices
+            .iter()
+            .map(|&idx| aggregate_types[idx].format_aggregate())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Get the PostgreSQL OID for the result type of this aggregate
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        match &self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+        }
     }
 
     /// Get the field name for field-based aggregates (None for COUNT)

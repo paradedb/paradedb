@@ -41,15 +41,17 @@ WITH (key_field = id);
 -- Test 1: Basic CTE query
 -- Find all plants belonging to the 'oak' genus.
 --
-WITH genus_terms AS (
-  SELECT pdb.term_set(id) as terms
-  FROM genus
-  WHERE genus.name @@@ 'oak'
-)
-SELECT plants.id, plants.name
-FROM plants, genus_terms
-WHERE plants.genus_id @@@ genus_terms.terms
-ORDER BY plants.id;
+
+-- NOTE: Using a term_set aggregate as the RHS of `@@@` is not supported in `0.18.x`.
+-- WITH genus_terms AS (
+--   SELECT pdb.term_set(id) as terms
+--   FROM genus
+--   WHERE genus.name @@@ 'oak'
+-- )
+-- SELECT plants.id, plants.name
+-- FROM plants, genus_terms
+-- WHERE plants.genus_id @@@ genus_terms.terms
+-- ORDER BY plants.id;
 
 
 --
@@ -75,15 +77,18 @@ FROM paradedb.aggregate(
 -- Test 3: No matching genus
 -- Search for a genus that does not exist. Should return no plants.
 --
-WITH genus_terms AS (
-  SELECT pdb.term_set(id) as terms
-  FROM genus
-  WHERE genus.name @@@ 'bamboo'
-)
-SELECT plants.id, plants.name
-FROM plants, genus_terms
-WHERE plants.genus_id @@@ genus_terms.terms
-ORDER BY plants.id;
+
+
+-- NOTE: Using a term_set aggregate as the RHS of `@@@` is not supported in `0.18.x`.
+-- WITH genus_terms AS (
+--   SELECT pdb.term_set(id) as terms
+--   FROM genus
+--   WHERE genus.name @@@ 'bamboo'
+-- )
+-- SELECT plants.id, plants.name
+-- FROM plants, genus_terms
+-- WHERE plants.genus_id @@@ genus_terms.terms
+-- ORDER BY plants.id;
 
 
 --

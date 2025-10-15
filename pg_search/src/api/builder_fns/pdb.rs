@@ -673,4 +673,52 @@ mod pdb {
         true,
         OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
     );
+
+    use crate::api::HashSet;
+    use pgrx::aggregate::Aggregate;
+    use pgrx::{pg_sys, Internal};
+
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "term_set"]
+    pub struct TermSetAggI64;
+
+    #[pgrx::pg_aggregate(parallel_safe)]
+    impl Aggregate<TermSetAggI64> for TermSetAggI64 {
+        type Args = i64;
+        type State = Internal;
+        type Finalize = pdb::Query;
+
+        fn state(
+            mut current: Self::State,
+            arg: Self::Args,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
+            inner.insert(arg);
+            current
+        }
+
+        fn combine(
+            mut first: Self::State,
+            mut second: Self::State,
+            _fcinfo: pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            let first_inner = unsafe { first.get_or_insert_default::<HashSet<i64>>() };
+            let second_inner = unsafe { second.get_or_insert_default::<HashSet<i64>>() };
+
+            let unioned: HashSet<i64> = first_inner.union(second_inner).cloned().collect();
+            Internal::new(unioned)
+        }
+
+        fn finalize(
+            mut current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
+            pdb::Query::TermSet {
+                terms: inner.iter().cloned().map(OwnedValue::I64).collect(),
+            }
+        }
+    }
 }

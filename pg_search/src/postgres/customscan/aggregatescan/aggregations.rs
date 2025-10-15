@@ -44,6 +44,30 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::query::{AllQuery, Query, QueryParser};
 
+trait AggregationKey {
+    const NAME: &'static str;
+}
+
+struct GroupedKey;
+impl AggregationKey for GroupedKey {
+    const NAME: &'static str = "grouped";
+}
+
+struct QualKey;
+impl AggregationKey for QualKey {
+    const NAME: &'static str = "filter_sentinel";
+}
+
+struct FilterKey;
+impl AggregationKey for FilterKey {
+    const NAME: &'static str = "filter";
+}
+
+struct FilterAggUngroupedKey;
+impl AggregationKey for FilterAggUngroupedKey {
+    const NAME: &'static str = "filter_agg";
+}
+
 pub(crate) struct AggregateCSClause {
     aggregates: TargetList,
     groupby: GroupByClause,
@@ -53,55 +77,55 @@ pub(crate) struct AggregateCSClause {
     indexrelid: pg_sys::Oid,
 }
 
+struct FilterAggregationMetric(FilterAggregation);
+struct FilterAggregationGroupedQual(Aggregations);
+struct FilterAggregationUngroupedQual(Aggregations);
+
+trait CollectNested<Leaf, Key: AggregationKey> {
+    fn variant(&self, leaf: Leaf) -> AggregationVariants;
+    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+
+    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
+        for leaf in self.into_iter()? {
+            let aggregation = Aggregation {
+                agg: self.variant(leaf),
+                sub_aggregation: aggregations,
+            };
+            aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
+        }
+        Ok(aggregations)
+    }
+}
+
+trait IterFlat<Leaf> {
+    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+}
+
 impl AggregateCSClause {
-    pub fn collect_aggregations(&self) -> Result<Aggregations> {
+    pub fn collect(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
         let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
             self,
             Aggregations::new(),
         )?;
         let has_terms_aggregations = !terms_aggregations.is_empty();
+
         let qual =
             <Self as CollectNested<FilterAggregation, QualKey>>::collect(self, terms_aggregations)?;
 
         let filter_aggregations = <Self as IterFlat<FilterAggregationMetric>>::into_iter(self)?;
         if has_terms_aggregations {
-            let sub_aggregations = <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
-            for (idx, aggregation) in zip_aggregations(filter_aggregations, sub_aggregations).enumerate() {
-                aggregations.insert(
-                    format!("{}_{}", FilterKey::NAME, idx).to_string(),
-                    aggregation,
-                );
-            }
+            let sub_aggregations =
+                <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
+            add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         } else {
             let sub_aggregations =
                 <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
-            for (idx, aggregation) in zip_aggregations(filter_aggregations, sub_aggregations).enumerate() {
-                aggregations.insert(
-                    format!("{}_{}", FilterKey::NAME, idx).to_string(),
-                    aggregation,
-                );
-            }
+            add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         }
 
         Ok(aggregations)
     }
-}
-
-fn zip_aggregations<Left, Right>(
-    aggregations: impl Iterator<Item = Left>,
-    sub_aggregations: impl Iterator<Item = Right>,
-) -> impl Iterator<Item = Aggregation>
-where
-    Left: Into<FilterAggregation>,
-    Right: Into<Aggregations>,
-{
-    aggregations
-        .zip(sub_aggregations)
-        .map(|(aggregation, sub_aggregation)| Aggregation {
-            agg: AggregationVariants::Filter(aggregation.into()),
-            sub_aggregation: sub_aggregation.into(),
-        })
 }
 
 impl AggregateClause<AggregateScan> for AggregateCSClause {
@@ -139,55 +163,6 @@ impl AggregateClause<AggregateScan> for AggregateCSClause {
             indexrelid: index.oid(),
         })
     }
-}
-
-trait AggregationKey {
-    const NAME: &'static str;
-}
-
-struct GroupedKey;
-impl AggregationKey for GroupedKey {
-    const NAME: &'static str = "grouped";
-}
-
-struct QualKey;
-impl AggregationKey for QualKey {
-    const NAME: &'static str = "filter_sentinel";
-}
-
-struct FilterKey;
-impl AggregationKey for FilterKey {
-    const NAME: &'static str = "filter";
-}
-
-struct FilterAggKey;
-impl AggregationKey for FilterAggKey {
-    const NAME: &'static str = "filter_agg";
-}
-
-struct FilterAggGroupedKey;
-impl AggregationKey for FilterAggGroupedKey {
-    const NAME: &'static str = "filter_agg_grouped";
-}
-
-trait CollectNested<Leaf, Key: AggregationKey> {
-    fn variant(&self, leaf: Leaf) -> AggregationVariants;
-    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
-
-    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
-        for leaf in self.into_iter()? {
-            let aggregation = Aggregation {
-                agg: self.variant(leaf),
-                sub_aggregation: aggregations,
-            };
-            aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
-        }
-        Ok(aggregations)
-    }
-}
-
-trait IterFlat<Leaf> {
-    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 }
 
 impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
@@ -249,8 +224,6 @@ impl CollectNested<FilterAggregation, QualKey> for AggregateCSClause {
     }
 }
 
-struct FilterAggregationMetric(FilterAggregation);
-
 impl Into<FilterAggregation> for FilterAggregationMetric {
     fn into(self) -> FilterAggregation {
         self.0
@@ -269,7 +242,6 @@ impl IterFlat<FilterAggregationMetric> for AggregateCSClause {
     }
 }
 
-struct FilterAggregationUngroupedQual(Aggregations);
 impl Into<Aggregations> for FilterAggregationUngroupedQual {
     fn into(self) -> Aggregations {
         self.0
@@ -278,18 +250,22 @@ impl Into<Aggregations> for FilterAggregationUngroupedQual {
 
 impl IterFlat<FilterAggregationUngroupedQual> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationUngroupedQual>> {
-        Ok(self.aggregates.aggregates().into_iter().enumerate().map(|(idx, agg)| {
-            let agg = agg.to_tantivy_agg().expect(&format!(
-                "{:?} should be converted to a Tantivy aggregation",
-                agg
-            ));
-            let sub_agg = Aggregations::from([(format!("{}_{}", FilterKey::NAME, idx), agg)]);
-            FilterAggregationUngroupedQual(sub_agg)
-        }))
+        Ok(self
+            .aggregates
+            .aggregates()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, agg)| {
+                let agg = agg.to_tantivy_agg().expect(&format!(
+                    "{:?} should be converted to a Tantivy aggregation",
+                    agg
+                ));
+                let sub_agg = Aggregations::from([(FilterAggUngroupedKey::NAME.to_string(), agg)]);
+                FilterAggregationUngroupedQual(sub_agg)
+            }))
     }
 }
 
-struct FilterAggregationGroupedQual(Aggregations);
 impl Into<Aggregations> for FilterAggregationGroupedQual {
     fn into(self) -> Aggregations {
         self.0
@@ -352,4 +328,22 @@ pub fn to_tantivy_query(
         NonNull::new(standalone_context.as_ptr()),
         None,
     )?))
+}
+
+#[inline]
+fn add_filter_aggregations<Agg, SubAgg>(
+    aggregations: &mut Aggregations,
+    aggs: impl Iterator<Item = Agg>,
+    sub_aggs: impl Iterator<Item = SubAgg>,
+) where
+    Agg: Into<FilterAggregation>,
+    SubAgg: Into<Aggregations>,
+{
+    for (idx, (aggregation, sub_aggregation)) in aggs.zip(sub_aggs).enumerate() {
+        let agg = Aggregation {
+            agg: AggregationVariants::Filter(aggregation.into()),
+            sub_aggregation: sub_aggregation.into(),
+        };
+        aggregations.insert(format!("{}_{}", FilterKey::NAME, idx), agg);
+    }
 }

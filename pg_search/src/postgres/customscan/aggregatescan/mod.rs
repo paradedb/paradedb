@@ -358,8 +358,7 @@ impl CustomScan for AggregateScan {
             }
         }
 
-        builder.custom_state().agg_spec.aggs = builder.custom_private().agg_spec.aggs.clone();
-        builder.custom_state().agg_spec.groupby = builder.custom_private().agg_spec.groupby.clone();
+        builder.custom_state().agg_spec = builder.custom_private().agg_spec.clone();
         builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();

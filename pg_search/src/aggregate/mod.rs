@@ -20,6 +20,7 @@ use std::ptr::NonNull;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
+use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -33,8 +34,8 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
-use rustc_hash::FxHashSet;
 use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
@@ -171,11 +172,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
     }
 
-    fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
+    fn checkout_segments(&mut self, worker_number: i32) -> HashSet<SegmentId> {
         let nworkers = self.state.launched_workers();
         let nsegments = self.config.total_segments;
 
-        let mut segment_ids = FxHashSet::default();
+        let mut segment_ids = HashSet::default();
         let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
         while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
@@ -318,7 +319,7 @@ pub fn execute_aggregate(
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
+) -> Result<AggregationResults, Box<dyn Error>> {
     unsafe {
         let standalone_context = pg_sys::CreateStandaloneExprContext();
         let reader = SearchIndexReader::open_with_context(
@@ -401,18 +402,14 @@ pub fn execute_aggregate(
             }
 
             // have tantivy finalize the intermediate results from each worker
-            let merged = {
-                let collector = DistributedAggregationCollector::from_aggs(
-                    agg_req.clone(),
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                );
-                collector.merge_fruits(agg_results)?.into_final_result(
-                    agg_req,
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?
-            };
-
-            Ok(serde_json::to_value(merged)?)
+            let collector = DistributedAggregationCollector::from_aggs(
+                agg_req.clone(),
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+            );
+            Ok(collector.merge_fruits(agg_results)?.into_final_result(
+                agg_req,
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+            )?)
         } else {
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
             let segment_ids = reader
@@ -437,13 +434,12 @@ pub fn execute_aggregate(
                 &mut state,
             );
             if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
-                let result = agg_results.into_final_result(
+                Ok(agg_results.into_final_result(
                     agg_req,
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?;
-                Ok(serde_json::to_value(result)?)
+                )?)
             } else {
-                Ok(serde_json::Value::Null)
+                Ok(AggregationResults::default())
             }
         }
     }

@@ -498,7 +498,6 @@ fn execute(
 
     let aggregations = state.custom_state().aggregate_clause.collect().unwrap();
     let query = state.custom_state().aggregate_clause.query().clone();
-
     let result = execute_aggregate(
         state.custom_state().indexrel(),
         query,
@@ -510,7 +509,7 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
 
     pgrx::info!("result: {:?}", result);
-
-    let aggregate_results = state.custom_state().process_aggregation_results(result);
-    aggregate_results.into_iter()
+    todo!()
+    // let aggregate_results = state.custom_state().process_aggregation_results(result);
+    // aggregate_results.into_iter()
 }

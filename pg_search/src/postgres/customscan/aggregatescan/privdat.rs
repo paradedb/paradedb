@@ -69,11 +69,29 @@ pub enum AggregateType {
     },
 }
 
-// Moved to consolidate with other impl AggregateType block below
+impl std::fmt::Display for AggregateType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let base = match self {
+            AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
+            AggregateType::Count { field, .. } => format!("COUNT({field})"),
+            AggregateType::Sum { field, .. } => format!("SUM({field})"),
+            AggregateType::Avg { field, .. } => format!("AVG({field})"),
+            AggregateType::Min { field, .. } => format!("MIN({field})"),
+            AggregateType::Max { field, .. } => format!("MAX({field})"),
+        };
+
+        match self.filter_expr() {
+            Some(filter) => {
+                write!(f, "{base} FILTER (WHERE {})", filter.explain_format())
+            }
+            None => write!(f, "{base}"),
+        }
+    }
+}
 
 impl ExplainFormat for AggregateType {
     fn explain_format(&self) -> String {
-        self.format_aggregate()
+        self.to_string()
     }
 }
 
@@ -239,30 +257,11 @@ impl AggregateType {
         }
     }
 
-    /// Format an aggregate for display in EXPLAIN output
-    fn format_aggregate(&self) -> String {
-        let base = match self {
-            AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
-            AggregateType::Count { field, .. } => format!("COUNT({field})"),
-            AggregateType::Sum { field, .. } => format!("SUM({field})"),
-            AggregateType::Avg { field, .. } => format!("AVG({field})"),
-            AggregateType::Min { field, .. } => format!("MIN({field})"),
-            AggregateType::Max { field, .. } => format!("MAX({field})"),
-        };
-
-        match self.filter_expr() {
-            Some(filter) => {
-                format!("{base} FILTER (WHERE {})", filter.explain_format())
-            }
-            None => base,
-        }
-    }
-
     /// Format multiple aggregates by index for display
     pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
         indices
             .iter()
-            .map(|&idx| aggregate_types[idx].format_aggregate())
+            .map(|&idx| aggregate_types[idx].to_string())
             .collect::<Vec<_>>()
             .join(", ")
     }

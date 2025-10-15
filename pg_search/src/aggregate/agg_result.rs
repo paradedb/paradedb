@@ -97,7 +97,7 @@ impl AggResult {
     }
 
     /// Detect which format Tantivy returned (Direct or Filter)
-    pub fn detect(result: &serde_json::Value, is_simple: bool) -> Self {
+    fn detect(result: &serde_json::Value, is_simple: bool) -> Self {
         let obj = match result.as_object() {
             Some(obj) => obj,
             None => return Self::Direct, // Default for empty results

@@ -62,7 +62,7 @@ impl<'a> AggQueryBuilder<'a> {
     /// Build Tantivy aggregations from SearchQueryInput (execution path)
     pub fn build_tantivy_query(&self, qctx: &QueryContext) -> Result<Aggregations, Box<dyn Error>> {
         self.build_tantivy_query_for(|query_input| {
-            to_tantivy_query(qctx, query_input).map(FilterAggregation::new_with_query)
+            Self::to_tantivy_query(qctx, query_input).map(FilterAggregation::new_with_query)
         })
     }
 
@@ -88,7 +88,7 @@ impl<'a> AggQueryBuilder<'a> {
     {
         if !self.has_filters() {
             // Optimized path: no FILTER clauses, build simpler aggregation structure
-            return self.build_direct();
+            return self.build_without_filters();
         }
 
         // FilterAggregation path: some aggregates have FILTER clauses
@@ -105,9 +105,9 @@ impl<'a> AggQueryBuilder<'a> {
         self.build_with_filters(base_filter, filter_aggregations?)
     }
 
-    /// Build aggregations for queries without FILTER clauses (optimized path)
+    /// Build aggregations for queries without FILTER clauses
     /// Direct aggregation structure without FilterAggregation wrappers
-    pub fn build_direct(&self) -> Result<Aggregations, Box<dyn Error>> {
+    fn build_without_filters(&self) -> Result<Aggregations, Box<dyn Error>> {
         let mut result = HashMap::new();
 
         // Build metrics
@@ -127,7 +127,7 @@ impl<'a> AggQueryBuilder<'a> {
 
     /// Build aggregations for queries with FILTER clauses
     /// Uses FilterAggregation wrappers for each filtered aggregate
-    pub fn build_with_filters(
+    fn build_with_filters(
         &self,
         base_filter: FilterAggregation,
         filter_aggregations: Vec<FilterAggregation>,
@@ -228,7 +228,7 @@ impl<'a> AggQueryBuilder<'a> {
     ///   }
     /// }
     /// ```
-    pub fn build_nested_terms(
+    fn build_nested_terms(
         &self,
         leaf_metrics: HashMap<String, Aggregation>,
     ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
@@ -300,6 +300,30 @@ impl<'a> AggQueryBuilder<'a> {
             })
     }
 
+    /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
+    fn to_tantivy_query(
+        qctx: &QueryContext,
+        filter: Option<&crate::query::SearchQueryInput>,
+    ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
+        Ok(match filter {
+            Some(query) => query.clone().into_tantivy_query(
+                qctx.schema,
+                &|| {
+                    tantivy::query::QueryParser::for_index(
+                        qctx.reader.searcher().index(),
+                        qctx.schema.fields().map(|(f, _)| f).collect(),
+                    )
+                },
+                qctx.reader.searcher(),
+                qctx.index.oid(),
+                qctx.index.heap_relation().map(|r| r.oid()),
+                std::ptr::NonNull::new(qctx.context.as_ptr()),
+                None,
+            )?,
+            None => Box::new(tantivy::query::AllQuery),
+        })
+    }
+
     /// Check if any aggregates have FILTER clauses
     pub fn has_filters(&self) -> bool {
         self.agg_spec
@@ -307,28 +331,4 @@ impl<'a> AggQueryBuilder<'a> {
             .iter()
             .any(|agg| agg.filter_expr().is_some())
     }
-}
-
-/// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
-pub fn to_tantivy_query(
-    qctx: &QueryContext,
-    filter: Option<&crate::query::SearchQueryInput>,
-) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
-    Ok(match filter {
-        Some(query) => query.clone().into_tantivy_query(
-            qctx.schema,
-            &|| {
-                tantivy::query::QueryParser::for_index(
-                    qctx.reader.searcher().index(),
-                    qctx.schema.fields().map(|(f, _)| f).collect(),
-                )
-            },
-            qctx.reader.searcher(),
-            qctx.index.oid(),
-            qctx.index.heap_relation().map(|r| r.oid()),
-            std::ptr::NonNull::new(qctx.context.as_ptr()),
-            None,
-        )?,
-        None => Box::new(tantivy::query::AllQuery),
-    })
 }

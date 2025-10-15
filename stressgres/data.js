@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760570345887,
+  "lastUpdate": 1760570349039,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10096,6 +10096,126 @@ window.BENCHMARK_DATA = {
             "value": 147.453125,
             "unit": "median mem",
             "extra": "avg mem: 126.22700888017022, max mem: 152.015625, count: 55341"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49df33136846817586f79ce0d61a736cc2f86e19",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3349)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-15T16:02:41-07:00",
+          "tree_id": "305abe3407bb754ce2daed0320231841d19f521f",
+          "url": "https://github.com/paradedb/paradedb/commit/49df33136846817586f79ce0d61a736cc2f86e19"
+        },
+        "date": 1760570347041,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.911327740986216, max cpu: 14.443329, count: 55404"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.2155130524195, max mem: 156.87109375, count: 55404"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5514786883590235, max cpu: 4.7904196, count: 55404"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 24.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.49426429048444, max mem: 27.64453125, count: 55404"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.838417536941262, max cpu: 14.145383, count: 55404"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 157.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.38370121347285, max mem: 157.58203125, count: 55404"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.268316693033346, max cpu: 4.733728, count: 55404"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 156.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.5097252962331, max mem: 156.7109375, count: 55404"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.65822100313351, max cpu: 9.580839, count: 110808"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 137.63079422853042, max mem: 158.84375, count: 110808"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27177,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27321.818569056384, max block_count: 54013.0, count: 55404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.581636704931054, max segment_count: 57.0, count: 55404"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.507278324684563, max cpu: 4.7999997, count: 55404"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.70957548755504, max mem: 159.72265625, count: 55404"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2500516849455274, max cpu: 4.6511626, count: 55404"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 126.7019001194634, max mem: 151.99609375, count: 55404"
           }
         ]
       }

@@ -509,6 +509,8 @@ fn execute(
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
 
+    pgrx::info!("result: {:?}", result);
+
     todo!()
     // // Process results using unified result processing
     // let aggregate_results = state.custom_state().process_aggregation_results(result);

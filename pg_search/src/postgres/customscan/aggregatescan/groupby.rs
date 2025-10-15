@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};

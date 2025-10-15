@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan, AggregateType};
+use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;

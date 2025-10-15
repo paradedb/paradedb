@@ -26,7 +26,7 @@ use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::ExprContextGuard;
@@ -39,12 +39,13 @@ use pgrx::pg_sys;
 use pgrx::PgList;
 use std::collections::HashMap;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{CustomOrder, FilterAggregation, OrderTarget, TermsAggregation};
+use tantivy::aggregation::bucket::{CustomOrder, FilterAggregation, OrderTarget, SerializableQuery,TermsAggregation};
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
-use tantivy::query::{AllQuery, Query, QueryParser};
+use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
 
 trait AggregationKey {
     const NAME: &'static str;
@@ -245,10 +246,8 @@ impl CollectNested<FilterAggregation, QualKey> for AggregateCSClause {
     }
 
     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
-        let qual = FilterAggregation::new_with_query(to_tantivy_query(
-            self.indexrelid,
-            self.quals.query(),
-        )?);
+        let query = FilterAggQuery::new(self.quals.query().clone(), self.indexrelid);
+        let qual = FilterAggregation::new_with_query(Box::new(query));
         Ok(vec![qual].into_iter())
     }
 }
@@ -263,10 +262,10 @@ impl IterFlat<FilterAggregationMetric> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationMetric>> {
         Ok(self.aggregates.aggregates().into_iter().map(|agg| {
             let filter_query = match agg.filter_expr() {
-                Some(query) => to_tantivy_query(self.indexrelid, &query).unwrap(),
-                None => Box::new(AllQuery) as Box<dyn Query>,
+                Some(query) => FilterAggQuery::new(query.clone(), self.indexrelid),
+                None => FilterAggQuery::new(SearchQueryInput::All, self.indexrelid),
             };
-            FilterAggregationMetric(FilterAggregation::new_with_query(filter_query))
+            FilterAggregationMetric(FilterAggregation::new_with_query(Box::new(filter_query)))
         }))
     }
 }
@@ -325,38 +324,76 @@ impl IterFlat<FilterAggregationGroupedQual> for AggregateCSClause {
     }
 }
 
-#[inline]
-pub fn to_tantivy_query(
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct FilterAggQuery {
+    query: SearchQueryInput,
     indexrelid: pg_sys::Oid,
-    query: &SearchQueryInput,
-) -> Result<Box<dyn Query>> {
-    let standalone_context = ExprContextGuard::new();
-    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-    let schema = index.schema()?;
-    let reader = SearchIndexReader::open_with_context(
-        &index,
-        query.clone(),
-        false,
-        MvccSatisfies::Snapshot,
-        NonNull::new(standalone_context.as_ptr()),
-        None,
-    )?;
-    let parser = || {
-        QueryParser::for_index(
-            reader.searcher().index(),
-            schema.fields().map(|(f, _)| f).collect(),
-        )
-    };
-    let heap_oid = index.heap_relation().map(|r| r.oid());
-    Ok(Box::new(query.clone().into_tantivy_query(
-        &schema,
-        &parser,
-        reader.searcher(),
-        index.oid(),
-        heap_oid,
-        NonNull::new(standalone_context.as_ptr()),
-        None,
-    )?))
+    #[serde(skip)]
+    tantivy_query: OnceLock<Box<dyn Query>>,
+}
+
+impl Clone for FilterAggQuery {
+    fn clone(&self) -> Self {
+        Self {
+            query: self.query.clone(),
+            indexrelid: self.indexrelid,
+            tantivy_query: OnceLock::new(),
+        }
+    }
+}
+
+impl Query for FilterAggQuery {
+    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        self.tantivy_query
+            .get_or_init(|| self.tantivy_query().unwrap())
+            .weight(enable_scoring)
+    }
+}
+
+impl SerializableQuery for FilterAggQuery {
+    fn clone_box(&self) -> Box<dyn SerializableQuery> {
+        Box::new(self.clone())
+    }
+}
+
+impl FilterAggQuery {
+    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Self {
+        Self {
+            query,
+            indexrelid,
+            tantivy_query: OnceLock::new(),
+        }
+    }
+
+    fn tantivy_query(&self) -> Result<Box<dyn Query>> {
+        let standalone_context = ExprContextGuard::new();
+        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
+        let schema = index.schema()?;
+        let reader = SearchIndexReader::open_with_context(
+            &index,
+            self.query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context.as_ptr()),
+            None,
+        )?;
+        let parser = || {
+            QueryParser::for_index(
+                reader.searcher().index(),
+                schema.fields().map(|(f, _)| f).collect(),
+            )
+        };
+        let heap_oid = index.heap_relation().map(|r| r.oid());
+        Ok(Box::new(self.query.clone().into_tantivy_query(
+            &schema,
+            &parser,
+            reader.searcher(),
+            index.oid(),
+            heap_oid,
+            NonNull::new(standalone_context.as_ptr()),
+            None,
+        )?))
+    }
 }
 
 #[inline]

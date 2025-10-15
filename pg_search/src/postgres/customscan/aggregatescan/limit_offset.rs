@@ -17,7 +17,7 @@
 
 use crate::gucs;
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;

@@ -20,6 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
+use crate::aggregate::agg_spec::AggregationSpec;
 use crate::aggregate::{execute_aggregation, AggQueryBuilder};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
@@ -305,7 +306,7 @@ impl CustomScan for AggregateScan {
             && limit.is_none();
 
         Some(builder.build(PrivateData {
-            agg_spec: crate::aggregate::agg_spec::AggregationSpec {
+            agg_spec: AggregationSpec {
                 aggs: aggregate_types,
                 groupby: grouping_columns,
             },

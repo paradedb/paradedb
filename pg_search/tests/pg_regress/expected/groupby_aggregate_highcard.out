@@ -21,14 +21,14 @@ SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: rating
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}},"filter":"*"}}
+     Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
 (6 rows)
 
 -- Limit + offset exceeds max_term_agg_buckets
@@ -86,8 +86,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: rating, (now())
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
@@ -98,7 +98,7 @@ LIMIT 5 OFFSET 5;
            Group By: rating
            Limit: 5
            Offset: 5
-           Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}},"filter":"*"}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
 (11 rows)
 
 SELECT rating, COUNT(*) FROM products
@@ -160,8 +160,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
-                                                                                                                                           QUERY PLAN                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: rating, (now())
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
@@ -171,7 +171,7 @@ LIMIT 0;
            Applies to Aggregates: COUNT(*)
            Group By: rating
            Limit: 0
-           Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":0,"size":0}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":0,"size":0}}},"filter":"*"}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":0,"size":0}}}
 (10 rows)
 
 SELECT rating, COUNT(*) FROM products

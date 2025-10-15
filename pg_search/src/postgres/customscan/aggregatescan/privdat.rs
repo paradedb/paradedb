@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::aggregate::agg_spec::AggregationSpec;
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -145,6 +146,16 @@ impl AggregateType {
             .map(|&idx| aggregate_types[idx].format_aggregate())
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        match &self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+        }
     }
 }
 
@@ -478,12 +489,11 @@ pub enum TargetListEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
-    pub aggregate_types: Vec<AggregateType>,
+    pub agg_spec: AggregationSpec,
+    pub orderby_info: Vec<OrderByInfo>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
-    pub grouping_columns: Vec<GroupingColumn>,
-    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
     pub has_order_by: bool,
     pub limit: Option<u32>,

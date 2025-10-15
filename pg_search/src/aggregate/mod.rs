@@ -15,14 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod agg_builder;
+pub mod agg_result;
+pub mod agg_spec;
+
 use std::error::Error;
 use std::ptr::NonNull;
 
+use crate::aggregate::agg_spec::AggregationSpec;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::OrderByInfo;
-use crate::api::{FieldName, OrderByFeature};
-use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -34,30 +37,19 @@ use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, Groupin
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{sort_json_keys, ExprContextGuard};
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::QueryContext;
 use crate::query::SearchQueryInput;
+// Re-export AggQueryBuilder as the main public interface
+pub use agg_builder::AggQueryBuilder;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
-use std::collections::HashMap;
 use tantivy::aggregation::agg_req::Aggregations;
-use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
-
-/// Bundle of query building parameters (SQL aggregation definition)
-pub struct AggQueryParams<'a> {
-    pub base_query: &'a SearchQueryInput,
-    pub aggregate_types: &'a [AggregateType],
-    pub grouping_columns: &'a [GroupingColumn],
-    pub orderby_info: &'a [OrderByInfo],
-    pub limit: &'a Option<u32>,
-    pub offset: &'a Option<u32>,
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -145,7 +137,7 @@ impl ParallelAggregation {
     /// Create for SQL aggregations
     pub fn new(
         indexrelid: pg_sys::Oid,
-        qparams: &AggQueryParams,
+        builder: &AggQueryBuilder,
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
@@ -153,11 +145,11 @@ impl ParallelAggregation {
         ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
         let mode = AggregationMode::Sql {
-            aggregate_types: qparams.aggregate_types.to_vec(),
-            grouping_columns: qparams.grouping_columns.to_vec(),
-            orderby_info: qparams.orderby_info.to_vec(),
-            limit: *qparams.limit,
-            offset: *qparams.offset,
+            aggregate_types: builder.agg_spec.aggs.clone(),
+            grouping_columns: builder.agg_spec.groupby.clone(),
+            orderby_info: builder.orderby_info.to_vec(),
+            limit: *builder.limit,
+            offset: *builder.offset,
         };
 
         Ok(Self {
@@ -173,7 +165,7 @@ impl ParallelAggregation {
                 memory_limit,
                 bucket_limit,
             },
-            base_query_bytes: serde_json::to_vec(qparams.base_query)?,
+            base_query_bytes: serde_json::to_vec(builder.base_query)?,
             mode_bytes: serde_json::to_vec(&mode)?,
             segment_ids,
             ambulkdelete_epoch,
@@ -326,15 +318,17 @@ impl<'a> ParallelAggregationWorker<'a> {
                     .schema()
                     .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
                 let qctx = QueryContext::new(&schema, &reader, &indexrel, standalone_context);
-                let qparams = AggQueryParams {
-                    base_query: &self.base_query,
-                    aggregate_types,
-                    grouping_columns,
-                    orderby_info,
-                    limit,
-                    offset,
+
+                // Reconstruct AggregationSpec from deserialized fields
+                let agg_spec = AggregationSpec {
+                    aggs: aggregate_types.clone(),
+                    groupby: grouping_columns.clone(),
                 };
-                build_aggregation_query_from_search_input(&qctx, &qparams)
+
+                let builder =
+                    AggQueryBuilder::new(&self.base_query, &agg_spec, orderby_info, limit, offset);
+                builder
+                    .build_aggregation_query_from_search_input(&qctx)
                     .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
             }
         };
@@ -438,7 +432,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 ///
 /// # Arguments
 /// * `index` - Postgres relation to aggregate over
-/// * `qparams` - SQL aggregation query parameters (base_query, aggregate_types, grouping_columns, orderby_info)
+/// * `builder` - Aggregation builder with query parameters
 /// * `solve_mvcc` - Apply MVCC visibility filtering
 /// * `memory_limit` - Max memory for aggregation (typically work_mem)
 /// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
@@ -447,13 +441,13 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 /// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
 pub fn execute_aggregation(
     index: &PgSearchRelation,
-    qparams: &AggQueryParams,
+    builder: &AggQueryBuilder,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
-        open_index_for_aggregation(index, qparams.base_query, MvccSatisfies::Snapshot)?;
+        open_index_for_aggregation(index, builder.base_query, MvccSatisfies::Snapshot)?;
 
     let schema = index
         .schema()
@@ -461,7 +455,7 @@ pub fn execute_aggregation(
 
     let qctx = QueryContext::new(&schema, &reader, index, standalone_context);
 
-    let aggregations = build_aggregation_query_from_search_input(&qctx, qparams)?;
+    let aggregations = builder.build_aggregation_query_from_search_input(&qctx)?;
 
     // Determine if we can use parallel execution
     let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
@@ -471,7 +465,7 @@ pub fn execute_aggregation(
         // Parallel execution
         let process = ParallelAggregation::new(
             index.oid(),
-            qparams,
+            builder,
             solve_mvcc,
             memory_limit,
             bucket_limit,
@@ -498,7 +492,7 @@ pub fn execute_aggregation(
     // Sequential execution
     execute_sequential(
         aggregations,
-        qparams.base_query,
+        builder.base_query,
         ambulkdelete_epoch,
         segment_ids,
         index.oid(),
@@ -663,185 +657,6 @@ pub fn execute_aggregate_json(
         memory_limit,
         bucket_limit,
     )
-}
-
-/// Build Tantivy aggregations from SearchQueryInput (execution path)
-pub fn build_aggregation_query_from_search_input(
-    qctx: &QueryContext,
-    qparams: &AggQueryParams,
-) -> Result<Aggregations, Box<dyn Error>> {
-    // Convert base query to FilterAggregation
-    let base_query_tantivy = to_tantivy_query(qctx, Some(qparams.base_query))?;
-    let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
-
-    // Convert filter queries to FilterAggregations
-    let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = qparams
-        .aggregate_types
-        .iter()
-        .map(|agg| {
-            to_tantivy_query(qctx, agg.filter_expr().as_ref())
-                .map(FilterAggregation::new_with_query)
-        })
-        .collect();
-
-    build_aggregation_query(base_filter, filter_aggregations?, qparams)
-}
-
-/// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
-fn to_tantivy_query(
-    qctx: &QueryContext,
-    filter: Option<&SearchQueryInput>,
-) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
-    Ok(match filter {
-        Some(query) => query.clone().into_tantivy_query(
-            qctx.schema,
-            &|| {
-                tantivy::query::QueryParser::for_index(
-                    qctx.reader.searcher().index(),
-                    qctx.schema.fields().map(|(f, _)| f).collect(),
-                )
-            },
-            qctx.reader.searcher(),
-            qctx.index.oid(),
-            qctx.index.heap_relation().map(|r| r.oid()),
-            std::ptr::NonNull::new(qctx.context.as_ptr()),
-            None,
-        )?,
-        None => Box::new(tantivy::query::AllQuery),
-    })
-}
-
-/// Build Tantivy aggregations with consistent FilterAggregation structure
-/// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
-/// This ensures result processing is unified and simple
-///
-/// Accepts pre-constructed `FilterAggregation` objects, allowing this function to be used:
-/// - At execution time: with `FilterAggregation::new_with_query(query)`
-/// - At planning/EXPLAIN time: with `FilterAggregation::new("*".to_string())` (serializable)
-pub fn build_aggregation_query(
-    base_filter: FilterAggregation,
-    filter_aggregations: Vec<FilterAggregation>,
-    qparams: &AggQueryParams,
-) -> Result<Aggregations, Box<dyn Error>> {
-    let mut result = HashMap::new();
-
-    // Build nested terms structure if we have grouping columns
-    let nested_terms = if !qparams.grouping_columns.is_empty() {
-        Some(build_nested_terms(qparams, HashMap::new())?)
-    } else {
-        None
-    };
-
-    // Sentinel filter: always present, ensures we get ALL groups (or single row for simple aggs)
-    // Uses base_query to match all documents in the WHERE clause
-    result.insert(
-        "filter_sentinel".to_string(),
-        Aggregation {
-            agg: AggregationVariants::Filter(base_filter),
-            sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
-        },
-    );
-
-    // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
-    for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
-        let filter_agg = filter_aggregations
-            .get(idx)
-            .ok_or_else(|| format!("Missing filter aggregation for aggregate {}", idx))?;
-        let base = AggregateType::to_tantivy_agg(agg)?;
-
-        let sub_aggs = if nested_terms.is_some() {
-            // GROUP BY: filter -> grouped -> buckets -> metric
-            let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(qparams, metric_leaf)?
-        } else {
-            // No GROUP BY: filter -> filtered_agg (metric)
-            HashMap::from([("filtered_agg".to_string(), base)])
-        };
-
-        result.insert(
-            format!("filter_{idx}"),
-            Aggregation {
-                agg: AggregationVariants::Filter(filter_agg.clone()),
-                sub_aggregation: Aggregations::from(sub_aggs),
-            },
-        );
-    }
-
-    Ok(Aggregations::from(result))
-}
-
-/// Build aggregation JSON for EXPLAIN output (no QueryContext needed)
-/// Uses query strings ("*") instead of Query objects, making the output serializable
-pub fn build_aggregation_json_for_explain(
-    qparams: &AggQueryParams,
-) -> Result<String, Box<dyn Error>> {
-    // Use serializable FilterAggregations with query strings
-    let base_filter = FilterAggregation::new("*".to_string());
-    let filter_aggregations: Vec<FilterAggregation> = qparams
-        .aggregate_types
-        .iter()
-        .map(|_| FilterAggregation::new("*".to_string()))
-        .collect();
-
-    let aggregations = build_aggregation_query(base_filter, filter_aggregations, qparams)?;
-
-    // Serialize to JSON and sort keys for deterministic output
-    let mut json_value = serde_json::to_value(&aggregations)?;
-    sort_json_keys(&mut json_value);
-    Ok(serde_json::to_string(&json_value)?)
-}
-
-/// Build nested TermsAggregations from innermost to outermost
-/// Returns map with "grouped" key containing the outermost terms aggregation
-fn build_nested_terms(
-    qparams: &AggQueryParams,
-    leaf_aggs: HashMap<String, Aggregation>,
-) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
-    let mut current = leaf_aggs;
-    let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
-
-    for column in qparams.grouping_columns.iter().rev() {
-        // Find ORDER BY info for this column
-        let orderby = qparams.orderby_info.iter().find(|info| {
-            if let OrderByFeature::Field(field_name) = &info.feature {
-                field_name == &FieldName::from(column.field_name.clone())
-            } else {
-                false
-            }
-        });
-
-        // Calculate size based on LIMIT/OFFSET
-        let size = if let Some(limit) = qparams.limit {
-            (limit + qparams.offset.unwrap_or(0)).min(max_term_agg_buckets)
-        } else {
-            max_term_agg_buckets
-        };
-
-        // Build terms aggregation JSON with optional ORDER BY
-        let mut terms_json = serde_json::json!({
-            "field": column.field_name,
-            "size": size,
-            // because we currently support ordering only by the grouping columns, the Top N
-            // of all segments is guaranteed to contain the global Top N
-            // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
-            // and we can no longer set segment_size (per segment top N) = size (global top N)
-            "segment_size": size
-        });
-
-        // Add order if specified
-        if let Some(orderby) = orderby {
-            terms_json["order"] = serde_json::json!({ "_key": orderby.direction.as_ref() });
-        }
-
-        let terms_agg = Aggregation {
-            agg: serde_json::from_value(serde_json::json!({ "terms": terms_json }))?,
-            sub_aggregation: current,
-        };
-
-        current = HashMap::from([("grouped".to_string(), terms_agg)]);
-    }
-
-    Ok(current)
 }
 
 /// Type alias for the return value of open_index_for_aggregation

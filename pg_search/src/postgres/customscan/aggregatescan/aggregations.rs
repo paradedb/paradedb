@@ -30,7 +30,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::query::QueryContext;
+use crate::query::{QueryContext, SearchQueryInput};
 
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -56,49 +56,52 @@ pub(crate) struct AggregateCSClause {
 impl AggregateCSClause {
     pub fn collect_aggregations(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
-        let terms_aggregations =
-            <Self as CollectAggregations<TermsAggregation, GroupedKey>>::collect_nested(
-                self,
-                Aggregations::new(),
-            )?;
-        let filter_aggregations =
-            <Self as CollectAggregations<FilterAggregation, QualKey>>::collect_nested(
-                self,
-                Aggregations::new(),
-            )?;
-
-        todo!()
-    }
-
-    pub fn search_query(&self) -> Result<Box<dyn Query>> {
-        let standalone_context = ExprContextGuard::new();
-        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-        let schema = index.schema()?;
-        let reader = SearchIndexReader::open_with_context(
-            &index,
-            self.quals  .query().clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
+        let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+            self,
+            Aggregations::new(),
         )?;
-        let parser = || {
-            QueryParser::for_index(
-                reader.searcher().index(),
-                schema.fields().map(|(f, _)| f).collect(),
-            )
-        };
-        let heap_oid = index.heap_relation().map(|r| r.oid());
-        Ok(Box::new(self.quals.query().clone().into_tantivy_query(
-            &schema,
-            &parser,
-            reader.searcher(),
-            index.oid(),
-            heap_oid,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?))
+        let has_terms_aggregations = !terms_aggregations.is_empty();
+        let qual =
+            <Self as CollectNested<FilterAggregation, QualKey>>::collect(self, terms_aggregations)?;
+
+        let filter_aggregations = <Self as IterFlat<FilterAggregationMetric>>::into_iter(self)?;
+        if has_terms_aggregations {
+            let sub_aggregations = <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
+            for (idx, aggregation) in zip_aggregations(filter_aggregations, sub_aggregations).enumerate() {
+                aggregations.insert(
+                    format!("{}_{}", FilterKey::NAME, idx).to_string(),
+                    aggregation,
+                );
+            }
+        } else {
+            let sub_aggregations =
+                <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
+            for (idx, aggregation) in zip_aggregations(filter_aggregations, sub_aggregations).enumerate() {
+                aggregations.insert(
+                    format!("{}_{}", FilterKey::NAME, idx).to_string(),
+                    aggregation,
+                );
+            }
+        }
+
+        Ok(aggregations)
     }
+}
+
+fn zip_aggregations<Left, Right>(
+    aggregations: impl Iterator<Item = Left>,
+    sub_aggregations: impl Iterator<Item = Right>,
+) -> impl Iterator<Item = Aggregation>
+where
+    Left: Into<FilterAggregation>,
+    Right: Into<Aggregations>,
+{
+    aggregations
+        .zip(sub_aggregations)
+        .map(|(aggregation, sub_aggregation)| Aggregation {
+            agg: AggregationVariants::Filter(aggregation.into()),
+            sub_aggregation: sub_aggregation.into(),
+        })
 }
 
 impl AggregateClause<AggregateScan> for AggregateCSClause {
@@ -157,12 +160,22 @@ impl AggregationKey for FilterKey {
     const NAME: &'static str = "filter";
 }
 
-trait CollectAggregations<Leaf, Key: AggregationKey> {
-    fn variant(&self, leaf: Leaf) -> AggregationVariants;
-    fn iter_leaves(&self) -> Result<impl Iterator<Item = Leaf>>;
+struct FilterAggKey;
+impl AggregationKey for FilterAggKey {
+    const NAME: &'static str = "filter_agg";
+}
 
-    fn collect_nested(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
-        for leaf in self.iter_leaves()? {
+struct FilterAggGroupedKey;
+impl AggregationKey for FilterAggGroupedKey {
+    const NAME: &'static str = "filter_agg_grouped";
+}
+
+trait CollectNested<Leaf, Key: AggregationKey> {
+    fn variant(&self, leaf: Leaf) -> AggregationVariants;
+    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+
+    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
+        for leaf in self.into_iter()? {
             let aggregation = Aggregation {
                 agg: self.variant(leaf),
                 sub_aggregation: aggregations,
@@ -171,24 +184,18 @@ trait CollectAggregations<Leaf, Key: AggregationKey> {
         }
         Ok(aggregations)
     }
-
-    fn collect_flat(&self, mut aggregations: Aggregations) -> Result<Aggregations>
-    where
-        Leaf: Into<Aggregation>,
-    {
-        for (idx, leaf) in self.iter_leaves()?.enumerate() {
-            aggregations.insert(format!("{}_{}", Key::NAME, idx).to_string(), leaf.into());
-        }
-        Ok(aggregations)
-    }
 }
 
-impl CollectAggregations<TermsAggregation, GroupedKey> for AggregateCSClause {
+trait IterFlat<Leaf> {
+    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+}
+
+impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
     fn variant(&self, leaf: TermsAggregation) -> AggregationVariants {
         AggregationVariants::Terms(leaf)
     }
 
-    fn iter_leaves(&self) -> Result<impl Iterator<Item = TermsAggregation>> {
+    fn into_iter(&self) -> Result<impl Iterator<Item = TermsAggregation>> {
         let orderby_info = self.orderby.orderby_info();
 
         let size = {
@@ -228,25 +235,121 @@ impl CollectAggregations<TermsAggregation, GroupedKey> for AggregateCSClause {
     }
 }
 
-impl CollectAggregations<FilterAggregation, QualKey> for AggregateCSClause {
+impl CollectNested<FilterAggregation, QualKey> for AggregateCSClause {
     fn variant(&self, leaf: FilterAggregation) -> AggregationVariants {
         AggregationVariants::Filter(leaf)
     }
 
-    fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
-        let qual = FilterAggregation::new_with_query(self.search_query()?);
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
+        let qual = FilterAggregation::new_with_query(to_tantivy_query(
+            self.indexrelid,
+            &self.quals.query(),
+        )?);
         Ok(vec![qual].into_iter())
     }
 }
 
-// impl CollectAggregations<Aggregation, FilterKey> for AggregateCSClause {
-//     fn variant(&self, leaf: Aggregation) -> AggregationVariants {
-//         unimplemented!()
-//     }
+struct FilterAggregationMetric(FilterAggregation);
 
-//     fn iter_leaves(&self) -> Result<impl Iterator<Item = Aggregation>> {
-//         // for (idx, agg) in self.aggregates.aggregates.into_iter().enumerate() {
-//         //     let filter_expr = agg.filter_expr();
-//         unimplemented!()
-//     }
-// }
+impl Into<FilterAggregation> for FilterAggregationMetric {
+    fn into(self) -> FilterAggregation {
+        self.0
+    }
+}
+
+impl IterFlat<FilterAggregationMetric> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationMetric>> {
+        Ok(self.aggregates.aggregates().into_iter().map(|agg| {
+            let filter_query = match agg.filter_expr() {
+                Some(query) => to_tantivy_query(self.indexrelid, &query).unwrap(),
+                None => Box::new(AllQuery) as Box<dyn Query>,
+            };
+            FilterAggregationMetric(FilterAggregation::new_with_query(filter_query))
+        }))
+    }
+}
+
+struct FilterAggregationUngroupedQual(Aggregations);
+impl Into<Aggregations> for FilterAggregationUngroupedQual {
+    fn into(self) -> Aggregations {
+        self.0
+    }
+}
+
+impl IterFlat<FilterAggregationUngroupedQual> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationUngroupedQual>> {
+        Ok(self.aggregates.aggregates().into_iter().enumerate().map(|(idx, agg)| {
+            let agg = agg.to_tantivy_agg().expect(&format!(
+                "{:?} should be converted to a Tantivy aggregation",
+                agg
+            ));
+            let sub_agg = Aggregations::from([(format!("{}_{}", FilterKey::NAME, idx), agg)]);
+            FilterAggregationUngroupedQual(sub_agg)
+        }))
+    }
+}
+
+struct FilterAggregationGroupedQual(Aggregations);
+impl Into<Aggregations> for FilterAggregationGroupedQual {
+    fn into(self) -> Aggregations {
+        self.0
+    }
+}
+
+impl IterFlat<FilterAggregationGroupedQual> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationGroupedQual>> {
+        Ok(self
+            .aggregates
+            .aggregates()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, agg)| {
+                let metric_agg = agg.to_tantivy_agg().expect(&format!(
+                    "{:?} should be converted to a Tantivy aggregation",
+                    agg
+                ));
+                let sub_agg = Aggregations::from([(idx.to_string(), metric_agg)]);
+                let terms_agg = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+                    self,
+                    Aggregations::from(sub_agg),
+                )
+                .unwrap();
+
+                FilterAggregationGroupedQual(terms_agg)
+            }))
+    }
+}
+
+#[inline]
+pub fn to_tantivy_query(
+    indexrelid: pg_sys::Oid,
+    query: &SearchQueryInput,
+) -> Result<Box<dyn Query>> {
+    let standalone_context = ExprContextGuard::new();
+    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    let schema = index.schema()?;
+    let reader = SearchIndexReader::open_with_context(
+        &index,
+        query.clone(),
+        false,
+        MvccSatisfies::Snapshot,
+        NonNull::new(standalone_context.as_ptr()),
+        None,
+    )?;
+    let parser = || {
+        QueryParser::for_index(
+            reader.searcher().index(),
+            schema.fields().map(|(f, _)| f).collect(),
+        )
+    };
+    let heap_oid = index.heap_relation().map(|r| r.oid());
+    Ok(Box::new(query.clone().into_tantivy_query(
+        &schema,
+        &parser,
+        reader.searcher(),
+        index.oid(),
+        heap_oid,
+        NonNull::new(standalone_context.as_ptr()),
+        None,
+    )?))
+}

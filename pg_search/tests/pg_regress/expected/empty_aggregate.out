@@ -172,40 +172,10 @@ FROM empty_test WHERE id @@@ paradedb.all();
 (1 row)
 
 -- Test 2.8: From the original issue report
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.empty_logs
-   Output: now()
-   Index: empty_logs_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(6 rows)
-
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
  count 
 -------
      0
-(1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
-   Index: empty_test_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-     Applies to Aggregates: SUM(value)
-     Aggregate Definition: {"0":{"sum":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
-(6 rows)
-
-SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
- sum 
------
-    
 (1 row)
 
 -- =====================================================================

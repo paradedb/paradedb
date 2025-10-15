@@ -58,9 +58,10 @@
 //! ```
 
 use super::tantivy_keys::{
-    DOC_COUNT, FILTERED_AGG, FILTER_PREFIX, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT,
-    SUM_OTHER_DOC_COUNT,
+    BUCKETS, DOC_COUNT, FILTERED_AGG, FILTER_PREFIX, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT,
+    KEY, SUM_OTHER_DOC_COUNT,
 };
+use crate::aggregate::agg_spec::AggregationSpec;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue,
@@ -68,8 +69,11 @@ use crate::postgres::customscan::aggregatescan::privdat::{
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateRow, AggregateScanState, GroupedAggregateRow,
 };
+use crate::postgres::types::TantivyValue;
+use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
+use tantivy::schema::OwnedValue;
 
 /// Represents the format of aggregation results from Tantivy
 #[derive(Debug, Clone, Copy)]
@@ -214,6 +218,10 @@ impl AggResult {
 
         let mut rows = Vec::new();
 
+        let schema = state
+            .indexrel()
+            .schema()
+            .expect("indexrel should have a schema");
         match self {
             Self::Direct => {
                 // Direct format: {"grouped": {...}}
@@ -221,7 +229,15 @@ impl AggResult {
                     .get(GROUPED)
                     .expect("Direct GROUP BY results should have grouped structure");
 
-                state.walk_grouped_buckets(grouped, None, 0, &mut Vec::new(), &mut rows);
+                Self::walk_grouped_buckets(
+                    &state.agg_spec,
+                    &schema,
+                    grouped,
+                    None,
+                    0,
+                    &mut Vec::new(),
+                    &mut rows,
+                );
             }
             Self::Filter => {
                 // FilterAggregation format: {"filter_sentinel": {...}, "filter_0": {...}}
@@ -240,7 +256,9 @@ impl AggResult {
                     })
                     .collect();
 
-                state.walk_grouped_buckets(
+                Self::walk_grouped_buckets(
+                    &state.agg_spec,
+                    &schema,
                     sentinel_grouped,
                     Some(&filter_results),
                     0,
@@ -263,6 +281,72 @@ impl AggResult {
         }
 
         rows
+    }
+
+    /// Walk grouped buckets recursively, collecting group keys and aggregate values
+    ///
+    /// For Direct format: filter_results is None, aggregates are in the bucket
+    /// For Filter format: filter_results contains lookup table for filtered aggregates
+    pub(crate) fn walk_grouped_buckets(
+        agg_spec: &AggregationSpec,
+        schema: &SearchIndexSchema,
+        grouped: &serde_json::Value,
+        filter_results: Option<&[(usize, &serde_json::Value)]>,
+        depth: usize,
+        group_keys: &mut Vec<OwnedValue>,
+        output_rows: &mut Vec<GroupedAggregateRow>,
+    ) {
+        let buckets = match grouped.get(BUCKETS).and_then(|b| b.as_array()) {
+            Some(b) => b,
+            None => return,
+        };
+
+        if depth >= agg_spec.groupby.len() {
+            return;
+        }
+
+        let grouping_column = &agg_spec.groupby[depth];
+
+        for bucket in buckets {
+            let bucket_obj = bucket.as_object().expect("bucket should be object");
+
+            // Extract and store group key
+            let key_json = bucket_obj.get(KEY).expect("bucket should have key");
+            let key_owned =
+                Self::json_value_to_owned_value(schema, key_json, &grouping_column.field_name);
+            group_keys.push(key_owned.clone());
+
+            if depth + 1 == agg_spec.groupby.len() {
+                // Leaf level - extract aggregate values
+                let aggregate_values = AggResult::extract_aggregates_for_group(
+                    agg_spec,
+                    schema,
+                    bucket_obj,
+                    filter_results,
+                    group_keys,
+                );
+
+                output_rows.push(GroupedAggregateRow {
+                    group_keys: group_keys.clone(),
+                    aggregate_values,
+                });
+            } else {
+                // Recurse into nested grouped
+                if let Some(nested_grouped) = bucket_obj.get(GROUPED) {
+                    Self::walk_grouped_buckets(
+                        agg_spec,
+                        schema,
+                        nested_grouped,
+                        filter_results,
+                        depth + 1,
+                        group_keys,
+                        output_rows,
+                    );
+                }
+            }
+
+            group_keys.pop();
+        }
     }
 
     /// Extract _doc_count from result object for NULL handling
@@ -306,6 +390,134 @@ impl AggResult {
         }
     }
 
+    /// Extract aggregate values for a specific group
+    ///
+    /// For Direct format: extract from bucket_obj directly
+    /// For Filter format: look up in filter_results using group_keys
+    pub fn extract_aggregates_for_group(
+        agg_spec: &AggregationSpec,
+        schema: &SearchIndexSchema,
+        bucket_obj: &serde_json::Map<String, serde_json::Value>,
+        filter_results: Option<&[(usize, &serde_json::Value)]>,
+        group_keys: &[OwnedValue],
+    ) -> AggregateRow {
+        if agg_spec.aggs.is_empty() {
+            return AggregateRow::default();
+        }
+
+        match filter_results {
+            None => {
+                // Direct format: aggregates are in the bucket
+                agg_spec
+                    .aggs
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, aggregate)| {
+                        bucket_obj
+                            .get(&idx.to_string())
+                            .map(|v| {
+                                let agg_result = Self::extract_aggregate_value_from_json(v);
+                                let doc_count = bucket_obj.get(DOC_COUNT).and_then(|v| v.as_i64());
+                                aggregate
+                                    .result_from_aggregate_with_doc_count(agg_result, doc_count)
+                            })
+                            .unwrap_or_else(|| aggregate.empty_value())
+                    })
+                    .collect()
+            }
+            Some(filter_results) => {
+                // Filter format: look up aggregates in filter_results
+                agg_spec
+                    .aggs
+                    .iter()
+                    .enumerate()
+                    .map(|(agg_idx, aggregate)| {
+                        filter_results
+                            .iter()
+                            .find(|(idx, _)| *idx == agg_idx)
+                            .and_then(|(_, filter_grouped)| {
+                                Self::find_aggregate_value_in_filter(
+                                    agg_spec,
+                                    schema,
+                                    filter_grouped,
+                                    group_keys,
+                                    0,
+                                    aggregate,
+                                )
+                            })
+                            .unwrap_or_else(|| aggregate.empty_value())
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Find aggregate value in filter result by matching group keys (iterative)
+    /// This iterates through grouping levels to avoid stack overflow with deep nesting
+    fn find_aggregate_value_in_filter(
+        agg_spec: &AggregationSpec,
+        schema: &SearchIndexSchema,
+        mut grouped: &serde_json::Value,
+        group_keys: &[OwnedValue],
+        depth: usize,
+        aggregate: &AggregateType,
+    ) -> Option<AggregateValue> {
+        // Iterate through each grouping level instead of recursing
+        for level in depth..group_keys.len() {
+            let buckets = grouped.get(BUCKETS)?.as_array()?;
+            let target_key = &group_keys[level];
+            let grouping_column = &agg_spec.groupby[level];
+
+            // Find bucket matching this group key
+            let matching_bucket = buckets.iter().find_map(|bucket| {
+                let bucket_obj = bucket.as_object()?;
+                let key_json = bucket_obj.get(KEY)?;
+
+                // Convert JSON value to OwnedValue using schema
+                let search_field = schema.search_field(&grouping_column.field_name);
+                let bucket_key = TantivyValue::json_value_to_owned_value(&search_field, key_json);
+
+                if bucket_key == *target_key {
+                    Some(bucket_obj)
+                } else {
+                    None
+                }
+            })?;
+
+            // If this is the last grouping level, extract the aggregate value
+            if level + 1 == group_keys.len() {
+                return Self::extract_aggregate_from_bucket(matching_bucket, aggregate);
+            }
+
+            // Move to nested grouped for next iteration
+            grouped = matching_bucket.get(GROUPED)?;
+        }
+
+        None
+    }
+
+    /// Extract aggregate value from a bucket at the leaf level
+    fn extract_aggregate_from_bucket(
+        bucket: &serde_json::Map<String, serde_json::Value>,
+        aggregate: &AggregateType,
+    ) -> Option<AggregateValue> {
+        use crate::aggregate::tantivy_keys::{AVG, MAX, MIN, SUM, VALUE};
+
+        let doc_count = bucket.get(DOC_COUNT).and_then(|d| d.as_i64());
+
+        // Look for the aggregate value - could be a numeric key or named sub-aggregation
+        for (key, value) in bucket.iter() {
+            if key.parse::<usize>().is_ok() || matches!(key.as_str(), VALUE | AVG | SUM | MIN | MAX)
+            {
+                let agg_result = Self::extract_aggregate_value_from_json(value);
+                return Some(aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count));
+            }
+        }
+
+        // No aggregate found in this bucket
+        None
+    }
+
     fn was_truncated(result: &serde_json::Value) -> bool {
         result
             .as_object()
@@ -325,5 +537,16 @@ impl AggResult {
             })
             .unwrap_or(0)
             > 0
+    }
+
+    /// Convert a JSON value to an OwnedValue based on the field type from the schema
+    fn json_value_to_owned_value(
+        schema: &SearchIndexSchema,
+        json_value: &serde_json::Value,
+        field_name: &str,
+    ) -> OwnedValue {
+        // Get the search field from the schema to determine the type
+        let search_field = schema.search_field(field_name);
+        TantivyValue::json_value_to_owned_value(&search_field, json_value)
     }
 }

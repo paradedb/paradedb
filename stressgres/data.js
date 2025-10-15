@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760557768137,
+  "lastUpdate": 1760558541503,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16930,6 +16930,54 @@ window.BENCHMARK_DATA = {
             "value": 5.851201293045671,
             "unit": "median tps",
             "extra": "avg tps: 5.8240229586298184, max tps: 7.281227032962092, count: 56688"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9f4960c7f4cba1c855dd956afb1094b52e16894",
+          "message": "chore: port enterprise changes (#3344)\n\n# Ticket(s) Closed\nPluck some things from enterprise patch and bring them to community\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-15T14:53:34-04:00",
+          "tree_id": "ffd07475f9b9d39e1529b4b2dcb0242150881cd9",
+          "url": "https://github.com/paradedb/paradedb/commit/e9f4960c7f4cba1c855dd956afb1094b52e16894"
+        },
+        "date": 1760558539563,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1157.552735328256,
+            "unit": "median tps",
+            "extra": "avg tps: 1156.155950513241, max tps: 1207.2851438884516, count: 56356"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1282.193690532877,
+            "unit": "median tps",
+            "extra": "avg tps: 1233.4593921446528, max tps: 1304.3963139642963, count: 56356"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1794.5880906365692,
+            "unit": "median tps",
+            "extra": "avg tps: 1734.4778402490256, max tps: 1974.273083337795, count: 56356"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.946834789299193,
+            "unit": "median tps",
+            "extra": "avg tps: 5.930044912669032, max tps: 7.467561045500664, count: 56356"
           }
         ]
       }

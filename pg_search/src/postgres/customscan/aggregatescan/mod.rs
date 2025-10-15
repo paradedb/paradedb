@@ -197,7 +197,7 @@ impl CustomScan for AggregateScan {
 
         // Use pre-computed filter groups from the scan state
         // let filter_groups = &state.custom_state().filter_groups;
-        explain_execution_strategy(state, &[], explainer);
+        todo!()
     }
 
     fn begin_custom_scan(
@@ -363,138 +363,6 @@ fn convert_aggregate_value_to_datum(
     }
 }
 
-fn explain_execution_strategy(
-    state: &CustomScanStateWrapper<AggregateScan>,
-    filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
-    explainer: &mut Explainer,
-) {
-    // Helper to add GROUP BY information
-    // let add_group_by = |explainer: &mut Explainer| {
-    //     if !state.custom_state().grouping_columns.is_empty() {
-    //         let group_by_fields: String = state
-    //             .custom_state()
-    //             .grouping_columns
-    //             .iter()
-    //             .map(|col| col.field_name.as_str())
-    //             .collect::<Vec<_>>()
-    //             .join(", ");
-    //         explainer.add_text("  Group By", group_by_fields);
-    //     }
-    // };
-
-    // // Helper to add LIMIT/OFFSET information
-    // let add_limit_offset = |explainer: &mut Explainer| {
-    //     if let Some(limit) = state.custom_state().limit {
-    //         let offset = state.custom_state().offset.unwrap_or(0);
-    //         if offset > 0 {
-    //             explainer.add_text("  Limit", limit.to_string());
-    //             explainer.add_text("  Offset", offset.to_string());
-    //         } else {
-    //             explainer.add_text("  Limit", limit.to_string());
-    //         }
-    //     }
-    // };
-
-    // // Helper to build aggregation definition JSON (for no-filter cases)
-    // // Uses the shared function from aggregate module to avoid duplication
-    // let build_aggregate_json = || -> Option<String> {
-    //     let qparams = AggQueryParams {
-    //         base_query: &state.custom_state().query,
-    //         aggregate_types: &state.custom_state().aggregate_types,
-    //         grouping_columns: &state.custom_state().grouping_columns,
-    //         orderby_info: &state.custom_state().orderby_info,
-    //         limit: &state.custom_state().limit,
-    //         offset: &state.custom_state().offset,
-    //     };
-    //     build_aggregation_json_for_explain(&qparams).ok()
-    // };
-
-    // // Helper to show base query + all aggregates (no filters case)
-    // let explain_no_filters = |explainer: &mut Explainer| {
-    //     explainer.add_query(&state.custom_state().query);
-    //     let all_indices: Vec<usize> = (0..state.custom_state().aggregate_types.len()).collect();
-    //     explainer.add_text(
-    //         "  Applies to Aggregates",
-    //         AggregateType::format_aggregates(&state.custom_state().aggregate_types, &all_indices),
-    //     );
-    //     add_group_by(explainer);
-    //     add_limit_offset(explainer);
-
-    //     // Add aggregate definition for no-filter cases (can be built without QueryContext)
-    //     if let Some(agg_def) = build_aggregate_json() {
-    //         explainer.add_text("  Aggregate Definition", agg_def);
-    //     }
-    // };
-
-    // if filter_groups.is_empty() {
-    //     explain_no_filters(explainer);
-    // } else if filter_groups.len() == 1 {
-    //     // Single query
-    //     let (filter_expr, aggregate_indices) = &filter_groups[0];
-    //     if filter_expr.is_none() {
-    //         explain_no_filters(explainer);
-    //     } else {
-    //         // Show the combined query
-    //         let combined_query =
-    //             combine_query_with_filter(&state.custom_state().query, filter_expr);
-    //         explainer.add_text("  Combined Query", combined_query.explain_format());
-    //         add_group_by(explainer);
-    //         add_limit_offset(explainer);
-    //         explainer.add_text(
-    //             "  Applies to Aggregates",
-    //             AggregateType::format_aggregates(
-    //                 &state.custom_state().aggregate_types,
-    //                 aggregate_indices,
-    //             ),
-    //         );
-    //     }
-    // } else {
-    //     // Multi-group
-    //     explainer.add_text(
-    //         "Execution Strategy",
-    //         format!("Multi-Query ({} Filter Groups)", filter_groups.len()),
-    //     );
-    //     add_group_by(explainer);
-    //     add_limit_offset(explainer);
-
-    //     for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
-    //         let combined_query =
-    //             combine_query_with_filter(&state.custom_state().query, filter_expr);
-
-    //         let query_label = if filter_expr.is_some() {
-    //             format!("  Group {} Query", group_idx + 1)
-    //         } else {
-    //             format!("  Group {} Query (No Filter)", group_idx + 1)
-    //         };
-    //         explainer.add_text(&query_label, combined_query.explain_format());
-    //         explainer.add_text(
-    //             &format!("  Group {} Aggregates", group_idx + 1),
-    //             AggregateType::format_aggregates(
-    //                 &state.custom_state().aggregate_types,
-    //                 aggregate_indices,
-    //             ),
-    //         );
-    //     }
-    // }
-}
-
-// fn combine_query_with_filter(
-//     query: &SearchQueryInput,
-//     filter_expr: &Option<SearchQueryInput>,
-// ) -> SearchQueryInput {
-//     match filter_expr {
-//         Some(filter) => match query {
-//             SearchQueryInput::All => filter.clone(),
-//             _ => SearchQueryInput::Boolean {
-//                 must: vec![query.clone(), filter.clone()],
-//                 should: vec![],
-//                 must_not: vec![],
-//             },
-//         },
-//         None => query.clone(),
-//     }
-// }
-
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
@@ -545,36 +413,6 @@ unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys
 unsafe fn placeholder_procid() -> pg_sys::Oid {
     pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
         .expect("the `now()` function should exist")
-}
-
-fn execute(
-    state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let planstate = state.planstate();
-    let expr_context = state.runtime_context;
-
-    state
-        .custom_state_mut()
-        .prepare_query_for_execution(planstate, expr_context);
-
-    let aggregations = state.custom_state().aggregate_clause.collect().unwrap();
-    let query = state.custom_state().aggregate_clause.query().clone();
-
-    let result = execute_aggregate(
-        state.custom_state().indexrel(),
-        query,
-        aggregations,
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
-
-    todo!()
-    // // Process results using unified result processing
-    // let aggregate_results = state.custom_state().process_aggregation_results(result);
-
-    // aggregate_results.into_iter()
 }
 
 impl ExecMethod for AggregateScan {
@@ -646,4 +484,34 @@ pub trait CustomScanClause<CS: CustomScan> {
         let builder = clause.add_to_custom_path(builder);
         Some((builder, clause))
     }
+}
+
+fn execute(
+    state: &mut CustomScanStateWrapper<AggregateScan>,
+) -> std::vec::IntoIter<GroupedAggregateRow> {
+    let planstate = state.planstate();
+    let expr_context = state.runtime_context;
+
+    state
+        .custom_state_mut()
+        .prepare_query_for_execution(planstate, expr_context);
+
+    let aggregations = state.custom_state().aggregate_clause.collect().unwrap();
+    let query = state.custom_state().aggregate_clause.query().clone();
+
+    let result = execute_aggregate(
+        state.custom_state().indexrel(),
+        query,
+        aggregations,
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+    )
+    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
+
+    todo!()
+    // // Process results using unified result processing
+    // let aggregate_results = state.custom_state().process_aggregation_results(result);
+
+    // aggregate_results.into_iter()
 }

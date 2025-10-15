@@ -17,6 +17,7 @@
 
 use crate::aggregate::agg_result::AggResult;
 use crate::aggregate::agg_spec::AggregationSpec;
+use crate::aggregate::tantivy_keys::{AVG, BUCKETS, DOC_COUNT, GROUPED, KEY, MAX, MIN, SUM, VALUE};
 use crate::api::OrderByInfo;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
@@ -116,7 +117,7 @@ impl AggregateScanState {
         group_keys: &mut Vec<OwnedValue>,
         output_rows: &mut Vec<GroupedAggregateRow>,
     ) {
-        let buckets = match grouped.get("buckets").and_then(|b| b.as_array()) {
+        let buckets = match grouped.get(BUCKETS).and_then(|b| b.as_array()) {
             Some(b) => b,
             None => return,
         };
@@ -131,7 +132,7 @@ impl AggregateScanState {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
             // Extract and store group key
-            let key_json = bucket_obj.get("key").expect("bucket should have key");
+            let key_json = bucket_obj.get(KEY).expect("bucket should have key");
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
             group_keys.push(key_owned.clone());
 
@@ -146,7 +147,7 @@ impl AggregateScanState {
                 });
             } else {
                 // Recurse into nested grouped
-                if let Some(nested_grouped) = bucket_obj.get("grouped") {
+                if let Some(nested_grouped) = bucket_obj.get(GROUPED) {
                     self.walk_grouped_buckets(
                         nested_grouped,
                         filter_results,
@@ -186,8 +187,7 @@ impl AggregateScanState {
                             .get(&idx.to_string())
                             .map(|v| {
                                 let agg_result = AggResult::extract_aggregate_value_from_json(v);
-                                let doc_count =
-                                    bucket_obj.get("doc_count").and_then(|v| v.as_i64());
+                                let doc_count = bucket_obj.get(DOC_COUNT).and_then(|v| v.as_i64());
                                 aggregate
                                     .result_from_aggregate_with_doc_count(agg_result, doc_count)
                             })
@@ -230,14 +230,14 @@ impl AggregateScanState {
     ) -> Option<AggregateValue> {
         // Iterate through each grouping level instead of recursing
         for level in depth..group_keys.len() {
-            let buckets = grouped.get("buckets")?.as_array()?;
+            let buckets = grouped.get(BUCKETS)?.as_array()?;
             let target_key = &group_keys[level];
             let grouping_column = &self.grouping_columns()[level];
 
             // Find bucket matching this group key
             let matching_bucket = buckets.iter().find_map(|bucket| {
                 let bucket_obj = bucket.as_object()?;
-                let key_json = bucket_obj.get("key")?;
+                let key_json = bucket_obj.get(KEY)?;
 
                 if Self::keys_match(key_json, target_key, grouping_column, self) {
                     Some(bucket_obj)
@@ -252,7 +252,7 @@ impl AggregateScanState {
             }
 
             // Move to nested grouped for next iteration
-            grouped = matching_bucket.get("grouped")?;
+            grouped = matching_bucket.get(GROUPED)?;
         }
 
         None
@@ -278,12 +278,11 @@ impl AggregateScanState {
         bucket: &serde_json::Map<String, serde_json::Value>,
         aggregate: &AggregateType,
     ) -> Option<AggregateValue> {
-        let doc_count = bucket.get("doc_count").and_then(|d| d.as_i64());
+        let doc_count = bucket.get(DOC_COUNT).and_then(|d| d.as_i64());
 
         // Look for the aggregate value - could be a numeric key or named sub-aggregation
         for (key, value) in bucket.iter() {
-            if key.parse::<usize>().is_ok()
-                || matches!(key.as_str(), "value" | "avg" | "sum" | "min" | "max")
+            if key.parse::<usize>().is_ok() || matches!(key.as_str(), VALUE | AVG | SUM | MIN | MAX)
             {
                 let agg_result = AggResult::extract_aggregate_value_from_json(value);
                 return Some(aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count));

@@ -15,6 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::tantivy_keys::{
+    DOC_COUNT, FILTERED_AGG, FILTER_PREFIX, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT,
+    SUM_OTHER_DOC_COUNT,
+};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue,
@@ -43,14 +47,14 @@ impl AggResult {
 
         if is_simple {
             // Simple aggregation: check for "filter_" prefix
-            if obj.keys().any(|k| k.starts_with("filter_")) {
+            if obj.keys().any(|k| k.starts_with(FILTER_PREFIX)) {
                 Self::Filter
             } else {
                 Self::Direct
             }
         } else {
             // Grouped aggregation: check for "filter_sentinel"
-            if obj.contains_key("filter_sentinel") {
+            if obj.contains_key(FILTER_SENTINEL) {
                 Self::Filter
             } else {
                 Self::Direct
@@ -119,7 +123,7 @@ impl AggResult {
                 let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
                     .iter()
                     .filter_map(|(key, value)| {
-                        key.strip_prefix("filter_")
+                        key.strip_prefix(FILTER_PREFIX)
                             .and_then(|idx_str| idx_str.parse::<usize>().ok())
                             .map(|idx| (idx, value))
                     })
@@ -169,7 +173,7 @@ impl AggResult {
             Self::Direct => {
                 // Direct format: {"grouped": {...}}
                 let grouped = result_obj
-                    .get("grouped")
+                    .get(GROUPED)
                     .expect("Direct GROUP BY results should have grouped structure");
 
                 state.walk_grouped_buckets(grouped, None, 0, &mut Vec::new(), &mut rows);
@@ -177,17 +181,17 @@ impl AggResult {
             Self::Filter => {
                 // FilterAggregation format: {"filter_sentinel": {...}, "filter_0": {...}}
                 let sentinel_grouped = result_obj
-                    .get("filter_sentinel")
-                    .and_then(|f| f.get("grouped"))
+                    .get(FILTER_SENTINEL)
+                    .and_then(|f| f.get(GROUPED))
                     .expect("filter_sentinel should have grouped structure");
 
                 // Collect filter aggregation results for value lookup
                 let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
                     .iter()
                     .filter_map(|(key, value)| {
-                        key.strip_prefix("filter_")
+                        key.strip_prefix(FILTER_PREFIX)
                             .and_then(|idx_str| idx_str.parse::<usize>().ok())
-                            .and_then(|idx| value.get("grouped").map(|grouped| (idx, grouped)))
+                            .and_then(|idx| value.get(GROUPED).map(|grouped| (idx, grouped)))
                     })
                     .collect();
 
@@ -218,7 +222,7 @@ impl AggResult {
 
     /// Extract _doc_count from result object for NULL handling
     fn extract_doc_count(result_obj: &serde_json::Map<String, serde_json::Value>) -> Option<i64> {
-        result_obj.get("_doc_count").and_then(|v| {
+        result_obj.get(HIDDEN_DOC_COUNT).and_then(|v| {
             let agg_result = Self::extract_aggregate_value_from_json(v);
             agg_result.extract_number().and_then(|n| {
                 // Tantivy returns counts as floats, convert to i64
@@ -232,10 +236,10 @@ impl AggResult {
         filter_value: &serde_json::Value,
         aggregate: &AggregateType,
     ) -> AggregateValue {
-        let doc_count = filter_value.get("doc_count").and_then(|v| v.as_i64());
+        let doc_count = filter_value.get(DOC_COUNT).and_then(|v| v.as_i64());
 
         // Look for the aggregate result in filtered_agg or directly
-        let agg_result = if let Some(filtered_agg) = filter_value.get("filtered_agg") {
+        let agg_result = if let Some(filtered_agg) = filter_value.get(FILTERED_AGG) {
             Self::extract_aggregate_value_from_json(filtered_agg)
         } else {
             // Fallback: extract directly (shouldn't normally happen)
@@ -263,10 +267,10 @@ impl AggResult {
             .map(|obj| {
                 obj.iter()
                     .filter_map(|(key, value)| {
-                        if key.starts_with("group_") {
+                        if key.starts_with(GROUPED) {
                             value
                                 .as_object()
-                                .and_then(|group_obj| group_obj.get("sum_other_doc_count"))
+                                .and_then(|group_obj| group_obj.get(SUM_OTHER_DOC_COUNT))
                                 .and_then(|v| v.as_i64())
                         } else {
                             None

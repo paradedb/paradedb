@@ -20,8 +20,10 @@
 //! This module consolidates the logic for building Tantivy `Aggregations` structures
 //! from ParadeDB's SQL aggregation parameters.
 
+use super::tantivy_keys::{FILTERED_AGG, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT, SORT_KEY};
 use super::QueryContext;
 use crate::aggregate::agg_spec::AggregationSpec;
+use crate::aggregate::tantivy_keys::filter_key;
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::postgres::customscan::aggregatescan::privdat::AggregateType;
 use crate::postgres::utils::sort_json_keys;
@@ -84,7 +86,7 @@ impl<'a> AggQueryBuilder<'a> {
         // Sentinel filter: always present, ensures we get ALL groups (or single row for simple aggs)
         // Uses base_query to match all documents in the WHERE clause
         result.insert(
-            "filter_sentinel".to_string(),
+            FILTER_SENTINEL.to_string(),
             Aggregation {
                 agg: tantivy::aggregation::agg_req::AggregationVariants::Filter(base_filter),
                 sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
@@ -106,12 +108,12 @@ impl<'a> AggQueryBuilder<'a> {
             } else {
                 // No GROUP BY: filter -> filtered_agg (metric)
                 let mut aggs = HashMap::default();
-                aggs.insert("filtered_agg".to_string(), base);
+                aggs.insert(FILTERED_AGG.to_string(), base);
                 aggs
             };
 
             result.insert(
-                format!("filter_{idx}"),
+                filter_key(idx),
                 Aggregation {
                     agg: tantivy::aggregation::agg_req::AggregationVariants::Filter(
                         filter_agg.clone(),
@@ -156,7 +158,7 @@ impl<'a> AggQueryBuilder<'a> {
         // This is needed for correct NULL handling (SUM/AVG/MIN/MAX return NULL on empty sets)
         if self.agg_spec.groupby.is_empty() {
             metrics.insert(
-                "_doc_count".to_string(),
+                HIDDEN_DOC_COUNT.to_string(),
                 Aggregation {
                     agg: serde_json::from_value(serde_json::json!({
                         "value_count": {"field": "ctid", "missing": null}
@@ -230,7 +232,7 @@ impl<'a> AggQueryBuilder<'a> {
             };
 
             let mut next_level = HashMap::default();
-            next_level.insert("grouped".to_string(), terms_agg);
+            next_level.insert(GROUPED.to_string(), terms_agg);
             current_aggs = next_level;
         }
 
@@ -255,7 +257,7 @@ impl<'a> AggQueryBuilder<'a> {
             })
             .map(|order| {
                 serde_json::json!({
-                    "_key": order.direction.as_ref()
+                    SORT_KEY: order.direction.as_ref()
                 })
             })
     }

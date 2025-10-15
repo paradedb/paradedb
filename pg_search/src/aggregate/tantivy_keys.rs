@@ -41,9 +41,6 @@ pub const HIDDEN_DOC_COUNT: &str = "_doc_count";
 /// Key for sum_other_doc_count (indicates truncated results)
 pub const SUM_OTHER_DOC_COUNT: &str = "sum_other_doc_count";
 
-/// Prefix for numbered group aggregations (e.g., "group_0", "group_1")
-pub const GROUP_PREFIX: &str = "group_";
-
 /// Key for the aggregation value field
 pub const VALUE: &str = "value";
 
@@ -59,8 +56,11 @@ pub const MIN: &str = "min";
 /// Key for max aggregation results
 pub const MAX: &str = "max";
 
-/// Key for the "_key" field in bucket results (the grouped value)
-pub const KEY: &str = "_key";
+/// Key for the "_key" field in sort order handling
+pub const SORT_KEY: &str = "_key";
+
+/// Key for the "key" field in bucket results (the grouped value)
+pub const KEY: &str = "key";
 
 /// Key for the bucket key in terms aggregation results
 pub const BUCKETS: &str = "buckets";
@@ -69,10 +69,4 @@ pub const BUCKETS: &str = "buckets";
 #[inline]
 pub fn filter_key(index: usize) -> String {
     format!("{}{}", FILTER_PREFIX, index)
-}
-
-/// Helper function to create a numbered group key (e.g., "group_0")
-#[inline]
-pub fn group_key(index: usize) -> String {
-    format!("{}{}", GROUP_PREFIX, index)
 }

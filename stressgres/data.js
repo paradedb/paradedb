@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760571106916,
+  "lastUpdate": 1760571884049,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17776,6 +17776,54 @@ window.BENCHMARK_DATA = {
             "value": 5.875764603071318,
             "unit": "median tps",
             "extra": "avg tps: 5.884469989393043, max tps: 7.442957397792044, count: 56050"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49df33136846817586f79ce0d61a736cc2f86e19",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3349)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-15T16:02:41-07:00",
+          "tree_id": "305abe3407bb754ce2daed0320231841d19f521f",
+          "url": "https://github.com/paradedb/paradedb/commit/49df33136846817586f79ce0d61a736cc2f86e19"
+        },
+        "date": 1760571882093,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1152.421355007662,
+            "unit": "median tps",
+            "extra": "avg tps: 1151.9190615386874, max tps: 1225.2346477579806, count: 55909"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1306.4712596108284,
+            "unit": "median tps",
+            "extra": "avg tps: 1289.3755730739217, max tps: 1319.1916043463011, count: 55909"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1956.4625787956165,
+            "unit": "median tps",
+            "extra": "avg tps: 1865.9280552190478, max tps: 2164.4772469626505, count: 55909"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.201231865238059,
+            "unit": "median tps",
+            "extra": "avg tps: 6.158111100071706, max tps: 7.199201124808942, count: 55909"
           }
         ]
       }

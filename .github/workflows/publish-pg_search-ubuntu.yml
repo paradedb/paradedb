@@ -105,6 +105,8 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Install Dependencies
         run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg gpg lsb-release pkg-config libssl-dev jq

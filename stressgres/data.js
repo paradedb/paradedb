@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760558544626,
+  "lastUpdate": 1760559284883,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24220,6 +24220,60 @@ window.BENCHMARK_DATA = {
             "value": 19.15811161998487,
             "unit": "median tps",
             "extra": "avg tps: 19.29508518594185, max tps: 20.326267342138472, count: 55581"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9f4960c7f4cba1c855dd956afb1094b52e16894",
+          "message": "chore: port enterprise changes (#3344)\n\n# Ticket(s) Closed\nPluck some things from enterprise patch and bring them to community\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-15T14:53:34-04:00",
+          "tree_id": "ffd07475f9b9d39e1529b4b2dcb0242150881cd9",
+          "url": "https://github.com/paradedb/paradedb/commit/e9f4960c7f4cba1c855dd956afb1094b52e16894"
+        },
+        "date": 1760559282904,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.94908280946489,
+            "unit": "median tps",
+            "extra": "avg tps: 37.951319835852914, max tps: 40.23961960217807, count: 55445"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.188156701534,
+            "unit": "median tps",
+            "extra": "avg tps: 276.97429315630114, max tps: 2807.1561688556417, count: 55445"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1016.1541879373505,
+            "unit": "median tps",
+            "extra": "avg tps: 1012.6036676506513, max tps: 1027.718084485704, count: 55445"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 114.17832667070411,
+            "unit": "median tps",
+            "extra": "avg tps: 154.32809223869393, max tps: 853.2181171226914, count: 110890"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.138530220841325,
+            "unit": "median tps",
+            "extra": "avg tps: 18.160922603641218, max tps: 19.821108549012596, count: 55445"
           }
         ]
       }

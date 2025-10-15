@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760566357098,
+  "lastUpdate": 1760566360305,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14854,6 +14854,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.47371330833953, max segment_count: 106.0, count: 57881"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2dc15e747e59dd0526f12700cd75bbf4b466a5e",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3336)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.",
+          "timestamp": "2025-10-15T14:43:30-07:00",
+          "tree_id": "cb0105fd474cbf8eb168cf6429befb2da9ebabf9",
+          "url": "https://github.com/paradedb/paradedb/commit/d2dc15e747e59dd0526f12700cd75bbf4b466a5e"
+        },
+        "date": 1760566358305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.986877983843158, max cpu: 42.899704, count: 57797"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.81627209240963, max mem: 229.234375, count: 57797"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.502761474881307, max cpu: 33.300297, count: 57797"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.02882739101943, max mem: 165.984375, count: 57797"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24630,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23411.265463605378, max block_count: 26356.0, count: 57797"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 73.00730141702857, max segment_count: 107.0, count: 57797"
           }
         ]
       }

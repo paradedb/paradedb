@@ -413,15 +413,25 @@ impl AggResult {
                     .iter()
                     .enumerate()
                     .map(|(idx, aggregate)| {
-                        bucket_obj
-                            .get(&idx.to_string())
-                            .map(|v| {
-                                let agg_result = Self::extract_aggregate_value_from_json(v);
-                                let doc_count = bucket_obj.get(DOC_COUNT).and_then(|v| v.as_i64());
-                                aggregate
-                                    .result_from_aggregate_with_doc_count(agg_result, doc_count)
-                            })
-                            .unwrap_or_else(|| aggregate.empty_value())
+                        // For CountAny in GROUP BY, use doc_count directly (no explicit aggregation)
+                        if agg_spec.needs_explicit_metric(aggregate) {
+                            bucket_obj
+                                .get(&idx.to_string())
+                                .map(|v| {
+                                    let agg_result = Self::extract_aggregate_value_from_json(v);
+                                    let doc_count =
+                                        bucket_obj.get(DOC_COUNT).and_then(|v| v.as_i64());
+                                    aggregate
+                                        .result_from_aggregate_with_doc_count(agg_result, doc_count)
+                                })
+                                .unwrap_or_else(|| aggregate.empty_value())
+                        } else {
+                            let doc_count = bucket_obj
+                                .get(DOC_COUNT)
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            AggregateValue::Int(doc_count)
+                        }
                     })
                     .collect()
             }

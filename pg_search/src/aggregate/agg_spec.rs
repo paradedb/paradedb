@@ -81,4 +81,29 @@ impl AggregationSpec {
             .map(|agg| agg.result_type_oid())
             .unwrap_or(pg_sys::INT8OID)
     }
+
+    /// Check if an aggregate at the given index needs an explicit Tantivy metric
+    ///
+    /// Returns `false` only for `COUNT(*)` in GROUP BY queries, where we can use
+    /// the `doc_count` field that's already present in each bucket.
+    ///
+    /// For all other cases, we need an explicit aggregation metric:
+    /// - Simple (non-GROUP BY) aggregations: all aggregates need explicit metrics
+    /// - GROUP BY with non-COUNT aggregates: need explicit metrics (SUM, AVG, MIN, MAX)
+    /// - GROUP BY with COUNT(field): need explicit metrics (field might be NULL)
+    pub fn needs_explicit_metric(&self, agg: &AggregateType) -> bool {
+        // Simple aggregations: always need explicit metrics
+        if !self.has_groupby() {
+            return true;
+        }
+        !matches!(agg, AggregateType::CountAny { .. })
+    }
+
+    pub fn needs_hidden_doc_count(&self) -> bool {
+        !self.has_groupby()
+            && self
+                .aggs
+                .iter()
+                .any(|agg| matches!(agg, AggregateType::Sum { .. }))
+    }
 }

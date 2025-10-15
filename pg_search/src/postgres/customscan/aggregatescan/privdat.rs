@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::aggregate::agg_spec::AggregationSpec;
+use crate::aggregate::tantivy_keys::{AVG, CTID, FIELD, MAX, MIN, MISSING, SUM, VALUE_COUNT};
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -330,25 +331,25 @@ impl AggregateType {
 
     pub fn to_json(&self) -> serde_json::Value {
         let (key, field) = match self {
-            AggregateType::CountAny { .. } => ("value_count", "ctid"),
-            AggregateType::Count { field, .. } => ("value_count", field.as_str()),
-            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
-            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
-            AggregateType::Min { field, .. } => ("min", field.as_str()),
-            AggregateType::Max { field, .. } => ("max", field.as_str()),
+            AggregateType::CountAny { .. } => (VALUE_COUNT, CTID),
+            AggregateType::Count { field, .. } => (VALUE_COUNT, field.as_str()),
+            AggregateType::Sum { field, .. } => (SUM, field.as_str()),
+            AggregateType::Avg { field, .. } => (AVG, field.as_str()),
+            AggregateType::Min { field, .. } => (MIN, field.as_str()),
+            AggregateType::Max { field, .. } => (MAX, field.as_str()),
         };
 
         if let Some(missing) = self.missing() {
             serde_json::json!({
                 key: {
-                    "field": field,
-                    "missing": missing,
+                    FIELD: field,
+                    MISSING: missing,
                 }
             })
         } else {
             serde_json::json!({
                 key: {
-                    "field": field,
+                    FIELD: field,
                 }
             })
         }

@@ -51,14 +51,14 @@ WITH (
 -- Test 2.1: COUNT(*) - should return 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
@@ -96,14 +96,14 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.4: AVG - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: AVG(value)
-     Aggregate Definition: {"0":{"avg":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"avg":{"field":"value","missing":null}}}
 (6 rows)
 
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -115,14 +115,14 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.5: MIN - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MIN(value)
-     Aggregate Definition: {"0":{"min":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"min":{"field":"value","missing":null}}}
 (6 rows)
 
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -134,14 +134,14 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 -- Test 2.6: MAX - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MAX(value)
-     Aggregate Definition: {"0":{"max":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"max":{"field":"value","missing":null}}}
 (6 rows)
 
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -172,10 +172,40 @@ FROM empty_test WHERE id @@@ paradedb.all();
 (1 row)
 
 -- Test 2.8: From the original issue report
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.empty_logs
+   Output: now()
+   Index: empty_logs_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
  count 
 -------
      0
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
+   Output: now()
+   Index: empty_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: SUM(value)
+     Aggregate Definition: {"0":{"sum":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
+ sum 
+-----
+    
 (1 row)
 
 -- =====================================================================
@@ -186,15 +216,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM empty_test 
 WHERE id @@@ paradedb.all() 
 GROUP BY category;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT category, COUNT(*) FROM empty_test 
@@ -211,15 +241,15 @@ FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category 
 ORDER BY category;
-                                                                                                                                      QUERY PLAN                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now(), now(), now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"value","missing":null}},"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"1":{"sum":{"field":"value","missing":null}},"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value) 
@@ -246,15 +276,15 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category, value 
 ORDER BY category, value;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, value, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: category, value
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT category, value, COUNT(*) FROM empty_test 

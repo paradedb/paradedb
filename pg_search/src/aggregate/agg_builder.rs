@@ -23,7 +23,9 @@
 use super::tantivy_keys::{FILTERED_AGG, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT, SORT_KEY};
 use super::QueryContext;
 use crate::aggregate::agg_spec::AggregationSpec;
-use crate::aggregate::tantivy_keys::filter_key;
+use crate::aggregate::tantivy_keys::{
+    filter_key, CTID, FIELD, MISSING, ORDER, SEGMENT_SIZE, SIZE, TERMS, VALUE_COUNT,
+};
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::postgres::customscan::aggregatescan::privdat::AggregateType;
 use crate::postgres::utils::sort_json_keys;
@@ -187,17 +189,19 @@ impl<'a> AggQueryBuilder<'a> {
         let mut metrics = HashMap::new();
 
         for (idx, agg) in self.agg_spec.aggs.iter().enumerate() {
-            metrics.insert(idx.to_string(), AggregateType::to_tantivy_agg(agg)?);
+            if self.agg_spec.needs_explicit_metric(agg) {
+                metrics.insert(idx.to_string(), AggregateType::to_tantivy_agg(agg)?);
+            }
         }
 
         // For simple (non-GROUP BY) aggregations, add a hidden _doc_count to detect empty results
         // This is needed for correct NULL handling (SUM/AVG/MIN/MAX return NULL on empty sets)
-        if self.agg_spec.groupby.is_empty() {
+        if self.agg_spec.needs_hidden_doc_count() {
             metrics.insert(
                 HIDDEN_DOC_COUNT.to_string(),
                 Aggregation {
                     agg: serde_json::from_value(serde_json::json!({
-                        "value_count": {"field": "ctid", "missing": null}
+                        VALUE_COUNT: {FIELD: CTID, MISSING: null}
                     }))?,
                     sub_aggregation: Aggregations::default(),
                 },
@@ -251,18 +255,18 @@ impl<'a> AggQueryBuilder<'a> {
 
             // Build terms JSON, conditionally including order if specified
             let mut terms_json = serde_json::json!({
-                "field": column.field_name,
-                "size": size,
-                "segment_size": size,
+                FIELD: column.field_name,
+                SIZE: size,
+                SEGMENT_SIZE: size,
             });
 
             if let Some(order_value) = order {
-                terms_json["order"] = order_value;
+                terms_json[ORDER] = order_value;
             }
 
             let terms_agg = Aggregation {
                 agg: serde_json::from_value(serde_json::json!({
-                    "terms": terms_json
+                    TERMS: terms_json
                 }))?,
                 sub_aggregation: Aggregations::from(current_aggs.clone()),
             };

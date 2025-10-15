@@ -35,8 +35,14 @@ pub const FILTERED_AGG: &str = "filtered_agg";
 /// Key for document count in aggregation results
 pub const DOC_COUNT: &str = "doc_count";
 
+/// Key for the value count aggregation results
+pub const VALUE_COUNT: &str = "value_count";
+
 /// Key for the hidden document count aggregation (used for NULL handling)
 pub const HIDDEN_DOC_COUNT: &str = "_doc_count";
+
+/// Key for the ctid field
+pub const CTID: &str = "ctid";
 
 /// Key for sum_other_doc_count (indicates truncated results)
 pub const SUM_OTHER_DOC_COUNT: &str = "sum_other_doc_count";
@@ -64,6 +70,24 @@ pub const KEY: &str = "key";
 
 /// Key for the bucket key in terms aggregation results
 pub const BUCKETS: &str = "buckets";
+
+/// Key for the "field" field in aggregation results
+pub const FIELD: &str = "field";
+
+/// Key for the "missing" field in aggregation results
+pub const MISSING: &str = "missing";
+
+/// Key for the "size" field in aggregation results
+pub const SIZE: &str = "size";
+
+/// Key for the "segment_size" field in aggregation results
+pub const SEGMENT_SIZE: &str = "segment_size";
+
+/// Key for the "order" field in aggregation results
+pub const ORDER: &str = "order";
+
+/// Key for the "terms" field in aggregation results
+pub const TERMS: &str = "terms";
 
 /// Helper function to create a numbered filter key (e.g., "filter_0")
 #[inline]

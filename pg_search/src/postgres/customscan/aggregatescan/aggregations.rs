@@ -16,17 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature};
+use crate::customscan::aggregatescan::AggregateType;
 use crate::customscan::aggregatescan::GroupingColumn;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::ExprContextGuard;
@@ -113,8 +113,8 @@ impl AggregateCSClause {
         )?;
         let has_terms_aggregations = !terms_aggregations.is_empty();
 
-        let qual =
-            <Self as CollectNested<FilterAggregation, QualKey>>::collect(self, terms_aggregations)?;
+        // let qual =
+        //     <Self as CollectNested<FilterAggregation, QualKey>>::collect(self, terms_aggregations)?;
 
         let filter_aggregations = <Self as IterFlat<FilterAggregationMetric>>::into_iter(self)?;
         if has_terms_aggregations {
@@ -148,7 +148,6 @@ impl AggregateCSClause {
             && !self.orderby.has_orderby()
     }
 
-
     pub fn query(&self) -> &SearchQueryInput {
         self.quals.query()
     }
@@ -158,7 +157,7 @@ impl AggregateCSClause {
     }
 }
 
-impl AggregateClause<AggregateScan> for AggregateCSClause {
+impl CustomScanClause<AggregateScan> for AggregateCSClause {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(

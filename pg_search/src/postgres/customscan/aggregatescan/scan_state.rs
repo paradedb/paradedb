@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::OrderByInfo;
-use crate::customscan::aggregatescan::{AggregateCSClause, AggregateClause, AggregateScan};
+use crate::customscan::aggregatescan::{AggregateCSClause, CustomScanClause, AggregateScan};
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, TargetListEntry,

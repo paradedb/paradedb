@@ -17,7 +17,7 @@
 
 use crate::gucs;
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
@@ -38,7 +38,7 @@ impl LimitOffsetClause {
     }
 }
 
-impl AggregateClause<AggregateScan> for LimitOffsetClause {
+impl CustomScanClause<AggregateScan> for LimitOffsetClause {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(

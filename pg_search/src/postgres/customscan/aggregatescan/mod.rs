@@ -27,7 +27,7 @@ pub mod targetlist;
 use crate::gucs;
 use crate::nodecast;
 
-use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
+use crate::aggregate::execute_aggregate;
 use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
@@ -557,25 +557,20 @@ fn execute(
         .custom_state_mut()
         .prepare_query_for_execution(planstate, expr_context);
 
+    let aggregations = state.custom_state().aggregate_clause.collect().unwrap();
+    let query = state.custom_state().aggregate_clause.query().clone();
+
+    let result = execute_aggregate(
+        state.custom_state().indexrel(),
+        query,
+        aggregations,
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+    )
+    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
+
     todo!()
-
-    // let qparams = AggQueryParams {
-    //     base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
-    //     aggregate_types: &state.custom_state().aggregate_types,
-    //     grouping_columns: &state.custom_state().grouping_columns,
-    //     orderby_info: &state.custom_state().orderby_info,
-    //     limit: &state.custom_state().limit,
-    //     offset: &state.custom_state().offset,
-    // };
-
-    // let result = execute_aggregation(
-    //     state.custom_state().indexrel(),
-    //     &qparams,
-    //     true,                                              // solve_mvcc
-    //     gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-    //     DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    // )
-    // .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
     // // Process results using unified result processing
     // let aggregate_results = state.custom_state().process_aggregation_results(result);
 
@@ -610,7 +605,9 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.aggregate_clause.query_mut().init_postgres_expressions(planstate);
+        self.aggregate_clause
+            .query_mut()
+            .init_postgres_expressions(planstate);
         self.aggregate_clause
             .aggregates()
             .iter_mut()
@@ -618,7 +615,9 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.aggregate_clause.query_mut().solve_postgres_expressions(expr_context);
+        self.aggregate_clause
+            .query_mut()
+            .solve_postgres_expressions(expr_context);
         self.aggregate_clause
             .aggregates()
             .iter_mut()
@@ -626,7 +625,7 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 }
 
-pub trait AggregateClause<CS: CustomScan> {
+pub trait CustomScanClause<CS: CustomScan> {
     type Args;
 
     fn from_pg(args: &CS::Args, heap_rti: pg_sys::Index, index: &PgSearchRelation) -> Option<Self>

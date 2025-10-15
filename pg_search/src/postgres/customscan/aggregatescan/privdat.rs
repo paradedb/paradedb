@@ -18,7 +18,7 @@
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
-use crate::customscan::aggregatescan::{AggregateClause, AggregateScan, GroupingColumn};
+use crate::customscan::aggregatescan::{CustomScanClause, AggregateScan, GroupingColumn};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;

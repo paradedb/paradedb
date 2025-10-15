@@ -18,7 +18,7 @@
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
-use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan};
+use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan};
 use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
 use crate::postgres::customscan::pdbscan::PathKeyInfo;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
@@ -44,7 +44,7 @@ impl OrderByClause {
     }
 }
 
-impl AggregateClause<AggregateScan> for OrderByClause {
+impl CustomScanClause<AggregateScan> for OrderByClause {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(

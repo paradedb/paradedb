@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan, AggregateType};
+use crate::postgres::customscan::aggregatescan::{CustomScanClause, AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;
@@ -41,7 +41,7 @@ impl TargetList {
     }
 }
 
-impl AggregateClause<AggregateScan> for TargetList {
+impl CustomScanClause<AggregateScan> for TargetList {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(

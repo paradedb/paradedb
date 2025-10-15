@@ -511,9 +511,6 @@ fn execute(
 
     pgrx::info!("result: {:?}", result);
 
-    todo!()
-    // // Process results using unified result processing
-    // let aggregate_results = state.custom_state().process_aggregation_results(result);
-
-    // aggregate_results.into_iter()
+    let aggregate_results = state.custom_state().process_aggregation_results(result);
+    aggregate_results.into_iter()
 }

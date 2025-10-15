@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760557765119,
+  "lastUpdate": 1760557768137,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14572,6 +14572,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.92173657761583, max segment_count: 107.0, count: 57907"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9f4960c7f4cba1c855dd956afb1094b52e16894",
+          "message": "chore: port enterprise changes (#3344)\n\n# Ticket(s) Closed\nPluck some things from enterprise patch and bring them to community\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-15T14:53:34-04:00",
+          "tree_id": "ffd07475f9b9d39e1529b4b2dcb0242150881cd9",
+          "url": "https://github.com/paradedb/paradedb/commit/e9f4960c7f4cba1c855dd956afb1094b52e16894"
+        },
+        "date": 1760557766227,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.566551373207847, max cpu: 42.942345, count: 57881"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 230.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 229.19432124207427, max mem: 231.96484375, count: 57881"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.54957505418471, max cpu: 33.3996, count: 57881"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.23204640771584, max mem: 165.1015625, count: 57881"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24408,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23272.149945577996, max block_count: 26157.0, count: 57881"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.47371330833953, max segment_count: 106.0, count: 57881"
           }
         ]
       }

@@ -245,9 +245,14 @@ pub mod v1 {
         /// responsibility to ensure the block is properly used, or else it will be lost forever as
         /// dead space in the underlying relation.
         fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-            let xid_horizon = unsafe {
-                pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
-            };
+            let xid_horizon = crate::postgres::hot_standby::feedback_xmin()
+                .unwrap_or_else(|| {
+                    // use the current transaction if we don't have hotstandby feedback
+                    // this is the same logic as in community
+                    unsafe { pg_sys::GetCurrentFullTransactionId() }
+                })
+                .value as u32;
+            let xid_horizon = pg_sys::TransactionId::from_inner(xid_horizon);
             let mut blockno = self.start_blockno;
             loop {
                 if blockno == pg_sys::InvalidBlockNumber {
@@ -761,11 +766,12 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            let current_xid = unsafe {
-                pg_sys::GetCurrentFullTransactionIdIfAny()
-                    .value
-                    .max(pg_sys::FirstNormalTransactionId.into_inner() as u64)
-            };
+            let mut current_xid = crate::postgres::hot_standby::feedback_xmin()
+                .unwrap_or_else(|| unsafe { pg_sys::GetCurrentFullTransactionIdIfAny() })
+                .value;
+            if current_xid == 0 {
+                current_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+            }
 
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);

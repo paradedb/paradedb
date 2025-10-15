@@ -270,7 +270,7 @@ pub struct SearchIndexReader {
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
-    _cleanup_lock: Arc<PinnedBuffer>,
+    _cleanup_lock: Option<Arc<PinnedBuffer>>,
 }
 
 impl Clone for SearchIndexReader {
@@ -372,7 +372,9 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             need_scores,
-            _cleanup_lock: Arc::new(cleanup_lock),
+            _cleanup_lock: unsafe {
+                pgrx::pg_sys::XLogInsertAllowed().then(|| Arc::new(cleanup_lock))
+            },
         })
     }
 

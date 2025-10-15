@@ -18,7 +18,9 @@
 use crate::api::operator::searchqueryinput_typoid;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::index::reader::index::MultiSegmentSearchResults;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::hot_standby::check_for_concurrent_vacuum;
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
@@ -26,7 +28,7 @@ use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
-
+use rustc_hash::FxHashMap;
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
     reader: SearchIndexReader,
@@ -324,6 +326,31 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 if search_next_segment(scan, state) {
                     // loop back around to start returning results from this segment
                     continue;
+                }
+
+                // For (parallel) index only scans that rely on the vismap, we need to check for a concurrent vacuum
+                // and cancel if we're in a WAL receiver
+                if pgrx::pg_sys::HotStandbyActive() {
+                    if let Some(pscan_state) = parallel::get_bm25_scan_state(scan) {
+                        unsafe {
+                            check_for_concurrent_vacuum(
+                                &PgSearchRelation::from_pg((*scan).indexRelation),
+                                (*pscan_state).segments(),
+                            )
+                        };
+                    } else if (*scan).xs_want_itup {
+                        unsafe {
+                            check_for_concurrent_vacuum(
+                                &PgSearchRelation::from_pg((*scan).indexRelation),
+                                state
+                                    .reader
+                                    .segment_readers()
+                                    .iter()
+                                    .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                                    .collect::<FxHashMap<_, _>>(),
+                            )
+                        }
+                    }
                 }
 
                 // we are done returning results

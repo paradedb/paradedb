@@ -47,13 +47,14 @@ use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 /// General, immutable configuration used for the workers
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
     concurrent: bool,
     current_xid: pg_sys::FullTransactionId,
+    need_wal: bool,
     next_xid: pg_sys::FullTransactionId,
 }
 impl ParallelStateType for WorkerConfig {}
@@ -119,6 +120,7 @@ impl ParallelBuild {
         snapshot: pg_sys::Snapshot,
         concurrent: bool,
         current_xid: pg_sys::FullTransactionId,
+        need_wal: bool,
         next_xid: pg_sys::FullTransactionId,
     ) -> Self {
         let scandesc = unsafe {
@@ -134,6 +136,7 @@ impl ParallelBuild {
                 indexrelid: indexrel.oid(),
                 concurrent,
                 current_xid,
+                need_wal,
                 next_xid,
             },
             scandesc,
@@ -163,6 +166,7 @@ struct BuildWorker<'a> {
 }
 
 impl ParallelWorker for BuildWorker<'_> {
+    #[allow(static_mut_refs)]
     fn new_parallel_worker(state_manager: ParallelStateManager) -> Self
     where
         Self: Sized,
@@ -181,6 +185,11 @@ impl ParallelWorker for BuildWorker<'_> {
             .expect("ProcessCoordination should not be NULL");
 
         unsafe {
+            pgrx::debug1!(
+                "new_parallel_worker {}: config={config:?}",
+                pg_sys::ParallelWorkerNumber
+            );
+
             let (heap_lock, index_lock) = if !config.concurrent {
                 (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
             } else {
@@ -194,6 +203,7 @@ impl ParallelWorker for BuildWorker<'_> {
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             indexrel.set_is_create_index();
+            indexrel.set_need_wal(config.need_wal);
 
             Self {
                 config: *config,
@@ -346,6 +356,7 @@ impl WorkerBuildState {
             writer: Some(writer),
             categorized_fields,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
+
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
             current_xid,
@@ -559,6 +570,7 @@ pub(super) fn build_index(
     });
 
     let current_xid = unsafe { pg_sys::GetCurrentFullTransactionId() };
+    let need_wal = indexrel.need_wal();
     let next_xid = unsafe { pg_sys::ReadNextFullTransactionId() };
     let process = ParallelBuild::new(
         &heaprel,
@@ -566,12 +578,13 @@ pub(super) fn build_index(
         snapshot.0,
         concurrent,
         current_xid,
+        need_wal,
         next_xid,
     );
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
-    let total_tuples = if let Some(mut process) = launch_parallel_process!(
+    if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
         WorkerStyle::Maintenance,
@@ -623,7 +636,7 @@ pub(super) fn build_index(
         }
 
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        total_tuples
+        Ok(total_tuples)
     } else {
         pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
@@ -642,6 +655,7 @@ pub(super) fn build_index(
                 indexrelid,
                 concurrent,
                 current_xid,
+                need_wal,
                 next_xid,
             },
             &mut coordination,
@@ -649,11 +663,8 @@ pub(super) fn build_index(
 
         let (total_tuples, total_merges) = worker.do_build(1)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        total_tuples
-    };
-
-    unsafe { set_ps_display_remove_suffix() };
-    Ok(total_tuples)
+        Ok(total_tuples)
+    }
 }
 
 mod plan {
@@ -703,9 +714,9 @@ mod plan {
                 format!("only {maintenance_workers} parallel workers were available for index build"),
                 function_name!(),
             )
-            .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
-            .set_hint("`SET max_parallel_maintenance_workers = <number>`")
-            .report(PgLogLevel::WARNING);
+                .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
+                .set_hint("`SET max_parallel_maintenance_workers = <number>`")
+                .report(PgLogLevel::WARNING);
         }
 
         if maintenance_workers == 0 {

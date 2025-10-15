@@ -12,7 +12,7 @@ members = [
 [workspace.package]
 version = "0.20.7"
 edition = "2021"
-license = "AGPL-3.0"
+license = "Proprietary"
 
 [profile.dev]
 panic = "unwind"

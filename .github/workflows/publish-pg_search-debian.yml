@@ -238,11 +238,13 @@ jobs:
           sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-path: |
-            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+      # Attestations are not supported for private repositories without a GitHub Enterprise Cloud plan.
+      # https://github.com/actions/attest
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-path: |
+      #       ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which
       # is not capable of parsing certain control characters
@@ -254,7 +256,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/paradedb/paradedb-enterprise/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -267,7 +269,7 @@ jobs:
           github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-search-enterprise_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
 
       - name: Notify Slack on Failure

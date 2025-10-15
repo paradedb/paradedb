@@ -1,0 +1,97 @@
+name: Promote Enterprise Patch Branch to Main
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: "Branch name to promote (must match enterprise-patch-*)"
+        required: true
+        type: string
+
+# Prevent concurrent promotion operations
+concurrency:
+  group: promote-branch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  promote-branch:
+    name: Promote Enterprise Patch Branch to Main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "paradedb-bot"
+          git config --global user.email "developers@paradedb.com"
+
+      - name: Manual approval before promotion
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: philippemnoel,rebasedming,stuhood
+          minimum-approvals: 1
+          issue-title: "Promote ${{ github.event.inputs.branch_name }} to main?"
+          issue-body: "Please approve or deny the promotion of branch `${{ github.event.inputs.branch_name }}` to `main`."
+
+      - name: Promote branch to main
+        id: promote
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          BRANCH_NAME="${{ github.event.inputs.branch_name }}"
+          echo "Starting branch promotion process..."
+          echo "Branch: $BRANCH_NAME"
+
+          ./scripts/promote-branch-manually.sh \
+            --branch "$BRANCH_NAME"
+
+          echo "✅ Branch promotion completed successfully"
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack on failure and tag @ankit
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            BRANCH_NAME="${{ steps.promote.outputs.branch_name || github.event.inputs.branch_name || 'unknown' }}"
+
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{
+                \"text\": \"🚨 Branch Promotion Failed - <@ankit>\",
+                \"attachments\": [
+                  {
+                    \"color\": \"danger\",
+                    \"fields\": [
+                      {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                      {\"title\": \"Branch\", \"value\": \"${BRANCH_NAME}\", \"short\": true},
+                      {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
+                      {\"title\": \"Triggered By\", \"value\": \"${{ github.actor }}\", \"short\": true},
+                      {\"title\": \"Run ID\", \"value\": \"${{ github.run_id }}\", \"short\": true},
+                      {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": false}
+                    ]
+                  }
+                ]
+              }" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "Slack webhook not configured, skipping notification"
+          fi

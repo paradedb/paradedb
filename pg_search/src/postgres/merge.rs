@@ -24,7 +24,7 @@ use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::PgSearchRelation;
+use crate::postgres::{hot_standby, PgSearchRelation};
 
 use pgrx::bgworkers::*;
 use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
@@ -438,16 +438,15 @@ unsafe fn merge_index(
         check_for_interrupts!();
 
         if let Err(e) = merge_result {
-            if unsafe { pg_sys::InterruptPending } != 0 {
-                pgrx::warning!("failed to merge: {e:?} because of interrupt");
-            } else {
-                panic!("failed to merge: {e:?}");
-            }
+            panic!("failed to merge: {e:?}");
         }
     } else {
         drop(merge_lock);
     }
     drop(cleanup_lock);
+
+    // Outside of all locks, execute cleanup on garbage collected files.
+    hot_standby::free_garbage(indexrel, current_xid);
 }
 
 ///
@@ -474,10 +473,22 @@ pub unsafe fn garbage_collect_index(
     let mut segment_metas = segment_metas_linked_list.atomically();
     let entries = segment_metas.garbage_collect(next_xid);
 
-    // Replication is not enabled: immediately free the entries. It doesn't matter when we
-    // commit the segment metas list in this case.
-    segment_metas.commit();
-    free_entries(indexrel, entries, current_xid);
+    // TODO: Consider explicitly checking replication slots rather than indirectly checking
+    // for hot_standby_feedback.
+    if hot_standby::feedback_xmin().is_none() {
+        // Replication is not enabled: immediately free the entries. It doesn't matter when we
+        // commit the segment metas list in this case.
+        segment_metas.commit();
+        free_entries(indexrel, entries, current_xid);
+    } else {
+        // Replication is enabled: wait to free the entries until they are past the hot standby
+        // feedback xmin value.
+        hot_standby::add_to_garbage(indexrel, entries, current_xid);
+
+        // We wait to commit the segment metas list until after the entries are visible in
+        // the garbage list so that they are visible in at least one of the lists at all times.
+        segment_metas.commit();
+    }
 }
 
 /// Chase down all the files in a segment and return them to the FSM

@@ -161,7 +161,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
-    org.opencontainers.image.source="https://github.com/paradedb/paradedb"
+    org.opencontainers.image.source="https://github.com/paradedb/paradedb-enterprise"
 
 ARG PG_VERSION_MAJOR
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
@@ -265,6 +265,14 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get purge -y build-essential wget make gcc && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install gdb to allow debugging the ParadeDB extension
+# TODO: Remove this when we no longer need gdb in production images
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y gdb --no-install-recommends && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

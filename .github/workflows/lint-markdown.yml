@@ -6,6 +6,14 @@
 name: Lint Markdown
 
 on:
+  push:
+    branches:
+      - main
+      - enterprise-patch-*
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+      - ".github/workflows/lint-markdown.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:

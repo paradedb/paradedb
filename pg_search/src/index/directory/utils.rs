@@ -407,10 +407,7 @@ pub unsafe fn load_metas(
                     .collect::<HashSet<SegmentId>>();
                 let found = only_these.difference(&missing).collect::<HashSet<_>>();
 
-                panic!(
-                    "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
-                    found={found:?}, missing={missing:?}",
-                );
+                crate::postgres::hot_standby::abort_for_mismatched_segments(&missing, found);
             }
             #[cfg(debug_assertions)]
             MvccSatisfies::ParallelWorker(only_these) => {

@@ -26,7 +26,7 @@ docker run \
   -v paradedb_data:/var/lib/postgresql/ \
   -p 5432:5432 \
   -d \
-  paradedb/paradedb:latest
+  paradedb/paradedb-enterprise:latest
 ```
 
 This will spin up a Postgres instance with `pg_search` preinstalled.

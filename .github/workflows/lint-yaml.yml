@@ -6,6 +6,14 @@
 name: Lint YAML
 
 on:
+  push:
+    branches:
+      - main
+      - enterprise-patch-*
+    paths:
+      - "**/*.yml"
+      - "**/*.yaml"
+      - ".github/workflows/lint-yaml.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:

@@ -1,0 +1,112 @@
+name: Community Rebase
+
+on:
+  schedule:
+    - cron: "0 14-23 * * 1-5" # Mon-Fri, 2pm-11pm UTC (9am-6pm EST)
+    - cron: "0 0-2 * * 2-6" # Tue-Sat, 12am-2am UTC (7pm-9pm EST)
+  workflow_dispatch: # Allow manual triggering
+
+# Prevent concurrent rebase operations
+concurrency:
+  group: community-rebase
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  community-rebase:
+    name: Rebase Enterprise on Community
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "paradedb-bot"
+          git config --global user.email "developers@paradedb.com"
+
+      - name: Install GitHub CLI
+        run: |
+          # GitHub CLI is pre-installed on ubuntu-latest, but ensure it's configured
+          gh --version
+        env:
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+
+      - name: Run community rebase
+        id: rebase
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Starting community rebase process..."
+
+          # Run the batch rebase script with debug mode - all output will appear in logs
+          ./scripts/rebase-community-batch.sh --debug
+
+          echo "✅ Community rebase completed successfully"
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack on failure and tag @ankit
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            COMMON_FIELDS='[
+              {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+              {"title": "Workflow", "value": "${{ github.workflow }}", "short": true},
+              {"title": "Run ID", "value": "${{ github.run_id }}", "short": true},
+              {"title": "View Logs", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>", "short": true}
+            ]'
+
+            # Check if this is a conflict situation or actual failure
+            if [ -f "/tmp/rebase-conflict-details.json" ]; then
+              JSON_DATA="{
+                \"text\": \"🔧 Community Rebase Needs Resolution - <@ankit>\",
+                \"attachments\": [
+                  {
+                    \"color\": \"warning\",
+                    \"fields\": $(echo "$COMMON_FIELDS" | jq '.')
+                  }
+                ]
+              }"
+
+              CONFLICT_DATA=$(cat /tmp/rebase-conflict-details.json)
+              CONFLICT_AUTHOR=$(echo "$CONFLICT_DATA" | jq -r '.commit_author')
+              CONFLICT_MESSAGE=$(echo "$CONFLICT_DATA" | jq -r '.commit_message')
+              JSON_DATA=$(echo "$JSON_DATA" | jq --arg author "$CONFLICT_AUTHOR" --arg message "$CONFLICT_MESSAGE" '.attachments[0].fields += [{"title": "Commit Author", "value": $author, "short": true}, {"title": "Commit Message", "value": $message, "short": false}]')
+            else
+              # Actual failure - show original failure message
+              JSON_DATA="{
+                \"text\": \"🚨 Community Rebase Failed - <@ankit>\",
+                \"attachments\": [
+                  {
+                    \"color\": \"danger\",
+                    \"fields\": $(echo "$COMMON_FIELDS" | jq '.')
+                  }
+                ]
+              }"
+            fi
+
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$JSON_DATA" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "Slack webhook not configured, skipping notification"
+          fi

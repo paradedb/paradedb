@@ -22,6 +22,7 @@ use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
 
+#[ignore = "in community this should plan an Index Only Scan, but not in enterprise"]
 #[rstest]
 fn custom_scan_on_key_field(mut conn: PgConnection) {
     use serde_json::Value;

@@ -24,6 +24,44 @@
 [![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fjoin.slack.com%2Ft%2Fparadedbcommunity%2Fshared_invite%2Fzt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
 [![X URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fparadedb&label=Follow%20%40paradedb)](https://x.com/paradedb)
 
+---
+
+This repository is the closed-source version of `paradedb/paradedb`. It should only be used for developing enterprise features and publishing ParadeDB Enterprise.
+
+Closed-source features should be contributed via PRs to `dev`, as per usual.
+
+### Community Sync
+
+Community commits from `paradedb/paradedb` are automatically synced to this repository **every hour** via GitHub Actions. See [scripts/README.md](scripts/README.md) for details and visual workflow diagram.
+
+If conflicts occur during automated sync, you'll be notified via Slack with instructions on how to resolve them manually.
+
+The sync workflow:
+
+- Automatically applies up to 5 community commits per run
+- **Works entirely on patch branches created from `origin/main`** - your local `main` is never modified
+- Creates history tags for audit trail (`community-sync-history-YYYY-MM-DD-HHMMSS`)
+- Pushes patch branches to `origin/main` after CI validation passes
+- Stops on conflicts and requires manual resolution
+
+**For detailed workflow documentation and conflict resolution procedures**, see [scripts/README.md](scripts/README.md).
+
+### Release process
+
+1. Do release prep for `paradedb/paradedb`
+   - Bump the version in `Cargo.toml` and run `cargo check` to update `Cargo.lock`
+   - Ensure that an upgrade script has been created at `pg_search/sql/pg_search--0.aa.bb--0.xx.yy.sql`
+   - Add a changelog file in `docs/changelog/0.xx.yy.mdx`
+   - Add a new `Changelog` entry to `docs.json`, referencing the changelog file from the previous step
+   - Find references to the current version (e.g. `0.aa.bb`) in the `docs` directory, and update them to the new version
+   - Post as a PR, and land
+2. Create a release of `paradedb/paradedb`
+   - Open a PR from `dev` to `main` and merge via `git checkout main && git merge dev --ff-only`
+3. Create a release of `paradedb/paradedb-enterprise`
+   - Open a PR from `dev` to `main` and merge via `git checkout main && git merge dev --ff-only`
+
+---
+
 [ParadeDB](https://paradedb.com) is a modern Elasticsearch alternative built on Postgres. Built for real-time, update-heavy workloads.
 
 ## Get Started
@@ -51,7 +89,7 @@ ParadeDB supports all versions supported by the PostgreSQL Global Development Gr
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
 ```bash
-docker run --name paradedb -e POSTGRES_PASSWORD=password paradedb/paradedb
+docker run --name paradedb -e POSTGRES_PASSWORD=password paradedb/paradedb-enterprise
 ```
 
 This will start a ParadeDB instance with default user `postgres` and password `password`. You can then connect to the database using `psql`:
@@ -71,7 +109,7 @@ docker run \
   -v paradedb_data:/var/lib/postgresql/ \
   -p 5432:5432 \
   -d \
-  paradedb/paradedb:latest
+  paradedb/paradedb-enterprise:latest
 ```
 
 This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.

@@ -39,6 +39,13 @@ pub extern "C-unwind" fn ambuild(
     let mut index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
     index_relation.set_is_create_index();
 
+    let deferred_wal = cfg!(feature = "deferred_wal");
+    if deferred_wal {
+        // we don't need to WAL log if our deferred_wal feature is turned on
+        // otherwise we'll let Postgres decide for us if this new index needs WAL or not
+        index_relation.set_need_wal(false);
+    }
+
     unsafe {
         build_empty(&index_relation);
     }
@@ -73,7 +80,18 @@ pub extern "C-unwind" fn ambuild(
         .unwrap_or_else(|e| panic!("{e}"));
 
         pgrx::debug1!("build_index: flushing buffers");
-        pg_sys::FlushRelationBuffers(indexrel);
+
+        // if we're configured to defer WAL logging, now is the time to do it
+        if deferred_wal {
+            let nblocks =
+                pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+
+            pgrx::debug1!(
+                    "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes", nblocks as usize * pg_sys::BLCKSZ as usize
+                );
+
+            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
+        }
 
         let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
         result.heap_tuples = heap_tuples;

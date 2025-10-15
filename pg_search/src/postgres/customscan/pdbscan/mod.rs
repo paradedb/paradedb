@@ -70,6 +70,7 @@ use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
+use crate::postgres::hot_standby::check_for_concurrent_vacuum;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
@@ -1235,6 +1236,32 @@ impl CustomScan for PdbScan {
             match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
+                    // if we're in recovery, we need to check that a concurrent vacuum didn't run and
+                    // cause deleted ctids to be visible
+                    if unsafe { pg_sys::HotStandbyActive() } {
+                        unsafe {
+                            let custom_state = state.custom_state();
+                            let indexrel = custom_state
+                                .indexrel
+                                .as_ref()
+                                .expect("exec_custom_scan: indexrel should already be open");
+
+                            // a custom scan does not necessarily have a parallel state
+                            if let Some(parallel_state) = custom_state.parallel_state {
+                                check_for_concurrent_vacuum(indexrel, (*parallel_state).segments());
+                            } else {
+                                let segments = custom_state
+                                    .search_reader
+                                    .as_ref()
+                                    .expect("exec_custom_scan: search_reader should be set")
+                                    .segment_readers()
+                                    .iter()
+                                    .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                                    .collect::<HashMap<_, _>>();
+                                check_for_concurrent_vacuum(indexrel, segments);
+                            }
+                        };
+                    }
                     return std::ptr::null_mut();
                 }
 

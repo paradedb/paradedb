@@ -19,6 +19,9 @@ use tempfile::TempDir;
 static INIT: Once = Once::new();
 static LAST_PORT: AtomicUsize = AtomicUsize::new(49152);
 
+const RETRIES: u32 = 60;
+const RETRY_DELAY: u64 = 1000; // measured in milliseconds
+
 // Function to check if a port can be bound (i.e., is available)
 fn can_bind(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -452,6 +455,184 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 }
 
 #[rstest]
+async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
+    let config = "
+        wal_level = logical
+        max_replication_slots = 4
+        max_wal_senders = 4
+        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
+        # but simplifies testing
+        shared_preload_libraries = 'pg_search'
+    ";
+
+    let source_postgres = EphemeralPostgres::new(Some(config), None);
+    let target_postgres = EphemeralPostgres::new(Some(config), None);
+
+    let mut source_conn = source_postgres.connection().await?;
+    let mut target_conn = target_postgres.connection().await?;
+
+    let major_version: (i32,) = "
+        SELECT split_part(setting, '.', 1)::int AS major_version
+        FROM pg_catalog.pg_settings
+        WHERE name = 'server_version';
+        "
+    .fetch_one(&mut source_conn);
+
+    // Logical replication for versions < 17 is not implemented
+    if major_version.0 < 17 {
+        return Ok(());
+    }
+
+    // Do not install pg_search on the source database
+
+    // Create the mock_items table schema on the source
+    let schema = "
+        CREATE TABLE mock_items (
+          id SERIAL PRIMARY KEY,
+          description TEXT,
+          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+          category VARCHAR(255),
+          in_stock BOOLEAN,
+          metadata JSONB,
+          created_at TIMESTAMP,
+          last_updated_date DATE,
+          latest_available_time TIME
+        )
+    ";
+    schema.execute(&mut source_conn);
+
+    // Create publication for replication
+    "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
+
+    // Install pg_search on the replica and create the same table schema
+    "CREATE EXTENSION pg_search".execute(&mut target_conn);
+    schema.execute(&mut target_conn);
+
+    // Create the bm25 index on the description field on the replica
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
+    "
+    .execute(&mut target_conn);
+
+    // Create subscription on the replica
+    format!(
+        "CREATE SUBSCRIPTION mock_items_sub
+         CONNECTION 'host={} port={} dbname={}'
+         PUBLICATION mock_items_pub;",
+        source_postgres.host, source_postgres.port, source_postgres.dbname
+    )
+    .execute(&mut target_conn);
+
+    // Insert a new item into the source database
+    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+    VALUES ('Green hiking shoes', 'Footwear', true, '16:00:00', '2024-07-11', '{}', '2024-07-11 16:00:00', 3)"
+    .execute(&mut source_conn);
+
+    // Verify the insert is replicated to the target database and can be searched using pg_search
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| {
+                !result.is_empty()
+            });
+
+    assert_eq!(target_results.len(), 1);
+    assert_eq!(target_results[0].0, "Green hiking shoes");
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_wal_streaming_replication_without_pg_search() -> Result<()> {
+    // Primary Postgres setup + insert data
+    let postgresql_conf = "
+        listen_addresses = 'localhost'
+        wal_level = replica
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+    ";
+    let pg_hba_conf = "
+        host replication all 127.0.0.1/32 md5
+        host replication all ::1/128 md5
+    ";
+    let source_postgres = EphemeralPostgres::new(Some(postgresql_conf), Some(pg_hba_conf));
+    let mut source_conn = source_postgres.connection().await?;
+    let source_port = source_postgres.port;
+    let source_username = "replicator";
+
+    // Create a replication user and slot on primary
+    format!("CREATE USER {source_username} WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass'")
+        .execute(&mut source_conn);
+    "SELECT pg_create_physical_replication_slot('wal_receiver_1');".execute(&mut source_conn);
+
+    // Standby Postgres setup
+    let postgresql_conf = "
+        shared_preload_libraries = 'pg_search'
+        hot_standby = on
+        hot_standby_feedback = true
+        primary_slot_name = wal_receiver_1
+    ";
+    let target_tempdir = TempDir::new().expect("Failed to create temp dir");
+    let target_tempdir_path = target_tempdir.keep();
+
+    // Permissions for the --pgdata directory passed to pg_basebackup
+    // should be u=rwx (0700) or u=rwx,g=rx (0750)
+    std::fs::set_permissions(
+        target_tempdir_path.as_path(),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .expect("couldn't set permissions on target_tempdir path");
+
+    // Run pg_basebackup
+    let pg_basebackup = EphemeralPostgres::pg_basebackup_path();
+    run_cmd!($pg_basebackup -D $target_tempdir_path -Fp -Xs -P -R -h localhost -U $source_username --port $source_port &> /dev/null)
+        .expect("Failed to run pg_basebackup");
+
+    let target_postgres = EphemeralPostgres::new_from_initialized(
+        target_tempdir_path.as_path(),
+        Some(postgresql_conf),
+        None,
+    );
+
+    // Create the mock_items table schema on the source
+    let schema = "
+        CREATE EXTENSION pg_search;
+        CALL paradedb.create_bm25_test_table(
+            schema_name => 'public',
+            table_name => 'mock_items'
+        )
+    ";
+    schema.execute(&mut source_conn);
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let mut target_conn = target_postgres.connection().await?;
+    let target_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mock_items")
+        .fetch_one(&mut target_conn)
+        .await?;
+
+    assert_eq!(target_count, (41,));
+
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field = 'id');
+    "
+    .execute(&mut source_conn);
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut target_conn);
+
+    assert_eq!(rows.len(), 3);
+
+    Ok(())
+}
+
+#[rstest]
 async fn test_physical_streaming_replication() -> Result<()> {
     // Create a unique directory for WAL archiving
     let archive_dir = TempDir::new().expect("Failed to create archive dir for WALs");
@@ -485,6 +666,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
     // Create a replication user and test table on primary
     "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass';"
         .execute(&mut primary_conn);
+    "SELECT pg_create_physical_replication_slot('wal_receiver_1');".execute(&mut primary_conn);
     "CREATE EXTENSION pg_search;".execute(&mut primary_conn);
     "CREATE TABLE test_data (id SERIAL PRIMARY KEY, info TEXT);".execute(&mut primary_conn);
 
@@ -518,6 +700,8 @@ async fn test_physical_streaming_replication() -> Result<()> {
         # but simplifies testing
         shared_preload_libraries = 'pg_search'
         hot_standby = on
+        hot_standby_feedback = true
+        primary_slot_name = wal_receiver_1
     ";
 
     // Start the standby
@@ -695,23 +879,33 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     // Wait for the standby to catch up
     // The fetch_retry helper is used in previous tests; you can adapt a similar approach here.
-    "SELECT description FROM items ORDER BY id".fetch_retry::<(String,)>(
-        &mut standby_conn,
-        60,
-        1000,
-        |result| !result.is_empty(),
-    );
+    let standby_data: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| !result.is_empty(),
+        );
 
-    // Test that the correct error is returned when trying to read from a standby
-    let result = "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
-        .fetch_result::<(i32,)>(&mut standby_conn);
+    assert_eq!(standby_data.len(), 2);
 
-    match result {
-        Err(err) => assert!(err.to_string().contains("Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community")),
-        _ => {
-            panic!("physical replication should not be supported on ParadeDB Community {:?}", result);
-        }
-    }
+    // Insert a new item on the primary and verify it appears on the standby
+    "INSERT INTO items (description, category, created_at)
+     VALUES ('Green hiking shoes', 'Footwear', NOW())"
+        .execute(&mut source_conn);
+
+    let new_item_standby: Vec<(String,)> =
+        "SELECT description FROM items WHERE items @@@ 'description:hiking' ORDER BY id"
+            .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+
+    assert_eq!(new_item_standby.len(), 1);
+    assert_eq!(new_item_standby[0].0, "Green hiking shoes");
+
+    // Test that we can still find electronics on the standby after inserts
+    let electronics: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
+            .fetch(&mut standby_conn);
+    assert_eq!(electronics.len(), 2);
 
     Ok(())
 }

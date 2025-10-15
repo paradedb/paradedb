@@ -23,11 +23,8 @@ use crate::postgres::storage::buffer::{
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
-    PgSqlErrorCode,
-};
+use pgrx::iter::TableIterator;
+use pgrx::{name, pg_extern, pg_sys, PgRelation};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -116,16 +113,6 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
-                function_name!(),
-            )
-            .set_detail("Please contact ParadeDB for access to ParadeDB Enterprise")
-            .report(PgLogLevel::ERROR);
-        }
-
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METAPAGE);
         let page = buffer.page();
@@ -155,7 +142,11 @@ impl MetaPage {
 
         // If any of the fields are not initialized, we need to initialize them
         // We swap our share lock for an exclusive lock
-        if may_need_init {
+        //
+        // Note that we can only do this if we're in an environment where we can create WAL records
+        // Otherwise, we'll just have to wait for the next WAL replay to send the changes over from
+        // the primary
+        if may_need_init && unsafe { pg_sys::XLogInsertAllowed() } {
             let mut buffer = bman.get_buffer_mut(METAPAGE);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();

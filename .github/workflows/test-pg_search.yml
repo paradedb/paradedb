@@ -6,11 +6,21 @@
 name: Test pg_search
 
 on:
+  push:
+    branches:
+      - main
+      - enterprise-patch-*
+    paths:
+      - ".github/workflows/test-pg_search.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
+      - "tests/**"
+      - "tokenizers/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - 0.*.x # Release branches
+      - enterprise-patch-*
     paths:
       - "Cargo.toml"
       - "Cargo.lock"

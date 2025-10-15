@@ -95,7 +95,7 @@ unsafe fn bm25_shared_state(
 ///
 /// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
 pub unsafe fn maybe_init_parallel_scan(
-    mut scan: pg_sys::IndexScanDesc,
+    scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
 ) -> Option<i32> {
     if unsafe { (*scan).parallel_scan.is_null() } {
@@ -103,7 +103,7 @@ pub unsafe fn maybe_init_parallel_scan(
         return None;
     }
 
-    let state = get_bm25_scan_state(&mut scan)?;
+    let state = get_bm25_scan_state(scan)?;
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
     let _mutex = state.acquire_mutex();
     if worker_number == -1 {
@@ -115,13 +115,13 @@ pub unsafe fn maybe_init_parallel_scan(
     Some(worker_number)
 }
 
-pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    get_bm25_scan_state(&mut scan)?.checkout_segment()
+pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
+    get_bm25_scan_state(scan)?.checkout_segment()
 }
 
-pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
+pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
     Some(
-        get_bm25_scan_state(&mut scan)?
+        get_bm25_scan_state(scan)?
             .segments()
             .keys()
             .cloned()
@@ -129,7 +129,7 @@ pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSe
     )
 }
 
-fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {
+pub fn get_bm25_scan_state<'a>(scan: pg_sys::IndexScanDesc) -> Option<&'a mut ParallelScanState> {
     unsafe {
         assert!(!scan.is_null());
         let scan = scan.as_mut().unwrap_unchecked();

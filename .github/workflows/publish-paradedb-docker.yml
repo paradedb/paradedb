@@ -1,9 +1,7 @@
 # workflows/publish-paradedb-docker.yml
 #
 # Publish ParadeDB (Docker)
-# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub. Stable
-# releases publish Docker images for all of our supported PostgreSQL versions, while beta releases
-# only publish the default PostgreSQL version we support (currently 17).
+# Publish ParadeDB Enterprise as Docker images for all of our supported PostgreSQL versions to Docker Hub.
 
 name: Publish ParadeDB (Docker)
 
@@ -31,6 +29,7 @@ permissions:
   contents: write
   id-token: write
   attestations: write
+  contents: write
 
 jobs:
   set-matrix:
@@ -129,7 +128,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: paradedb/paradedb
+          images: paradedb/paradedb-enterprise
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
             type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
@@ -163,9 +162,15 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-name: index.docker.io/paradedb/paradedb
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+      # Attestations are not supported for private repositories without a GitHub Enterprise Cloud plan.
+      # https://github.com/actions/attest
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-name: index.docker.io/paradedb/paradedb-enterprise
+      #     subject-digest: ${{ steps.build-push.outputs.digest }}
+      #     push-to-registry: true
+
+  # NOTE: In `paradedb/paradedb-enterprise`, we don't publish a Helm Chart, since this is already handled
+  # by the open-source project. Our enterprise deployments of the Helm Chart use the same Helm Chart as the
+  # open-source project, but fetch the enterprise Docker image from Docker Hub instead of the open-source one.

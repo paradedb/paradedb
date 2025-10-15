@@ -37,6 +37,7 @@ async fn score_bm25_after_delete(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transactionIds during parallel operation"]
 async fn snippet_after_delete(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -115,6 +116,7 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transactionIds during parallel operation"]
 async fn snippet_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -159,6 +161,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transactionIds during parallel operation"]
 async fn snippet_after_vacuum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

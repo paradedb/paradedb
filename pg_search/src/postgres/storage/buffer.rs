@@ -4,6 +4,7 @@ use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
+use crate::postgres::storage::xlog::{finish_xlog, XlogFlag, XlogStyle};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
@@ -228,11 +229,13 @@ impl Buffer {
         let blockno = self.number();
         drop(self);
 
+        let style = unsafe { XlogStyle::start_generic(bman.rbufacc.rel().as_ptr()) };
         let pg_buffer = bman
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         block_tracker::track!(Write, blockno);
         BufferMut {
+            style,
             dirty: false,
             inner: Buffer::new(pg_buffer),
         }
@@ -242,9 +245,11 @@ impl Buffer {
         let blockno = self.number();
         drop(self);
 
+        let style = unsafe { XlogStyle::start_generic(bman.rbufacc.rel().as_ptr()) };
         let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
         block_tracker::track!(Write, blockno);
         Some(BufferMut {
+            style,
             dirty: false,
             inner: Buffer::new(pg_buffer),
         })
@@ -253,8 +258,9 @@ impl Buffer {
 
 #[derive(Debug)]
 pub struct BufferMut {
-    dirty: bool,
-    inner: Buffer,
+    pub(super) style: XlogStyle,
+    pub(super) dirty: bool,
+    pub(super) inner: Buffer,
 }
 
 impl Deref for BufferMut {
@@ -267,15 +273,22 @@ impl Deref for BufferMut {
 impl Drop for BufferMut {
     fn drop(&mut self) {
         unsafe {
-            if crate::postgres::utils::IsTransactionState() && self.dirty {
-                pg_sys::MarkBufferDirty(self.inner.pg_buffer);
+            // there's no need for us to try to do anything if we're already panicking or not in a
+            // transaction.  The transaction is already (or will be) aborted and so generating xlog
+            // records is pointless
+            if std::thread::panicking() || !pg_sys::IsTransactionState() {
+                return;
             }
+
+            // otherwise it's safe to either mark buffers dirty or finish the xlog record
+            finish_xlog(self)
         }
     }
 }
 
 impl BufferMut {
     pub fn init_page(&mut self) -> PageMut<'_> {
+        self.assert_mutable();
         let page_size = self.page_size();
         let page = self.page_mut();
         page.buffer.dirty = true;
@@ -292,15 +305,18 @@ impl BufferMut {
     #[allow(dead_code)]
     pub fn page(&self) -> Page<'_> {
         unsafe {
+            let pg_page = pg_sys::BufferGetPage(self.inner.pg_buffer);
+            assert!(!pg_page.is_null());
+
             Page {
-                pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
+                pg_page,
                 _buffer: Some(&self.inner),
             }
         }
     }
 
     pub fn page_mut(&mut self) -> PageMut<'_> {
-        let pg_page = unsafe { pg_sys::BufferGetPage(self.inner.pg_buffer) };
+        let pg_page = self.style.get_page_mut(self.inner.pg_buffer);
         PageMut {
             buffer: self,
             pg_page,
@@ -346,6 +362,24 @@ impl BufferMut {
 
         bman.fsm()
             .extend_with_when_recyclable(bman, when_recyclable, std::iter::once(blockno));
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    fn assert_mutable(&self) {
+        #[cfg(debug_assertions)]
+        {
+            match self.style {
+                XlogStyle::Unlogged => {}
+                XlogStyle::FullPageImage | XlogStyle::GenericXlog(_) => {
+                    assert!(
+                        unsafe { pg_sys::XLogInsertAllowed() },
+                        "{}: xlog insert is not allowed",
+                        std::panic::Location::caller()
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -495,6 +529,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn mark_item_dead(&mut self, offno: pg_sys::OffsetNumber) {
+        self.buffer.assert_mutable();
         unsafe {
             let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
             debug_assert!(
@@ -535,6 +570,7 @@ impl<'a> PageMut<'a> {
         size: pg_sys::Size,
         flags: i32,
     ) -> pg_sys::OffsetNumber {
+        self.buffer.assert_mutable();
         let offno = unsafe {
             pg_sys::PageAddItemExtended(
                 self.pg_page,
@@ -557,6 +593,7 @@ impl<'a> PageMut<'a> {
         item: pg_sys::Item,
         size: pg_sys::Size,
     ) -> bool {
+        self.buffer.assert_mutable();
         assert!(offno != pg_sys::InvalidOffsetNumber);
         let did_replace =
             unsafe { pg_sys::PageIndexTupleOverwrite(self.pg_page, offno, item, size) };
@@ -567,6 +604,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn delete_items(&mut self, item_offsets: &mut [pg_sys::OffsetNumber]) {
+        self.buffer.assert_mutable();
         // assert the list of item offsets is sorted.  Thanks, stack overflow -- it's too late for me to come up with this on my own
         debug_assert!(item_offsets.windows(2).all(|w| w[0] <= w[1]));
         unsafe {
@@ -580,6 +618,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn delete_item(&mut self, offno: pg_sys::OffsetNumber) {
+        self.buffer.assert_mutable();
         unsafe {
             pg_sys::PageIndexTupleDelete(self.pg_page, offno);
         }
@@ -591,12 +630,14 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn header_mut(&mut self) -> &mut pg_sys::PageHeaderData {
+        self.buffer.assert_mutable();
         let header = unsafe { &mut *(self.pg_page as *mut pg_sys::PageHeaderData) };
         self.buffer.dirty = true;
         header
     }
 
     pub fn special_mut<T>(&mut self) -> &mut T {
+        self.buffer.assert_mutable();
         let special = unsafe { &mut *(pg_sys::PageGetSpecialPointer(self.pg_page) as *mut T) };
         self.buffer.dirty = true;
         special
@@ -614,6 +655,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn free_space_slice_mut(&mut self, len: usize) -> Option<&mut [u8]> {
+        self.buffer.assert_mutable();
         let len: u16 = len.try_into().expect("bytes length too large for a page");
         let slice = unsafe {
             let start = self.header().pd_lower;
@@ -632,6 +674,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn append_bytes(&mut self, bytes: &[u8]) -> bool {
+        self.buffer.assert_mutable();
         let len: u16 = bytes
             .len()
             .try_into()
@@ -655,6 +698,7 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn contents_mut<T>(&mut self) -> &'a mut T {
+        self.buffer.assert_mutable();
         let contents = unsafe {
             let contents = pg_sys::PageGetContents(self.pg_page) as *mut T;
 
@@ -735,6 +779,7 @@ impl BufferManager {
             });
 
         BufferMut {
+            style: XlogFlag::NewBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
             inner: Buffer { pg_buffer },
         }
@@ -751,6 +796,7 @@ impl BufferManager {
         }
 
         let buffer_access = self.buffer_access().clone();
+        let rel = buffer_access.rel().clone();
 
         let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
             block_tracker::track!(Write, blockno);
@@ -761,6 +807,14 @@ impl BufferManager {
                 None,
             );
             BufferMut {
+                // one might think that XlogFlag::ExistingBuffer would be the right style here.
+                // However, it's really not.
+                //
+                // ExistingBuffer asks Postgres to generate diffs for the page but since we're
+                // returning this existing buffer from the FSM in response to the caller asking for
+                // "new buffers", they're most likely going to change every byte on the page anyway,
+                // so we avoid the diff calculation by using NewBuffer
+                style: XlogFlag::NewBuffer.into_style(&rel),
                 dirty: false,
                 inner: Buffer { pg_buffer },
             }
@@ -783,12 +837,14 @@ impl BufferManager {
             if new_buffers.is_none() {
                 // the fsm didn't give us all the buffers we asked for, so we need to get the rest
                 // by extending the relation with brand new buffers
+                let rel = bman.buffer_access().rel().clone();
                 new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
                     move |pg_buffer| {
                         block_tracker::track!(Write, unsafe {
                             pg_sys::BufferGetBlockNumber(pg_buffer)
                         });
                         BufferMut {
+                            style: XlogFlag::NewBuffer.into_style(&rel),
                             dirty: false,
                             inner: Buffer { pg_buffer },
                         }
@@ -829,13 +885,15 @@ impl BufferManager {
     }
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+        let pg_buffer = self
+            .rbufacc
+            .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+
         block_tracker::track!(Write, blockno);
         BufferMut {
+            style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
             dirty: false,
-            inner: Buffer::new(
-                self.rbufacc
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-            ),
+            inner: Buffer::new(pg_buffer),
         }
     }
 
@@ -859,6 +917,7 @@ impl BufferManager {
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 block_tracker::track!(Conditional, blockno);
                 Some(BufferMut {
+                    style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
                     dirty: false,
                     inner: Buffer::new(pg_buffer),
                 })
@@ -875,6 +934,7 @@ impl BufferManager {
             block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
             BufferMut {
+                style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
                 dirty: false,
                 inner: Buffer::new(pg_buffer),
             }
@@ -890,6 +950,7 @@ impl BufferManager {
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
                 block_tracker::track!(ConditionalCleanup, blockno);
                 Some(BufferMut {
+                    style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),
                     dirty: false,
                     inner: Buffer::new(pg_buffer),
                 })
@@ -916,6 +977,7 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let pg_buffer = rbacc.new_buffer();
 
     let mut buffer = BufferMut {
+        style: XlogFlag::NewBuffer.into_style(rel),
         dirty: false,
         inner: Buffer { pg_buffer },
     };

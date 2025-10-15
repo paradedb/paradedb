@@ -258,7 +258,7 @@ jobs:
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
           License:        GNU Affero General Public License v3.0
-          URL:            https://github.com/paradedb/paradedb
+          URL:            https://github.com/paradedb/paradedb-enterprise
 
           BuildRequires:  postgresql${{ matrix.pg_version }}-devel
           Requires:       postgresql${{ matrix.pg_version }}-server
@@ -294,11 +294,13 @@ jobs:
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-path: |
-            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      # Attestations are not supported for private repositories without a GitHub Enterprise Cloud plan.
+      # https://github.com/actions/attest
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-path: |
+      #       ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -307,7 +309,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/paradedb/paradedb-enterprise/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -320,7 +322,7 @@ jobs:
           github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          asset_name: pg_search-enterprise_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           overwrite: true
 
       - name: Notify Slack on Failure

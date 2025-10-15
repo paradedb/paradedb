@@ -27,14 +27,6 @@ RETURNS jsonb AS 'MODULE_PATHNAME', 'tokenizer_wrapper' IMMUTABLE LANGUAGE c PAR
 
 -- pg_search/src/api/aggregate.rs:249
 -- pg_search::api::aggregate::aggregate
-CREATE  FUNCTION "aggregate"(
-    "index" regclass, /* pgrx::rel::PgRelation */
-    "query" SearchQueryInput, /* pg_search::query::SearchQueryInput */
-    "agg" json, /* pgrx::datum::json::Json */
-    "solve_mvcc" bool DEFAULT true, /* bool */
-    "memory_limit" bigint DEFAULT 500000000, /* i64 */
-    "bucket_limit" bigint DEFAULT 65000 /* i64 */
-) RETURNS jsonb /* core::result::Result<pgrx::datum::json::JsonB, alloc::boxed::Box<dyn core::error::Error>> */
-    STRICT
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'aggregate_wrapper';
+--
+-- enterprise already has this function
+--

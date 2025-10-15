@@ -193,10 +193,12 @@ jobs:
                   --scripts ~/tmp/pg_search_postinstall_script/ \
                   pg_search@${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+      # Attestations are not supported for private repositories without a GitHub Enterprise Cloud plan.
+      # https://github.com/actions/attest
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -205,7 +207,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+            /repos/paradedb/paradedb-enterprise/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
@@ -218,7 +220,7 @@ jobs:
           github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-          asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_name: pg_search-enterprise@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           overwrite: true
 
       - name: Notify Slack on Failure

@@ -18,6 +18,7 @@
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
+use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
 use std::cell::RefCell;
 use std::error::Error;
@@ -44,6 +45,32 @@ impl IsCreateIndex {
 
     fn get(&self) -> bool {
         *self.0.borrow()
+    }
+}
+
+/// A lazily-evaluated flag for if a relation needs WAL or not.
+#[repr(transparent)]
+struct NeedWal(Rc<RefCell<Option<bool>>>);
+impl Default for NeedWal {
+    /// Default WAL status is "unknown"
+    fn default() -> Self {
+        Self(Rc::new(RefCell::new(None)))
+    }
+}
+
+impl NeedWal {
+    /// Set if WAL is needed or not, replacing any previous value
+    fn set(&self, value: bool) {
+        self.0.replace(Some(value));
+    }
+
+    /// Indicates if WAL is needed or not.  If the decision is currently unknown, this
+    /// will check to see if Postgres generally thinks the Relation itself needs WAL
+    fn get(&self, rel: pg_sys::Relation) -> bool {
+        *self
+            .0
+            .borrow_mut()
+            .get_or_insert_with(|| relation_needs_wal(rel))
     }
 }
 
@@ -83,6 +110,7 @@ pub struct PgSearchRelation(
             RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
             BM25IndexOptions,
             IsCreateIndex,
+            NeedWal,
         )>,
     >,
 );
@@ -138,6 +166,7 @@ impl PgSearchRelation {
             Default::default(),
             BM25IndexOptions::from_relation(relation),
             IsCreateIndex::default(),
+            NeedWal::default(),
         ))))
     }
 
@@ -160,6 +189,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                NeedWal::default(),
             ))))
         }
     }
@@ -181,6 +211,7 @@ impl PgSearchRelation {
                     Default::default(),
                     BM25IndexOptions::from_relation(relation),
                     IsCreateIndex::default(),
+                    NeedWal::default(),
                 )))))
             }
         }
@@ -200,6 +231,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                NeedWal::default(),
             ))))
         }
     }
@@ -216,6 +248,18 @@ impl PgSearchRelation {
     /// and the index is not yet ready to serve queries
     pub fn is_valid(&self) -> bool {
         unsafe { (*(*self.as_ptr()).rd_index).indisvalid }
+    }
+
+    /// Allows the user to decide for themselves if this [`PgSearchRelation`] instance (and all its
+    /// clones) need to do WAL or not.
+    pub fn set_need_wal(&mut self, need_wal: bool) {
+        self.0.as_ref().unwrap().6.set(need_wal);
+    }
+
+    /// Returns true if Postgres thinks this relation needs WAL *or* instead returns the WAL-ness
+    /// based on a prior call to [`set_need_wal`].
+    pub fn need_wal(&self) -> bool {
+        self.0.as_ref().unwrap().6.get(self.as_ptr())
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
@@ -309,5 +353,59 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+}
+
+fn relation_needs_wal(relation: pg_sys::Relation) -> bool {
+    // #define InvalidSubTransactionId		((SubTransactionId) 0)
+    const INVALID_SUB_TRANSACTION_ID: pg_sys::SubTransactionId = 0;
+
+    // /*
+    //  * Is WAL-logging necessary for archival or log-shipping, or can we skip
+    //  * WAL-logging if we fsync() the data before committing instead?
+    //  */
+    // #define XLogIsNeeded() (wal_level >= WAL_LEVEL_REPLICA)
+    unsafe fn xlog_is_needed() -> bool {
+        pg_sys::wal_level >= WAL_LEVEL_REPLICA as i32
+    }
+
+    // /*
+    //  * RelationIsPermanent
+    //  *		True if relation is permanent.
+    //  */
+    // #define RelationIsPermanent(relation) \
+    // 	((relation)->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT)
+
+    unsafe fn relation_is_permanent(relation: pg_sys::Relation) -> bool {
+        (*(*relation).rd_rel).relpersistence
+            == pg_sys::RELPERSISTENCE_PERMANENT as core::ffi::c_char
+    }
+
+    // /*
+    //  * RelationNeedsWAL
+    //  *		True if relation needs WAL.
+    //  *
+    //  * Returns false if wal_level = minimal and this relation is created or
+    //  * truncated in the current transaction.  See "Skipping WAL for New
+    //  * RelFileLocator" in src/backend/access/transam/README.
+    //  */
+    // #define RelationNeedsWAL(relation)										\
+    // 	(RelationIsPermanent(relation) && (XLogIsNeeded() ||				\
+    // 	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
+    // 	   relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
+
+    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || ((*relation).rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && (*relation).rd_firstRelfilenodeSubid == INVALID_SUB_TRANSACTION_ID))
+    }
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || ((*relation).rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && (*relation).rd_firstRelfilelocatorSubid == INVALID_SUB_TRANSACTION_ID))
     }
 }

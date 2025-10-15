@@ -31,6 +31,7 @@ pub fn field(
     expand_dots: default!(Option<bool>, "NULL"),
     tokenizer: default!(Option<JsonB>, "NULL"),
     normalizer: default!(Option<String>, "NULL"),
+    alias: default!(Option<String>, "NULL"),
 ) -> JsonB {
     if let Some(true) = stored {
         ErrorReport::new(
@@ -53,7 +54,11 @@ pub fn field(
     tokenizer.map(|v| config.insert("tokenizer".to_string(), v.0));
     normalizer.map(|v| config.insert("normalizer".to_string(), Value::String(v)));
 
-    JsonB(json!({ name: config }))
+    if let Some(alias) = alias {
+        JsonB(json!({ alias: config }))
+    } else {
+        JsonB(json!({ name: config }))
+    }
 }
 
 #[pg_extern(name = "tokenizer", immutable, parallel_safe)]

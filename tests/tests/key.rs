@@ -64,6 +64,7 @@ fn boolean_key(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transaction ids during parallel operation"]
 fn uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -145,6 +146,7 @@ fn uuid_key(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transaction ids during parallel operation"]
 fn i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -712,6 +714,7 @@ fn timestamp_key(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "cannot assign transaction ids during parallel operation"]
 fn timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (

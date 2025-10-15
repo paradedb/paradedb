@@ -20,7 +20,8 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
+use crate::aggregate::agg_spec::AggregationSpec;
+use crate::aggregate::{execute_aggregation, AggQueryBuilder};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -39,7 +40,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::explainer::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
@@ -305,12 +306,14 @@ impl CustomScan for AggregateScan {
             && limit.is_none();
 
         Some(builder.build(PrivateData {
-            aggregate_types,
+            agg_spec: AggregationSpec {
+                aggs: aggregate_types,
+                groupby: grouping_columns,
+            },
+            orderby_info,
             indexrelid: bm25_index.oid(),
             heap_rti,
             query,
-            grouping_columns,
-            orderby_info,
             target_list_mapping,
             has_order_by,
             limit,
@@ -323,7 +326,7 @@ impl CustomScan for AggregateScan {
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        if builder.custom_private().grouping_columns.is_empty()
+        if builder.custom_private().agg_spec.groupby.is_empty()
             && builder.custom_private().orderby_info.is_empty()
             && !builder.custom_private().has_order_by
         {
@@ -344,7 +347,7 @@ impl CustomScan for AggregateScan {
         // EXECUTION-TIME REPLACEMENT: Replace T_Aggref if we have GROUP BY or ORDER BY
         // For simple aggregations without GROUP BY or ORDER BY, replacement should have happened at planning time
         // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
-        if !builder.custom_private().grouping_columns.is_empty()
+        if !builder.custom_private().agg_spec.groupby.is_empty()
             || !builder.custom_private().orderby_info.is_empty()
             || builder.custom_private().has_order_by
         {
@@ -355,8 +358,7 @@ impl CustomScan for AggregateScan {
             }
         }
 
-        builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
-        builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
+        builder.custom_state().agg_spec = builder.custom_private().agg_spec.clone();
         builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
@@ -553,10 +555,10 @@ fn explain_execution_strategy(
 ) {
     // Helper to add GROUP BY information
     let add_group_by = |explainer: &mut Explainer| {
-        if !state.custom_state().grouping_columns.is_empty() {
+        if !state.custom_state().grouping_columns().is_empty() {
             let group_by_fields: String = state
                 .custom_state()
-                .grouping_columns
+                .grouping_columns()
                 .iter()
                 .map(|col| col.field_name.as_str())
                 .collect::<Vec<_>>()
@@ -581,24 +583,23 @@ fn explain_execution_strategy(
     // Helper to build aggregation definition JSON (for no-filter cases)
     // Uses the shared function from aggregate module to avoid duplication
     let build_aggregate_json = || -> Option<String> {
-        let qparams = AggQueryParams {
-            base_query: &state.custom_state().query,
-            aggregate_types: &state.custom_state().aggregate_types,
-            grouping_columns: &state.custom_state().grouping_columns,
-            orderby_info: &state.custom_state().orderby_info,
-            limit: &state.custom_state().limit,
-            offset: &state.custom_state().offset,
-        };
-        build_aggregation_json_for_explain(&qparams).ok()
+        let builder = AggQueryBuilder::new(
+            &state.custom_state().query,
+            &state.custom_state().agg_spec,
+            &state.custom_state().orderby_info,
+            &state.custom_state().limit,
+            &state.custom_state().offset,
+        );
+        builder.build_tantivy_query_for_explain().ok()
     };
 
     // Helper to show base query + all aggregates (no filters case)
     let explain_no_filters = |explainer: &mut Explainer| {
         explainer.add_query(&state.custom_state().query);
-        let all_indices: Vec<usize> = (0..state.custom_state().aggregate_types.len()).collect();
+        let all_indices: Vec<usize> = (0..state.custom_state().aggregate_types().len()).collect();
         explainer.add_text(
             "  Applies to Aggregates",
-            AggregateType::format_aggregates(&state.custom_state().aggregate_types, &all_indices),
+            AggregateType::format_aggregates(state.custom_state().aggregate_types(), &all_indices),
         );
         add_group_by(explainer);
         add_limit_offset(explainer);
@@ -626,7 +627,7 @@ fn explain_execution_strategy(
             explainer.add_text(
                 "  Applies to Aggregates",
                 AggregateType::format_aggregates(
-                    &state.custom_state().aggregate_types,
+                    state.custom_state().aggregate_types(),
                     aggregate_indices,
                 ),
             );
@@ -653,7 +654,7 @@ fn explain_execution_strategy(
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
                 AggregateType::format_aggregates(
-                    &state.custom_state().aggregate_types,
+                    state.custom_state().aggregate_types(),
                     aggregate_indices,
                 ),
             );
@@ -980,25 +981,25 @@ fn execute(
         .custom_state_mut()
         .prepare_query_for_execution(planstate, expr_context);
 
-    let qparams = AggQueryParams {
-        base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
-        aggregate_types: &state.custom_state().aggregate_types,
-        grouping_columns: &state.custom_state().grouping_columns,
-        orderby_info: &state.custom_state().orderby_info,
-        limit: &state.custom_state().limit,
-        offset: &state.custom_state().offset,
-    };
+    let builder = AggQueryBuilder::new(
+        &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
+        &state.custom_state().agg_spec,
+        &state.custom_state().orderby_info,
+        &state.custom_state().limit,
+        &state.custom_state().offset,
+    );
 
     let result = execute_aggregation(
         state.custom_state().indexrel(),
-        &qparams,
+        &builder,
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
     // Process results using unified result processing
-    let aggregate_results = state.custom_state().process_aggregation_results(result);
+    let aggregate_results =
+        crate::aggregate::agg_result::AggResult::process_results(state.custom_state(), result);
 
     aggregate_results.into_iter()
 }
@@ -1015,7 +1016,7 @@ impl SolvePostgresExpressions for AggregateScanState {
     fn has_heap_filters(&mut self) -> bool {
         self.query.has_heap_filters()
             || self
-                .aggregate_types
+                .aggregate_types_mut()
                 .iter_mut()
                 .any(|agg| agg.has_heap_filters())
     }
@@ -1023,21 +1024,21 @@ impl SolvePostgresExpressions for AggregateScanState {
     fn has_postgres_expressions(&mut self) -> bool {
         self.query.has_postgres_expressions()
             || self
-                .aggregate_types
+                .aggregate_types_mut()
                 .iter_mut()
                 .any(|agg| agg.has_postgres_expressions())
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
         self.query.init_postgres_expressions(planstate);
-        self.aggregate_types
+        self.aggregate_types_mut()
             .iter_mut()
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         self.query.solve_postgres_expressions(expr_context);
-        self.aggregate_types
+        self.aggregate_types_mut()
             .iter_mut()
             .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }

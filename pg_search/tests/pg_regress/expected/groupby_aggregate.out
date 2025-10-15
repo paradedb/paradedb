@@ -1343,7 +1343,7 @@ ORDER BY COUNT(*) DESC;
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: COUNT(*)
-           Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+           Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (9 rows)
 
 SELECT COUNT(*) as cnt

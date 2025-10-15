@@ -302,14 +302,7 @@ impl AggregateType {
 
     /// Check if this aggregate has a filter
     pub fn has_filter(&self) -> bool {
-        match self {
-            AggregateType::CountAny { filter } => filter.is_some(),
-            AggregateType::Count { filter, .. } => filter.is_some(),
-            AggregateType::Sum { filter, .. } => filter.is_some(),
-            AggregateType::Avg { filter, .. } => filter.is_some(),
-            AggregateType::Min { filter, .. } => filter.is_some(),
-            AggregateType::Max { filter, .. } => filter.is_some(),
-        }
+        self.filter_expr().is_some()
     }
 
     /// Get the filter expression if present
@@ -358,14 +351,6 @@ impl AggregateType {
                     "field": field,
                 }
             })
-        }
-    }
-
-    #[allow(unreachable_patterns)]
-    pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
-        match self {
-            AggregateType::CountAny { .. } => None, // 'terms' bucket already has a 'doc_count'
-            _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
 

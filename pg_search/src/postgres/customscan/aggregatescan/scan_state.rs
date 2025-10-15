@@ -51,7 +51,7 @@ pub struct AggregateScanState {
     pub state: ExecutionState,
     // The aggregation specification (agg_types, grouping_columns)
     pub agg_spec: AggregationSpec,
-    // ORDER BY specification (query execution detail)
+    // The ORDER BY information for sorting
     pub orderby_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,

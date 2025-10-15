@@ -20,11 +20,15 @@
 //! This module consolidates the logic for building Tantivy `Aggregations` structures
 //! from ParadeDB's SQL aggregation parameters.
 
-use super::tantivy_keys::{FILTERED_AGG, FILTER_SENTINEL, GROUPED, HIDDEN_DOC_COUNT, SORT_KEY};
+use super::agg_strategy::{
+    AggregationStrategy, DirectAggregationStrategy, FilteredAggregationStrategy,
+};
+use super::errors::AggregationError;
+use super::tantivy_keys::{GROUPED, HIDDEN_DOC_COUNT, SORT_KEY};
 use super::QueryContext;
 use crate::aggregate::agg_spec::AggregationSpec;
 use crate::aggregate::tantivy_keys::{
-    filter_key, CTID, FIELD, MISSING, ORDER, SEGMENT_SIZE, SIZE, TERMS, VALUE_COUNT,
+    CTID, FIELD, MISSING, ORDER, SEGMENT_SIZE, SIZE, TERMS, VALUE_COUNT,
 };
 use crate::api::{FieldName, OrderByFeature, OrderByInfo};
 use crate::postgres::customscan::aggregatescan::privdat::AggregateType;
@@ -32,7 +36,7 @@ use crate::postgres::utils::sort_json_keys;
 use crate::query::SearchQueryInput;
 use std::collections::HashMap;
 use std::error::Error;
-use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+use tantivy::aggregation::agg_req::{Aggregation, Aggregations};
 use tantivy::aggregation::bucket::FilterAggregation;
 
 /// Builder for constructing Tantivy aggregation queries
@@ -61,10 +65,36 @@ impl<'a> AggQueryBuilder<'a> {
         }
     }
 
+    /// Validate builder parameters
+    ///
+    /// Returns an error if:
+    /// - Offset exceeds limit (when both are present)
+    /// - No aggregates are specified
+    pub fn validate(&self) -> Result<(), AggregationError> {
+        // Validate pagination
+        if let (Some(&limit), Some(&offset)) = (self.limit.as_ref(), self.offset.as_ref()) {
+            if offset > limit {
+                return Err(AggregationError::InvalidPagination { limit, offset });
+            }
+        }
+
+        // Ensure we have at least one aggregate or grouping column
+        if self.agg_spec.aggs.is_empty() && self.agg_spec.groupby.is_empty() {
+            return Err(AggregationError::NoAggregates);
+        }
+
+        Ok(())
+    }
+
     /// Build Tantivy aggregations from SearchQueryInput (execution path)
+    ///
+    /// Validates parameters before building.
     pub fn build_tantivy_query(&self, qctx: &QueryContext) -> Result<Aggregations, Box<dyn Error>> {
+        self.validate()?;
         self.build_tantivy_query_for(|query_input| {
-            Self::to_tantivy_query(qctx, query_input).map(FilterAggregation::new_with_query)
+            Self::to_tantivy_query(qctx, query_input)
+                .map(FilterAggregation::new_with_query)
+                .map_err(AggregationError::Other)
         })
     }
 
@@ -84,108 +114,25 @@ impl<'a> AggQueryBuilder<'a> {
     ///
     /// This is the core aggregation building logic, parameterized by how to create FilterAggregations.
     /// Used by both execution path (with Query objects) and EXPLAIN path (with placeholder strings).
-    fn build_tantivy_query_for<F>(&self, mut make_filter: F) -> Result<Aggregations, Box<dyn Error>>
+    fn build_tantivy_query_for<F>(&self, make_filter: F) -> Result<Aggregations, Box<dyn Error>>
     where
-        F: FnMut(Option<&SearchQueryInput>) -> Result<FilterAggregation, Box<dyn Error>>,
+        F: Fn(Option<&SearchQueryInput>) -> Result<FilterAggregation, AggregationError>,
     {
-        if !self.has_filters() {
-            // Optimized path: no FILTER clauses, build simpler aggregation structure
-            return self.build_without_filters();
-        }
-
-        // FilterAggregation path: some aggregates have FILTER clauses
-        let base_filter = make_filter(Some(self.base_query))?;
-
-        // Convert filter queries to FilterAggregations
-        let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = self
-            .agg_spec
-            .aggs
-            .iter()
-            .map(|agg| make_filter(agg.filter_expr().as_ref()))
-            .collect();
-
-        self.build_with_filters(base_filter, filter_aggregations?)
-    }
-
-    /// Build aggregations for queries without FILTER clauses
-    /// Direct aggregation structure without FilterAggregation wrappers
-    fn build_without_filters(&self) -> Result<Aggregations, Box<dyn Error>> {
-        let mut result = HashMap::new();
-
-        // Build metrics
-        let metrics = self.build_metrics()?;
-
-        if !self.agg_spec.groupby.is_empty() {
-            // GROUP BY: build nested terms with metrics at the leaf level
-            let nested_terms = self.build_nested_terms(metrics)?;
-            result.extend(nested_terms);
+        let strategy: Box<dyn AggregationStrategy> = if !self.has_filters() {
+            // Optimized path: no FILTER clauses
+            Box::new(DirectAggregationStrategy)
         } else {
-            // Simple aggregation: metrics at top level
-            result.extend(metrics);
-        }
-
-        Ok(Aggregations::from(result))
-    }
-
-    /// Build aggregations for queries with FILTER clauses
-    /// Uses FilterAggregation wrappers for each filtered aggregate
-    fn build_with_filters(
-        &self,
-        base_filter: FilterAggregation,
-        filter_aggregations: Vec<FilterAggregation>,
-    ) -> Result<Aggregations, Box<dyn Error>> {
-        let mut result = HashMap::new();
-
-        // Build nested terms structure if we have grouping columns
-        let nested_terms = if !self.agg_spec.groupby.is_empty() {
-            Some(self.build_nested_terms(HashMap::new())?)
-        } else {
-            None
+            // FilterAggregation path: some aggregates have FILTER clauses
+            Box::new(FilteredAggregationStrategy {
+                filter_factory: make_filter,
+            })
         };
 
-        // Sentinel filter: always present, ensures we get ALL groups (or single row for simple aggs)
-        // Uses base_query to match all documents in the WHERE clause
-        result.insert(
-            FILTER_SENTINEL.to_string(),
-            Aggregation {
-                agg: AggregationVariants::Filter(base_filter),
-                sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
-            },
-        );
-
-        // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
-        for (idx, agg) in self.agg_spec.aggs.iter().enumerate() {
-            let filter_agg = filter_aggregations
-                .get(idx)
-                .ok_or_else(|| format!("Missing filter aggregation for aggregate {}", idx))?;
-            let base = AggregateType::to_tantivy_agg(agg)?;
-
-            let sub_aggs = if nested_terms.is_some() {
-                // GROUP BY: filter -> grouped -> buckets -> metric
-                let mut metric_leaf = HashMap::default();
-                metric_leaf.insert(idx.to_string(), base);
-                self.build_nested_terms(metric_leaf)?
-            } else {
-                // No GROUP BY: filter -> filtered_agg (metric)
-                let mut aggs = HashMap::default();
-                aggs.insert(FILTERED_AGG.to_string(), base);
-                aggs
-            };
-
-            result.insert(
-                filter_key(idx),
-                Aggregation {
-                    agg: AggregationVariants::Filter(filter_agg.clone()),
-                    sub_aggregation: Aggregations::from(sub_aggs),
-                },
-            );
-        }
-
-        Ok(Aggregations::from(result))
+        strategy.build(self).map_err(|e| e.into())
     }
 
     /// Build metric aggregations for all aggregate types
-    fn build_metrics(&self) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
+    pub(super) fn build_metrics(&self) -> Result<HashMap<String, Aggregation>, AggregationError> {
         let mut metrics = HashMap::new();
 
         for (idx, agg) in self.agg_spec.aggs.iter().enumerate() {
@@ -230,10 +177,10 @@ impl<'a> AggQueryBuilder<'a> {
     ///   }
     /// }
     /// ```
-    fn build_nested_terms(
+    pub(super) fn build_nested_terms(
         &self,
         leaf_metrics: HashMap<String, Aggregation>,
-    ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
+    ) -> Result<HashMap<String, Aggregation>, AggregationError> {
         if self.agg_spec.groupby.is_empty() {
             return Ok(HashMap::default());
         }

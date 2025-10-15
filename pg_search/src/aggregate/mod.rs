@@ -86,6 +86,8 @@
 mod agg_builder;
 pub mod agg_result;
 pub mod agg_spec;
+mod agg_strategy;
+pub mod errors;
 pub mod tantivy_keys;
 
 use std::error::Error;

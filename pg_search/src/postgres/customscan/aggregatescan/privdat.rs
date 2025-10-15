@@ -16,27 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::aggregate::agg_spec::AggregationSpec;
-use crate::aggregate::tantivy_keys::{AVG, CTID, FIELD, MAX, MIN, MISSING, SUM, VALUE_COUNT};
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
-use crate::nodecast;
 use crate::postgres::customscan::explainer::ExplainFormat;
-use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::pg_sys::{
-    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
-    F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
-    F_MAX_NUMERIC, F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE,
-    F_MIN_FLOAT4, F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC,
-    F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
-    F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
-};
 use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
-use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
@@ -177,31 +164,9 @@ impl AggregateType {
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
     ) -> Option<(Self, bool)> {
-        let aggfnoid = (*aggref).aggfnoid.to_u32();
-        let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-
-        // Extract filter clause if present
-        let (filter_expr, filter_uses_search_operator) =
-            extract_filter_clause_if_present(aggref, bm25_index, root, heap_rti);
-
-        if aggfnoid == F_COUNT_ && (*aggref).aggstar {
-            return Some((
-                AggregateType::CountAny {
-                    filter: filter_expr,
-                },
-                filter_uses_search_operator,
-            ));
-        }
-
-        if args.is_empty() {
-            return None;
-        }
-
-        let first_arg = args.get_ptr(0)?;
-        let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
-
-        Some((agg_type, filter_uses_search_operator))
+        super::aggregate_parser::AggregateParser::from_postgres_aggref(
+            aggref, heaprelid, bm25_index, root, heap_rti,
+        )
     }
 
     /// Returns the appropriate value for an empty result set
@@ -218,44 +183,7 @@ impl AggregateType {
     pub fn to_tantivy_agg(
         &self,
     ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
-        let unfiltered = if self.filter_expr().is_some() {
-            self.convert_filtered_aggregate_to_unfiltered()
-        } else {
-            self.clone()
-        };
-        Ok(serde_json::from_value(unfiltered.to_json())?)
-    }
-
-    /// Helper function to convert a single filtered aggregate to unfiltered
-    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
-        match self {
-            Self::CountAny { .. } => Self::CountAny { filter: None },
-            Self::Count { field, missing, .. } => Self::Count {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Sum { field, missing, .. } => Self::Sum {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Avg { field, missing, .. } => Self::Avg {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Min { field, missing, .. } => Self::Min {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Max { field, missing, .. } => Self::Max {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-        }
+        super::aggregate_converter::AggregateConverter::to_tantivy_agg(self).map_err(|e| e.into())
     }
 
     /// Format multiple aggregates by index for display
@@ -269,12 +197,10 @@ impl AggregateType {
 
     /// Get the PostgreSQL OID for the result type of this aggregate
     pub fn result_type_oid(&self) -> pg_sys::Oid {
-        match &self {
+        match self {
             AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
-            AggregateType::Sum { .. }
-            | AggregateType::Avg { .. }
-            | AggregateType::Min { .. }
-            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+            AggregateType::Sum { .. } | AggregateType::Avg { .. } => pg_sys::FLOAT8OID,
+            AggregateType::Min { .. } | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
         }
     }
 
@@ -330,29 +256,7 @@ impl AggregateType {
     }
 
     pub fn to_json(&self) -> serde_json::Value {
-        let (key, field) = match self {
-            AggregateType::CountAny { .. } => (VALUE_COUNT, CTID),
-            AggregateType::Count { field, .. } => (VALUE_COUNT, field.as_str()),
-            AggregateType::Sum { field, .. } => (SUM, field.as_str()),
-            AggregateType::Avg { field, .. } => (AVG, field.as_str()),
-            AggregateType::Min { field, .. } => (MIN, field.as_str()),
-            AggregateType::Max { field, .. } => (MAX, field.as_str()),
-        };
-
-        if let Some(missing) = self.missing() {
-            serde_json::json!({
-                key: {
-                    FIELD: field,
-                    MISSING: missing,
-                }
-            })
-        } else {
-            serde_json::json!({
-                key: {
-                    FIELD: field,
-                }
-            })
-        }
+        super::aggregate_converter::AggregateConverter::to_json(self)
     }
 
     /// Convert AggregateResult to AggregateValue with empty result set handling.
@@ -514,144 +418,6 @@ impl From<PrivateData> for *mut pg_sys::List {
             let mut ser = PgList::new();
             ser.push(pg_sys::makeString(content.as_pg_cstr()).cast::<pg_sys::Node>());
             ser.into_pg()
-        }
-    }
-}
-
-trait F64Lossless {
-    fn to_f64_lossless(self) -> Option<f64>;
-}
-
-impl F64Lossless for u64 {
-    fn to_f64_lossless(self) -> Option<f64> {
-        let f = self as f64;
-        if f as u64 == self {
-            Some(f)
-        } else {
-            None
-        }
-    }
-}
-
-impl F64Lossless for i64 {
-    fn to_f64_lossless(self) -> Option<f64> {
-        let f = self as f64;
-        if f as i64 == self {
-            Some(f)
-        } else {
-            None
-        }
-    }
-}
-
-/// Extract filter clause from aggregate if present
-unsafe fn extract_filter_clause_if_present(
-    aggref: *mut pg_sys::Aggref,
-    bm25_index: &crate::postgres::PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-) -> (Option<SearchQueryInput>, bool) {
-    if (*aggref).aggfilter.is_null() {
-        return (None, false);
-    }
-
-    let mut filter_qual_state =
-        crate::postgres::customscan::qual_inspect::QualExtractState::default();
-    let filter_result = crate::postgres::customscan::aggregatescan::extract_filter_clause(
-        (*aggref).aggfilter,
-        bm25_index,
-        root,
-        heap_rti,
-        &mut filter_qual_state,
-    );
-    (filter_result, filter_qual_state.uses_our_operator)
-}
-
-/// Parse field name and missing value from aggregate argument
-unsafe fn parse_aggregate_field(
-    first_arg: *mut pg_sys::TargetEntry,
-    heaprelid: pg_sys::Oid,
-) -> Option<(String, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-            parse_coalesce_expression(coalesce_node)?
-        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-            (var, None)
-        } else {
-            return None;
-        };
-
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
-    Some((field, missing))
-}
-
-/// Parse COALESCE expression to extract variable and missing value
-unsafe fn parse_coalesce_expression(
-    coalesce_node: *mut pg_sys::CoalesceExpr,
-) -> Option<(*mut pg_sys::Var, Option<f64>)> {
-    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-    if args.is_empty() {
-        return None;
-    }
-
-    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-    let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
-    let missing = match TantivyValue::try_from(const_node) {
-        Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
-        Ok(TantivyValue(OwnedValue::Null)) => None,
-        _ => return None,
-    };
-
-    Some((var, missing))
-}
-
-/// Create appropriate AggregateType from function OID
-fn create_aggregate_from_oid(
-    aggfnoid: u32,
-    field: String,
-    missing: Option<f64>,
-    filter: Option<SearchQueryInput>,
-) -> Option<AggregateType> {
-    match aggfnoid {
-        F_COUNT_ANY => Some(AggregateType::Count {
-            field,
-            missing,
-            filter,
-        }),
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some(AggregateType::Avg {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some(AggregateType::Sum {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some(AggregateType::Max {
-                field,
-                missing,
-                filter,
-            })
-        }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some(AggregateType::Min {
-            field,
-            missing,
-            filter,
-        }),
-        _ => {
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-            None
         }
     }
 }

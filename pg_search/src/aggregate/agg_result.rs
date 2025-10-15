@@ -287,7 +287,7 @@ impl AggResult {
     ///
     /// For Direct format: filter_results is None, aggregates are in the bucket
     /// For Filter format: filter_results contains lookup table for filtered aggregates
-    pub(crate) fn walk_grouped_buckets(
+    fn walk_grouped_buckets(
         agg_spec: &AggregationSpec,
         schema: &SearchIndexSchema,
         grouped: &serde_json::Value,
@@ -380,7 +380,7 @@ impl AggResult {
 
     /// Extract aggregate value from JSON using serde deserialization
     /// This handles different structures: direct values, objects with "value" field, or raw objects for COUNT
-    pub fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
+    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
         // Deserialize using our structured type
         match serde_json::from_value::<AggregateResult>(agg_obj.clone()) {
             Ok(result) => result,
@@ -394,7 +394,7 @@ impl AggResult {
     ///
     /// For Direct format: extract from bucket_obj directly
     /// For Filter format: look up in filter_results using group_keys
-    pub fn extract_aggregates_for_group(
+    fn extract_aggregates_for_group(
         agg_spec: &AggregationSpec,
         schema: &SearchIndexSchema,
         bucket_obj: &serde_json::Map<String, serde_json::Value>,

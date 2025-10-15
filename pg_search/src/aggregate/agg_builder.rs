@@ -30,7 +30,7 @@ use crate::postgres::utils::sort_json_keys;
 use crate::query::SearchQueryInput;
 use std::collections::HashMap;
 use std::error::Error;
-use tantivy::aggregation::agg_req::{Aggregation, Aggregations};
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
 use tantivy::aggregation::bucket::FilterAggregation;
 
 /// Builder for constructing Tantivy aggregation queries
@@ -146,7 +146,7 @@ impl<'a> AggQueryBuilder<'a> {
         result.insert(
             FILTER_SENTINEL.to_string(),
             Aggregation {
-                agg: tantivy::aggregation::agg_req::AggregationVariants::Filter(base_filter),
+                agg: AggregationVariants::Filter(base_filter),
                 sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
             },
         );
@@ -173,9 +173,7 @@ impl<'a> AggQueryBuilder<'a> {
             result.insert(
                 filter_key(idx),
                 Aggregation {
-                    agg: tantivy::aggregation::agg_req::AggregationVariants::Filter(
-                        filter_agg.clone(),
-                    ),
+                    agg: AggregationVariants::Filter(filter_agg.clone()),
                     sub_aggregation: Aggregations::from(sub_aggs),
                 },
             );

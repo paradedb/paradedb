@@ -590,7 +590,7 @@ fn explain_execution_strategy(
             &state.custom_state().limit,
             &state.custom_state().offset,
         );
-        builder.build_aggregation_json_for_explain().ok()
+        builder.build_tantivy_query_for_explain().ok()
     };
 
     // Helper to show base query + all aggregates (no filters case)

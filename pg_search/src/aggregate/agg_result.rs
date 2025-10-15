@@ -81,6 +81,22 @@ pub enum AggResult {
 }
 
 impl AggResult {
+    /// Process aggregation results according to this format
+    ///
+    /// Main entry point for converting Tantivy JSON results to PostgreSQL tuples
+    pub fn process_results(
+        state: &AggregateScanState,
+        result: serde_json::Value,
+    ) -> Vec<GroupedAggregateRow> {
+        let format = AggResult::detect(&result, state.grouping_columns().is_empty());
+        if state.grouping_columns().is_empty() {
+            format.process_simple(state, result)
+        } else {
+            format.process_grouped(state, result)
+        }
+    }
+
+    /// Detect which format Tantivy returned (Direct or Filter)
     pub fn detect(result: &serde_json::Value, is_simple: bool) -> Self {
         let obj = match result.as_object() {
             Some(obj) => obj,
@@ -101,19 +117,6 @@ impl AggResult {
             } else {
                 Self::Direct
             }
-        }
-    }
-
-    /// Process aggregation results according to this format
-    pub fn process_results(
-        state: &AggregateScanState,
-        result: serde_json::Value,
-    ) -> Vec<GroupedAggregateRow> {
-        let format = AggResult::detect(&result, state.grouping_columns().is_empty());
-        if state.grouping_columns().is_empty() {
-            format.process_simple(state, result)
-        } else {
-            format.process_grouped(state, result)
         }
     }
 

@@ -59,12 +59,70 @@ impl<'a> AggQueryBuilder<'a> {
         }
     }
 
-    /// Check if any aggregates have FILTER clauses
-    pub fn has_filters(&self) -> bool {
-        self.agg_spec
+    /// Build Tantivy aggregations from SearchQueryInput (execution path)
+    pub fn build_tantivy_query(&self, qctx: &QueryContext) -> Result<Aggregations, Box<dyn Error>> {
+        self.build_tantivy_query_for(|query_input| {
+            to_tantivy_query(qctx, query_input).map(FilterAggregation::new_with_query)
+        })
+    }
+
+    /// Build aggregation JSON for EXPLAIN output (no QueryContext needed)
+    /// Uses query strings ("*") instead of Query objects, making the output serializable
+    pub fn build_tantivy_query_for_explain(&self) -> Result<String, Box<dyn Error>> {
+        let aggregations = self
+            .build_tantivy_query_for(|_query_input| Ok(FilterAggregation::new("*".to_string())))?;
+
+        // Serialize to JSON and sort keys for deterministic output
+        let mut json_value = serde_json::to_value(&aggregations)?;
+        sort_json_keys(&mut json_value);
+        Ok(serde_json::to_string(&json_value)?)
+    }
+
+    /// Build aggregations with a custom FilterAggregation factory
+    ///
+    /// This is the core aggregation building logic, parameterized by how to create FilterAggregations.
+    /// Used by both execution path (with Query objects) and EXPLAIN path (with placeholder strings).
+    fn build_tantivy_query_for<F>(&self, mut make_filter: F) -> Result<Aggregations, Box<dyn Error>>
+    where
+        F: FnMut(Option<&SearchQueryInput>) -> Result<FilterAggregation, Box<dyn Error>>,
+    {
+        if !self.has_filters() {
+            // Optimized path: no FILTER clauses, build simpler aggregation structure
+            return self.build_direct();
+        }
+
+        // FilterAggregation path: some aggregates have FILTER clauses
+        let base_filter = make_filter(Some(self.base_query))?;
+
+        // Convert filter queries to FilterAggregations
+        let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = self
+            .agg_spec
             .aggs
             .iter()
-            .any(|agg| agg.filter_expr().is_some())
+            .map(|agg| make_filter(agg.filter_expr().as_ref()))
+            .collect();
+
+        self.build_with_filters(base_filter, filter_aggregations?)
+    }
+
+    /// Build aggregations for queries without FILTER clauses (optimized path)
+    /// Direct aggregation structure without FilterAggregation wrappers
+    pub fn build_direct(&self) -> Result<Aggregations, Box<dyn Error>> {
+        let mut result = HashMap::new();
+
+        // Build metrics
+        let metrics = self.build_metrics()?;
+
+        if !self.agg_spec.groupby.is_empty() {
+            // GROUP BY: build nested terms with metrics at the leaf level
+            let nested_terms = self.build_nested_terms(metrics)?;
+            result.extend(nested_terms);
+        } else {
+            // Simple aggregation: metrics at top level
+            result.extend(metrics);
+        }
+
+        Ok(Aggregations::from(result))
     }
 
     /// Build aggregations for queries with FILTER clauses
@@ -121,26 +179,6 @@ impl<'a> AggQueryBuilder<'a> {
                     sub_aggregation: Aggregations::from(sub_aggs),
                 },
             );
-        }
-
-        Ok(Aggregations::from(result))
-    }
-
-    /// Build aggregations for queries without FILTER clauses (optimized path)
-    /// Direct aggregation structure without FilterAggregation wrappers
-    pub fn build_direct(&self) -> Result<Aggregations, Box<dyn Error>> {
-        let mut result = HashMap::new();
-
-        // Build metrics
-        let metrics = self.build_metrics()?;
-
-        if !self.agg_spec.groupby.is_empty() {
-            // GROUP BY: build nested terms with metrics at the leaf level
-            let nested_terms = self.build_nested_terms(metrics)?;
-            result.extend(nested_terms);
-        } else {
-            // Simple aggregation: metrics at top level
-            result.extend(metrics);
         }
 
         Ok(Aggregations::from(result))
@@ -262,56 +300,12 @@ impl<'a> AggQueryBuilder<'a> {
             })
     }
 
-    /// Build Tantivy aggregations from SearchQueryInput (execution path)
-    pub fn build_aggregation_query_from_search_input(
-        &self,
-        qctx: &QueryContext,
-    ) -> Result<Aggregations, Box<dyn Error>> {
-        if !self.has_filters() {
-            // Optimized path: no FILTER clauses, build simpler aggregation structure
-            return self.build_direct();
-        }
-
-        // FilterAggregation path: some aggregates have FILTER clauses
-        let base_query_tantivy = to_tantivy_query(qctx, Some(self.base_query))?;
-        let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
-
-        // Convert filter queries to FilterAggregations
-        let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = self
-            .agg_spec
+    /// Check if any aggregates have FILTER clauses
+    pub fn has_filters(&self) -> bool {
+        self.agg_spec
             .aggs
             .iter()
-            .map(|agg| {
-                to_tantivy_query(qctx, agg.filter_expr().as_ref())
-                    .map(FilterAggregation::new_with_query)
-            })
-            .collect();
-
-        self.build_with_filters(base_filter, filter_aggregations?)
-    }
-
-    /// Build aggregation JSON for EXPLAIN output (no QueryContext needed)
-    /// Uses query strings ("*") instead of Query objects, making the output serializable
-    pub fn build_aggregation_json_for_explain(&self) -> Result<String, Box<dyn Error>> {
-        let aggregations = if !self.has_filters() {
-            // Optimized path: no FILTER clauses
-            self.build_direct()?
-        } else {
-            // FilterAggregation path
-            let base_filter = FilterAggregation::new("*".to_string());
-            let filter_aggregations: Vec<FilterAggregation> = self
-                .agg_spec
-                .aggs
-                .iter()
-                .map(|_| FilterAggregation::new("*".to_string()))
-                .collect();
-            self.build_with_filters(base_filter, filter_aggregations)?
-        };
-
-        // Serialize to JSON and sort keys for deterministic output
-        let mut json_value = serde_json::to_value(&aggregations)?;
-        sort_json_keys(&mut json_value);
-        Ok(serde_json::to_string(&json_value)?)
+            .any(|agg| agg.filter_expr().is_some())
     }
 }
 

@@ -41,17 +41,6 @@ pub struct AggregationSpec {
 }
 
 impl AggregationSpec {
-    /// Get the result type OID for the first aggregate
-    ///
-    /// For window functions, we typically have one aggregate.
-    /// For GROUP BY queries, this is used for validation but all aggregates are processed.
-    pub fn result_type_oid(&self) -> pg_sys::Oid {
-        self.aggs
-            .first()
-            .map(|agg| agg.result_type_oid())
-            .unwrap_or(pg_sys::INT8OID)
-    }
-
     /// Create an AggQueryBuilder from this spec for execution
     ///
     /// This function allows both window functions and GROUP BY queries to reuse the
@@ -80,5 +69,16 @@ impl AggregationSpec {
     /// Check if any aggregates have a grouping column
     pub fn has_groupby(&self) -> bool {
         !self.groupby.is_empty()
+    }
+
+    /// Get the result type OID for the first aggregate
+    ///
+    /// For window functions, we typically have one aggregate.
+    /// For GROUP BY queries, this is used for validation but all aggregates are processed.
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        self.aggs
+            .first()
+            .map(|agg| agg.result_type_oid())
+            .unwrap_or(pg_sys::INT8OID)
     }
 }

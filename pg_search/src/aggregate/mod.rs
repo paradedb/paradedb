@@ -397,7 +397,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 let builder =
                     AggQueryBuilder::new(&self.base_query, &agg_spec, orderby_info, limit, offset);
                 builder
-                    .build_aggregation_query_from_search_input(&qctx)
+                    .build_tantivy_query(&qctx)
                     .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
             }
         };
@@ -524,7 +524,7 @@ pub fn execute_aggregation(
 
     let qctx = QueryContext::new(&schema, &reader, index, standalone_context);
 
-    let aggregations = builder.build_aggregation_query_from_search_input(&qctx)?;
+    let aggregations = builder.build_tantivy_query(&qctx)?;
 
     // Determine if we can use parallel execution
     let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);

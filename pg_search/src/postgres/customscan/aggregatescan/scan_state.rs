@@ -401,6 +401,12 @@ impl AggregateScanState {
     ) -> Option<AggregateValue> {
         let doc_count = bucket.get("doc_count").and_then(|d| d.as_i64());
 
+        // Performance optimization: For COUNT(*) in GROUP BY, use doc_count directly
+        // No explicit aggregation is added for this case
+        if matches!(aggregate, AggregateType::CountAny { .. }) {
+            return doc_count.map(AggregateValue::Int);
+        }
+
         // Look for the aggregate value - could be a numeric key or named sub-aggregation
         for (key, value) in bucket.iter() {
             if key.parse::<usize>().is_ok()

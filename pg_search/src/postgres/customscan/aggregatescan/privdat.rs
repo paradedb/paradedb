@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::aggregate::agg_spec::AggregationSpec;
-use crate::aggregate::tantivy_keys::{AVG, CTID, FIELD, MAX, MIN, MISSING, SUM, VALUE_COUNT};
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::customscan::explainer::ExplainFormat;
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -70,8 +68,60 @@ pub enum AggregateType {
     },
 }
 
-impl std::fmt::Display for AggregateType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl AggregateType {
+    pub fn empty_value(&self) -> AggregateValue {
+        match self {
+            // COUNT of empty set is 0
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
+            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
+            _ => AggregateValue::Null,
+        }
+    }
+
+    /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
+    pub fn to_tantivy_agg(
+        &self,
+    ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
+        let unfiltered = if self.filter_expr().is_some() {
+            self.convert_filtered_aggregate_to_unfiltered()
+        } else {
+            self.clone()
+        };
+        Ok(serde_json::from_value(unfiltered.to_json())?)
+    }
+    /// Helper function to convert a single filtered aggregate to unfiltered
+    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
+        match self {
+            Self::CountAny { .. } => Self::CountAny { filter: None },
+            Self::Count { field, missing, .. } => Self::Count {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Sum { field, missing, .. } => Self::Sum {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Avg { field, missing, .. } => Self::Avg {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Min { field, missing, .. } => Self::Min {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+            Self::Max { field, missing, .. } => Self::Max {
+                field: field.clone(),
+                missing: *missing,
+                filter: None,
+            },
+        }
+    }
+
+    fn format_aggregate(&self) -> String {
         let base = match self {
             AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
             AggregateType::Count { field, .. } => format!("COUNT({field})"),
@@ -83,16 +133,24 @@ impl std::fmt::Display for AggregateType {
 
         match self.filter_expr() {
             Some(filter) => {
-                write!(f, "{base} FILTER (WHERE {})", filter.explain_format())
+                format!("{base} FILTER (WHERE {})", filter.explain_format())
             }
-            None => write!(f, "{base}"),
+            None => base,
         }
+    }
+
+    pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
+        indices
+            .iter()
+            .map(|&idx| aggregate_types[idx].format_aggregate())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
 impl ExplainFormat for AggregateType {
     fn explain_format(&self) -> String {
-        self.to_string()
+        self.format_aggregate()
     }
 }
 
@@ -204,80 +262,6 @@ impl AggregateType {
         Some((agg_type, filter_uses_search_operator))
     }
 
-    /// Returns the appropriate value for an empty result set
-    pub fn empty_value(&self) -> AggregateValue {
-        match self {
-            // COUNT of empty set is 0
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
-            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-            _ => AggregateValue::Null,
-        }
-    }
-
-    /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
-    pub fn to_tantivy_agg(
-        &self,
-    ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
-        let unfiltered = if self.filter_expr().is_some() {
-            self.convert_filtered_aggregate_to_unfiltered()
-        } else {
-            self.clone()
-        };
-        Ok(serde_json::from_value(unfiltered.to_json())?)
-    }
-
-    /// Helper function to convert a single filtered aggregate to unfiltered
-    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
-        match self {
-            Self::CountAny { .. } => Self::CountAny { filter: None },
-            Self::Count { field, missing, .. } => Self::Count {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Sum { field, missing, .. } => Self::Sum {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Avg { field, missing, .. } => Self::Avg {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Min { field, missing, .. } => Self::Min {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-            Self::Max { field, missing, .. } => Self::Max {
-                field: field.clone(),
-                missing: *missing,
-                filter: None,
-            },
-        }
-    }
-
-    /// Format multiple aggregates by index for display
-    pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
-        indices
-            .iter()
-            .map(|&idx| aggregate_types[idx].to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
-    /// Get the PostgreSQL OID for the result type of this aggregate
-    pub fn result_type_oid(&self) -> pg_sys::Oid {
-        match &self {
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
-            AggregateType::Sum { .. }
-            | AggregateType::Avg { .. }
-            | AggregateType::Min { .. }
-            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
-        }
-    }
-
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {
@@ -303,7 +287,14 @@ impl AggregateType {
 
     /// Check if this aggregate has a filter
     pub fn has_filter(&self) -> bool {
-        self.filter_expr().is_some()
+        match self {
+            AggregateType::CountAny { filter } => filter.is_some(),
+            AggregateType::Count { filter, .. } => filter.is_some(),
+            AggregateType::Sum { filter, .. } => filter.is_some(),
+            AggregateType::Avg { filter, .. } => filter.is_some(),
+            AggregateType::Min { filter, .. } => filter.is_some(),
+            AggregateType::Max { filter, .. } => filter.is_some(),
+        }
     }
 
     /// Get the filter expression if present
@@ -331,27 +322,35 @@ impl AggregateType {
 
     pub fn to_json(&self) -> serde_json::Value {
         let (key, field) = match self {
-            AggregateType::CountAny { .. } => (VALUE_COUNT, CTID),
-            AggregateType::Count { field, .. } => (VALUE_COUNT, field.as_str()),
-            AggregateType::Sum { field, .. } => (SUM, field.as_str()),
-            AggregateType::Avg { field, .. } => (AVG, field.as_str()),
-            AggregateType::Min { field, .. } => (MIN, field.as_str()),
-            AggregateType::Max { field, .. } => (MAX, field.as_str()),
+            AggregateType::CountAny { .. } => ("value_count", "ctid"),
+            AggregateType::Count { field, .. } => ("value_count", field.as_str()),
+            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
+            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
+            AggregateType::Min { field, .. } => ("min", field.as_str()),
+            AggregateType::Max { field, .. } => ("max", field.as_str()),
         };
 
         if let Some(missing) = self.missing() {
             serde_json::json!({
                 key: {
-                    FIELD: field,
-                    MISSING: missing,
+                    "field": field,
+                    "missing": missing,
                 }
             })
         } else {
             serde_json::json!({
                 key: {
-                    FIELD: field,
+                    "field": field,
                 }
             })
+        }
+    }
+
+    #[allow(unreachable_patterns)]
+    pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
+        match self {
+            AggregateType::CountAny { .. } => None, // 'terms' bucket already has a 'doc_count'
+            _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
 
@@ -479,11 +478,12 @@ pub enum TargetListEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
-    pub agg_spec: AggregationSpec,
-    pub orderby_info: Vec<OrderByInfo>,
+    pub aggregate_types: Vec<AggregateType>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
+    pub grouping_columns: Vec<GroupingColumn>,
+    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
     pub has_order_by: bool,
     pub limit: Option<u32>,

@@ -24,12 +24,11 @@ mod score;
 
 use heap_field_filter::HeapFieldFilter;
 
-use crate::aggregate::tantivy_keys::FIELD;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::explainer::{format_for_explain, ExplainFormat};
+use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::postgres::utils::ExprContextGuard;
@@ -184,12 +183,12 @@ where
         fielded_query_input_entry
             .as_object_mut()
             .unwrap()
-            .shift_insert(0, FIELD.into(), serde_json::to_value(field).unwrap());
+            .shift_insert(0, "field".into(), serde_json::to_value(field).unwrap());
 
         query_json.serialize(serializer)
     } else if let Some(variant_name) = query_json.as_str() {
         let mut map = serde_json::Map::new();
-        map.insert(FIELD.into(), serde_json::to_value(field).unwrap());
+        map.insert("field".into(), serde_json::to_value(field).unwrap());
 
         let mut object = serde_json::Map::new();
         object.insert(variant_name.to_string(), serde_json::Value::Object(map));
@@ -223,7 +222,7 @@ where
                 ));
             };
 
-            if let Some(field_entry) = value.as_object_mut().unwrap().remove_entry(FIELD) {
+            if let Some(field_entry) = value.as_object_mut().unwrap().remove_entry("field") {
                 // pull the field out of the object that also contains the FieldedQueryInput
                 let field = field_entry.1;
                 let field = serde_json::from_value::<FieldName>(field).unwrap();

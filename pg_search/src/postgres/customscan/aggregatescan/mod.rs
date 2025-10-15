@@ -39,7 +39,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::explainer::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,

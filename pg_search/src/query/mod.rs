@@ -28,7 +28,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
+use crate::postgres::customscan::explainer::{format_for_explain, ExplainFormat};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::postgres::utils::ExprContextGuard;

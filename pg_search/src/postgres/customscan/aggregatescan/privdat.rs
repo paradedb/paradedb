@@ -19,7 +19,7 @@ use crate::aggregate::agg_spec::AggregationSpec;
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::explainer::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;

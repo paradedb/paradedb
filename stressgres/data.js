@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760571103954,
+  "lastUpdate": 1760571106916,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15322,6 +15322,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 73.00730141702857, max segment_count: 107.0, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49df33136846817586f79ce0d61a736cc2f86e19",
+          "message": "feat: Add a `pdb.term_set` aggregate function. (#3349)\n\n## What\n\nAdd the `pdb.term_set` aggregate function, which builds a term set.\n\n## Why\n\nFor large input sets (1mm rows in this case) to a `paradedb.aggregate`,\nit is faster than two existing ways to accomplish the same thing:\n```sql\n-- `string_agg` followed by parse: about `2010 ms`\nparadedb.parse(\n  (\n    SELECT concat('foreign_id:IN [', string_agg(id::TEXT, ' '), ']')\n    FROM item_list\n  )\n)\n\n-- `array_agg` followed by `paradedb.term_set`: about `1634 ms`\nparadedb.term_set(\n  'foreign_id',\n  (\n    SELECT array_agg(id)\n    FROM item_list\n  )\n)\n\n-- `term_set` as aggregate: about `1101 ms`\nparadedb.to_search_query_input(\n  'foreign_id',\n  (\n    SELECT pdb.term_set(ldf_id)\n    FROM item_list\n  )\n)\n```\n\n## How\n\nAdd an aggregate implementation for the `pdb.term_set` function, which\nis equivalent to `pdb.term_set`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-15T16:02:41-07:00",
+          "tree_id": "305abe3407bb754ce2daed0320231841d19f521f",
+          "url": "https://github.com/paradedb/paradedb/commit/49df33136846817586f79ce0d61a736cc2f86e19"
+        },
+        "date": 1760571104978,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.805092,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.371294880284815, max cpu: 42.687748, count: 57559"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.54578725742283, max mem: 228.64453125, count: 57559"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.499761434160558, max cpu: 33.23442, count: 57559"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.3874751749292, max mem: 165.68359375, count: 57559"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24419,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23299.038343265172, max block_count: 25962.0, count: 57559"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.6034503726611, max segment_count: 106.0, count: 57559"
           }
         ]
       }

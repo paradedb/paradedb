@@ -145,6 +145,7 @@ impl MVCCDirectory {
         Self {
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),
+
             readers: Default::default(),
             new_files: Default::default(),
             loaded_metas: Default::default(),

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760557002721,
+  "lastUpdate": 1760557765119,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11602,6 +11602,42 @@ window.BENCHMARK_DATA = {
             "value": 5.244650216542596,
             "unit": "median tps",
             "extra": "avg tps: 4.753702827755282, max tps: 5.80705852148366, count: 57907"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9f4960c7f4cba1c855dd956afb1094b52e16894",
+          "message": "chore: port enterprise changes (#3344)\n\n# Ticket(s) Closed\nPluck some things from enterprise patch and bring them to community\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-15T14:53:34-04:00",
+          "tree_id": "ffd07475f9b9d39e1529b4b2dcb0242150881cd9",
+          "url": "https://github.com/paradedb/paradedb/commit/e9f4960c7f4cba1c855dd956afb1094b52e16894"
+        },
+        "date": 1760557763210,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.299739956013116,
+            "unit": "median tps",
+            "extra": "avg tps: 7.076411028363324, max tps: 11.028946013276917, count: 57881"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.2826341705337425,
+            "unit": "median tps",
+            "extra": "avg tps: 4.781536000341564, max tps: 5.824196973198794, count: 57881"
           }
         ]
       }

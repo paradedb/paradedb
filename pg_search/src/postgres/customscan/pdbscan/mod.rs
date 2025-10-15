@@ -1308,6 +1308,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
+#[derive(Debug, Clone)]
 pub enum PathKeyInfo {
     /// There are no PathKeys at all.
     None,

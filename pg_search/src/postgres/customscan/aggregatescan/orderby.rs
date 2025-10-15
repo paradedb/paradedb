@@ -26,15 +26,17 @@ use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct OrderByClause {
-    pathkeys: PathKeyInfo,
+    #[serde(skip)]
+    pathkeys: Option<PathKeyInfo>,
     orderby_info: Vec<OrderByInfo>,
-    has_order_by: bool,
+    has_orderby: bool,
 }
 
 impl OrderByClause {
-    pub fn has_order_by(&self) -> bool {
-        self.has_order_by
+    pub fn has_orderby(&self) -> bool {
+        self.has_orderby
     }
 
     pub fn orderby_info(&self) -> Vec<OrderByInfo> {
@@ -49,7 +51,7 @@ impl AggregateClause<AggregateScan> for OrderByClause {
         &self,
         mut builder: CustomPathBuilder<AggregateScan>,
     ) -> CustomPathBuilder<AggregateScan> {
-        if let Some(pathkeys) = self.pathkeys.pathkeys() {
+        if let Some(pathkeys) = self.pathkeys.as_ref().and_then(|pki| pki.pathkeys()) {
             for pathkey_style in pathkeys {
                 builder = builder.add_path_key(pathkey_style);
             }
@@ -105,16 +107,16 @@ impl AggregateClause<AggregateScan> for OrderByClause {
             })
             .collect::<Vec<_>>();
 
-        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
+        let has_orderby = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
 
         if unsafe { !(*parse).groupClause.is_null() } && orderby_info.len() != sort_clause.len() {
             return None;
         }
 
         Some(Self {
-            pathkeys,
+            pathkeys: Some(pathkeys),
             orderby_info,
-            has_order_by,
+            has_orderby,
         })
     }
 }

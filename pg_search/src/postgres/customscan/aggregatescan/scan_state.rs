@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::OrderByInfo;
+use crate::customscan::aggregatescan::{AggregateCSClause, AggregateClause, AggregateScan};
 use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, TargetListEntry,
@@ -48,28 +49,12 @@ pub enum ExecutionState {
 
 #[derive(Default)]
 pub struct AggregateScanState {
-    // The state of this scan.
     pub state: ExecutionState,
-    // The aggregate types that we are executing for.
-    pub aggregate_types: Vec<AggregateType>,
-    // The grouping columns for GROUP BY
-    pub grouping_columns: Vec<GroupingColumn>,
-    // The ORDER BY information for sorting
-    pub orderby_info: Vec<OrderByInfo>,
-    // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
-    // The query that will be executed.
-    pub query: SearchQueryInput,
-    // The index that will be scanned.
     pub indexrelid: pg_sys::Oid,
-    // The index relation. Opened during `begin_custom_scan`.
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
-    // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
-    // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub limit: Option<u32>,
-    // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub offset: Option<u32>,
+    pub aggregate_clause: AggregateCSClause,
 }
 
 impl AggregateScanState {
@@ -92,7 +77,7 @@ impl AggregateScanState {
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        if self.grouping_columns.is_empty() {
+        if self.aggregate_clause.grouping_columns().is_empty() {
             // No GROUP BY - simple aggregation results
             self.process_simple_filter_aggregation_results(result)
         } else {
@@ -111,7 +96,8 @@ impl AggregateScanState {
             None => {
                 // Handle null or empty results - return appropriate empty values
                 let row = self
-                    .aggregate_types
+                    .aggregate_clause
+                    .aggregates()
                     .iter()
                     .map(|aggregate| aggregate.empty_value())
                     .collect::<AggregateRow>();
@@ -167,7 +153,8 @@ impl AggregateScanState {
 
         // Extract aggregate values
         let aggregate_values = self
-            .aggregate_types
+            .aggregate_clause
+            .aggregates()
             .iter()
             .enumerate()
             .map(|(idx, aggregate)| {
@@ -288,11 +275,13 @@ impl AggregateScanState {
             None => return,
         };
 
-        if depth >= self.grouping_columns.len() {
+        let grouping_columns = self.aggregate_clause.grouping_columns();
+
+        if depth >= grouping_columns.len() {
             return;
         }
 
-        let grouping_column = &self.grouping_columns[depth];
+        let grouping_column = &grouping_columns[depth];
 
         for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
@@ -302,7 +291,7 @@ impl AggregateScanState {
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
             group_keys.push(key_owned.clone());
 
-            if depth + 1 == self.grouping_columns.len() {
+            if depth + 1 == grouping_columns.len() {
                 // Leaf level - extract aggregate values
                 let aggregate_values = match filter_results {
                     None => {
@@ -364,11 +353,12 @@ impl AggregateScanState {
         filter_results: &[(usize, &serde_json::Value)],
         group_keys: &[OwnedValue],
     ) -> AggregateRow {
-        if self.aggregate_types.is_empty() {
+        let aggregates = self.aggregate_clause.aggregates();
+        if aggregates.is_empty() {
             return AggregateRow::default();
         }
 
-        self.aggregate_types
+        aggregates
             .iter()
             .enumerate()
             .map(|(agg_idx, aggregate)| {
@@ -409,7 +399,7 @@ impl AggregateScanState {
         for level in depth..group_keys.len() {
             let buckets = grouped.get("buckets")?.as_array()?;
             let target_key = &group_keys[level];
-            let grouping_column = &self.grouping_columns[level];
+            let grouping_column = &self.aggregate_clause.grouping_columns()[level];
 
             // Find bucket matching this group key
             let matching_bucket = buckets.iter().find_map(|bucket| {

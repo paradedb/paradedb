@@ -25,18 +25,22 @@ use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WhereClause {
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchQueryClause {
     query: SearchQueryInput,
 }
 
-impl WhereClause {
+impl SearchQueryClause {
     pub fn query(&self) -> &SearchQueryInput {
         &self.query
     }
+
+    pub fn query_mut(&mut self) -> &mut SearchQueryInput {
+        &mut self.query
+    }
 }
 
-impl AggregateClause<AggregateScan> for WhereClause {
+impl AggregateClause<AggregateScan> for SearchQueryClause {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(
@@ -65,7 +69,7 @@ impl AggregateClause<AggregateScan> for WhereClause {
 
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
         if !has_where_clause {
-            return Some(WhereClause {
+            return Some(SearchQueryClause {
                 query: SearchQueryInput::All,
             });
         }
@@ -85,7 +89,7 @@ impl AggregateClause<AggregateScan> for WhereClause {
             )?
         };
 
-        Some(WhereClause {
+        Some(SearchQueryClause {
             query: SearchQueryInput::from(&quals),
         })
     }

@@ -17,7 +17,8 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{AsCStr, OrderByInfo};
-use crate::customscan::aggregatescan::GroupingColumn;
+use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
+use crate::customscan::aggregatescan::{AggregateClause, AggregateScan, GroupingColumn};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -479,16 +480,10 @@ pub enum TargetListEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
-    pub aggregate_types: Vec<AggregateType>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
-    pub query: SearchQueryInput,
-    pub grouping_columns: Vec<GroupingColumn>,
-    pub orderby_info: Vec<OrderByInfo>,
-    pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
-    pub has_order_by: bool,
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    pub target_list_mapping: Vec<TargetListEntry>,
+    pub aggregate_clause: AggregateCSClause,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

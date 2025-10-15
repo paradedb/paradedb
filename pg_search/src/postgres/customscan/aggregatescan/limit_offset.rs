@@ -23,7 +23,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
 use pgrx::{pg_sys, FromDatum, PgList};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LimitOffsetClause {
     limit: Option<u32>,
     offset: Option<u32>,

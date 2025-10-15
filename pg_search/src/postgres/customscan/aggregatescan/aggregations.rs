@@ -16,13 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature};
+use crate::customscan::aggregatescan::GroupingColumn;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
-use crate::postgres::customscan::aggregatescan::quals::WhereClause;
+use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::aggregatescan::{AggregateClause, AggregateScan};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
@@ -68,12 +70,13 @@ impl AggregationKey for FilterAggUngroupedKey {
     const NAME: &'static str = "filter_agg";
 }
 
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AggregateCSClause {
     aggregates: TargetList,
     groupby: GroupByClause,
     orderby: OrderByClause,
     limit_offset: LimitOffsetClause,
-    quals: WhereClause,
+    quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
 }
 
@@ -126,6 +129,33 @@ impl AggregateCSClause {
 
         Ok(aggregations)
     }
+
+    pub fn aggregates(&self) -> Vec<AggregateType> {
+        self.aggregates.aggregates()
+    }
+
+    pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
+        self.groupby.grouping_columns()
+    }
+
+    pub fn has_orderby(&self) -> bool {
+        self.orderby.has_orderby()
+    }
+
+    pub fn planner_should_replace_aggrefs(&self) -> bool {
+        self.groupby.grouping_columns().is_empty()
+            && self.orderby.orderby_info().is_empty()
+            && !self.orderby.has_orderby()
+    }
+
+
+    pub fn query(&self) -> &SearchQueryInput {
+        self.quals.query()
+    }
+
+    pub fn query_mut(&mut self) -> &mut SearchQueryInput {
+        self.quals.query_mut()
+    }
 }
 
 impl AggregateClause<AggregateScan> for AggregateCSClause {
@@ -152,7 +182,7 @@ impl AggregateClause<AggregateScan> for AggregateCSClause {
         let aggregates = TargetList::from_pg(args, heap_rti, index)?;
         let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
         let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
-        let quals = WhereClause::from_pg(args, heap_rti, index)?;
+        let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         Some(Self {
             groupby,
@@ -218,7 +248,7 @@ impl CollectNested<FilterAggregation, QualKey> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
         let qual = FilterAggregation::new_with_query(to_tantivy_query(
             self.indexrelid,
-            &self.quals.query(),
+            self.quals.query(),
         )?);
         Ok(vec![qual].into_iter())
     }

@@ -25,6 +25,7 @@ use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TargetList {
     aggregates: Vec<AggregateType>,
     uses_our_operator: bool,

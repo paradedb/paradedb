@@ -29,6 +29,7 @@ pub struct GroupingColumn {
     pub attno: pg_sys::AttrNumber,
 }
 
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct GroupByClause {
     grouping_columns: Vec<GroupingColumn>,
 }

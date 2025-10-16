@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760651879204,
+  "lastUpdate": 1760651882396,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37336,6 +37336,114 @@ window.BENCHMARK_DATA = {
             "value": 158.0859375,
             "unit": "median mem",
             "extra": "avg mem: 157.03051735392094, max mem: 160.71484375, count: 55535"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "442b54e99d38cd1c6331b156d6cf3cecc6bf1df4",
+          "message": "perf: optimized aggregations by removing FilterAggregation overhead for queries without FILTER clauses (#3357)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplemented a fast path for aggregation queries without FILTER clauses,\nbypassing FilterAggregation wrapper overhead and using `doc_count`\ndirectly for `COUNT(*)` in GROUP BY queries.\n\n## Why\n\nAggregation queries without FILTER clauses were using FilterAggregation\nwrapper unnecessarily, causing ~2x performance regression compared to\ndirect aggregate API:\n\n## How\n\n- Added detection in `build_aggregation_query_from_search_input` to\ncheck for FILTER clauses\n- Routes to `build_direct_aggregation_query` (fast path) or\nFilterAggregation structure (slow path)\n- Applied same logic to `build_aggregation_json_for_explain` for correct\nEXPLAIN output\n\n## Tests\n\nAll existing test pass.\n\n**EXPLAIN output examples:**\n\nBefore (slow path):\n```json\n{\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":{...}}},\"filter\":\"*\"},\"filter_sentinel\":{...}}\n```\n\nAfter (fast path):\n```json\n{\"grouped\":{\"terms\":{...}}}\n```\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-10-16T14:02:52-07:00",
+          "tree_id": "f6a6d7436821b5fb118fd1b099dd032010a9b448",
+          "url": "https://github.com/paradedb/paradedb/commit/442b54e99d38cd1c6331b156d6cf3cecc6bf1df4"
+        },
+        "date": 1760651880275,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.706282227656434, max cpu: 42.519684, count: 55535"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 158.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.85588951505807, max mem: 158.9609375, count: 55535"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.659413971733705, max cpu: 47.38401, count: 55535"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 110.73889017061313, max mem: 112.35546875, count: 55535"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.98177881463002, max cpu: 9.486166, count: 55535"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 144.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 123.62300695788691, max mem: 145.0390625, count: 55535"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30797,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31397.040947150446, max block_count: 63958.0, count: 55535"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.316218785325725, max cpu: 4.678363, count: 55535"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.0156035467498, max mem: 128.03515625, count: 55535"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.830125146304134, max segment_count: 55.0, count: 55535"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.88398994700845, max cpu: 42.64561, count: 111070"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.71512862102728, max mem: 157.0234375, count: 111070"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.80020101550272, max cpu: 28.042841, count: 55535"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 156.49223469715045, max mem: 159.921875, count: 55535"
           }
         ]
       }

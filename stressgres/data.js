@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760639292313,
+  "lastUpdate": 1760639295998,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24250,6 +24250,108 @@ window.BENCHMARK_DATA = {
             "value": 156.453125,
             "unit": "median mem",
             "extra": "avg mem: 174.57498477296662, max mem: 215.91015625, count: 56027"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fe1322fa048cf4e8543842feb97bb46d64da1ab",
+          "message": "perf: Add a variant of `TermSet` which uses fast fields (#3351)\n\n## What\n\nAdd a variant of `TermSet` for very large sets of terms which scans a\nfast fields column and intersects it with the `TermSet`.\n\n## Why\n\nParadeDB users occasionally use `TermSet` as a \"limited total size join\"\nbetween two tables (essentially: an explicit hash join). But the\nimplementation of `TermSet` which operates on posting lists requires\ncreating one `Scorer` per term, and might potentially seek many times to\nread and merge posting lists.\n\nThis implementation is approximately 2x faster for a\n`paradedb.aggregate` call operating over an input `TermSet` query\ncontaining 10mm bigint terms.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/69.",
+          "timestamp": "2025-10-16T10:44:33-07:00",
+          "tree_id": "7cdf2891ab987e473215a1c40b58bc54b300234c",
+          "url": "https://github.com/paradedb/paradedb/commit/5fe1322fa048cf4e8543842feb97bb46d64da1ab"
+        },
+        "date": 1760639294042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04395172807769209, max background_merging: 1.0, count: 56016"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.813280001359981, max cpu: 9.856263, count: 56016"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.043878576545094, max mem: 20.17578125, count: 56016"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.28143385693923, max cpu: 32.876713, count: 56016"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 183.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 184.4592662420112, max mem: 244.44921875, count: 56016"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52804,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52688.3805341331, max block_count: 52804.0, count: 56016"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.81044701513853, max segment_count: 55.0, count: 56016"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.600535554863272, max cpu: 23.66864, count: 56016"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 132.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 122.34649475149958, max mem: 145.71875, count: 56016"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.792624998768265, max cpu: 27.745665, count: 56016"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.21350240612057, max mem: 170.87890625, count: 56016"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.859906515370376, max cpu: 33.466137, count: 56016"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 173.84326053326282, max mem: 216.14453125, count: 56016"
           }
         ]
       }

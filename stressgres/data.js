@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760639216114,
+  "lastUpdate": 1760639292313,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19138,6 +19138,54 @@ window.BENCHMARK_DATA = {
             "value": 5.960296764117293,
             "unit": "median tps",
             "extra": "avg tps: 5.950829146473225, max tps: 7.54660498353493, count: 56027"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fe1322fa048cf4e8543842feb97bb46d64da1ab",
+          "message": "perf: Add a variant of `TermSet` which uses fast fields (#3351)\n\n## What\n\nAdd a variant of `TermSet` for very large sets of terms which scans a\nfast fields column and intersects it with the `TermSet`.\n\n## Why\n\nParadeDB users occasionally use `TermSet` as a \"limited total size join\"\nbetween two tables (essentially: an explicit hash join). But the\nimplementation of `TermSet` which operates on posting lists requires\ncreating one `Scorer` per term, and might potentially seek many times to\nread and merge posting lists.\n\nThis implementation is approximately 2x faster for a\n`paradedb.aggregate` call operating over an input `TermSet` query\ncontaining 10mm bigint terms.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/69.",
+          "timestamp": "2025-10-16T10:44:33-07:00",
+          "tree_id": "7cdf2891ab987e473215a1c40b58bc54b300234c",
+          "url": "https://github.com/paradedb/paradedb/commit/5fe1322fa048cf4e8543842feb97bb46d64da1ab"
+        },
+        "date": 1760639290376,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 832.970890513312,
+            "unit": "median tps",
+            "extra": "avg tps: 770.8961889985919, max tps: 1099.0928547401536, count: 56016"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1288.9390686703312,
+            "unit": "median tps",
+            "extra": "avg tps: 1269.0165368371265, max tps: 1304.8007106572315, count: 56016"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1852.7937496998425,
+            "unit": "median tps",
+            "extra": "avg tps: 1784.0164279096286, max tps: 2022.2184935208693, count: 56016"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.967849823379917,
+            "unit": "median tps",
+            "extra": "avg tps: 5.970870272553495, max tps: 7.52055176904548, count: 56016"
           }
         ]
       }

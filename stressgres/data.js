@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760645715273,
+  "lastUpdate": 1760646035149,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34756,6 +34756,56 @@ window.BENCHMARK_DATA = {
             "value": 159.1171875,
             "unit": "median mem",
             "extra": "avg mem: 157.08635750108388, max mem: 160.05078125, count: 55357"
+          }
+        ]
+      }
+    ],
+    "pg_search logical-replication.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775a4ed2908e251be677fdfd9ac1e1dd6d43c72f",
+          "message": "chore: bring back stressgress for LR, without WAL settings (#3354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-16T15:12:51-04:00",
+          "tree_id": "9c44c5018c887bd009e47361ace1c0da92fa6ead",
+          "url": "https://github.com/paradedb/paradedb/commit/775a4ed2908e251be677fdfd9ac1e1dd6d43c72f"
+        },
+        "date": 1760646033143,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 679.4721204605352,
+            "unit": "median tps",
+            "extra": "avg tps: 681.3716576181856, max tps: 1015.7822081683111, count: 53594"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 713.2650401404023,
+            "unit": "median tps",
+            "extra": "avg tps: 714.0521543836987, max tps: 1163.6789464908265, count: 53594"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 115.28245626825408,
+            "unit": "median tps",
+            "extra": "avg tps: 115.5811344860388, max tps: 129.7550321012652, count: 53594"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 117.15699661970427,
+            "unit": "median tps",
+            "extra": "avg tps: 115.98337837962875, max tps: 137.71438790623094, count: 107188"
           }
         ]
       }

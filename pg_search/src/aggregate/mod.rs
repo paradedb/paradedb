@@ -29,6 +29,8 @@
 //! AggregationSpec                    ← Captures what to aggregate
 //!     ↓
 //! AggQueryBuilder                    ← Builds Tantivy aggregation JSON
+//!     ├→ result_format()             ← Determines Direct or Filter format
+//!     └→ build_tantivy_query()       ← Creates aggregation structure
 //!     ↓
 //! execute_aggregation()              ← Executes query (parallel or sequential)
 //!     ↓

@@ -49,14 +49,14 @@ CREATE INDEX idx_stopwords_bm25 ON test_stopwords
 );
 
 -- "something else" and "something, stopword, else" have the same score
-SELECT paradedb.score(id) AS score, name
+SELECT pdb.score(id) AS score, name
 FROM test_stopwords
 WHERE name @@@ '("something" "else")'
 ORDER BY name;
 
 
 -- stopword is filtered out hence when trying to search for it, the result is empty
-SELECT paradedb.score(id) AS score, name
+SELECT pdb.score(id) AS score, name
 FROM test_stopwords
 WHERE name @@@ 'and'
 ORDER BY name;

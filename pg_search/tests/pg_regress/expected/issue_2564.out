@@ -172,7 +172,7 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
            SELECT f.title
            FROM files f
            WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY paradedb.score(f.id) DESC LIMIT 1
+           ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
 WHERE d.parents @@@ 'Factures'
@@ -194,7 +194,7 @@ ORDER BY d.id;
                        Index: files_search
                        Exec Method: TopNScanExecState
                        Scores: true
-                          TopN Order By: paradedb.score() desc
+                          TopN Order By: pdb.score() desc
                           TopN Limit: 1
                        Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
 (18 rows)
@@ -204,7 +204,7 @@ SELECT d.id, d.title, d.parents,
            SELECT f.title
            FROM files f
            WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY paradedb.score(f.id) DESC LIMIT 1
+           ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
 WHERE d.parents @@@ 'Factures'

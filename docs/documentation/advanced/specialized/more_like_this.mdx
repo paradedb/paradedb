@@ -19,7 +19,7 @@ All other parameters are compatible with both `document_id` and `document_fields
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(
-  document_id => 3,
+  key_value => 3,
   min_term_frequency => 1
 );
 
@@ -27,7 +27,7 @@ WHERE id @@@ pdb.more_like_this(
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(
-document_fields => '{"description": "shoes"}',
+document => '{"description": "shoes"}',
 min_doc_frequency => 0,
 max_doc_frequency => 100,
 min_term_frequency => 1
@@ -35,24 +35,24 @@ min_term_frequency => 1
 
 ````
 ```sql JSON Syntax
--- document_id
+-- key_value
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
 '{
     "more_like_this": {
-        "document_id": 3,
+        "key_value": 3,
         "min_term_frequency": 1
     }
 }'::jsonb;
 
--- document_fields
+-- document
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
 '{
     "more_like_this": {
-        "document_fields": [["description", "shoes"]],
+        "document": [["description", "shoes"]],
         "min_doc_frequency": 0,
         "max_doc_frequency": 100,
         "min_term_frequency": 1

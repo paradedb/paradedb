@@ -66,7 +66,7 @@ fn mvcc_snippet(mut conn: PgConnection) {
     // Ensure that snippet lookups from the heap succeed in the presence of updates.
     for _ in 0..128 {
         let results: Vec<(i32, String)> = r#"
-            SELECT id, paradedb.snippet(description)
+            SELECT id, pdb.snippet(description)
             FROM mock_items
             WHERE description @@@ 'shoes'
             ORDER BY id

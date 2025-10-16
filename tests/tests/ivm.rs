@@ -65,7 +65,7 @@ fn use_ivm(mut conn: PgConnection) {
 
     // Confirm that the indexed view is queryable.
     let res: Vec<(i32, f32)> = r#"
-    SELECT id, paradedb.score(id)
+    SELECT id, pdb.score(id)
     FROM test_view
     WHERE test_view.content @@@ 'pineapple';
     "#

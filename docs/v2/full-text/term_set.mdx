@@ -29,11 +29,3 @@ WHERE description &&& ARRAY['shoes', 'running'];
   as arrays of finalized tokens. No additional processing is done to these
   tokens.
 </Note>
-
-[Fuzzy](/v2/full-text/fuzzy) and [boost](/v2/full-text/boost) casting is supported for text arrays.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description === ARRAY['shose', 'runing']::pdb.fuzzy(1);
-```

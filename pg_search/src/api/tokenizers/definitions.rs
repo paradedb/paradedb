@@ -314,7 +314,21 @@ pub(crate) mod pdb {
         tokenize_regex,
         json_to_regex,
         jsonb_to_regex,
-        "regex",
+        "regex_pattern",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    define_tokenizer_type!(
+        UnicodeWords,
+        SearchTokenizer::UnicodeWords {
+            remove_emojis: false,
+            filters: SearchTokenizerFilters::default()
+        },
+        tokenize_unicode_words,
+        json_to_unicode_words,
+        jsonb_to_unicode_words,
+        "unicode_words",
         preferred = false,
         custom_typmod = false
     );

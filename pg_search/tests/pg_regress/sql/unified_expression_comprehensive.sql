@@ -55,7 +55,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,
     name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
@@ -63,7 +63,7 @@ ORDER BY score DESC;
 SELECT 
     id,
     name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
@@ -74,7 +74,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
@@ -84,7 +84,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
@@ -95,7 +95,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
@@ -105,7 +105,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
@@ -116,7 +116,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
@@ -126,7 +126,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
@@ -137,7 +137,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
@@ -147,7 +147,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
@@ -160,7 +160,7 @@ SELECT
     id,
     name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running' 
   AND price < 200.00
@@ -170,7 +170,7 @@ SELECT
     id,
     name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running' 
   AND price < 200.00
@@ -182,7 +182,7 @@ SELECT
     id,
     name,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology' 
   AND in_stock = true
@@ -192,7 +192,7 @@ SELECT
     id,
     name,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology' 
   AND in_stock = true
@@ -204,7 +204,7 @@ SELECT
     id,
     name,
     description,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'MacBook' 
   AND description @@@ 'laptop'
@@ -214,7 +214,7 @@ SELECT
     id,
     name,
     description,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'MacBook' 
   AND description @@@ 'laptop'
@@ -228,7 +228,7 @@ SELECT
     name,
     category_name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
@@ -240,7 +240,7 @@ SELECT
     name,
     category_name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
@@ -256,7 +256,7 @@ SELECT
     category_id,
     price,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND category_id = 1
@@ -270,7 +270,7 @@ SELECT
     category_id,
     price,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND category_id = 1
@@ -286,7 +286,7 @@ SELECT
     name,
     price,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'smartphone'
   AND (
@@ -300,7 +300,7 @@ SELECT
     name,
     price,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'smartphone'
   AND (
@@ -316,7 +316,7 @@ SELECT
     id,
     name,
     rating,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running'
   AND rating >= 4.0
@@ -326,7 +326,7 @@ SELECT
     id,
     name,
     rating,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running'
   AND rating >= 4.0
@@ -339,7 +339,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'phone'
   AND tags IS NULL
@@ -349,7 +349,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'phone'
   AND tags IS NULL
@@ -360,7 +360,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'phone'
   OR tags IS NULL
@@ -370,7 +370,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'phone'
   OR tags IS NULL
@@ -383,7 +383,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
@@ -393,7 +393,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
@@ -407,7 +407,7 @@ SELECT
     name,
     price,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology'
   AND (
@@ -422,7 +422,7 @@ SELECT
     name,
     price,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology'
   AND (
@@ -439,7 +439,7 @@ SELECT
     id,
     name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
@@ -449,7 +449,7 @@ SELECT
     id,
     name,
     price,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
@@ -463,7 +463,7 @@ SELECT
     name,
     price,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
@@ -474,7 +474,7 @@ SELECT
     name,
     price,
     in_stock,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
@@ -487,7 +487,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
@@ -497,7 +497,7 @@ SELECT
     id,
     name,
     tags,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
@@ -510,7 +510,7 @@ SELECT
     id,
     name,
     created_at,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
@@ -520,7 +520,7 @@ SELECT
     id,
     name,
     created_at,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
@@ -535,7 +535,7 @@ SELECT
     price,
     rating,
     category_id,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'shoes'
   AND price <= 200.00
@@ -549,7 +549,7 @@ SELECT
     price,
     rating,
     category_id,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'shoes'
   AND price <= 200.00
@@ -564,7 +564,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
@@ -574,7 +574,7 @@ SELECT
     id,
     name,
     category_name,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
@@ -589,7 +589,7 @@ SELECT
     price,
     in_stock,
     rating,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
   AND (
@@ -605,7 +605,7 @@ SELECT
     price,
     in_stock,
     rating,
-    paradedb.score(id) as score
+    pdb.score(id) as score
 FROM products 
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
   AND (

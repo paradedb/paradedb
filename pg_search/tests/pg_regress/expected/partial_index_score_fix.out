@@ -21,14 +21,14 @@ WITH (key_field = 'id')
 WHERE category = 'Electronics';
 -- Test Case 1: Query with only indexed field - should work correctly
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, category, paradedb.score(id) as score
+SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (paradedb.score(id)) DESC
+   Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
@@ -37,7 +37,7 @@ ORDER BY score DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
 (8 rows)
 
-SELECT id, description, category, paradedb.score(id) as score
+SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
@@ -51,11 +51,11 @@ ORDER BY score DESC;
 -- This should use the partial index predicate (category = 'Electronics')
 -- instead of All query for the non-indexed rating filter
 -- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT id, description, category, rating, paradedb.score(id) as score
+-- SELECT id, description, category, rating, pdb.score(id) as score
 -- FROM partial_test
 -- WHERE description @@@ 'Apple' AND rating >= 4
 -- ORDER BY score DESC;
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND rating >= 4
 ORDER BY score DESC;
@@ -68,19 +68,19 @@ ORDER BY score DESC;
 -- Test Case 3: Query with only non-indexed predicate
 -- This should still use the partial index predicate for the base query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;
-              QUERY PLAN               
----------------------------------------
+            QUERY PLAN            
+----------------------------------
  Sort
-   Sort Key: (paradedb.score(id)) DESC
+   Sort Key: (pdb.score(id)) DESC
    ->  Seq Scan on partial_test
          Filter: (rating >= 4)
 (4 rows)
 
-SELECT id, description, category, rating, paradedb.score(id) as score
+SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;

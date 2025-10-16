@@ -79,6 +79,16 @@ ALTER TYPE pg_catalog.fuzzy SET SCHEMA pdb;
 ALTER TYPE pg_catalog.boost SET SCHEMA pdb;
 ALTER TYPE pg_catalog.slop SET SCHEMA pdb;
 
+--
+-- relocate the paradedb.score function to the `pdb` schema
+--
+ALTER FUNCTION paradedb.score(anyelement) SET SCHEMA pdb;
+
+--
+-- relocate the paradedb.snippet* functions to the `pdb` schema
+--
+ALTER FUNCTION paradedb.snippet(anyelement, text, text, int, int, int) SET SCHEMA pdb;
+ALTER FUNCTION paradedb.snippet_positions(anyelement, int, int) SET SCHEMA pdb;
 
 --
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work
@@ -759,12 +769,12 @@ ALTER TYPE pdb.jieba SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_ty
 --   Type(pg_search::api::tokenizers::definitions::pdb::Regex)
 
 
-CREATE TYPE pdb.regex;
-CREATE OR REPLACE FUNCTION pdb.regex_in(cstring) RETURNS pdb.regex AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_out(pdb.regex) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_send(pdb.regex) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
-CREATE OR REPLACE FUNCTION pdb.regex_recv(internal) RETURNS pdb.regex AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
-CREATE TYPE pdb.regex (
+CREATE TYPE pdb.regex_pattern;
+CREATE OR REPLACE FUNCTION pdb.regex_in(cstring) RETURNS pdb.regex_pattern AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_out(pdb.regex_pattern) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_send(pdb.regex_pattern) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.regex_recv(internal) RETURNS pdb.regex_pattern AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.regex_pattern (
                           INPUT = pdb.regex_in,
                           OUTPUT = pdb.regex_out,
                           SEND = pdb.regex_send,
@@ -783,7 +793,7 @@ CREATE TYPE pdb.regex (
 --   generic_typmod_out
 --   regex_definition
 
-ALTER TYPE pdb.regex SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+ALTER TYPE pdb.regex_pattern SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -863,7 +873,7 @@ AS 'MODULE_PATHNAME', 'json_to_simple_wrapper';
 -- pg_search/src/api/tokenizers/definitions.rs:297
 -- pg_search::api::tokenizers::definitions::pdb::tokenize_regex
 CREATE  FUNCTION pdb."tokenize_regex"(
-    "s" pdb.regex /* pg_search::api::tokenizers::definitions::pdb::Regex */
+    "s" pdb.regex_pattern /* pg_search::api::tokenizers::definitions::pdb::Regex */
 ) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
@@ -876,7 +886,7 @@ AS 'MODULE_PATHNAME', 'tokenize_regex_wrapper';
 --   regex_definition
 --   tokenize_regex
 
-CREATE CAST (pdb.regex AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
+CREATE CAST (pdb.regex_pattern AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -886,7 +896,7 @@ CREATE CAST (pdb.regex AS TEXT[]) WITH FUNCTION pdb.tokenize_regex AS IMPLICIT;
 --   tokenize_regex
 CREATE  FUNCTION pdb."json_to_regex"(
     "json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
-) RETURNS pdb.regex /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
+) RETURNS pdb.regex_pattern /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'json_to_regex_wrapper';
@@ -1053,7 +1063,7 @@ CREATE CAST (jsonb AS pdb.literal) WITH FUNCTION pdb.jsonb_to_literal AS ASSIGNM
 --   tokenize_regex
 CREATE  FUNCTION pdb."jsonb_to_regex"(
     "jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
-) RETURNS pdb.regex /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
+) RETURNS pdb.regex_pattern /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::Regex> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'jsonb_to_regex_wrapper';
@@ -1067,8 +1077,8 @@ AS 'MODULE_PATHNAME', 'jsonb_to_regex_wrapper';
 --   jsonb_to_regex
 
 
-CREATE CAST (json AS pdb.regex) WITH FUNCTION pdb.json_to_regex AS ASSIGNMENT;
-CREATE CAST (jsonb AS pdb.regex) WITH FUNCTION pdb.jsonb_to_regex AS ASSIGNMENT;
+CREATE CAST (json AS pdb.regex_pattern) WITH FUNCTION pdb.json_to_regex AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.regex_pattern) WITH FUNCTION pdb.jsonb_to_regex AS ASSIGNMENT;
 /* </end connected objects> */
 
 /* <begin connected objects> */
@@ -1518,6 +1528,85 @@ AS 'MODULE_PATHNAME', 'json_to_literal_normalized_wrapper';
         CREATE CAST (json AS pdb.literal_normalized) WITH FUNCTION pdb.json_to_literal_normalized AS ASSIGNMENT;
 CREATE CAST (jsonb AS pdb.literal_normalized) WITH FUNCTION pdb.jsonb_to_literal_normalized AS ASSIGNMENT;
 
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- creates:
+--   Type(pg_search::api::tokenizers::definitions::pdb::UnicodeWords)
+CREATE TYPE pdb.unicode_words;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_in(cstring) RETURNS pdb.unicode_words AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_out(pdb.unicode_words) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_send(pdb.unicode_words) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
+CREATE OR REPLACE FUNCTION pdb.unicode_words_recv(internal) RETURNS pdb.unicode_words AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
+CREATE TYPE pdb.unicode_words (
+                                  INPUT = pdb.unicode_words_in,
+                                  OUTPUT = pdb.unicode_words_out,
+                                  SEND = pdb.unicode_words_send,
+                                  RECEIVE = pdb.unicode_words_recv,
+                                  COLLATABLE = true,
+                                  CATEGORY = 't', -- 't' is for tokenizer
+                                  PREFERRED = false,
+                                  LIKE = text
+                              );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   generic_typmod_in
+--   generic_typmod_out
+--   unicode_words_definition
+ALTER TYPE pdb.unicode_words SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::tokenize_unicode_words
+CREATE  FUNCTION pdb."tokenize_unicode_words"(
+    "s" pdb.unicode_words /* pg_search::api::tokenizers::definitions::pdb::UnicodeWords */
+) RETURNS TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'tokenize_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   unicode_words_definition
+--   tokenize_unicode_words
+CREATE CAST (pdb.unicode_words AS TEXT[]) WITH FUNCTION pdb.tokenize_unicode_words AS IMPLICIT;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::jsonb_to_unicode_words
+-- requires:
+--   tokenize_unicode_words
+CREATE  FUNCTION pdb."jsonb_to_unicode_words"(
+    "jsonb" jsonb /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::JsonB> */
+) RETURNS pdb.unicode_words /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::UnicodeWords> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'jsonb_to_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- pg_search::api::tokenizers::definitions::pdb::json_to_unicode_words
+-- requires:
+--   tokenize_unicode_words
+CREATE  FUNCTION pdb."json_to_unicode_words"(
+    "json" json /* pg_search::api::tokenizers::GenericTypeWrapper<pgrx::datum::json::Json> */
+) RETURNS pdb.unicode_words /* pg_search::api::tokenizers::GenericTypeWrapper<pg_search::api::tokenizers::definitions::pdb::UnicodeWords> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'json_to_unicode_words_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/tokenizers/definitions.rs:322
+-- requires:
+--   unicode_words_definition
+--   json_to_unicode_words
+--   jsonb_to_unicode_words
+CREATE CAST (json AS pdb.unicode_words) WITH FUNCTION pdb.json_to_unicode_words AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.unicode_words) WITH FUNCTION pdb.jsonb_to_unicode_words AS ASSIGNMENT;
+
 
 --
 -- pdb.all() and pdb.empty()
@@ -1701,12 +1790,10 @@ CREATE CAST (pdb.query AS pdb.const) WITH FUNCTION query_to_const(pdb.query, int
 CREATE CAST (pdb.proximityclause AS pdb.const) WITH FUNCTION prox_to_const(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
 CREATE CAST (pdb.const AS pdb.const) WITH FUNCTION const_to_const(pdb.const, integer, boolean) AS IMPLICIT;
 
---
--- move the more_like_this functions over to the pdb schema
---
-ALTER FUNCTION paradedb."more_like_this"() SET SCHEMA pdb;
-ALTER FUNCTION paradedb."more_like_this"(TEXT,INT, INT, INT, INT, INT, INT, real, TEXT[]) SET SCHEMA pdb;
-ALTER FUNCTION paradedb."more_like_this"(anyelement, INT, INT, INT, INT, INT, INT, real, TEXT[] ) SET SCHEMA pdb;
+DROP FUNCTION IF EXISTS pdb.more_like_this(document_fields text, min_doc_frequency pg_catalog.int4, max_doc_frequency pg_catalog.int4, min_term_frequency pg_catalog.int4, max_query_terms pg_catalog.int4, min_word_length pg_catalog.int4, max_word_length pg_catalog.int4, boost_factor pg_catalog.float4, stop_words text[]);
+CREATE OR REPLACE FUNCTION pdb.more_like_this(document text, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_fields_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+DROP FUNCTION IF EXISTS pdb.more_like_this(document_id anyelement, min_doc_frequency pg_catalog.int4, max_doc_frequency pg_catalog.int4, min_term_frequency pg_catalog.int4, max_query_terms pg_catalog.int4, min_word_length pg_catalog.int4, max_word_length pg_catalog.int4, boost_factor pg_catalog.float4, stop_words text[]);
+CREATE OR REPLACE FUNCTION pdb.more_like_this(key_value anyelement, fields text[] DEFAULT NULL, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_id_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 
 /* </end connected objects> */
 /* <begin connected objects> */

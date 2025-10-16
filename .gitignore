@@ -35,12 +35,15 @@ pgvector/
 # Env files
 .env
 
-# samply
+# Samply
 profile.json*
 
-# patch/diff
+# Patch/diff
 *.orig
 *.rej
 
 # Node
 node_modules/
+
+# Cursor
+.cursor/

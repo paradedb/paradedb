@@ -28,11 +28,11 @@ use sqlx::PgConnection;
 fn corrupt_targetlist(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id, score) = "select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'"
+    let (id, score) = "select count(*), max(pdb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'"
         .fetch_one::<(i64, f32)>(&mut conn);
     assert_eq!((id, score), (2, 3.2668595));
 
-    "PREPARE prep AS select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'".execute(&mut conn);
+    "PREPARE prep AS select count(*), max(pdb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'".execute(&mut conn);
     for _ in 0..100 {
         "EXECUTE prep".fetch_one::<(i64, f32)>(&mut conn);
         assert_eq!((id, score), (2, 3.2668595));
@@ -119,7 +119,7 @@ fn scores_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score) =
-        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -130,7 +130,7 @@ fn snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(snippet, String::from("Plastic <b>Keyboard</b>"));
@@ -141,7 +141,7 @@ fn scores_and_snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score, snippet) =
-        "SELECT id, paradedb.score(id), paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.score(id), pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -153,7 +153,7 @@ fn mingets(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
+        "SELECT id, pdb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 40);
     assert_eq!(
@@ -169,9 +169,9 @@ fn scores_with_expressions(mut conn: PgConnection) {
     let result = r#"
 select id,
     description,
-    paradedb.score(id),
+    pdb.score(id),
     rating,
-    paradedb.score(id) * rating    /* testing this, specifically */
+    pdb.score(id) * rating    /* testing this, specifically */
 from paradedb.bm25_search
 where metadata @@@ 'color:white'
 order by 5 desc, score desc
@@ -217,7 +217,7 @@ fn score_and_limit_without_order_by(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     let (plan, ) = r#"
-explain (analyze, format json) select paradedb.score(id), * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
+explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
         "#
         .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
@@ -241,8 +241,8 @@ select a.id,
     a.score,
     b.id,
     b.score
-from (select paradedb.score(id), * from paradedb.bm25_search) a
-inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
+from (select pdb.score(id), * from paradedb.bm25_search) a
+inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert_eq!(result, (40, 3.3322046, 40, 6.664409));
@@ -257,8 +257,8 @@ select a.id,
     a.score,
     b.id,
     b.score
-from (select paradedb.score(id), * from paradedb.bm25_search) a
-inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
+from (select pdb.score(id), * from paradedb.bm25_search) a
+inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert_eq!(result, (40, 3.3322046, 40, 6.664409));
@@ -290,7 +290,7 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
     let result = "
-        SELECT o.order_id, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+        SELECT o.order_id, m.description, pdb.score(o.order_id) + pdb.score(m.id) as score
         FROM orders o JOIN mock_items m ON o.product_id = m.id
         WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
         ORDER BY order_id
@@ -313,7 +313,7 @@ fn scores_survive_joins(mut conn: PgConnection) {
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
     let result = r#"
-        SELECT a.description, paradedb.score(a.id)
+        SELECT a.description, pdb.score(a.id)
         FROM a
         join b on a.id = b.id
         join c on a.id = c.id
@@ -362,7 +362,7 @@ fn join_issue_1776(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let results = r#"
-        SELECT o.order_id, m.description, o.customer_name, paradedb.score(o.order_id) as orders_score, paradedb.score(m.id) as items_score
+        SELECT o.order_id, m.description, o.customer_name, pdb.score(o.order_id) as orders_score, pdb.score(m.id) as items_score
         FROM orders o
         JOIN mock_items m ON o.product_id = m.id
         WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
@@ -406,11 +406,11 @@ fn join_issue_1826(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let results = r#"
-        SELECT o.order_id, m.description, o.customer_name, paradedb.score(o.order_id) as orders_score, paradedb.score(m.id) as items_score
+        SELECT o.order_id, m.description, o.customer_name, pdb.score(o.order_id) as orders_score, pdb.score(m.id) as items_score
         FROM orders o
         JOIN mock_items m ON o.product_id = m.id
         WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
-        ORDER BY paradedb.score(m.id) desc, m.id asc
+        ORDER BY pdb.score(m.id) desc, m.id asc
         LIMIT 1;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
 
@@ -436,7 +436,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // this will raise an error when it hits id #12
-    let result = "SELECT id, paradedb.score(id), raise_exception(id, 12) FROM paradedb.bm25_search WHERE category @@@ 'electronics' ORDER BY paradedb.score(id) DESC, id LIMIT 10"
+    let result = "SELECT id, pdb.score(id), raise_exception(id, 12) FROM paradedb.bm25_search WHERE category @@@ 'electronics' ORDER BY pdb.score(id) DESC, id LIMIT 10"
         .execute_result(&mut conn);
     assert!(result.is_err());
     assert_eq!(
@@ -652,8 +652,8 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 
     let mut query = |offset: usize, limit: usize| -> Vec<(i32, String, f32)> {
         format!(
-            "SELECT id, description, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
-             ORDER BY paradedb.score(id), id OFFSET {offset} LIMIT {limit}"
+            "SELECT id, description, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+             ORDER BY pdb.score(id), id OFFSET {offset} LIMIT {limit}"
         )
         .fetch_collect(&mut conn)
     };
@@ -766,7 +766,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         explain (FORMAT json) select id
         from test
         where message @@@ '{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}'::jsonb
-        order by paradedb.score(id) desc
+        order by pdb.score(id) desc
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);
 
@@ -856,7 +856,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             AND u.company_id in (5, 4, 13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     )
@@ -882,7 +882,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             AND u.company_id in (5, 4, 13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     ),
@@ -924,7 +924,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             u.company_id in (13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     )
@@ -977,7 +977,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             AND u.company_id in (5, 4, 13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     )
@@ -1018,7 +1018,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             AND u.company_id in (5, 4, 13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     ),
@@ -1060,7 +1060,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
             u.company_id in (13, 15)
     ),
     matched_companies AS (
-        SELECT c.id, paradedb.score(c.id) AS company_score
+        SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
         WHERE c.id @@@ 'name:Testing'
     )

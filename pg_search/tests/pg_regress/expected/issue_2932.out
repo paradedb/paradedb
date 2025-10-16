@@ -9,7 +9,7 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX on mock_items USING bm25 (id, description, rating) WITH (key_field='id');
-SELECT description, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
      description     |       score       
 ---------------------+-------------------
  Generic shoes       | 5.754520416259766
@@ -17,7 +17,7 @@ SELECT description, paradedb.score(id) * 2 AS score FROM mock_items WHERE descri
  White jogging shoes | 4.969813346862793
 (3 rows)
 
-SELECT description, rating, paradedb.score(id) * rating AS score FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC, rating LIMIT 3;
+SELECT description, rating, pdb.score(id) * rating AS score FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC, rating LIMIT 3;
      description     | rating |       score        
 ---------------------+--------+--------------------
  Sleek running shoes |      5 | 17.424533367156982
@@ -25,7 +25,7 @@ SELECT description, rating, paradedb.score(id) * rating AS score FROM mock_items
  White jogging shoes |      3 |  10.45472002029419
 (3 rows)
 
-SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score_times_rating DESC LIMIT 3;
+SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score_times_rating DESC LIMIT 3;
      description     | rating |   score   | score_times_rating 
 ---------------------+--------+-----------+--------------------
  Sleek running shoes |      5 | 3.4849067 | 17.424533367156982
@@ -33,7 +33,7 @@ SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * ra
  White jogging shoes |      3 | 3.4849067 |  10.45472002029419
 (3 rows)
 
-SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC LIMIT 3;
+SELECT description, rating, pdb.score(id) AS score, pdb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC LIMIT 3;
      description     | rating |   score   | score_times_rating 
 ---------------------+--------+-----------+--------------------
  Generic shoes       |      4 | 3.8772602 | 15.509040832519531
@@ -42,7 +42,7 @@ SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * ra
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, paradedb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+SELECT id, pdb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -51,18 +51,18 @@ SELECT id, paradedb.score(id) AS score FROM mock_items WHERE description @@@ 'sh
          Index: mock_items_id_description_rating_idx
          Exec Method: TopNScanExecState
          Scores: true
-            TopN Order By: paradedb.score() desc
+            TopN Order By: pdb.score() desc
             TopN Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+SELECT id, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: ((paradedb.score(id) * '2'::double precision)) DESC
+         Sort Key: ((pdb.score(id) * '2'::double precision)) DESC
          ->  Custom Scan (ParadeDB Scan) on mock_items
                Table: mock_items
                Index: mock_items_id_description_rating_idx

@@ -121,30 +121,30 @@ select pdb.prox_clause('a', 42, 'b');
 --
 -- use the ## operator
 --
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##24## 'z');   -- match
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('a' ##24## 'z');   -- match
                               snippet                              
 -------------------------------------------------------------------
  <b>a</b> b c d e f g h i j k l m n o p q r s t u v w x y <b>z</b>
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##2## 'g');   -- no match
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##2## 'g');   -- no match
  snippet 
 ---------
 (0 rows)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##3## 'g');   -- match
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##3## 'g');   -- match
                                  snippet                                  
 --------------------------------------------------------------------------
  <b>a</b> b <b>c</b> d e f <b>g</b> h i j k l m n o p q r s t u v w x y z
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ (ARRAY['a', 'b', 'c'] ##1## 'd');   -- match
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ (ARRAY['a', 'b', 'c'] ##1## 'd');   -- match
                                      snippet                                     
 ---------------------------------------------------------------------------------
  <b>a</b> <b>b</b> <b>c</b> <b>d</b> e f g h i j k l m n o p q r s t u v w x y z
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##1## ARRAY['b', 'c', 'd']);   -- match
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('a' ##1## ARRAY['b', 'c', 'd']);   -- match
                                      snippet                                     
 ---------------------------------------------------------------------------------
  <b>a</b> <b>b</b> <b>c</b> <b>d</b> e f g h i j k l m n o p q r s t u v w x y z
@@ -153,13 +153,13 @@ SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##1## ARRAY['b', 'c'
 --
 -- use the ##> operator
 --
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('z' ##24## 'a');   -- match, any order
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##24## 'a');   -- match, any order
                               snippet                              
 -------------------------------------------------------------------
  <b>a</b> b c d e f g h i j k l m n o p q r s t u v w x y <b>z</b>
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('z' ##>24##> 'a');   -- no match, in order
+SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##>24##> 'a');   -- no match, in order
  snippet 
 ---------
 (0 rows)

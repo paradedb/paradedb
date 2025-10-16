@@ -31,19 +31,19 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for BIGINT key'
-SELECT id, paradedb.score(id) FROM bigint_test WHERE bigint_test @@@ 
-paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
+SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
+paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for BIGINT key'
-SELECT id, paradedb.score(id) FROM bigint_test WHERE bigint_test @@@ 
+SELECT id, pdb.score(id) FROM bigint_test WHERE bigint_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with BIGINT key'
-SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with BIGINT key'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
 UNION
-SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Test 2: UUID as key field
@@ -69,19 +69,19 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for UUID key'
-SELECT CAST(id AS TEXT), paradedb.score(id) FROM uuid_test WHERE uuid_test @@@ 
-paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
+paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for UUID key'
-SELECT CAST(id AS TEXT), paradedb.score(id) FROM uuid_test WHERE uuid_test @@@ 
+SELECT CAST(id AS TEXT), pdb.score(id) FROM uuid_test WHERE uuid_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with UUID key'
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with UUID key'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Test 3: TIMESTAMPTZ as key field
@@ -107,19 +107,19 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), paradedb.score(id) FROM timestamp_test WHERE timestamp_test @@@ 
-paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
+paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
 
 -- Test no stable sort
 \echo 'Query without score sorting for TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), paradedb.score(id) FROM timestamp_test WHERE timestamp_test @@@ 
+SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
-\echo 'Testing paradedb.snippet with TIMESTAMPTZ key'
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
+\echo 'Testing pdb.snippet with TIMESTAMPTZ key'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
 UNION
-SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Clean up

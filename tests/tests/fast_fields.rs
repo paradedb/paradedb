@@ -111,7 +111,7 @@ WITH (
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, paradedb.score(id), rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, pdb.score(id), rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("id, rating".into())),
         plan.pointer("/0/Plan/Fast Fields")

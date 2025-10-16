@@ -40,7 +40,7 @@ SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
  {thi,this,"this ",his,"his ","his i","is ","is i","is is","s i","s is","s is "," is"," is "," is a","is ","is a","is a ","s a","s a ","s a t"," a "," a t"," a te","a t","a te","a tes"," te"," tes"," test",tes,test,test.,est,est.,st.}
 (1 row)
 
-SELECT 'this is a test.'::pdb.regex('is|a')::text[];
+SELECT 'this is a test.'::pdb.regex_pattern('is|a')::text[];
    text    
 -----------
  {is,is,a}

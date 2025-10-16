@@ -67,6 +67,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       # We force reinstall icu4c to make sure it is in PATH
       - name: Install Dependencies

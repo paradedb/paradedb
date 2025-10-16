@@ -132,9 +132,10 @@ pub enum SearchQueryInput {
         min_word_length: Option<usize>,
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
-        stop_words: Option<Vec<String>>,
-        document_fields: Option<Vec<(String, OwnedValue)>>,
-        document_id: Option<OwnedValue>,
+        stopwords: Option<Vec<String>>,
+        document: Option<Vec<(String, OwnedValue)>>,
+        key_value: Option<OwnedValue>,
+        fields: Option<Vec<String>>,
     },
     Parse {
         query_string: String,
@@ -778,20 +779,27 @@ impl SearchQueryInput {
                 min_word_length,
                 max_word_length,
                 boost_factor,
-                stop_words,
-                document_fields,
-                document_id,
+                stopwords,
+                document,
+                key_value,
+                fields,
             } => {
                 let mut builder = MoreLikeThisQuery::builder();
 
+                // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {
                     builder = builder.with_min_doc_frequency(min_doc_frequency);
+                } else {
+                    builder = builder.with_min_doc_frequency(1);
+                }
+                // default min_term_frequency to 1, Tantivy's default is 2
+                if let Some(min_term_frequency) = min_term_frequency {
+                    builder = builder.with_min_term_frequency(min_term_frequency);
+                } else {
+                    builder = builder.with_min_term_frequency(1);
                 }
                 if let Some(max_doc_frequency) = max_doc_frequency {
                     builder = builder.with_max_doc_frequency(max_doc_frequency);
-                }
-                if let Some(min_term_frequency) = min_term_frequency {
-                    builder = builder.with_min_term_frequency(min_term_frequency);
                 }
                 if let Some(max_query_terms) = max_query_terms {
                     builder = builder.with_max_query_terms(max_query_terms);
@@ -805,17 +813,20 @@ impl SearchQueryInput {
                 if let Some(boost_factor) = boost_factor {
                     builder = builder.with_boost_factor(boost_factor);
                 }
-                if let Some(stop_words) = stop_words {
-                    builder = builder.with_stop_words(stop_words);
+                if let Some(stopwords) = stopwords {
+                    builder = builder.with_stop_words(stopwords);
                 }
 
-                match (document_id, document_fields) {
-                    (Some(key_value), None) => {
-                        Ok(Box::new(builder.with_document(key_value, index_oid)))
+                match (key_value, fields, document) {
+                    (Some(key_value), fields, None) => {
+                        Ok(match builder.with_key_value(key_value, fields, index_oid) {
+                            Some(query) => Box::new(query),
+                            None => Box::new(EmptyQuery),
+                        })
                     }
-                    (None, Some(doc_fields)) => {
+                    (None, None, Some(doc)) => {
                         let mut fields_map = HashMap::default();
-                        for (field, mut value) in doc_fields {
+                        for (field, mut value) in doc {
                             let search_field = schema
                                 .search_field(&field)
                                 .ok_or(QueryError::NonIndexedField(field.into()))?;
@@ -829,14 +840,11 @@ impl SearchQueryInput {
                             }
                         }
                         Ok(Box::new(
-                            builder.with_document_fields(fields_map.into_iter().collect()),
+                            builder.with_document(fields_map.into_iter().collect()),
                         ))
                     }
-                    (Some(_), Some(_)) => {
-                        panic!("more_like_this must be called with only one of document_id or document_fields")
-                    }
-                    (None, None) => {
-                        panic!("more_like_this must be called with either document_id or document_fields");
+                    _ => {
+                        panic!("more_like_this must be called with either key_value or document")
                     }
                 }
             }

@@ -5,13 +5,13 @@ title: BM25 Scoring
 ## Basic Usage
 
 BM25 scores measure how relevant a score is for a given query. Higher scores indicate higher relevance.
-The `paradedb.score(<key_field>)` function can be added to any query where an `@@@` operator is present.
+The `pdb.score(<key_field>)` function can be added to any query where an `@@@` operator is present.
 
 ```sql
-SELECT id, paradedb.score(id)
+SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes'
-ORDER BY paradedb.score(id)
+ORDER BY pdb.score(id)
 LIMIT 5;
 ```
 
@@ -19,10 +19,10 @@ In order for a field to be factored into the BM25 score, it must be present in t
 consider this query:
 
 ```sql
-SELECT id, paradedb.score(id)
+SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description @@@ 'keyboard' OR rating < 2
-ORDER BY paradedb.score(id)
+ORDER BY pdb.score(id)
 LIMIT 5;
 ```
 
@@ -35,7 +35,7 @@ The following query demonstrates how to compute a "combined BM25 score" over a j
 which were both created in the [quickstart](/documentation/getting-started/quickstart).
 
 ```sql
-SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+SELECT o.order_id, pdb.score(o.order_id) + pdb.score(m.id) as score
 FROM orders o
 JOIN mock_items m ON o.product_id = m.id
 WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')

@@ -250,7 +250,7 @@ impl PdbScan {
             // However, the Join quals help with scoring and snippet generation, as the documents
             // that match partially the Join quals will be scored and snippets generated. That is
             // why it only makes sense to use the Join quals if we have used our operator and
-            // also used paradedb.score or paradedb.snippet functions in the query.
+            // also used pdb.score or pdb.snippet functions in the query.
             if state.uses_our_operator && uses_score_or_snippet {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
@@ -889,7 +889,7 @@ impl CustomScan for PdbScan {
                             feature: OrderByFeature::Score,
                             direction,
                         } => {
-                            format!("paradedb.score() {}", direction.as_ref())
+                            format!("pdb.score() {}", direction.as_ref())
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1180,7 +1180,7 @@ impl CustomScan for PdbScan {
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
 /// `assign_exec_method` and `compute_exec_which_fast_fields`.
 ///
-/// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
+/// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
 fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {

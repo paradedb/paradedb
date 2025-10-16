@@ -310,8 +310,8 @@ pub fn score_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.score(anyelement)".into_datum()],
+            &[c"pdb.score(anyelement)".into_datum()],
         )
-        .expect("the `paradedb.score(anyelement)` function should exist")
+        .expect("the `pdb.score(anyelement)` function should exist")
     }
 }

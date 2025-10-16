@@ -8,13 +8,13 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 
 ## Basic Usage
 
-The `paradedb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
+The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
 
 ```sql
-SELECT id, paradedb.score(id)
+SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'shoes'
-ORDER BY paradedb.score(id)
+ORDER BY pdb.score(id)
 LIMIT 5;
 ```
 
@@ -22,10 +22,10 @@ In order for a field to be factored into the BM25 score, it must be present in t
 consider this query:
 
 ```sql
-SELECT id, paradedb.score(id)
+SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'keyboard' OR rating < 2
-ORDER BY paradedb.score(id)
+ORDER BY pdb.score(id)
 LIMIT 5;
 ```
 
@@ -56,7 +56,7 @@ WITH (key_field = 'order_id');
 Next, let's compute a "combined BM25 score" over a join across both tables.
 
 ```sql
-SELECT o.order_id, o.customer_name, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+SELECT o.order_id, o.customer_name, m.description, pdb.score(o.order_id) + pdb.score(m.id) as score
 FROM orders o
 JOIN mock_items m ON o.product_id = m.id
 WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'

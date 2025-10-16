@@ -12,7 +12,7 @@ CREATE INDEX search_idx on mock_items
 USING bm25 (id, description, rating, category, metadata)
 WITH (key_field='id', text_fields = '{"category": {"fast": true}}', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating DESC
 LIMIT 5;
@@ -29,7 +29,7 @@ LIMIT 5;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating DESC
 LIMIT 5;
@@ -43,7 +43,7 @@ LIMIT 5;
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, id ASC
 LIMIT 5;
@@ -60,7 +60,7 @@ LIMIT 5;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, id ASC
 LIMIT 5;
@@ -74,7 +74,7 @@ LIMIT 5;
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, id ASC, category
 LIMIT 5;
@@ -91,15 +91,15 @@ LIMIT 5;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, id ASC, category
 LIMIT 5;
-ERROR:  Unsupported sort-field count: 3. At most 2 are supported when `paradedb.score` is requested.
+ERROR:  Unsupported sort-field count: 3. At most 2 are supported when `pdb.score` is requested.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id) DESC
+ORDER BY rating, pdb.score(id) DESC
 LIMIT 5;
                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -109,14 +109,14 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: true
-            TopN Order By: rating asc, paradedb.score() desc
+            TopN Order By: rating asc, pdb.score() desc
             TopN Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id) DESC
+ORDER BY rating, pdb.score(id) DESC
 LIMIT 5;
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
@@ -128,9 +128,9 @@ LIMIT 5;
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id), id DESC
+ORDER BY rating, pdb.score(id), id DESC
 LIMIT 5;
                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -140,14 +140,14 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: true
-            TopN Order By: rating asc, paradedb.score() asc, id desc
+            TopN Order By: rating asc, pdb.score() asc, id desc
             TopN Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id), id DESC
+ORDER BY rating, pdb.score(id), id DESC
 LIMIT 5;
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
@@ -159,15 +159,15 @@ LIMIT 5;
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id), id, category DESC
+ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: rating, (paradedb.score(id)), id, category DESC
+         Sort Key: rating, (pdb.score(id)), id, category DESC
          ->  Custom Scan (ParadeDB Scan) on mock_items
                Table: mock_items
                Index: search_idx
@@ -176,9 +176,9 @@ LIMIT 5;
                Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
-SELECT id, description, rating, paradedb.score(id) FROM mock_items
+SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
-ORDER BY rating, paradedb.score(id), id, category DESC
+ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------

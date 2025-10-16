@@ -33,9 +33,9 @@ Logical replication refers to replicating changes from a standard Postgres prima
 
 Physical replication refers to running ParadeDB itself in a multi-node, high-availability (HA) setup using write-ahead log (WAL) shipping.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb) supports neither:
+[ParadeDB Community](https://github.com/paradedb/paradedb) supports logical replication, but not physical replication:
 
-- It does not support logical replication from a primary Postgres.
+- It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
 - The BM25 index does not get physically replicated and won't be available on other nodes in a high availability setup.
 
 [ParadeDB Enterprise](/deploy/enterprise) supports both:
@@ -43,7 +43,7 @@ Physical replication refers to running ParadeDB itself in a multi-node, high-ava
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
 - It supports physical replication and high availability, ensuring that the BM25 index remains consistent and crash-safe across nodes.
 
-If your deployment requires replication, failover, or ingestion from a primary Postgres database, we recommend using [ParadeDB Enterprise](/deploy/enterprise).
+If your deployment requires high availability, or failover, we recommend using [ParadeDB Enterprise](/deploy/enterprise).
 
 ### Data Integrity
 

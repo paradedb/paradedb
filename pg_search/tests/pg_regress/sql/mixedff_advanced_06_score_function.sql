@@ -55,48 +55,48 @@ WITH (
 
 -- Test 1: Basic score function with text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, paradedb.score(id), rating
+SELECT title, pdb.score(id), rating
 FROM score_test
 WHERE content @@@ 'technology'
-ORDER BY title, paradedb.score(id), rating DESC
+ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
 
-SELECT title, paradedb.score(id), rating
+SELECT title, pdb.score(id), rating
 FROM score_test
 WHERE content @@@ 'technology'
-ORDER BY title, paradedb.score(id), rating DESC
+ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
 
 -- Test 2: Score function with mixed field types in selection
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, rating, views, paradedb.score(id)
+SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'research'
-ORDER BY title, author, rating, views, paradedb.score(id) DESC
+ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
 
-SELECT title, author, rating, views, paradedb.score(id)
+SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'research'
-ORDER BY title, author, rating, views, paradedb.score(id) DESC
+ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
 
 -- Test 3: Score function with multiple conditions on different field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, paradedb.score(id)
+SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
 
-SELECT title, author, paradedb.score(id)
+SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
 
 -- Test 4: Using score in a CTE with mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH scored_posts AS (
-    SELECT title, author, rating, paradedb.score(id) as relevance
+    SELECT title, author, rating, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'science OR research'
 )
@@ -107,7 +107,7 @@ ORDER BY title, author, relevance DESC
 LIMIT 10;
 
 WITH scored_posts AS (
-    SELECT title, author, rating, paradedb.score(id) as relevance
+    SELECT title, author, rating, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'science OR research'
 )
@@ -121,7 +121,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT sp.title, sp.author, sp.relevance
 FROM (
-    SELECT title, author, paradedb.score(id) as relevance
+    SELECT title, author, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'technology' AND rating > 3
 ) sp
@@ -130,7 +130,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
 
 SELECT sp.title, sp.author, sp.relevance
 FROM (
-    SELECT title, author, paradedb.score(id) as relevance
+    SELECT title, author, pdb.score(id) as relevance
     FROM score_test
     WHERE content @@@ 'technology' AND rating > 3
 ) sp
@@ -139,21 +139,21 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
 
 -- Test 6: Score function with UNION
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology'
 UNION ALL
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
 LIMIT 10;
 
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology'
 UNION ALL
-SELECT title, author, paradedb.score(id) as relevance
+SELECT title, author, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
@@ -163,7 +163,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
+    SELECT title, author, rating, pdb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
     ORDER BY score DESC
@@ -178,7 +178,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
-    SELECT title, author, rating, paradedb.score(id) as score
+    SELECT title, author, rating, pdb.score(id) as score
           FROM score_test
           WHERE content @@@ 'technology'
     ORDER BY score DESC
@@ -198,29 +198,29 @@ SELECT
     author,
     rating,
     CASE
-        WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
-        WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
+        WHEN pdb.score(id) > 0.8 THEN 'High Relevance'
+        WHEN pdb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
 
 SELECT
     title,
     author,
     rating,
     CASE
-        WHEN paradedb.score(id) > 0.8 THEN 'High Relevance'
-        WHEN paradedb.score(id) > 0.5 THEN 'Medium Relevance'
+        WHEN pdb.score(id) > 0.8 THEN 'High Relevance'
+        WHEN pdb.score(id) > 0.5 THEN 'Medium Relevance'
         ELSE 'Low Relevance'
     END as relevance_category
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
-ORDER BY title, author, paradedb.score(id) DESC;
+ORDER BY title, author, pdb.score(id) DESC;
 
 -- Verify actual results of score function (not just execution method)
-SELECT title, author, rating, paradedb.score(id) as relevance
+SELECT title, author, rating, pdb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology' AND rating > 4
 ORDER BY title, author, relevance DESC;

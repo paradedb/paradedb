@@ -711,7 +711,7 @@ impl SearchIndexReader {
             x => {
                 if erased_features.score_index() == Some(x - 1) {
                     panic!(
-                        "Unsupported sort-field count: {}. At most {} are supported when `paradedb.score` is requested.",
+                        "Unsupported sort-field count: {}. At most {} are supported when `pdb.score` is requested.",
                         x, MAX_TOPN_FEATURES - 1
                     )
                 } else {

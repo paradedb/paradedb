@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760647866729,
+  "lastUpdate": 1760648021182,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35832,6 +35832,54 @@ window.BENCHMARK_DATA = {
             "value": 117.15699661970427,
             "unit": "median tps",
             "extra": "avg tps: 115.98337837962875, max tps: 137.71438790623094, count: 107188"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "417c2eabefae3e1592e95544fc1f3108053aa74d",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3361)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.",
+          "timestamp": "2025-10-16T12:43:50-07:00",
+          "tree_id": "de7d6a321b4fc625fd47c27886c5d9569962ca7f",
+          "url": "https://github.com/paradedb/paradedb/commit/417c2eabefae3e1592e95544fc1f3108053aa74d"
+        },
+        "date": 1760648019103,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 644.7296969909901,
+            "unit": "median tps",
+            "extra": "avg tps: 645.8721473546489, max tps: 1050.279017123689, count: 53614"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 729.3335758838766,
+            "unit": "median tps",
+            "extra": "avg tps: 729.9756470873948, max tps: 1203.6936217153357, count: 53614"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 113.49086260428626,
+            "unit": "median tps",
+            "extra": "avg tps: 113.57251471053353, max tps: 130.26259785126516, count: 53614"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 115.11353718244123,
+            "unit": "median tps",
+            "extra": "avg tps: 114.1555692092293, max tps: 130.0462224419262, count: 107228"
           }
         ]
       }

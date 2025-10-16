@@ -56,11 +56,6 @@ impl AggregationKey for GroupedKey {
     const NAME: &'static str = "grouped";
 }
 
-struct QualKey;
-impl AggregationKey for QualKey {
-    const NAME: &'static str = "filter_sentinel";
-}
-
 struct FilterKey;
 impl AggregationKey for FilterKey {
     const NAME: &'static str = "filter";

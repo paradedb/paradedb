@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760644950054,
+  "lastUpdate": 1760645273271,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28480,6 +28480,60 @@ window.BENCHMARK_DATA = {
             "value": 18.03969691228609,
             "unit": "median tps",
             "extra": "avg tps: 18.04962116682849, max tps: 19.20349509755894, count: 55501"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775a4ed2908e251be677fdfd9ac1e1dd6d43c72f",
+          "message": "chore: bring back stressgress for LR, without WAL settings (#3354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-16T15:12:51-04:00",
+          "tree_id": "9c44c5018c887bd009e47361ace1c0da92fa6ead",
+          "url": "https://github.com/paradedb/paradedb/commit/775a4ed2908e251be677fdfd9ac1e1dd6d43c72f"
+        },
+        "date": 1760645271275,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.334797017600984,
+            "unit": "median tps",
+            "extra": "avg tps: 38.42354800772623, max tps: 40.64859898167582, count: 55357"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.74337357922008,
+            "unit": "median tps",
+            "extra": "avg tps: 281.5859505659119, max tps: 2893.564197501071, count: 55357"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1055.3768257127563,
+            "unit": "median tps",
+            "extra": "avg tps: 1052.5212562199797, max tps: 1060.91604936263, count: 55357"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 114.90703796718682,
+            "unit": "median tps",
+            "extra": "avg tps: 155.35709135677098, max tps: 864.4724462374847, count: 110714"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.402602675495746,
+            "unit": "median tps",
+            "extra": "avg tps: 18.46004597814206, max tps: 21.840682247874902, count: 55357"
           }
         ]
       }

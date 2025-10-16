@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760635506136,
+  "lastUpdate": 1760635509740,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10468,6 +10468,126 @@ window.BENCHMARK_DATA = {
             "value": 147.03515625,
             "unit": "median mem",
             "extra": "avg mem: 127.69738434200022, max mem: 152.19140625, count: 55114"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f801c30accfc84f131ce60973aa469981bfa477",
+          "message": "perf: optimized COUNT(*) in GROUP BY by using doc_count directly (#3345)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nRemoves unnecessary explicit `value_count` aggregation for `COUNT(*)` in\nGROUP BY queries, improving performance.\n\n## Why\n\nWhen using `COUNT(*)` with GROUP BY, we were adding an explicit\n`value_count` aggregation to Tantivy:\n\n```json\n{\n  \"grouped\": {\n    \"aggs\": {\"0\": {\"value_count\": {\"field\": \"ctid\", \"missing\": null}}},\n    \"terms\": {\"field\": \"category\", ...}\n  }\n}\n```\n\nHowever, Tantivy's `TermsAggregation` already includes a `doc_count`\nfield in every bucket, which is exactly what `COUNT(*)` needs. This\nmeant we were adding unnecessary aggregation computation\n\n## How\n\n**Aggregation Building**\n- Detect `COUNT(*)` (CountAny) aggregates in GROUP BY queries\n- Skip adding explicit `value_count` aggregation for these cases\n\n**Result Processing**\n- When extracting `COUNT(*)` results from GROUP BY buckets, use\n`doc_count` directly\n- Other aggregates (SUM, AVG, MIN, MAX) continue to use explicit metrics\nas before\n\nThe optimization only applies to:\n- `COUNT(*)` with GROUP BY\n\n## Tests\n\nAll existing tests pass with updated expectations showing simpler\nEXPLAIN output:\n\n**Before**:\n```\nAggregate Definition: {\"filter_0\":{\"aggs\":{\"grouped\":{\"aggs\":{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}, \"terms\":...}}}}\n```\n\n**After**:\n```\nAggregate Definition: {\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":...}}}}\n```\n\n## Performance Impact\n\nThis PR provides modest improvements by reducing JSON payload size and\nskipping unnecessary aggregation computation. However, benchmarks show\nwe're still slower than the direct aggregate API:\n\n```\nCustom scan (with this fix):  ~565ms\nDirect aggregate API (MVCC):  ~426ms  \nDirect aggregate API (no MVCC): ~92ms\n```\n\n**Known limitation**: All queries still use `FilterAggregation` wrapper,\neven when no FILTER clauses are present. This adds overhead, even though\nit makes the code more concise and reduces complexity.",
+          "timestamp": "2025-10-16T10:08:29-07:00",
+          "tree_id": "a0b15aa7d94f94966bea17736e16d4eb124402d5",
+          "url": "https://github.com/paradedb/paradedb/commit/8f801c30accfc84f131ce60973aa469981bfa477"
+        },
+        "date": 1760635507742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.910528098245366, max cpu: 19.6319, count: 55229"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.17838206886327, max mem: 156.8984375, count: 55229"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.592421935571856, max cpu: 9.302325, count: 55229"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.473311688605623, max mem: 29.9609375, count: 55229"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.893252376724103, max cpu: 13.93998, count: 55229"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.63456465070433, max mem: 155.84765625, count: 55229"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.540857552841338, max cpu: 9.284333, count: 55229"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.35631883272376, max mem: 157.140625, count: 55229"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.727862920754713, max cpu: 9.514371, count: 110458"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.839228767948, max mem: 157.31640625, count: 110458"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26843,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27432.575042097447, max block_count: 54389.0, count: 55229"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.59600934291767, max segment_count: 58.0, count: 55229"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623809841788002, max cpu: 9.329447, count: 55229"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.4253263966847, max mem: 159.90625, count: 55229"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.456049849429802, max cpu: 4.7151275, count: 55229"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 147.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 128.97996254798204, max mem: 153.23828125, count: 55229"
           }
         ]
       }

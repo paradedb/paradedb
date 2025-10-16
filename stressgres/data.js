@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760653756703,
+  "lastUpdate": 1760654522866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14896,6 +14896,42 @@ window.BENCHMARK_DATA = {
             "value": 5.35835389354402,
             "unit": "median tps",
             "extra": "avg tps: 4.854069605589414, max tps: 5.9610395365027165, count: 57875"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3bd54df64a1304ba5d001318e13cb97b5c6d0a8",
+          "message": "chore: Upgrade to `0.19.1` (#3366)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-16T18:11:16-04:00",
+          "tree_id": "357e7da8384a9f61490588d598a421657bf75e57",
+          "url": "https://github.com/paradedb/paradedb/commit/e3bd54df64a1304ba5d001318e13cb97b5c6d0a8"
+        },
+        "date": 1760654520735,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.387754388371379,
+            "unit": "median tps",
+            "extra": "avg tps: 7.179038645779599, max tps: 11.256091409320783, count: 57807"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.310903517580975,
+            "unit": "median tps",
+            "extra": "avg tps: 4.797192567213365, max tps: 5.872851411808036, count: 57807"
           }
         ]
       }

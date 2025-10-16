@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760636286173,
+  "lastUpdate": 1760637080729,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18106,6 +18106,54 @@ window.BENCHMARK_DATA = {
             "value": 6.201231865238059,
             "unit": "median tps",
             "extra": "avg tps: 6.158111100071706, max tps: 7.199201124808942, count: 55909"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f801c30accfc84f131ce60973aa469981bfa477",
+          "message": "perf: optimized COUNT(*) in GROUP BY by using doc_count directly (#3345)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nRemoves unnecessary explicit `value_count` aggregation for `COUNT(*)` in\nGROUP BY queries, improving performance.\n\n## Why\n\nWhen using `COUNT(*)` with GROUP BY, we were adding an explicit\n`value_count` aggregation to Tantivy:\n\n```json\n{\n  \"grouped\": {\n    \"aggs\": {\"0\": {\"value_count\": {\"field\": \"ctid\", \"missing\": null}}},\n    \"terms\": {\"field\": \"category\", ...}\n  }\n}\n```\n\nHowever, Tantivy's `TermsAggregation` already includes a `doc_count`\nfield in every bucket, which is exactly what `COUNT(*)` needs. This\nmeant we were adding unnecessary aggregation computation\n\n## How\n\n**Aggregation Building**\n- Detect `COUNT(*)` (CountAny) aggregates in GROUP BY queries\n- Skip adding explicit `value_count` aggregation for these cases\n\n**Result Processing**\n- When extracting `COUNT(*)` results from GROUP BY buckets, use\n`doc_count` directly\n- Other aggregates (SUM, AVG, MIN, MAX) continue to use explicit metrics\nas before\n\nThe optimization only applies to:\n- `COUNT(*)` with GROUP BY\n\n## Tests\n\nAll existing tests pass with updated expectations showing simpler\nEXPLAIN output:\n\n**Before**:\n```\nAggregate Definition: {\"filter_0\":{\"aggs\":{\"grouped\":{\"aggs\":{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}, \"terms\":...}}}}\n```\n\n**After**:\n```\nAggregate Definition: {\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":...}}}}\n```\n\n## Performance Impact\n\nThis PR provides modest improvements by reducing JSON payload size and\nskipping unnecessary aggregation computation. However, benchmarks show\nwe're still slower than the direct aggregate API:\n\n```\nCustom scan (with this fix):  ~565ms\nDirect aggregate API (MVCC):  ~426ms  \nDirect aggregate API (no MVCC): ~92ms\n```\n\n**Known limitation**: All queries still use `FilterAggregation` wrapper,\neven when no FILTER clauses are present. This adds overhead, even though\nit makes the code more concise and reduces complexity.",
+          "timestamp": "2025-10-16T10:08:29-07:00",
+          "tree_id": "a0b15aa7d94f94966bea17736e16d4eb124402d5",
+          "url": "https://github.com/paradedb/paradedb/commit/8f801c30accfc84f131ce60973aa469981bfa477"
+        },
+        "date": 1760637078752,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1168.1378277053764,
+            "unit": "median tps",
+            "extra": "avg tps: 1169.4101239245485, max tps: 1212.3916529756718, count: 56090"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1257.8232482592757,
+            "unit": "median tps",
+            "extra": "avg tps: 1212.3944883567576, max tps: 1286.2883170440712, count: 56090"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1828.3127854591655,
+            "unit": "median tps",
+            "extra": "avg tps: 1777.498623214701, max tps: 2024.1648176921115, count: 56090"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.881724657784376,
+            "unit": "median tps",
+            "extra": "avg tps: 5.882349720354831, max tps: 7.564694954394609, count: 56090"
           }
         ]
       }

@@ -747,15 +747,25 @@ pub fn build_aggregation_query(
         let filter_agg = filter_aggregations
             .get(idx)
             .ok_or_else(|| format!("Missing filter aggregation for aggregate {}", idx))?;
-        let base = AggregateType::to_tantivy_agg(agg)?;
 
-        let sub_aggs = if nested_terms.is_some() {
-            // GROUP BY: filter -> grouped -> buckets -> metric
-            let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(qparams, metric_leaf)?
+        // Performance optimization: For COUNT(*) with GROUP BY, skip explicit aggregation
+        // since doc_count is already present in each bucket
+        let is_grouped = nested_terms.is_some();
+        let is_count_any = matches!(agg, AggregateType::CountAny { .. });
+
+        let sub_aggs = if is_grouped && is_count_any {
+            // GROUP BY with COUNT(*): No metric needed, use doc_count from buckets
+            build_nested_terms(qparams, HashMap::new())?
         } else {
-            // No GROUP BY: filter -> filtered_agg (metric)
-            HashMap::from([("filtered_agg".to_string(), base)])
+            let base = AggregateType::to_tantivy_agg(agg)?;
+            if is_grouped {
+                // GROUP BY with other aggregates: filter -> grouped -> buckets -> metric
+                let metric_leaf = HashMap::from([(idx.to_string(), base)]);
+                build_nested_terms(qparams, metric_leaf)?
+            } else {
+                // No GROUP BY: filter -> filtered_agg (metric)
+                HashMap::from([("filtered_agg".to_string(), base)])
+            }
         };
 
         result.insert(

@@ -186,15 +186,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM empty_test 
 WHERE id @@@ paradedb.all() 
 GROUP BY category;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: category
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 SELECT category, COUNT(*) FROM empty_test 
@@ -211,15 +211,15 @@ FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category 
 ORDER BY category;
-                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now(), now(), now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
      Group By: category
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_1":{"aggs":{"grouped":{"aggs":{"1":{"sum":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_2":{"aggs":{"grouped":{"aggs":{"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_1":{"aggs":{"grouped":{"aggs":{"1":{"sum":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_2":{"aggs":{"grouped":{"aggs":{"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value) 
@@ -246,15 +246,15 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category, value 
 ORDER BY category, value;
-                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, value, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: category, value
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 SELECT category, value, COUNT(*) FROM empty_test 

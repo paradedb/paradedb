@@ -37,15 +37,15 @@ FROM json_test_single
 WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY category;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
    Output: (metadata ->> 'category'::text), now()
    Index: idx_json_single
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata.category
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -92,15 +92,15 @@ WHERE id @@@ paradedb.exists('metadata.category')
   AND id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
-                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multiple
    Output: (metadata ->> 'category'::text), (metadata ->> 'brand'::text), now()
    Index: idx_json_multiple
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata.category, metadata.brand
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -149,15 +149,15 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.brand')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                        QUERY PLAN                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
    Output: (metadata ->> 'brand'::text), now()
    Index: idx_json_aggregates
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata.brand
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -368,15 +368,15 @@ FROM json_test_nulls
 WHERE id @@@ paradedb.all()
 GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_nulls
    Output: (metadata ->> 'category'::text), now()
    Index: idx_json_nulls
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata.category
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
@@ -421,15 +421,15 @@ FROM ledger_transactions
 WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
 GROUP BY metadata_json->>'reservation_id'
 ORDER BY txn_key_value;
-                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ledger_transactions
    Output: (metadata_json ->> 'reservation_id'::text), now()
    Index: idx_ledger_json
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.reservation_id"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: metadata_json.reservation_id
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the original example query
@@ -479,15 +479,15 @@ WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
 GROUP BY config->'user'->'profile'->'settings'->>'theme',
          config->'user'->'profile'->'settings'->>'region'
 ORDER BY theme, region;
-                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_deep
    Output: ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text), ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text), now()
    Index: idx_json_deep
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.theme"}}}},{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.region"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: config.user.profile.settings.theme, config.user.profile.settings.region
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -547,15 +547,15 @@ FROM json_test_mixed
 WHERE id @@@ paradedb.exists('data.type')
 GROUP BY data->>'type'
 ORDER BY object_type;
-                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
    Output: (data ->> 'type'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.type"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: data.type
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"data.type","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"data.type","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"data.type","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"data.type","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -580,15 +580,15 @@ WHERE id @@@ paradedb.term('data.type', 'product')
   AND id @@@ paradedb.exists('data.brand')
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
-                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
    Output: (data ->> 'category'::text), (data ->> 'brand'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: data.category, data.brand
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"data.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"data.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"data.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"data.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"data.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"data.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"data.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"data.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -615,15 +615,15 @@ WHERE id @@@ paradedb.term('data.type', 'user')
   AND id @@@ paradedb.exists('data.profile.location.country')
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
-                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
    Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: data.profile.location.country
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -670,15 +670,15 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
 GROUP BY payload->'metadata'->>'priority'
 ORDER BY priority_text;
-                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
    Output: ((payload -> 'metadata'::text) ->> 'priority'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: payload.metadata.priority
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -703,15 +703,15 @@ FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.team')
 GROUP BY payload->>'team'
 ORDER BY team;
-                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
    Output: (payload ->> 'team'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.team"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: payload.team
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"payload.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"payload.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"payload.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"payload.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -736,15 +736,15 @@ WHERE id @@@ paradedb.exists('payload.metadata.priority')
   AND id @@@ paradedb.exists('payload.metadata.assignee.team')
 GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
 ORDER BY priority_text, team;
-                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
    Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}},{"with_index":{"query":{"exists":{"field":"payload.metadata.assignee.team"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: payload.metadata.priority, payload.metadata.assignee.team
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -910,15 +910,15 @@ FROM json_test_reconstruction
 WHERE id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'api'->>'version'  -- Group by version string
 ORDER BY api_version;
-                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
    Output: ((config -> 'api'::text) ->> 'version'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"config.api.version"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: config.api.version
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -946,15 +946,15 @@ WHERE id @@@ paradedb.exists('config.database.host')
   AND id @@@ paradedb.exists('config.api.version')
 GROUP BY config->'database'->>'host', config->'api'->>'version'
 ORDER BY db_host, api_version;
-                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
    Output: ((config -> 'database'::text) ->> 'host'::text), ((config -> 'api'::text) ->> 'version'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.database.host"}}}},{"with_index":{"query":{"exists":{"field":"config.api.version"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: config.database.host, config.api.version
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.database.host","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.database.host","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.database.host","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.database.host","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -985,15 +985,15 @@ WHERE id @@@ paradedb.exists('config.api.endpoints.users')
   AND id @@@ paradedb.exists('config.database.port')
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
-                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
    Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.api.endpoints.users"}}}},{"with_index":{"query":{"exists":{"field":"config.database.port"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: config.api.endpoints.users, config.database.port
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"config.database.port","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query  
@@ -1053,15 +1053,15 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.role')
 GROUP BY user_profile->>'department', user_profile->>'role'
 ORDER BY department, role;
-                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
    Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), now()
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: user_profile.department, user_profile.role
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -1097,15 +1097,15 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('user_profile.location')
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
-                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
    Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), (user_profile ->> 'location'::text), now()
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.location"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: user_profile.department, user_profile.role, user_profile.location
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"user_profile.location","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.location","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.location","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"terms":{"field":"user_profile.location","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.role","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query
@@ -1269,15 +1269,15 @@ FROM json_test_special
 WHERE id @@@ paradedb.exists('content.user-info.email@domain')
 GROUP BY content->'user-info'->>'email@domain'
 ORDER BY email_type;
-                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_special
    Output: ((content -> 'user-info'::text) ->> 'email@domain'::text), now()
    Index: idx_json_special
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"content.user-info.email@domain"}}}}
      Applies to Aggregates: COUNT(*)
      Group By: content.user-info.email@domain
-     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
+     Aggregate Definition: {"filter_0":{"aggs":{"grouped":{"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"},"filter_sentinel":{"aggs":{"grouped":{"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":"*"}}
 (7 rows)
 
 -- Execute the query

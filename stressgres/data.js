@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760642963421,
+  "lastUpdate": 1760643738367,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13564,6 +13564,42 @@ window.BENCHMARK_DATA = {
             "value": 5.294530788623286,
             "unit": "median tps",
             "extra": "avg tps: 4.775495773485837, max tps: 5.855039915944612, count: 57842"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775a4ed2908e251be677fdfd9ac1e1dd6d43c72f",
+          "message": "chore: bring back stressgress for LR, without WAL settings (#3354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-16T15:12:51-04:00",
+          "tree_id": "9c44c5018c887bd009e47361ace1c0da92fa6ead",
+          "url": "https://github.com/paradedb/paradedb/commit/775a4ed2908e251be677fdfd9ac1e1dd6d43c72f"
+        },
+        "date": 1760643736228,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.303710222345822,
+            "unit": "median tps",
+            "extra": "avg tps: 7.088405104891066, max tps: 11.042419912684108, count: 57530"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.347856926650293,
+            "unit": "median tps",
+            "extra": "avg tps: 4.830521631219247, max tps: 5.93570079941876, count: 57530"
           }
         ]
       }

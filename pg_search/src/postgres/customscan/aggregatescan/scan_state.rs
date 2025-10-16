@@ -128,7 +128,40 @@ impl AggregateScanState {
             }
         };
 
-        // Collect filter results for lookup
+        // Check if this is direct format (numeric keys) or filter format (filter_* keys)
+        if !self.has_filters() {
+            // Fast path: Direct aggregation format (no FilterAggregation wrapper)
+            // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": 0}}
+
+            // Extract _doc_count for NULL handling
+            // _doc_count is a value_count aggregation with format {"value": N}
+            let doc_count = result_obj
+                .get("_doc_count")
+                .and_then(|v| v.get("value"))
+                .and_then(|v| v.as_f64())
+                .map(|f| f as i64);
+
+            let aggregate_values = self
+                .aggregate_types
+                .iter()
+                .enumerate()
+                .map(|(idx, aggregate)| {
+                    if let Some(value) = result_obj.get(&idx.to_string()) {
+                        let agg_result = Self::extract_aggregate_value_from_json(value);
+                        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
+                    } else {
+                        aggregate.empty_value()
+                    }
+                })
+                .collect();
+
+            return vec![GroupedAggregateRow {
+                group_keys: vec![],
+                aggregate_values,
+            }];
+        }
+
+        // Slow path: FilterAggregation format (with filter_* keys)
         let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
             .iter()
             .filter_map(|(key, value)| {
@@ -193,7 +226,7 @@ impl AggregateScanState {
     }
 
     /// Process grouped aggregation results (with GROUP BY)
-    /// All GROUP BY queries use: filter_sentinel/filter_X -> grouped -> buckets
+    /// Handles both direct format (no filters) and filter format (with filters)
     fn process_grouped_aggregation_results(
         &self,
         result: serde_json::Value,
@@ -207,31 +240,39 @@ impl AggregateScanState {
             .as_object()
             .expect("GROUP BY results should be an object");
 
-        // Extract sentinel's grouped structure (has all groups)
-        let sentinel_grouped = result_obj
-            .get("filter_sentinel")
-            .and_then(|f| f.get("grouped"))
-            .expect("filter_sentinel should have grouped structure");
-
-        // Collect filter aggregation results for value lookup
-        let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
-            .iter()
-            .filter_map(|(key, value)| {
-                key.strip_prefix("filter_")
-                    .and_then(|idx_str| idx_str.parse::<usize>().ok())
-                    .and_then(|idx| value.get("grouped").map(|grouped| (idx, grouped)))
-            })
-            .collect();
-
-        // Walk sentinel structure and extract rows
         let mut rows = Vec::new();
-        self.walk_grouped_buckets(
-            sentinel_grouped,
-            &filter_results,
-            0,
-            &mut Vec::new(),
-            &mut rows,
-        );
+        // Check if this is direct format (no filters) or filter format (with filters)
+        if !self.has_filters() {
+            // Fast path: Direct aggregation format (no FilterAggregation wrapper)
+            // Format: {"grouped": {"buckets": [...], "aggs": {"0": {...}, "1": {...}}}}
+            let grouped = result_obj.get("grouped").unwrap();
+            self.walk_grouped_buckets(grouped, None, 0, &mut Vec::new(), &mut rows);
+        } else {
+            // Slow path: FilterAggregation format (with filter_sentinel and filter_* keys)
+            let sentinel_grouped = result_obj
+                .get("filter_sentinel")
+                .and_then(|f| f.get("grouped"))
+                .expect("filter_sentinel should have grouped structure");
+
+            // Collect filter aggregation results for value lookup
+            let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
+                .iter()
+                .filter_map(|(key, value)| {
+                    key.strip_prefix("filter_")
+                        .and_then(|idx_str| idx_str.parse::<usize>().ok())
+                        .and_then(|idx| value.get("grouped").map(|grouped| (idx, grouped)))
+                })
+                .collect();
+
+            // Walk sentinel structure and extract rows
+            self.walk_grouped_buckets(
+                sentinel_grouped,
+                Some(&filter_results),
+                0,
+                &mut Vec::new(),
+                &mut rows,
+            );
+        }
 
         // Check for truncation
         if self.maybe_truncated && self.was_truncated(&result) {
@@ -248,11 +289,14 @@ impl AggregateScanState {
         rows
     }
 
-    /// Walk grouped buckets recursively, collecting group keys and looking up aggregate values
+    /// Walk grouped buckets recursively, collecting group keys and aggregate values
+    ///
+    /// - If `filter_results` is None: Direct format - extract aggregates from buckets
+    /// - If `filter_results` is Some: Filter format - look up aggregates in filter_results
     fn walk_grouped_buckets(
         &self,
         grouped: &serde_json::Value,
-        filter_results: &[(usize, &serde_json::Value)],
+        filter_results: Option<&[(usize, &serde_json::Value)]>,
         depth: usize,
         group_keys: &mut Vec<OwnedValue>,
         output_rows: &mut Vec<GroupedAggregateRow>,
@@ -278,8 +322,38 @@ impl AggregateScanState {
 
             if depth + 1 == self.grouping_columns.len() {
                 // Leaf level - extract aggregate values
-                let aggregate_values =
-                    self.extract_aggregates_for_group(filter_results, group_keys);
+                let aggregate_values = match filter_results {
+                    None => {
+                        // Direct format: extract from bucket
+                        let doc_count = bucket_obj.get("doc_count").and_then(|d| d.as_i64());
+
+                        self.aggregate_types
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, aggregate)| {
+                                // For COUNT(*), use doc_count directly
+                                if matches!(aggregate, AggregateType::CountAny { .. }) {
+                                    return doc_count
+                                        .map(AggregateValue::Int)
+                                        .unwrap_or_else(|| aggregate.empty_value());
+                                }
+
+                                // For other aggregates, look up by index
+                                if let Some(value) = bucket_obj.get(&idx.to_string()) {
+                                    let agg_result = Self::extract_aggregate_value_from_json(value);
+                                    aggregate
+                                        .result_from_aggregate_with_doc_count(agg_result, doc_count)
+                                } else {
+                                    aggregate.empty_value()
+                                }
+                            })
+                            .collect()
+                    }
+                    Some(filter_results) => {
+                        // Filter format: look up in filter_results
+                        self.extract_aggregates_for_group(filter_results, group_keys)
+                    }
+                };
 
                 output_rows.push(GroupedAggregateRow {
                     group_keys: group_keys.clone(),
@@ -452,6 +526,12 @@ impl AggregateScanState {
             })
             .unwrap_or(0)
             > 0
+    }
+
+    fn has_filters(&self) -> bool {
+        self.aggregate_types
+            .iter()
+            .any(|agg| agg.filter_expr().is_some())
     }
 }
 

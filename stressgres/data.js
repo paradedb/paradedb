@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760648061623,
+  "lastUpdate": 1760648482038,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29734,6 +29734,60 @@ window.BENCHMARK_DATA = {
             "value": 18.818214544508976,
             "unit": "median tps",
             "extra": "avg tps: 18.92934184828697, max tps: 21.58719716009196, count: 55445"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80d3596df3fb5fce654aacef3ff607ad51e58628",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3363)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-16T13:04:19-07:00",
+          "tree_id": "2209292af42a4de22dba73949dd4146691cde90c",
+          "url": "https://github.com/paradedb/paradedb/commit/80d3596df3fb5fce654aacef3ff607ad51e58628"
+        },
+        "date": 1760648480063,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.058135417993086,
+            "unit": "median tps",
+            "extra": "avg tps: 38.10609797365654, max tps: 38.39819770710769, count: 55477"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.30354548848447,
+            "unit": "median tps",
+            "extra": "avg tps: 275.8293879255962, max tps: 2708.6869450021736, count: 55477"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 997.876479697176,
+            "unit": "median tps",
+            "extra": "avg tps: 992.4263076171056, max tps: 1047.630026322585, count: 55477"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.80792056683215,
+            "unit": "median tps",
+            "extra": "avg tps: 158.6082753956258, max tps: 823.9145365772813, count: 110954"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.685653278849607,
+            "unit": "median tps",
+            "extra": "avg tps: 18.87943872685796, max tps: 19.83399921754453, count: 55477"
           }
         ]
       }

@@ -29,6 +29,11 @@ use serde::{Deserialize, Serialize};
 /// shared between:
 /// - **pdbscan**: Window functions (`COUNT(*) OVER ()`)
 /// - **aggregatescan**: GROUP BY queries (`SELECT ... GROUP BY ... HAVING ...`)
+///
+/// Note: ORDER BY is NOT part of this spec because:
+/// - For window functions: We don't support ORDER BY in the OVER clause
+/// - For GROUP BY queries: ORDER BY is a result ordering concern, not an aggregation concern
+///   (it's handled separately in aggregatescan's PrivateData)
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AggregationSpec {
     /// Aggregate types (COUNT, SUM, AVG, MIN, MAX with optional FILTER support)
@@ -39,9 +44,6 @@ pub struct AggregationSpec {
     /// Note: At planner hook time, attno will be 0 (invalid). It's filled in during
     /// custom scan planning when we have access to the relation descriptor.
     pub grouping_columns: Vec<GroupingColumn>,
-    /// ORDER BY specification (empty if no ordering)
-    /// Reuses existing OrderByInfo structure from api module
-    pub orderby_info: Vec<OrderByInfo>,
 }
 
 impl AggregationSpec {
@@ -63,11 +65,13 @@ impl AggregationSpec {
     ///
     /// # Arguments
     /// * `base_query` - The search query from the WHERE clause
+    /// * `orderby_info` - ORDER BY specification (for GROUP BY queries, empty for window functions)
     /// * `limit` - Optional LIMIT (for GROUP BY queries, None for window functions)
     /// * `offset` - Optional OFFSET (for GROUP BY queries, None for window functions)
     pub fn to_agg_params<'a>(
         &'a self,
         base_query: &'a SearchQueryInput,
+        orderby_info: &'a [OrderByInfo],
         limit: &'a Option<u32>,
         offset: &'a Option<u32>,
     ) -> AggQueryParams<'a> {
@@ -75,7 +79,7 @@ impl AggregationSpec {
             base_query,
             aggregate_types: &self.agg_types,
             grouping_columns: &self.grouping_columns,
-            orderby_info: &self.orderby_info,
+            orderby_info,
             limit,
             offset,
         }

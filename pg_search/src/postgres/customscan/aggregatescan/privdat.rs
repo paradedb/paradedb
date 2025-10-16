@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::AsCStr;
+use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
@@ -552,6 +552,8 @@ pub enum TargetListEntry {
 pub struct PrivateData {
     /// Unified aggregation specification (shared with pdbscan window functions)
     pub agg_spec: AggregationSpec,
+    /// ORDER BY specification (for GROUP BY queries only)
+    pub orderby_info: Vec<OrderByInfo>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,

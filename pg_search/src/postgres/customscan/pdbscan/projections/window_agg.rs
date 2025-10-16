@@ -16,14 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::window_function::window_func_oid;
-use crate::api::{FieldName, OrderByFeature, OrderByInfo};
+use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::extract_filter_clause;
 use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-use crate::postgres::utils::{determine_sort_direction, resolve_tle_ref};
 use crate::postgres::var::fieldname_from_var;
 use crate::postgres::var::get_var_relation_oid;
 use crate::postgres::PgSearchRelation;
@@ -53,9 +52,6 @@ pub mod window_functions {
 
     /// Enable support for window functions in queries with JOINs.
     pub const JOIN_SUPPORT: bool = false;
-
-    /// Enable support for `ORDER BY` clause in window functions.
-    pub const WINDOW_AGG_ORDER_BY: bool = false;
 
     /// Enable support for `FILTER` clause in window functions.
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
@@ -118,13 +114,7 @@ impl WindowAggregateInfo {
             }
         }
 
-        // Check ordering support
-        let has_order_by = !agg_spec.orderby_info.is_empty();
-        if has_order_by && !window_functions::WINDOW_AGG_ORDER_BY {
-            return false;
-        }
-
-        // Note: PARTITION BY is not supported for window functions in our use case,
+        // Note: PARTITION BY and ORDER BY in OVER clauses are not supported in our use case,
         // because we compute facets over the entire result set, not partitioned subsets.
         // If grouping_columns is non-empty, we reject the query.
         if !agg_spec.grouping_columns.is_empty() {
@@ -335,7 +325,6 @@ unsafe fn extract_aggregation_spec(
         return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
-            orderby_info: Vec::new(),
         });
     }
 
@@ -344,7 +333,6 @@ unsafe fn extract_aggregation_spec(
         return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
-            orderby_info: Vec::new(),
         });
     }
 
@@ -357,7 +345,6 @@ unsafe fn extract_aggregation_spec(
         return Some(AggregationSpec {
             agg_types: vec![agg_type],
             grouping_columns: Vec::new(),
-            orderby_info: Vec::new(),
         });
     }
 
@@ -369,16 +356,16 @@ unsafe fn extract_aggregation_spec(
         (*window_clause).startOffset,
         (*window_clause).endOffset,
     );
-    let orderby_info = extract_order_by(parse, (*window_clause).orderClause);
+    let has_order_by = has_order_by(parse, (*window_clause).orderClause);
 
-    if has_partition_by || has_frame_clause {
+    // Reject if PARTITION BY, frame clause, or ORDER BY is present
+    if has_partition_by || has_frame_clause || has_order_by {
         return None;
     }
 
     Some(AggregationSpec {
         agg_types: vec![agg_type],
         grouping_columns: Vec::new(), // PARTITION BY is not supported for window functions
-        orderby_info,
     })
 }
 
@@ -403,44 +390,14 @@ unsafe fn has_partition_by(parse: *mut pg_sys::Query, partition_clause: *mut pg_
     !partition_list.is_empty()
 }
 
-/// Extract ORDER BY specification from orderClause
-/// Returns empty Vec if no ORDER BY
-unsafe fn extract_order_by(
-    parse: *mut pg_sys::Query,
-    order_clause: *mut pg_sys::List,
-) -> Vec<OrderByInfo> {
+/// Check if there's an ORDER BY clause
+unsafe fn has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::List) -> bool {
     if order_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
-        return Vec::new();
+        return false;
     }
 
     let order_list = PgList::<pg_sys::Node>::from_pg(order_clause);
-    if order_list.is_empty() {
-        return Vec::new();
-    }
-
-    let mut order_by_infos = Vec::new();
-
-    for (idx, node) in order_list.iter_ptr().enumerate() {
-        // Each node should be a SortGroupClause
-        if let Some(sort_clause) = nodecast!(SortGroupClause, T_SortGroupClause, node) {
-            let tle_ref = (*sort_clause).tleSortGroupRef;
-            let sort_op = (*sort_clause).sortop;
-
-            // Resolve column name directly using target_list
-            let column_name = resolve_tle_ref(tle_ref, (*parse).targetList)
-                .unwrap_or(format!("unresolved_tle_{}", tle_ref));
-            // Determine sort direction from sort operator
-            let direction = determine_sort_direction(sort_op);
-
-            let field_name = FieldName::from(column_name.as_str());
-            order_by_infos.push(OrderByInfo {
-                feature: OrderByFeature::Field(field_name),
-                direction,
-            });
-        }
-    }
-
-    order_by_infos
+    !order_list.is_empty()
 }
 
 /// Extract window_func(json) calls from the processed target list at planning time

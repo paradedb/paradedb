@@ -311,8 +311,8 @@ impl CustomScan for AggregateScan {
             agg_spec: AggregationSpec {
                 agg_types: aggregate_types,
                 grouping_columns,
-                orderby_info,
             },
+            orderby_info,
             indexrelid: bm25_index.oid(),
             heap_rti,
             query,
@@ -333,7 +333,7 @@ impl CustomScan for AggregateScan {
             .agg_spec
             .grouping_columns
             .is_empty()
-            && builder.custom_private().agg_spec.orderby_info.is_empty()
+            && builder.custom_private().orderby_info.is_empty()
             && !builder.custom_private().has_order_by
         {
             unsafe {
@@ -358,7 +358,7 @@ impl CustomScan for AggregateScan {
             .agg_spec
             .grouping_columns
             .is_empty()
-            || !builder.custom_private().agg_spec.orderby_info.is_empty()
+            || !builder.custom_private().orderby_info.is_empty()
             || builder.custom_private().has_order_by
         {
             unsafe {
@@ -369,6 +369,7 @@ impl CustomScan for AggregateScan {
         }
 
         builder.custom_state().agg_spec = builder.custom_private().agg_spec.clone();
+        builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
@@ -597,7 +598,7 @@ fn explain_execution_strategy(
             base_query: &state.custom_state().query,
             aggregate_types: &state.custom_state().agg_spec.agg_types,
             grouping_columns: &state.custom_state().agg_spec.grouping_columns,
-            orderby_info: &state.custom_state().agg_spec.orderby_info,
+            orderby_info: &state.custom_state().orderby_info,
             limit: &state.custom_state().limit,
             offset: &state.custom_state().offset,
         };
@@ -999,7 +1000,7 @@ fn execute(
         base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
         aggregate_types: &state.custom_state().agg_spec.agg_types,
         grouping_columns: &state.custom_state().agg_spec.grouping_columns,
-        orderby_info: &state.custom_state().agg_spec.orderby_info,
+        orderby_info: &state.custom_state().orderby_info,
         limit: &state.custom_state().limit,
         offset: &state.custom_state().offset,
     };

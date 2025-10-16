@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::OrderByInfo;
 use crate::gucs;
 use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::privdat::{
@@ -54,6 +55,8 @@ pub struct AggregateScanState {
     pub state: ExecutionState,
     /// aggregation specification
     pub agg_spec: AggregationSpec,
+    /// ORDER BY specification (for GROUP BY queries only)
+    pub orderby_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.

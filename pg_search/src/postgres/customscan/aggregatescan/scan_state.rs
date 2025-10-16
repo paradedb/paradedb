@@ -122,7 +122,8 @@ impl AggregateScanState {
                 .map(|f| f as i64);
 
             let aggregate_values = self
-                .aggregate_types
+                .aggregate_clause
+                .aggregates()
                 .iter()
                 .enumerate()
                 .map(|(idx, aggregate)| {
@@ -298,7 +299,8 @@ impl AggregateScanState {
                         // Direct format: extract from bucket
                         let doc_count = bucket_obj.get("doc_count").and_then(|d| d.as_i64());
 
-                        self.aggregate_types
+                        self.aggregate_clause
+                            .aggregates()
                             .iter()
                             .enumerate()
                             .map(|(idx, aggregate)| {
@@ -501,7 +503,8 @@ impl AggregateScanState {
     }
 
     fn has_filters(&self) -> bool {
-        self.aggregate_types
+        self.aggregate_clause
+            .aggregates()
             .iter()
             .any(|agg| agg.filter_expr().is_some())
     }

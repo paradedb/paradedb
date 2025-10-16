@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760643738367,
+  "lastUpdate": 1760643741598,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17014,6 +17014,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.27779122436984, max segment_count: 105.0, count: 57842"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "573824+ankitml@users.noreply.github.com",
+            "name": "Ankit",
+            "username": "ankitml"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775a4ed2908e251be677fdfd9ac1e1dd6d43c72f",
+          "message": "chore: bring back stressgress for LR, without WAL settings (#3354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-16T15:12:51-04:00",
+          "tree_id": "9c44c5018c887bd009e47361ace1c0da92fa6ead",
+          "url": "https://github.com/paradedb/paradedb/commit/775a4ed2908e251be677fdfd9ac1e1dd6d43c72f"
+        },
+        "date": 1760643739507,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.82353,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.414579814713573, max cpu: 42.772278, count: 57530"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.9446596476838, max mem: 228.9140625, count: 57530"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.461097086075092, max cpu: 33.432835, count: 57530"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.50553780364592, max mem: 164.4921875, count: 57530"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24327,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23322.42144967843, max block_count: 26088.0, count: 57530"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.46386233269598, max segment_count: 105.0, count: 57530"
           }
         ]
       }

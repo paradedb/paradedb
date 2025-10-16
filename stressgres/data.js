@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760647275497,
+  "lastUpdate": 1760647723661,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20602,6 +20602,54 @@ window.BENCHMARK_DATA = {
             "value": 5.818763120407526,
             "unit": "median tps",
             "extra": "avg tps: 5.814801394649238, max tps: 7.231249090896404, count: 56177"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80d3596df3fb5fce654aacef3ff607ad51e58628",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3363)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-16T13:04:19-07:00",
+          "tree_id": "2209292af42a4de22dba73949dd4146691cde90c",
+          "url": "https://github.com/paradedb/paradedb/commit/80d3596df3fb5fce654aacef3ff607ad51e58628"
+        },
+        "date": 1760647721579,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1163.9985697735146,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.1397786762777, max tps: 1215.4917470281985, count: 56114"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1286.966689995654,
+            "unit": "median tps",
+            "extra": "avg tps: 1254.5935897306063, max tps: 1304.3777320538172, count: 56114"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1815.7168223439373,
+            "unit": "median tps",
+            "extra": "avg tps: 1745.7660492228308, max tps: 2022.7560107239347, count: 56114"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.866777338094572,
+            "unit": "median tps",
+            "extra": "avg tps: 5.877453897649093, max tps: 7.759580599945088, count: 56114"
           }
         ]
       }

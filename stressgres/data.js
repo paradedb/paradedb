@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760646931820,
+  "lastUpdate": 1760646935039,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17578,6 +17578,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.55224141243036, max segment_count: 107.0, count: 57263"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80d3596df3fb5fce654aacef3ff607ad51e58628",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3363)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-16T13:04:19-07:00",
+          "tree_id": "2209292af42a4de22dba73949dd4146691cde90c",
+          "url": "https://github.com/paradedb/paradedb/commit/80d3596df3fb5fce654aacef3ff607ad51e58628"
+        },
+        "date": 1760646932945,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.9961881114724, max cpu: 42.814667, count: 57278"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 226.92691572516935, max mem: 229.02734375, count: 57278"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.45232201197555, max cpu: 33.300297, count: 57278"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 168.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.1476667252261, max mem: 170.34375, count: 57278"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24240,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23150.919201089422, max block_count: 25859.0, count: 57278"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.96206222284297, max segment_count: 107.0, count: 57278"
           }
         ]
       }

@@ -129,12 +129,7 @@ impl AggregateScanState {
         };
 
         // Check if this is direct format (numeric keys) or filter format (filter_* keys)
-        let has_filters = self
-            .aggregate_types
-            .iter()
-            .any(|agg| agg.filter_expr().is_some());
-
-        if !has_filters {
+        if !self.has_filters() {
             // Fast path: Direct aggregation format (no FilterAggregation wrapper)
             // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": 0}}
 
@@ -245,10 +240,9 @@ impl AggregateScanState {
             .as_object()
             .expect("GROUP BY results should be an object");
 
-        // Check if this is direct format (has "grouped" key) or filter format (has "filter_sentinel")
         let mut rows = Vec::new();
-
-        if result_obj.contains_key("grouped") {
+        // Check if this is direct format (no filters) or filter format (with filters)
+        if !self.has_filters() {
             // Fast path: Direct aggregation format (no FilterAggregation wrapper)
             // Format: {"grouped": {"buckets": [...], "aggs": {"0": {...}, "1": {...}}}}
             let grouped = result_obj.get("grouped").unwrap();
@@ -532,6 +526,12 @@ impl AggregateScanState {
             })
             .unwrap_or(0)
             > 0
+    }
+
+    fn has_filters(&self) -> bool {
+        self.aggregate_types
+            .iter()
+            .any(|agg| agg.filter_expr().is_some())
     }
 }
 

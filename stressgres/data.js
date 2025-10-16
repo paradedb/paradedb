@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760637083806,
+  "lastUpdate": 1760637149700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3754,6 +3754,72 @@ window.BENCHMARK_DATA = {
             "value": 82.18040663984635,
             "unit": "median tps",
             "extra": "avg tps: 97.09820725815169, max tps: 625.9475280706168, count: 55229"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b884fe5e97bce62067f4c1eb5bf00f9c9f261dd1",
+          "message": "perf: optimized aggregations by removing FilterAggregation overhead for queries without FILTER clauses (#3347)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplemented a fast path for aggregation queries without FILTER clauses,\nbypassing FilterAggregation wrapper overhead and using `doc_count`\ndirectly for `COUNT(*)` in GROUP BY queries.\n\n## Why\n\nAggregation queries without FILTER clauses were using FilterAggregation\nwrapper unnecessarily, causing ~2x performance regression compared to\ndirect aggregate API:\n\n## How\n\n- Added detection in `build_aggregation_query_from_search_input` to\ncheck for FILTER clauses\n- Routes to `build_direct_aggregation_query` (fast path) or\nFilterAggregation structure (slow path)\n- Applied same logic to `build_aggregation_json_for_explain` for correct\nEXPLAIN output\n\n## Tests\n\nAll existing test pass.\n\n**EXPLAIN output examples:**\n\nBefore (slow path):\n```json\n{\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":{...}}},\"filter\":\"*\"},\"filter_sentinel\":{...}}\n```\n\nAfter (fast path):\n```json\n{\"grouped\":{\"terms\":{...}}}\n```",
+          "timestamp": "2025-10-16T10:36:00-07:00",
+          "tree_id": "fa3cf0a8745e9c9c474dc9566a18932d40cbd926",
+          "url": "https://github.com/paradedb/paradedb/commit/b884fe5e97bce62067f4c1eb5bf00f9c9f261dd1"
+        },
+        "date": 1760637147740,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 766.5031228533712,
+            "unit": "median tps",
+            "extra": "avg tps: 766.155223311979, max tps: 855.8491244845, count: 54916"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3249.15134421854,
+            "unit": "median tps",
+            "extra": "avg tps: 3212.053555293065, max tps: 3375.2561309773155, count: 54916"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 764.2595846105526,
+            "unit": "median tps",
+            "extra": "avg tps: 764.361979725028, max tps: 892.2506644803773, count: 54916"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 645.9538277159121,
+            "unit": "median tps",
+            "extra": "avg tps: 645.1977444435446, max tps: 689.4040102331535, count: 54916"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1716.7636409981906,
+            "unit": "median tps",
+            "extra": "avg tps: 1707.447794050849, max tps: 1738.4926175263386, count: 109832"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1302.476320582487,
+            "unit": "median tps",
+            "extra": "avg tps: 1286.273715877351, max tps: 1309.8426935875864, count: 54916"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 152.42732227167255,
+            "unit": "median tps",
+            "extra": "avg tps: 248.47998991514166, max tps: 557.8956177299227, count: 54916"
           }
         ]
       }

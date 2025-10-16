@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760650460317,
+  "lastUpdate": 1760651131542,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21406,6 +21406,54 @@ window.BENCHMARK_DATA = {
             "value": 5.930893363392355,
             "unit": "median tps",
             "extra": "avg tps: 5.925459430697568, max tps: 7.4152540094890185, count: 56224"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "442b54e99d38cd1c6331b156d6cf3cecc6bf1df4",
+          "message": "perf: optimized aggregations by removing FilterAggregation overhead for queries without FILTER clauses (#3357)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplemented a fast path for aggregation queries without FILTER clauses,\nbypassing FilterAggregation wrapper overhead and using `doc_count`\ndirectly for `COUNT(*)` in GROUP BY queries.\n\n## Why\n\nAggregation queries without FILTER clauses were using FilterAggregation\nwrapper unnecessarily, causing ~2x performance regression compared to\ndirect aggregate API:\n\n## How\n\n- Added detection in `build_aggregation_query_from_search_input` to\ncheck for FILTER clauses\n- Routes to `build_direct_aggregation_query` (fast path) or\nFilterAggregation structure (slow path)\n- Applied same logic to `build_aggregation_json_for_explain` for correct\nEXPLAIN output\n\n## Tests\n\nAll existing test pass.\n\n**EXPLAIN output examples:**\n\nBefore (slow path):\n```json\n{\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":{...}}},\"filter\":\"*\"},\"filter_sentinel\":{...}}\n```\n\nAfter (fast path):\n```json\n{\"grouped\":{\"terms\":{...}}}\n```\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-10-16T14:02:52-07:00",
+          "tree_id": "f6a6d7436821b5fb118fd1b099dd032010a9b448",
+          "url": "https://github.com/paradedb/paradedb/commit/442b54e99d38cd1c6331b156d6cf3cecc6bf1df4"
+        },
+        "date": 1760651129443,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1133.6785210485195,
+            "unit": "median tps",
+            "extra": "avg tps: 1126.0840385348317, max tps: 1196.7705436934532, count: 56090"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1313.8045668293425,
+            "unit": "median tps",
+            "extra": "avg tps: 1286.513959531123, max tps: 1331.203827939912, count: 56090"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1865.9565113387168,
+            "unit": "median tps",
+            "extra": "avg tps: 1795.993519309761, max tps: 2047.940266524179, count: 56090"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.887099247773731,
+            "unit": "median tps",
+            "extra": "avg tps: 5.872895683795727, max tps: 7.230102950086616, count: 56090"
           }
         ]
       }

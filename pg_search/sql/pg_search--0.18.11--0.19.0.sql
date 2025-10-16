@@ -1794,3 +1794,29 @@ DROP FUNCTION IF EXISTS pdb.more_like_this(document_fields text, min_doc_frequen
 CREATE OR REPLACE FUNCTION pdb.more_like_this(document text, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_fields_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 DROP FUNCTION IF EXISTS pdb.more_like_this(document_id anyelement, min_doc_frequency pg_catalog.int4, max_doc_frequency pg_catalog.int4, min_term_frequency pg_catalog.int4, max_query_terms pg_catalog.int4, min_word_length pg_catalog.int4, max_word_length pg_catalog.int4, boost_factor pg_catalog.float4, stop_words text[]);
 CREATE OR REPLACE FUNCTION pdb.more_like_this(key_value anyelement, fields text[] DEFAULT NULL, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_id_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+
+DROP FUNCTION IF EXISTS paradedb.index_info(index regclass, show_invisible bool DEFAULT false);
+CREATE  FUNCTION "index_info"(
+	"index" regclass, /* pgrx::rel::PgRelation */
+	"show_invisible" bool DEFAULT false /* bool */
+) RETURNS TABLE (
+	"index_name" TEXT,  /* alloc::string::String */
+	"visible" bool,  /* bool */
+	"recyclable" bool,  /* bool */
+	"xmax" xid,  /* pgrx_pg_sys::submodules::transaction_id::TransactionId */
+	"segno" TEXT,  /* alloc::string::String */
+	"mutable" bool,  /* bool */
+	"byte_size" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"num_docs" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"num_deleted" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"termdict_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"postings_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"positions_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"fast_fields_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"fieldnorms_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"store_bytes" NUMERIC,  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+	"deletes_bytes" NUMERIC  /* core::option::Option<pgrx::datum::numeric::AnyNumeric> */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_info_wrapper';

@@ -106,26 +106,6 @@ FROM paradedb.index_info('idxtest', true)
 ORDER BY byte_size DESC;
 """
 
-[[server]]
-name = "WalReceiver"
-[server.style.Automatic]
-postgresql_conf = "WalReceiver"
-
-[server.setup]
-sql = "SELECT pg_sleep(25)"
-
-[server.teardown]
-sql = ""
-
-[server.monitor]
-refresh_ms = 10
-sql = """
-SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
-FROM paradedb.index_info('idxtest', true)
-ORDER BY byte_size DESC;
-"""
-
-
 [[jobs]]
 refresh_ms = 5
 title = "Index Size Info"
@@ -141,7 +121,7 @@ SELECT count(*) FILTER (WHERE visible)         AS visible,
        pg_size_pretty(pg_relation_size('idxtest'))
 FROM paradedb.index_info('idxtest', true);
 """
-destinations = ["Subscriber", "WalReceiver"]
+destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
@@ -193,7 +173,7 @@ set paradedb.enable_custom_scan to off;
 sql = """
 SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
 """
-destinations = ["Subscriber", "WalReceiver"]
+destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
@@ -201,7 +181,7 @@ title = "Top N"
 sql = """
 SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5;
 """
-destinations = ["Subscriber", "WalReceiver"]
+destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5

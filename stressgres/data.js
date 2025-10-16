@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760639412854,
+  "lastUpdate": 1760639415902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16636,6 +16636,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.23300123881144, max segment_count: 107.0, count: 57313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70567f4431114dcb089268550d904bf9af88aebb",
+          "message": "perf: Add a variant of `TermSet` which uses fast fields (#3360)\n\n## What\n\nAdd a variant of `TermSet` for very large sets of terms which scans a\nfast fields column and intersects it with the `TermSet`.\n\n## Why\n\nParadeDB users occasionally use `TermSet` as a \"limited total size join\"\nbetween two tables (essentially: an explicit hash join). But the\nimplementation of `TermSet` which operates on posting lists requires\ncreating one `Scorer` per term, and might potentially seek many times to\nread and merge posting lists.\n\nThis implementation is approximately 2x faster for a\n`paradedb.aggregate` call operating over an input `TermSet` query\ncontaining 10mm bigint terms.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/69.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-16T10:59:32-07:00",
+          "tree_id": "9997f138206e337aead0066eb0d3d52cd7993f60",
+          "url": "https://github.com/paradedb/paradedb/commit/70567f4431114dcb089268550d904bf9af88aebb"
+        },
+        "date": 1760639413923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.934912,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.702369900681077, max cpu: 42.772278, count: 57405"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.6778796898136, max mem: 228.90234375, count: 57405"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.42960709660488, max cpu: 33.300297, count: 57405"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.55970285145023, max mem: 166.5078125, count: 57405"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24363,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23243.80153296751, max block_count: 26075.0, count: 57405"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.57007229335424, max segment_count: 108.0, count: 57405"
           }
         ]
       }

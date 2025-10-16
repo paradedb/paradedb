@@ -991,6 +991,9 @@ fn execute(
         &state.custom_state().offset,
     );
 
+    // Determine result format at build time based on FILTER clauses
+    let result_format = builder.result_format();
+
     let result = execute_aggregation(
         state.custom_state().indexrel(),
         &builder,
@@ -999,9 +1002,9 @@ fn execute(
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
-    // Process results using unified result processing
-    let aggregate_results =
-        crate::aggregate::agg_result::AggResult::process_results(state.custom_state(), result);
+
+    // Process results using the result format
+    let aggregate_results = result_format.process_results(state.custom_state(), result);
 
     aggregate_results.into_iter()
 }

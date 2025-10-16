@@ -20,6 +20,7 @@
 //! This module consolidates the logic for building Tantivy `Aggregations` structures
 //! from ParadeDB's SQL aggregation parameters.
 
+use super::agg_result::AggResult;
 use super::agg_strategy::{
     AggregationStrategy, DirectAggregationStrategy, FilteredAggregationStrategy,
 };
@@ -279,5 +280,16 @@ impl<'a> AggQueryBuilder<'a> {
             .aggs
             .iter()
             .any(|agg| agg.filter_expr().is_some())
+    }
+
+    /// Get the result format that will be produced by this query
+    ///
+    /// This is determined at build time based on whether FILTER clauses are present.
+    pub fn result_format(&self) -> AggResult {
+        if self.has_filters() {
+            AggResult::Filter
+        } else {
+            AggResult::Direct
+        }
     }
 }

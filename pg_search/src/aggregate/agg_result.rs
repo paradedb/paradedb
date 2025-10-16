@@ -88,39 +88,18 @@ impl AggResult {
     /// Process aggregation results according to this format
     ///
     /// Main entry point for converting Tantivy JSON results to PostgreSQL tuples
+    ///
+    /// The format is determined at query build time based on whether
+    /// FILTER clauses are present in the aggregates.
     pub fn process_results(
+        &self,
         state: &AggregateScanState,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        let format = AggResult::detect(&result, state.grouping_columns().is_empty());
         if state.grouping_columns().is_empty() {
-            format.process_simple(state, result)
+            self.process_simple(state, result)
         } else {
-            format.process_grouped(state, result)
-        }
-    }
-
-    /// Detect which format Tantivy returned (Direct or Filter)
-    fn detect(result: &serde_json::Value, is_simple: bool) -> Self {
-        let obj = match result.as_object() {
-            Some(obj) => obj,
-            None => return Self::Direct, // Default for empty results
-        };
-
-        if is_simple {
-            // Simple aggregation: check for "filter_" prefix
-            if obj.keys().any(|k| k.starts_with(FILTER_PREFIX)) {
-                Self::Filter
-            } else {
-                Self::Direct
-            }
-        } else {
-            // Grouped aggregation: check for "filter_sentinel"
-            if obj.contains_key(FILTER_SENTINEL) {
-                Self::Filter
-            } else {
-                Self::Direct
-            }
+            self.process_grouped(state, result)
         }
     }
 

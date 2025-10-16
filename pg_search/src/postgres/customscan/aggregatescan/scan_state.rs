@@ -478,6 +478,33 @@ impl AggregateScanState {
             }
         }
     }
+
+    fn was_truncated(&self, result: &serde_json::Value) -> bool {
+        result
+            .as_object()
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(key, value)| {
+                        if key.starts_with("group_") {
+                            value
+                                .as_object()
+                                .and_then(|group_obj| group_obj.get("sum_other_doc_count"))
+                                .and_then(|v| v.as_i64())
+                        } else {
+                            None
+                        }
+                    })
+                    .sum::<i64>()
+            })
+            .unwrap_or(0)
+            > 0
+    }
+
+    fn has_filters(&self) -> bool {
+        self.aggregate_types
+            .iter()
+            .any(|agg| agg.filter_expr().is_some())
+    }
 }
 
 impl CustomScanState for AggregateScanState {

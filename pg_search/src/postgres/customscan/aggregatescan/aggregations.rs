@@ -114,17 +114,14 @@ impl AggregateCSClause {
         )?;
         let has_terms_aggregations = !terms_aggregations.is_empty();
 
-        // let qual =
-        //     <Self as CollectNested<FilterAggregation, QualKey>>::collect(self, terms_aggregations)?;
-
         let filter_aggregations = <Self as IterFlat<FilterAggregationMetric>>::into_iter(self)?;
         if has_terms_aggregations {
             let sub_aggregations =
-                <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
+                <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
             add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         } else {
             let sub_aggregations =
-                <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
+                <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
             add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         }
 
@@ -237,18 +234,6 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
 
             terms_agg
         }))
-    }
-}
-
-impl CollectNested<FilterAggregation, QualKey> for AggregateCSClause {
-    fn variant(&self, leaf: FilterAggregation) -> AggregationVariants {
-        AggregationVariants::Filter(leaf)
-    }
-
-    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregation>> {
-        let query = FilterAggQuery::new(self.quals.query().clone(), self.indexrelid);
-        let qual = FilterAggregation::new_with_query(Box::new(query));
-        Ok(vec![qual].into_iter())
     }
 }
 

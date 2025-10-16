@@ -670,11 +670,22 @@ pub fn build_aggregation_query_from_search_input(
     qctx: &QueryContext,
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
-    // Convert base query to FilterAggregation
+    // Performance optimization: Check if any aggregates have FILTER clauses
+    let has_filters = qparams
+        .aggregate_types
+        .iter()
+        .any(|agg| agg.filter_expr().is_some());
+
+    if !has_filters {
+        // Fast path: No FILTER clauses - build direct aggregation structure
+        // This avoids FilterAggregation wrapper overhead and matches direct aggregate API performance
+        return build_direct_aggregation_query(qparams);
+    }
+
+    // Slower path: Has FILTER clauses - use FilterAggregation structure
     let base_query_tantivy = to_tantivy_query(qctx, Some(qparams.base_query))?;
     let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
 
-    // Convert filter queries to FilterAggregations
     let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = qparams
         .aggregate_types
         .iter()
@@ -685,6 +696,48 @@ pub fn build_aggregation_query_from_search_input(
         .collect();
 
     build_aggregation_query(base_filter, filter_aggregations?, qparams)
+}
+
+/// Build direct aggregation structure without FilterAggregation wrappers (fast path)
+/// Used when no FILTER clauses are present
+fn build_direct_aggregation_query(
+    qparams: &AggQueryParams,
+) -> Result<Aggregations, Box<dyn Error>> {
+    let mut result = HashMap::new();
+
+    if !qparams.grouping_columns.is_empty() {
+        // GROUP BY: Build nested terms aggregation
+        let mut metrics = HashMap::new();
+
+        // Build metrics for all aggregates except COUNT(*)
+        // COUNT(*) uses doc_count directly from buckets
+        for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
+            if !matches!(agg, AggregateType::CountAny { .. }) {
+                metrics.insert(idx.to_string(), AggregateType::to_tantivy_agg(agg)?);
+            }
+        }
+
+        let nested_terms = build_nested_terms(qparams, metrics)?;
+        result.extend(nested_terms);
+    } else {
+        // Simple aggregation: metrics at top level
+        for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
+            result.insert(idx.to_string(), AggregateType::to_tantivy_agg(agg)?);
+        }
+
+        // Add hidden _doc_count to detect empty results (for NULL handling)
+        result.insert(
+            "_doc_count".to_string(),
+            Aggregation {
+                agg: serde_json::from_value(serde_json::json!({
+                    "value_count": {"field": "ctid", "missing": null}
+                }))?,
+                sub_aggregation: Aggregations::default(),
+            },
+        );
+    }
+
+    Ok(Aggregations::from(result))
 }
 
 /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
@@ -785,15 +838,25 @@ pub fn build_aggregation_query(
 pub fn build_aggregation_json_for_explain(
     qparams: &AggQueryParams,
 ) -> Result<String, Box<dyn Error>> {
-    // Use serializable FilterAggregations with query strings
-    let base_filter = FilterAggregation::new("*".to_string());
-    let filter_aggregations: Vec<FilterAggregation> = qparams
+    // Performance optimization: Check if any aggregates have FILTER clauses
+    let has_filters = qparams
         .aggregate_types
         .iter()
-        .map(|_| FilterAggregation::new("*".to_string()))
-        .collect();
+        .any(|agg| agg.filter_expr().is_some());
 
-    let aggregations = build_aggregation_query(base_filter, filter_aggregations, qparams)?;
+    let aggregations = if !has_filters {
+        // Fast path: No FILTER clauses - build direct aggregation structure
+        build_direct_aggregation_query(qparams)?
+    } else {
+        // Slower path: Has FILTER clauses - use FilterAggregation structure
+        let base_filter = FilterAggregation::new("*".to_string());
+        let filter_aggregations: Vec<FilterAggregation> = qparams
+            .aggregate_types
+            .iter()
+            .map(|_| FilterAggregation::new("*".to_string()))
+            .collect();
+        build_aggregation_query(base_filter, filter_aggregations, qparams)?
+    };
 
     // Serialize to JSON and sort keys for deterministic output
     let mut json_value = serde_json::to_value(&aggregations)?;

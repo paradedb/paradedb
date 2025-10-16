@@ -1795,7 +1795,8 @@ CREATE OR REPLACE FUNCTION pdb.more_like_this(document text, min_doc_frequency p
 DROP FUNCTION IF EXISTS pdb.more_like_this(document_id anyelement, min_doc_frequency pg_catalog.int4, max_doc_frequency pg_catalog.int4, min_term_frequency pg_catalog.int4, max_query_terms pg_catalog.int4, min_word_length pg_catalog.int4, max_word_length pg_catalog.int4, boost_factor pg_catalog.float4, stop_words text[]);
 CREATE OR REPLACE FUNCTION pdb.more_like_this(key_value anyelement, fields text[] DEFAULT NULL, min_doc_frequency pg_catalog.int4 DEFAULT NULL, max_doc_frequency pg_catalog.int4 DEFAULT NULL, min_term_frequency pg_catalog.int4 DEFAULT NULL, max_query_terms pg_catalog.int4 DEFAULT NULL, min_word_length pg_catalog.int4 DEFAULT NULL, max_word_length pg_catalog.int4 DEFAULT NULL, boost_factor pg_catalog.float4 DEFAULT NULL, stopwords text[] DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'more_like_this_id_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 
-DROP FUNCTION IF EXISTS paradedb.index_info(index regclass, show_invisible bool DEFAULT false);
+DROP VIEW IF EXISTS paradedb.index_layer_info;
+DROP FUNCTION IF EXISTS paradedb.index_info(index regclass, show_invisible bool);
 CREATE  FUNCTION "index_info"(
 	"index" regclass, /* pgrx::rel::PgRelation */
 	"show_invisible" bool DEFAULT false /* bool */

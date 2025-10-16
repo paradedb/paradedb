@@ -28,7 +28,7 @@ use crate::gucs;
 use crate::nodecast;
 
 use crate::aggregate::execute_aggregate;
-use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
+use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;

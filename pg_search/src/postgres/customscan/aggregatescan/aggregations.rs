@@ -100,8 +100,12 @@ trait IterFlat<Leaf> {
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 }
 
-impl AggregateCSClause {
-    pub fn collect(&self) -> Result<Aggregations> {
+pub trait CollectAggregations {
+    fn collect(&self) -> Result<Aggregations>;
+}
+
+impl CollectAggregations for AggregateCSClause {
+    fn collect(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
         let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
             self,
@@ -122,7 +126,9 @@ impl AggregateCSClause {
 
         Ok(aggregations)
     }
+}
 
+impl AggregateCSClause {
     pub fn aggregates(&self) -> Vec<AggregateType> {
         self.aggregates.aggregates()
     }

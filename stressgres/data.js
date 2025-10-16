@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760649429535,
+  "lastUpdate": 1760649560344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4348,6 +4348,72 @@ window.BENCHMARK_DATA = {
             "value": 116.84884375147887,
             "unit": "median tps",
             "extra": "avg tps: 141.0851170123214, max tps: 1027.4366688037348, count: 55420"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "442b54e99d38cd1c6331b156d6cf3cecc6bf1df4",
+          "message": "perf: optimized aggregations by removing FilterAggregation overhead for queries without FILTER clauses (#3357)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplemented a fast path for aggregation queries without FILTER clauses,\nbypassing FilterAggregation wrapper overhead and using `doc_count`\ndirectly for `COUNT(*)` in GROUP BY queries.\n\n## Why\n\nAggregation queries without FILTER clauses were using FilterAggregation\nwrapper unnecessarily, causing ~2x performance regression compared to\ndirect aggregate API:\n\n## How\n\n- Added detection in `build_aggregation_query_from_search_input` to\ncheck for FILTER clauses\n- Routes to `build_direct_aggregation_query` (fast path) or\nFilterAggregation structure (slow path)\n- Applied same logic to `build_aggregation_json_for_explain` for correct\nEXPLAIN output\n\n## Tests\n\nAll existing test pass.\n\n**EXPLAIN output examples:**\n\nBefore (slow path):\n```json\n{\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":{...}}},\"filter\":\"*\"},\"filter_sentinel\":{...}}\n```\n\nAfter (fast path):\n```json\n{\"grouped\":{\"terms\":{...}}}\n```\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-10-16T14:02:52-07:00",
+          "tree_id": "f6a6d7436821b5fb118fd1b099dd032010a9b448",
+          "url": "https://github.com/paradedb/paradedb/commit/442b54e99d38cd1c6331b156d6cf3cecc6bf1df4"
+        },
+        "date": 1760649558278,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 784.160024393355,
+            "unit": "median tps",
+            "extra": "avg tps: 783.3660135469038, max tps: 809.4024769027584, count: 55216"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3239.487210405407,
+            "unit": "median tps",
+            "extra": "avg tps: 3225.7752552680304, max tps: 3246.320525793553, count: 55216"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 784.3365833149185,
+            "unit": "median tps",
+            "extra": "avg tps: 784.3334728000483, max tps: 828.893125545852, count: 55216"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 679.3104317965883,
+            "unit": "median tps",
+            "extra": "avg tps: 675.7913888611145, max tps: 684.8010155142526, count: 55216"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1709.4455737689634,
+            "unit": "median tps",
+            "extra": "avg tps: 1701.6276770379418, max tps: 1716.0882524321037, count: 110432"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1280.4955414549518,
+            "unit": "median tps",
+            "extra": "avg tps: 1271.3314280016916, max tps: 1288.6435012974277, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 160.6449602670103,
+            "unit": "median tps",
+            "extra": "avg tps: 197.5023461107978, max tps: 884.276502651061, count: 55216"
           }
         ]
       }

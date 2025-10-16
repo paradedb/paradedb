@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760641020108,
+  "lastUpdate": 1760641517136,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27808,6 +27808,60 @@ window.BENCHMARK_DATA = {
             "value": 17.18035016560497,
             "unit": "median tps",
             "extra": "avg tps: 17.199669906578055, max tps: 18.62973284869946, count: 55385"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1766b262a5ad15f298f87e916715fb15d5efc00a",
+          "message": "perf: Add a variant of `TermSet` which uses fast fields (#3359)\n\n## What\n\nAdd a variant of `TermSet` for very large sets of terms which scans a\nfast fields column and intersects it with the `TermSet`.\n\n## Why\n\nParadeDB users occasionally use `TermSet` as a \"limited total size join\"\nbetween two tables (essentially: an explicit hash join). But the\nimplementation of `TermSet` which operates on posting lists requires\ncreating one `Scorer` per term, and might potentially seek many times to\nread and merge posting lists.\n\nThis implementation is approximately 2x faster for a\n`paradedb.aggregate` call operating over an input `TermSet` query\ncontaining 10mm bigint terms.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/69.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-16T11:08:50-07:00",
+          "tree_id": "19362c57c1c46bc1c6776763d778a2a12b42f9cd",
+          "url": "https://github.com/paradedb/paradedb/commit/1766b262a5ad15f298f87e916715fb15d5efc00a"
+        },
+        "date": 1760641515050,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.17457359432877,
+            "unit": "median tps",
+            "extra": "avg tps: 38.212954294622506, max tps: 40.879761241263914, count: 55501"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.87820400891434,
+            "unit": "median tps",
+            "extra": "avg tps: 273.7367637490922, max tps: 2841.7973737743678, count: 55501"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1006.7590418224383,
+            "unit": "median tps",
+            "extra": "avg tps: 1001.059750302652, max tps: 1027.2097220735454, count: 55501"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.21068109045649,
+            "unit": "median tps",
+            "extra": "avg tps: 156.54256261326563, max tps: 819.8281594212592, count: 111002"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.03969691228609,
+            "unit": "median tps",
+            "extra": "avg tps: 18.04962116682849, max tps: 19.20349509755894, count: 55501"
           }
         ]
       }

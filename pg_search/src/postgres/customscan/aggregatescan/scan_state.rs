@@ -129,9 +129,12 @@ impl AggregateScanState {
         };
 
         // Check if this is direct format (numeric keys) or filter format (filter_* keys)
-        let has_direct_keys = result_obj.keys().any(|k| k.parse::<usize>().is_ok());
+        let has_filters = self
+            .aggregate_types
+            .iter()
+            .any(|agg| agg.filter_expr().is_some());
 
-        if has_direct_keys {
+        if !has_filters {
             // Fast path: Direct aggregation format (no FilterAggregation wrapper)
             // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": 0}}
 

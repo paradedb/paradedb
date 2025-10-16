@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760648855306,
+  "lastUpdate": 1760649426048,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30034,6 +30034,60 @@ window.BENCHMARK_DATA = {
             "value": 18.685653278849607,
             "unit": "median tps",
             "extra": "avg tps: 18.87943872685796, max tps: 19.83399921754453, count: 55477"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0eda80a0ac48d7b19e42b7f14f4ea5f279ac97be",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3364)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.",
+          "timestamp": "2025-10-16T13:20:15-07:00",
+          "tree_id": "aee4715eec4f6317cba52a83325578722ca2c734",
+          "url": "https://github.com/paradedb/paradedb/commit/0eda80a0ac48d7b19e42b7f14f4ea5f279ac97be"
+        },
+        "date": 1760649423950,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.60916729648656,
+            "unit": "median tps",
+            "extra": "avg tps: 36.68422425446983, max tps: 39.392563286363824, count: 55408"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.95304412223425,
+            "unit": "median tps",
+            "extra": "avg tps: 272.99103176477234, max tps: 2794.344952227096, count: 55408"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1036.2330204608584,
+            "unit": "median tps",
+            "extra": "avg tps: 1034.2704789027573, max tps: 1047.2898121182309, count: 55408"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.5229981758593,
+            "unit": "median tps",
+            "extra": "avg tps: 156.15763981666754, max tps: 842.0727462652163, count: 110816"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.087530110886796,
+            "unit": "median tps",
+            "extra": "avg tps: 18.08154049768274, max tps: 20.586104934993713, count: 55408"
           }
         ]
       }

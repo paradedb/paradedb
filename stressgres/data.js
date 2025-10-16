@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760637149700,
+  "lastUpdate": 1760637152766,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10654,6 +10654,126 @@ window.BENCHMARK_DATA = {
             "value": 147.75390625,
             "unit": "median mem",
             "extra": "avg mem: 128.97996254798204, max mem: 153.23828125, count: 55229"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b884fe5e97bce62067f4c1eb5bf00f9c9f261dd1",
+          "message": "perf: optimized aggregations by removing FilterAggregation overhead for queries without FILTER clauses (#3347)\n\n# Ticket(s) Closed\n\n- Closes #3136\n\n## What\n\nImplemented a fast path for aggregation queries without FILTER clauses,\nbypassing FilterAggregation wrapper overhead and using `doc_count`\ndirectly for `COUNT(*)` in GROUP BY queries.\n\n## Why\n\nAggregation queries without FILTER clauses were using FilterAggregation\nwrapper unnecessarily, causing ~2x performance regression compared to\ndirect aggregate API:\n\n## How\n\n- Added detection in `build_aggregation_query_from_search_input` to\ncheck for FILTER clauses\n- Routes to `build_direct_aggregation_query` (fast path) or\nFilterAggregation structure (slow path)\n- Applied same logic to `build_aggregation_json_for_explain` for correct\nEXPLAIN output\n\n## Tests\n\nAll existing test pass.\n\n**EXPLAIN output examples:**\n\nBefore (slow path):\n```json\n{\"filter_0\":{\"aggs\":{\"grouped\":{\"terms\":{...}}},\"filter\":\"*\"},\"filter_sentinel\":{...}}\n```\n\nAfter (fast path):\n```json\n{\"grouped\":{\"terms\":{...}}}\n```",
+          "timestamp": "2025-10-16T10:36:00-07:00",
+          "tree_id": "fa3cf0a8745e9c9c474dc9566a18932d40cbd926",
+          "url": "https://github.com/paradedb/paradedb/commit/b884fe5e97bce62067f4c1eb5bf00f9c9f261dd1"
+        },
+        "date": 1760637150821,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.922761117124487, max cpu: 14.4723625, count: 54916"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.9572908083482, max mem: 154.86328125, count: 54916"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622757471533617, max cpu: 9.329447, count: 54916"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.086824081324202, max mem: 30.86328125, count: 54916"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9122356479204985, max cpu: 14.486921, count: 54916"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.36778927134168, max mem: 154.703125, count: 54916"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.566195924837599, max cpu: 4.733728, count: 54916"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.08539135338518, max mem: 157.015625, count: 54916"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.67404757034181, max cpu: 9.476802, count: 109832"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.1151213116965, max mem: 157.51953125, count: 109832"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28017,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28131.096820598734, max block_count: 54055.0, count: 54916"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.458445626047055, max segment_count: 57.0, count: 54916"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.573927012115192, max cpu: 9.476802, count: 54916"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 154.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.05647510231535, max mem: 159.56640625, count: 54916"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.32879272640692, max cpu: 4.660194, count: 54916"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 147.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 129.24445879559235, max mem: 152.05859375, count: 54916"
           }
         ]
       }

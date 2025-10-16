@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760646513591,
+  "lastUpdate": 1760646516763,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25792,6 +25792,108 @@ window.BENCHMARK_DATA = {
             "value": 156.69140625,
             "unit": "median mem",
             "extra": "avg mem: 175.5457730704438, max mem: 216.1640625, count: 56467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "417c2eabefae3e1592e95544fc1f3108053aa74d",
+          "message": "fix: Fix fallout of skipped tests for `TermSet` (#3361)\n\n## What\n\n* Ensure that Rust tests run for `Cargo.toml`/`Cargo.lock` changes.\n* Incorporate a fix for a bug that was missed due to the above:\nhttps://github.com/paradedb/tantivy/pull/70\n* Skip a test that flakes on pg14 (only (hopefully)): see\nhttps://github.com/paradedb/paradedb/issues/3358\n\n## Why\n\nTo unbreak `main`, and make CI more accurate.",
+          "timestamp": "2025-10-16T12:43:50-07:00",
+          "tree_id": "de7d6a321b4fc625fd47c27886c5d9569962ca7f",
+          "url": "https://github.com/paradedb/paradedb/commit/417c2eabefae3e1592e95544fc1f3108053aa74d"
+        },
+        "date": 1760646514761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.061306228527689265, max background_merging: 1.0, count: 56177"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.833446013470668, max cpu: 9.628887, count: 56177"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.067383768601918, max mem: 20.21875, count: 56177"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.020402309367084, max cpu: 32.495163, count: 56177"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.55119331254338, max mem: 169.74609375, count: 56177"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51115,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50982.606564964306, max block_count: 51115.0, count: 56177"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.72337433469213, max segment_count: 55.0, count: 56177"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.683355810266139, max cpu: 27.799229, count: 56177"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 136.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.96988529280222, max mem: 150.1484375, count: 56177"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.797293111601046, max cpu: 28.318584, count: 56177"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 172.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 169.098895566691, max mem: 172.1328125, count: 56177"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.917128881494456, max cpu: 33.23442, count: 56177"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.88515442819124, max mem: 216.4609375, count: 56177"
           }
         ]
       }

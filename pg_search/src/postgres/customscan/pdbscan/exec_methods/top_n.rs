@@ -17,8 +17,11 @@
 
 use std::cell::RefCell;
 
+use crate::aggregate::execute_aggregation;
 use crate::api::{HashMap, OrderByInfo};
+use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
@@ -27,8 +30,7 @@ use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggrega
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum, JsonB};
 use tantivy::index::SegmentId;
 
 pub struct TopNScanExecState {
@@ -168,37 +170,78 @@ impl TopNScanExecState {
         let mut results = HashMap::default();
 
         for agg_info in window_aggs {
-            // For window functions, we expect exactly one aggregate type
-            let agg_type = agg_info
-                .agg_spec
-                .agg_types
-                .first()
-                .expect("WindowAggregateInfo should have at least one aggregate");
-            let datum = match agg_type {
-                AggregateType::CountAny { .. } => {
-                    // For COUNT(*) OVER (), we need to count ALL matching documents in the index
-                    // Use the search_reader to perform a full search and count all results
-                    let search_reader = state.search_reader.as_ref().unwrap();
+            // Use the aggregate execution pipeline to compute the window aggregate
+            let base_query = state.search_query_input();
+            let agg_params = agg_info.agg_spec.to_agg_params(
+                base_query,
+                &[],   // No ORDER BY for window functions
+                &None, // No LIMIT for window functions
+                &None, // No OFFSET for window functions
+            );
 
-                    // Perform a full scan over all segments and count matching documents
-                    let mut total_count = 0usize;
-                    for _result in search_reader.search() {
-                        total_count += 1;
-                        check_for_interrupts!();
+            // Execute the aggregation using the existing pipeline
+            let indexrel = state
+                .indexrel
+                .as_ref()
+                .expect("indexrel should be open for window aggregate");
+
+            let agg_result = execute_aggregation(
+                indexrel,
+                &agg_params,
+                true,                                              // solve_mvcc
+                gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+                tantivy::aggregation::DEFAULT_BUCKET_LIMIT,        // bucket_limit
+            )
+            .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
+
+            // Extract the result from the aggregation
+            // For window functions without PARTITION BY, we expect a simple ungrouped result
+            // Format: {"0": {...}, "_doc_count": {"value": N}}
+            let datum = if let Some(result_obj) = agg_result.as_object() {
+                // Look for the aggregate result with key "0" (first aggregate)
+                if let Some(agg_value_json) = result_obj.get("0") {
+                    let agg_type = agg_info
+                        .agg_spec
+                        .agg_types
+                        .first()
+                        .expect("should have at least one aggregate");
+
+                    // For Custom aggregates, return the raw JSON result
+                    if matches!(agg_type, AggregateType::Custom { .. }) {
+                        JsonB(agg_value_json.clone()).into_datum().unwrap()
+                    } else {
+                        // Extract doc_count for NULL handling
+                        let doc_count = result_obj
+                            .get("_doc_count")
+                            .and_then(|v| v.get("value"))
+                            .and_then(|v| v.as_f64())
+                            .map(|f| f as i64);
+
+                        // Extract the aggregate value using the same method as AggregateScanState
+                        let agg_result_value =
+                            AggregateScanState::extract_aggregate_value_from_json(agg_value_json);
+                        let agg_value = agg_type
+                            .result_from_aggregate_with_doc_count(agg_result_value, doc_count);
+
+                        agg_value.into_datum()
                     }
-
-                    (total_count as i64).into_datum().unwrap()
+                } else {
+                    // No aggregate result found
+                    let agg_type = agg_info
+                        .agg_spec
+                        .agg_types
+                        .first()
+                        .expect("should have at least one aggregate");
+                    agg_type.empty_value().into_datum()
                 }
-                AggregateType::Custom { .. } => {
-                    // For custom aggregates in window functions, return empty JSON for now
-                    // TODO: Implement actual custom aggregate execution
-                    // This would require running Tantivy's AggregationCollector
-                    use pgrx::{IntoDatum, JsonB};
-                    JsonB(serde_json::json!({"result": "not implemented"}))
-                        .into_datum()
-                        .unwrap()
-                }
-                _ => panic!("Unsupported window aggregate type: {:?}", agg_type),
+            } else {
+                // Result is not an object, return empty value
+                let agg_type = agg_info
+                    .agg_spec
+                    .agg_types
+                    .first()
+                    .expect("should have at least one aggregate");
+                agg_type.empty_value().into_datum()
             };
 
             results.insert(agg_info.target_entry_index, datum);

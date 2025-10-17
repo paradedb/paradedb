@@ -75,10 +75,10 @@ SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |              agg              
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+-------------------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"result": "not implemented"}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"result": "not implemented"}
+ id |        description         | severity | category | response_time | status_code |        timestamp         |       agg        
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------
+  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0}
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0}
 (2 rows)
 
 -- Test 3: Mix custom and standard aggregates

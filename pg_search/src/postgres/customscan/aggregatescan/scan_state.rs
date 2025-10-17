@@ -501,7 +501,7 @@ impl AggregateScanState {
 
     /// Extract aggregate value from JSON using serde deserialization
     /// This handles different structures: direct values, objects with "value" field, or raw objects for COUNT
-    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
+    pub fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
         // Deserialize using our structured type
         match serde_json::from_value::<AggregateResult>(agg_obj.clone()) {
             Ok(result) => result,

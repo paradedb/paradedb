@@ -43,7 +43,7 @@ pub struct GroupedAggregateRow {
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<GroupedAggregateRow>),
+    Emitting(std::vec::IntoIter<Vec<Option<pg_sys::Datum>>>),
     Completed,
 }
 

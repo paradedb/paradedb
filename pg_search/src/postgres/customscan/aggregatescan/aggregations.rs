@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature};
+use crate::customscan::aggregatescan::privdat::MetricAggregations;
 use crate::customscan::aggregatescan::AggregateType;
 use crate::customscan::aggregatescan::GroupingColumn;
-use crate::customscan::aggregatescan::privdat::MetricAggregations;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -109,17 +109,28 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
-        let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-            self,
-            Aggregations::new(),
-        )?;
+
+        if !self.has_groupby() {
+            for (idx, metric_agg) in
+                <Self as IterFlat<MetricAggregations>>::into_iter(self)?.enumerate()
+            {
+                aggregations.insert(idx.to_string(), metric_agg.into());
+            }
+        } else {
+            let terms_aggregations =
+                <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+                    self,
+                    Aggregations::new(),
+                )?;
+
+            todo!()
+        }
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 
         // let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
         // for (idx, metric_agg) in metric_aggregations.enumerate() {
         //     aggregations.insert(idx.to_string(), metric_agg.into());
         // }
-
 
         // for (idx, term_agg) in terms_aggregations.into_iter().enumerate() {
         //     aggregations.insert(idx.to_string(), term_agg.into());
@@ -134,7 +145,7 @@ impl CollectAggregations for AggregateCSClause {
         //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         // }
 
-        Ok(terms_aggregations)
+        Ok(aggregations)
     }
 }
 
@@ -149,6 +160,10 @@ impl AggregateCSClause {
 
     pub fn has_orderby(&self) -> bool {
         self.orderby.has_orderby()
+    }
+
+    pub fn has_groupby(&self) -> bool {
+        !self.groupby.grouping_columns().is_empty()
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {

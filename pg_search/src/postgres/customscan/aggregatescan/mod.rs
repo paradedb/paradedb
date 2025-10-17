@@ -27,6 +27,7 @@ pub mod targetlist;
 use crate::gucs;
 use crate::nodecast;
 
+use crate::api::HashMap;
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
@@ -58,9 +59,12 @@ use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use std::collections::hash_map::IntoValues;
 use std::ffi::CStr;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
+use tantivy::aggregation::metric::{SingleMetricResult as TantivySingleMetricResult};
+use tantivy::aggregation::agg_result::{AggregationResult, AggregationResults as TantivyAggregationResults, MetricResult};
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -246,6 +250,8 @@ impl CustomScan for AggregateScan {
             return std::ptr::null_mut();
         };
 
+        pgrx::info!("row: {:?}", row);
+
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
             let slot = pg_sys::MakeTupleTableSlot(
@@ -265,6 +271,8 @@ impl CustomScan for AggregateScan {
             // Simple slot setup
             pg_sys::ExecClearTuple(slot);
 
+            pgrx::info!("here");
+
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
@@ -272,31 +280,29 @@ impl CustomScan for AggregateScan {
             for (i, entry) in target_list_mapping.iter().enumerate() {
                 match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
-                        let group_val = row.group_keys[gc_idx].clone();
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let typoid = attr.type_oid().value();
-
-                        let (datum, is_null) = convert_group_value_to_datum(group_val, typoid);
-                        datums[i] = datum;
-                        isnull[i] = is_null;
+                        todo!()
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        let agg_value = &row.aggregate_values[*agg_idx];
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let expected_typoid = attr.type_oid().value();
-
-                        let (datum, is_null) =
-                            convert_aggregate_value_to_datum(agg_value, expected_typoid);
-                        datums[i] = datum;
-                        isnull[i] = is_null;
+                        let datum = row[*agg_idx];
+                        if let Some(datum) = datum {
+                            datums[i] = datum;
+                            isnull[i] = false;
+                        } else {
+                            datums[i] = pg_sys::Datum::null();
+                            isnull[i] = true;
+                        }
                     }
                 }
             }
+
+            pgrx::info!("set datums");
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
+
+            pgrx::info!("returning slot");
 
             slot
         }
@@ -488,7 +494,7 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 fn execute(
     state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<GroupedAggregateRow> {
+) -> std::vec::IntoIter<Vec<Option<pg_sys::Datum>>> {
     let planstate = state.planstate();
     let expr_context = state.runtime_context;
 
@@ -499,9 +505,7 @@ fn execute(
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
 
-    pgrx::info!("query: {:?}", query);
-
-    let result = execute_aggregate(
+    let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
@@ -509,11 +513,68 @@ fn execute(
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
-    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
+    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
+    .into();
 
-    pgrx::info!("result: {:?}", result);
-    let aggregate_results = state
-        .custom_state()
-        .process_aggregation_results(serde_json::to_value(result).unwrap());
-    aggregate_results.into_iter()
+    result.into_iter()
+}
+
+struct SingleMetricResult {
+    oid: pg_sys::Oid,
+    inner: TantivySingleMetricResult
+}
+
+struct AggregationResults(HashMap<String, AggregationResult>);
+
+impl From<TantivyAggregationResults> for AggregationResults {
+    fn from(results: TantivyAggregationResults) -> Self {
+        Self(results.0)
+    }
+}
+
+impl IntoDatum for SingleMetricResult {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        self.inner.value.and_then(|value| value.into_datum())
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        pg_sys::FLOAT8OID
+    }
+}
+
+impl From<TantivySingleMetricResult> for SingleMetricResult {
+    fn from(result: TantivySingleMetricResult) -> Self {
+        Self {
+            oid: pg_sys::FLOAT8OID,
+            inner: result,
+        }
+    }
+}
+
+impl IntoIterator for AggregationResults {
+    type Item = Vec<Option<pg_sys::Datum>>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // Collect all metric datums into one Vec<Option<Datum>>
+        let datums: Vec<Option<pg_sys::Datum>> = self
+            .0
+            .into_values()
+            .map(|result| match result {
+                AggregationResult::MetricResult(MetricResult::Average(result)) =>
+                    SingleMetricResult::from(result).into_datum(),
+                AggregationResult::MetricResult(MetricResult::Count(result)) =>
+                    SingleMetricResult::from(result).into_datum(),
+                AggregationResult::MetricResult(MetricResult::Sum(result)) =>
+                    SingleMetricResult::from(result).into_datum(),
+                AggregationResult::MetricResult(MetricResult::Min(result)) =>
+                    SingleMetricResult::from(result).into_datum(),
+                AggregationResult::MetricResult(MetricResult::Max(result)) =>
+                    SingleMetricResult::from(result).into_datum(),
+                _ => todo!("support other metric results"),
+            })
+            .collect();
+
+        vec![datums].into_iter()
+    }
 }

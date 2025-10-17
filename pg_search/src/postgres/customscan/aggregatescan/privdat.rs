@@ -39,9 +39,11 @@ use pgrx::pg_sys::{
 use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+use tantivy::aggregation::metric::{
+    AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
+};
 use tantivy::schema::OwnedValue;
-use tantivy::aggregation::metric::{AverageAggregation, CountAggregation, SumAggregation, MinAggregation, MaxAggregation};
-use tantivy::aggregation::agg_req::{Aggregation, Aggregations, AggregationVariants};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {

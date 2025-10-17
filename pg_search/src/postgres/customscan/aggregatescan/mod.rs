@@ -256,8 +256,6 @@ impl CustomScan for AggregateScan {
             return std::ptr::null_mut();
         };
 
-        pgrx::info!("row: {:?}", row);
-
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
             let slot = pg_sys::MakeTupleTableSlot(
@@ -276,8 +274,6 @@ impl CustomScan for AggregateScan {
 
             // Simple slot setup
             pg_sys::ExecClearTuple(slot);
-
-            pgrx::info!("here");
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
@@ -311,15 +307,10 @@ impl CustomScan for AggregateScan {
                 }
             }
 
-            pgrx::info!("set datums");
-
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
-
-            pgrx::info!("returning slot");
-
             slot
         }
     }

@@ -20,7 +20,7 @@ use std::error::Error;
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use tantivy::aggregation::agg_req::Aggregations;
 
-use crate::aggregate::{AggregateRequest, execute_aggregate};
+use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 

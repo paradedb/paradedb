@@ -18,6 +18,7 @@
 use crate::api::{FieldName, OrderByFeature};
 use crate::customscan::aggregatescan::AggregateType;
 use crate::customscan::aggregatescan::GroupingColumn;
+use crate::customscan::aggregatescan::privdat::MetricAggregations;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -42,7 +43,9 @@ use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{CustomOrder, FilterAggregation, OrderTarget, SerializableQuery,TermsAggregation};
+use tantivy::aggregation::bucket::{
+    CustomOrder, FilterAggregation, OrderTarget, SerializableQuery, TermsAggregation,
+};
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
@@ -74,16 +77,6 @@ pub struct AggregateCSClause {
     limit_offset: LimitOffsetClause,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
-}
-
-#[derive(Debug, Clone)]
-pub enum MetricAggregations {
-    Average(AverageAggregation),
-    Count(CountAggregation),
-    Sum(SumAggregation),
-    Min(MinAggregation),
-    Max(MaxAggregation),
-    Filter(FilterAggregation),
 }
 
 struct FilterAggregationGroupedQual(Aggregations);
@@ -123,6 +116,9 @@ impl CollectAggregations for AggregateCSClause {
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 
         let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
+        for (idx, metric_agg) in metric_aggregations.enumerate() {
+            aggregations.insert(idx.to_string(), metric_agg.into());
+        }
         // if has_terms_aggregations {
         //     let sub_aggregations =
         //         <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
@@ -247,14 +243,12 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
     }
 }
 
-
 impl IterFlat<MetricAggregations> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationMetric>> {
+    fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
         Ok(self.aggregates.aggregates().into_iter().map(|agg| {
-            let filter_query = agg.filter_expr().map(|query| FilterAggQuery::new(query.clone(), self.indexrelid));
-            match filter_query {
-                Some(filter_query) => MetricAggregations::Filter(FilterAggregation::new_with_query(Box::new(filter_query))),
-            }
+            let metric_agg = agg.into();
+            pgrx::info!("metric_agg: {:?}", metric_agg);
+            metric_agg
         }))
     }
 }
@@ -265,23 +259,23 @@ impl Into<Aggregations> for FilterAggregationUngroupedQual {
     }
 }
 
-impl IterFlat<FilterAggregationUngroupedQual> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationUngroupedQual>> {
-        Ok(self
-            .aggregates
-            .aggregates()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, agg)| {
-                let agg = agg.to_tantivy_agg().expect(&format!(
-                    "{:?} should be converted to a Tantivy aggregation",
-                    agg
-                ));
-                let sub_agg = Aggregations::from([(FilterAggUngroupedKey::NAME.to_string(), agg)]);
-                FilterAggregationUngroupedQual(sub_agg)
-            }))
-    }
-}
+// impl IterFlat<FilterAggregationUngroupedQual> for AggregateCSClause {
+//     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationUngroupedQual>> {
+//         Ok(self
+//             .aggregates
+//             .aggregates()
+//             .into_iter()
+//             .enumerate()
+//             .map(|(idx, agg)| {
+//                 let agg = agg.to_tantivy_agg().expect(&format!(
+//                     "{:?} should be converted to a Tantivy aggregation",
+//                     agg
+//                 ));
+//                 let sub_agg = Aggregations::from([(FilterAggUngroupedKey::NAME.to_string(), agg)]);
+//                 FilterAggregationUngroupedQual(sub_agg)
+//             }))
+//     }
+// }
 
 impl Into<Aggregations> for FilterAggregationGroupedQual {
     fn into(self) -> Aggregations {
@@ -289,29 +283,29 @@ impl Into<Aggregations> for FilterAggregationGroupedQual {
     }
 }
 
-impl IterFlat<FilterAggregationGroupedQual> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationGroupedQual>> {
-        Ok(self
-            .aggregates
-            .aggregates()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, agg)| {
-                let metric_agg = agg.to_tantivy_agg().expect(&format!(
-                    "{:?} should be converted to a Tantivy aggregation",
-                    agg
-                ));
-                let sub_agg = Aggregations::from([(idx.to_string(), metric_agg)]);
-                let terms_agg = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-                    self,
-                    Aggregations::from(sub_agg),
-                )
-                .unwrap();
+// impl IterFlat<FilterAggregationGroupedQual> for AggregateCSClause {
+//     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationGroupedQual>> {
+//         Ok(self
+//             .aggregates
+//             .aggregates()
+//             .into_iter()
+//             .enumerate()
+//             .map(|(idx, agg)| {
+//                 let metric_agg = agg.to_tantivy_agg().expect(&format!(
+//                     "{:?} should be converted to a Tantivy aggregation",
+//                     agg
+//                 ));
+//                 let sub_agg = Aggregations::from([(idx.to_string(), metric_agg)]);
+//                 let terms_agg = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+//                     self,
+//                     Aggregations::from(sub_agg),
+//                 )
+//                 .unwrap();
 
-                FilterAggregationGroupedQual(terms_agg)
-            }))
-    }
-}
+//                 FilterAggregationGroupedQual(terms_agg)
+//             }))
+//     }
+// }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct FilterAggQuery {

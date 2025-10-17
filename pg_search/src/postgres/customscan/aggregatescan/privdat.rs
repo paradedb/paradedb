@@ -40,6 +40,8 @@ use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
 use tantivy::schema::OwnedValue;
+use tantivy::aggregation::metric::{AverageAggregation, CountAggregation, SumAggregation, MinAggregation, MaxAggregation};
+use tantivy::aggregation::agg_req::{Aggregation, Aggregations, AggregationVariants};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
@@ -553,6 +555,73 @@ fn create_aggregate_from_oid(
         _ => {
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
             None
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MetricAggregations {
+    Average(AverageAggregation),
+    Count(CountAggregation),
+    Sum(SumAggregation),
+    Min(MinAggregation),
+    Max(MaxAggregation),
+    // Filter(FilterAggregation),
+}
+
+impl Into<MetricAggregations> for AggregateType {
+    fn into(self) -> MetricAggregations {
+        if self.has_filter() {
+            todo!("support filter aggs");
+        }
+
+        match self {
+            AggregateType::CountAny { .. } => MetricAggregations::Count(CountAggregation {
+                field: "ctid".to_string(),
+                missing: None,
+            }),
+            AggregateType::Count { field, missing, .. } => {
+                MetricAggregations::Count(CountAggregation { field, missing })
+            }
+            AggregateType::Sum { field, missing, .. } => {
+                MetricAggregations::Sum(SumAggregation { field, missing })
+            }
+            AggregateType::Avg { field, missing, .. } => {
+                MetricAggregations::Average(AverageAggregation { field, missing })
+            }
+            AggregateType::Min { field, missing, .. } => {
+                MetricAggregations::Min(MinAggregation { field, missing })
+            }
+            AggregateType::Max { field, missing, .. } => {
+                MetricAggregations::Max(MaxAggregation { field, missing })
+            }
+        }
+    }
+}
+
+impl Into<Aggregation> for MetricAggregations {
+    fn into(self) -> Aggregation {
+        match self {
+            MetricAggregations::Average(agg) => Aggregation {
+                agg: AggregationVariants::Average(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Count(agg) => Aggregation {
+                agg: AggregationVariants::Count(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Sum(agg) => Aggregation {
+                agg: AggregationVariants::Sum(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Min(agg) => Aggregation {
+                agg: AggregationVariants::Min(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Max(agg) => Aggregation {
+                agg: AggregationVariants::Max(agg),
+                sub_aggregation: Aggregations::new(),
+            },
         }
     }
 }

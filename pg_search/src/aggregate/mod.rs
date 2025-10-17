@@ -28,10 +28,12 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::customscan::aggregatescan::aggregations::{
+    AggregateCSClause, CollectAggregations,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -239,8 +241,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             None,
         )?;
 
+        let aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         let base_collector = DistributedAggregationCollector::from_aggs(
-            self.aggregation.take().unwrap().try_into()?,
+            aggregations,
             AggregationLimitsGuard::new(
                 Some(self.config.memory_limit),
                 Some(self.config.bucket_limit),

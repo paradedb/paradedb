@@ -27,7 +27,7 @@ pub mod targetlist;
 use crate::gucs;
 use crate::nodecast;
 
-use crate::aggregate::{AggregateRequest, execute_aggregate};
+use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
@@ -499,7 +499,6 @@ fn execute(
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
 
-    pgrx::info!("aggregations: {:?}", aggregate_clause);
     pgrx::info!("query: {:?}", query);
 
     let result = execute_aggregate(
@@ -513,6 +512,8 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
 
     pgrx::info!("result: {:?}", result);
-    let aggregate_results = state.custom_state().process_aggregation_results(serde_json::to_value(result).unwrap());
+    let aggregate_results = state
+        .custom_state()
+        .process_aggregation_results(serde_json::to_value(result).unwrap());
     aggregate_results.into_iter()
 }

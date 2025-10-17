@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760719801790,
+  "lastUpdate": 1760720474778,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39966,6 +39966,54 @@ window.BENCHMARK_DATA = {
             "value": 115.44467081610136,
             "unit": "median tps",
             "extra": "avg tps: 114.73551354037839, max tps: 130.42818856952337, count: 107366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82295d032148e1213204605f400dc76732cfe3bd",
+          "message": "chore: update to pgrx 0.16.1 (#3276)\n\n## What\n\nUpdate to `pgrx` v0.16.1. This does **not** also add pg18 support to\npg_search.\n\n## Why\n\nStaying current is good.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-17T11:57:16-04:00",
+          "tree_id": "fc498e17a4350e45dca9662bea925fd282711cb7",
+          "url": "https://github.com/paradedb/paradedb/commit/82295d032148e1213204605f400dc76732cfe3bd"
+        },
+        "date": 1760720472561,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 679.1913159768135,
+            "unit": "median tps",
+            "extra": "avg tps: 680.331781990663, max tps: 1000.9842773731245, count: 53448"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 710.9507515520086,
+            "unit": "median tps",
+            "extra": "avg tps: 713.5451629180379, max tps: 1156.0542810424108, count: 53448"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 110.3698242108766,
+            "unit": "median tps",
+            "extra": "avg tps: 110.52071858394203, max tps: 119.98773322207686, count: 53448"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 113.76165798082026,
+            "unit": "median tps",
+            "extra": "avg tps: 112.56599987007637, max tps: 142.5537484296695, count: 106896"
           }
         ]
       }

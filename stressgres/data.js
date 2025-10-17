@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760717719469,
+  "lastUpdate": 1760718412697,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15562,6 +15562,42 @@ window.BENCHMARK_DATA = {
             "value": 5.293324554988163,
             "unit": "median tps",
             "extra": "avg tps: 4.785226808417939, max tps: 5.8545382795129735, count: 57767"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82295d032148e1213204605f400dc76732cfe3bd",
+          "message": "chore: update to pgrx 0.16.1 (#3276)\n\n## What\n\nUpdate to `pgrx` v0.16.1. This does **not** also add pg18 support to\npg_search.\n\n## Why\n\nStaying current is good.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-17T11:57:16-04:00",
+          "tree_id": "fc498e17a4350e45dca9662bea925fd282711cb7",
+          "url": "https://github.com/paradedb/paradedb/commit/82295d032148e1213204605f400dc76732cfe3bd"
+        },
+        "date": 1760718410511,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.460653945314299,
+            "unit": "median tps",
+            "extra": "avg tps: 7.2320501463476905, max tps: 11.202169153061226, count: 57704"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.330307810171018,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8238460639286584, max tps: 5.911309488336394, count: 57704"
           }
         ]
       }

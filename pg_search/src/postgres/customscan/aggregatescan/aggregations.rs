@@ -109,16 +109,21 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
-        // let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-        //     self,
-        //     Aggregations::new(),
-        // )?;
+        let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+            self,
+            Aggregations::new(),
+        )?;
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 
-        let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
-        for (idx, metric_agg) in metric_aggregations.enumerate() {
-            aggregations.insert(idx.to_string(), metric_agg.into());
-        }
+        // let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
+        // for (idx, metric_agg) in metric_aggregations.enumerate() {
+        //     aggregations.insert(idx.to_string(), metric_agg.into());
+        // }
+
+
+        // for (idx, term_agg) in terms_aggregations.into_iter().enumerate() {
+        //     aggregations.insert(idx.to_string(), term_agg.into());
+        // }
         // if has_terms_aggregations {
         //     let sub_aggregations =
         //         <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
@@ -129,7 +134,7 @@ impl CollectAggregations for AggregateCSClause {
         //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         // }
 
-        Ok(aggregations)
+        Ok(terms_aggregations)
     }
 }
 

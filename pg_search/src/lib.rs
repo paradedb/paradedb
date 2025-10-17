@@ -60,9 +60,7 @@ extension_sql!(
 
 extension_sql!(
     r#"
-        CREATE AGGREGATE "agg"(
-            "jsonb" JSONB
-        ) (
+        CREATE AGGREGATE "agg"(JSONB) (
             SFUNC = "agg_sfunc",
             STYPE = internal,
             FINALFUNC = "agg_finalfunc",

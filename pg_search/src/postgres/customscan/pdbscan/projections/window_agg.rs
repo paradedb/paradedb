@@ -55,7 +55,7 @@ pub mod window_functions {
     pub const JOIN_SUPPORT: bool = false;
 
     /// Enable support for `FILTER` clause in window functions.
-    pub const WINDOW_AGG_FILTER_CLAUSE: bool = true;
+    pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 }
 
 /// Information about a window aggregate to compute during TopN execution

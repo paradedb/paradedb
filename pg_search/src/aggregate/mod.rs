@@ -31,6 +31,7 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -40,6 +41,23 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum AggregateRequest {
+    Sql(AggregateCSClause),
+    Json(Aggregations),
+}
+
+impl TryInto<Aggregations> for AggregateRequest {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Aggregations, Self::Error> {
+        match self {
+            AggregateRequest::Sql(aggregation) => aggregation.collect(),
+            AggregateRequest::Json(aggregations) => Ok(aggregations),
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -105,7 +123,7 @@ impl ParallelAggregation {
     pub fn new(
         indexrelid: pg_sys::Oid,
         query: &SearchQueryInput,
-        aggregations: &Aggregations,
+        aggregation: &AggregateRequest,
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
@@ -125,7 +143,7 @@ impl ParallelAggregation {
                 memory_limit,
                 bucket_limit,
             },
-            agg_req_bytes: serde_json::to_vec(aggregations)?,
+            agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             segment_ids,
             ambulkdelete_epoch,
@@ -136,7 +154,7 @@ impl ParallelAggregation {
 struct ParallelAggregationWorker<'a> {
     state: &'a mut State,
     config: Config,
-    aggregation: Aggregations,
+    aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
@@ -146,7 +164,7 @@ struct ParallelAggregationWorker<'a> {
 impl<'a> ParallelAggregationWorker<'a> {
     #[allow(clippy::too_many_arguments)]
     fn new_local(
-        aggregation: Aggregations,
+        aggregation: AggregateRequest,
         query: SearchQueryInput,
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
@@ -165,7 +183,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 memory_limit,
                 bucket_limit,
             },
-            aggregation,
+            aggregation: Some(aggregation),
             query,
             segment_ids,
             ambulkdelete_epoch,
@@ -222,7 +240,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         )?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
-            self.aggregation.clone(),
+            self.aggregation.take().unwrap().try_into()?,
             AggregationLimitsGuard::new(
                 Some(self.config.memory_limit),
                 Some(self.config.bucket_limit),
@@ -280,14 +298,14 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
-        let aggregation = serde_json::from_slice::<Aggregations>(agg_req_bytes)
+        let aggregation = serde_json::from_slice::<AggregateRequest>(agg_req_bytes)
             .expect("agg_req_bytes should deserialize into an Aggregations");
         let query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
             .expect("query_bytes should deserialize into an SearchQueryInput");
         Self {
             state,
             config: *config,
-            aggregation,
+            aggregation: Some(aggregation),
             query,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
@@ -315,7 +333,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
-    agg_req: Aggregations,
+    agg_req: AggregateRequest,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
@@ -402,12 +420,13 @@ pub fn execute_aggregate(
             }
 
             // have tantivy finalize the intermediate results from each worker
+            let aggregations: Aggregations = agg_req.try_into()?;
             let collector = DistributedAggregationCollector::from_aggs(
-                agg_req.clone(),
+                aggregations.clone(),
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
             );
             Ok(collector.merge_fruits(agg_results)?.into_final_result(
-                agg_req,
+                aggregations,
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
             )?)
         } else {
@@ -435,7 +454,7 @@ pub fn execute_aggregate(
             );
             if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
                 Ok(agg_results.into_final_result(
-                    agg_req,
+                    agg_req.try_into()?,
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 )?)
             } else {

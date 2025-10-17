@@ -20,7 +20,7 @@ use std::error::Error;
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use tantivy::aggregation::agg_req::Aggregations;
 
-use crate::aggregate::execute_aggregate;
+use crate::aggregate::{AggregateRequest, execute_aggregate};
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
@@ -37,7 +37,7 @@ pub fn aggregate(
     Ok(JsonB(serde_json::to_value(execute_aggregate(
         &relation,
         query,
-        serde_json::from_value(agg.0)?,
+        AggregateRequest::Json(serde_json::from_value(agg.0)?),
         solve_mvcc,
         memory_limit.try_into()?,
         bucket_limit.try_into()?,

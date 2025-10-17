@@ -27,7 +27,7 @@ pub mod targetlist;
 use crate::gucs;
 use crate::nodecast;
 
-use crate::aggregate::execute_aggregate;
+use crate::aggregate::{AggregateRequest, execute_aggregate};
 use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
@@ -496,16 +496,16 @@ fn execute(
         .custom_state_mut()
         .prepare_query_for_execution(planstate, expr_context);
 
-    let aggregations = state.custom_state().aggregate_clause.collect().unwrap();
-    let query = state.custom_state().aggregate_clause.query().clone();
+    let aggregate_clause = state.custom_state().aggregate_clause.clone();
+    let query = aggregate_clause.query().clone();
 
-    pgrx::info!("aggregations: {:?}", aggregations);
+    pgrx::info!("aggregations: {:?}", aggregate_clause);
     pgrx::info!("query: {:?}", query);
 
     let result = execute_aggregate(
         state.custom_state().indexrel(),
         query,
-        aggregations,
+        AggregateRequest::Sql(aggregate_clause),
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit

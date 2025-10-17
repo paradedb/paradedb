@@ -67,7 +67,7 @@ impl AggregationKey for FilterAggUngroupedKey {
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct AggregateCSClause {
+pub struct AggregateCSClause {
     aggregates: TargetList,
     groupby: GroupByClause,
     orderby: OrderByClause,

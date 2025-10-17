@@ -26,6 +26,7 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use tantivy::schema::OwnedValue;
+use tantivy::aggregation::agg_result::AggregationResult;
 
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
@@ -43,7 +44,7 @@ pub struct GroupedAggregateRow {
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<Vec<Option<pg_sys::Datum>>>),
+    Emitting(std::vec::IntoIter<Vec<AggregationResult>>),
     Completed,
 }
 

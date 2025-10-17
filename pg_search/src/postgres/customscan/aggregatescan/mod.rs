@@ -27,8 +27,8 @@ pub mod targetlist;
 use crate::gucs;
 use crate::nodecast;
 
-use crate::api::HashMap;
 use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::api::HashMap;
 use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
@@ -61,10 +61,12 @@ use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::collections::hash_map::IntoValues;
 use std::ffi::CStr;
+use tantivy::aggregation::agg_result::{
+    AggregationResult, AggregationResults as TantivyAggregationResults, MetricResult,
+};
+use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
-use tantivy::aggregation::metric::{SingleMetricResult as TantivySingleMetricResult};
-use tantivy::aggregation::agg_result::{AggregationResult, AggregationResults as TantivyAggregationResults, MetricResult};
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -231,7 +233,10 @@ impl CustomScan for AggregateScan {
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let next = match &mut state.custom_state_mut().state {
-            ExecutionState::Completed => return std::ptr::null_mut(),
+            ExecutionState::Completed => {
+                pgrx::info!("completed");
+                return std::ptr::null_mut();
+            }
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
                 let mut row_iter = execute(state);
@@ -240,6 +245,7 @@ impl CustomScan for AggregateScan {
                 next
             }
             ExecutionState::Emitting(row_iter) => {
+                pgrx::info!("emitting");
                 // Emit the next row.
                 row_iter.next()
             }
@@ -283,7 +289,17 @@ impl CustomScan for AggregateScan {
                         todo!()
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        let datum = row[*agg_idx];
+                        let attr = tupdesc.get(i).expect("missing attribute");
+                        let expected_typoid = attr.type_oid().value();
+                        let metric_result = match &row[*agg_idx] {
+                            AggregationResult::MetricResult(MetricResult::Average(result)) => result,
+                            AggregationResult::MetricResult(MetricResult::Count(result)) => result,
+                            AggregationResult::MetricResult(MetricResult::Sum(result)) => result,
+                            AggregationResult::MetricResult(MetricResult::Min(result)) => result,
+                            AggregationResult::MetricResult(MetricResult::Max(result)) => result,
+                            _ => todo!("support other metric results"),
+                        };
+                        let datum = SingleMetricResult::new(expected_typoid, metric_result.clone()).into_datum();
                         if let Some(datum) = datum {
                             datums[i] = datum;
                             isnull[i] = false;
@@ -494,7 +510,7 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 fn execute(
     state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<Vec<Option<pg_sys::Datum>>> {
+) -> std::vec::IntoIter<Vec<AggregationResult>> {
     let planstate = state.planstate();
     let expr_context = state.runtime_context;
 
@@ -524,6 +540,28 @@ struct SingleMetricResult {
     inner: TantivySingleMetricResult
 }
 
+impl SingleMetricResult {
+    fn new(oid: pg_sys::Oid, inner: TantivySingleMetricResult) -> Self {
+        Self { oid, inner }
+    }
+}
+
+impl IntoDatum for SingleMetricResult {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        unsafe {
+            self.inner.value.and_then(|value| {
+                TantivyValue(OwnedValue::F64(value))
+                    .try_into_datum(self.oid.into())
+                    .unwrap()
+            })
+        }
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        pg_sys::FLOAT8OID
+    }
+}
+
 struct AggregationResults(HashMap<String, AggregationResult>);
 
 impl From<TantivyAggregationResults> for AggregationResults {
@@ -532,49 +570,12 @@ impl From<TantivyAggregationResults> for AggregationResults {
     }
 }
 
-impl IntoDatum for SingleMetricResult {
-    fn into_datum(self) -> Option<pg_sys::Datum> {
-        self.inner.value.and_then(|value| value.into_datum())
-    }
-
-    fn type_oid() -> pg_sys::Oid {
-        pg_sys::FLOAT8OID
-    }
-}
-
-impl From<TantivySingleMetricResult> for SingleMetricResult {
-    fn from(result: TantivySingleMetricResult) -> Self {
-        Self {
-            oid: pg_sys::FLOAT8OID,
-            inner: result,
-        }
-    }
-}
-
 impl IntoIterator for AggregationResults {
-    type Item = Vec<Option<pg_sys::Datum>>;
+    type Item = Vec<AggregationResult>;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        // Collect all metric datums into one Vec<Option<Datum>>
-        let datums: Vec<Option<pg_sys::Datum>> = self
-            .0
-            .into_values()
-            .map(|result| match result {
-                AggregationResult::MetricResult(MetricResult::Average(result)) =>
-                    SingleMetricResult::from(result).into_datum(),
-                AggregationResult::MetricResult(MetricResult::Count(result)) =>
-                    SingleMetricResult::from(result).into_datum(),
-                AggregationResult::MetricResult(MetricResult::Sum(result)) =>
-                    SingleMetricResult::from(result).into_datum(),
-                AggregationResult::MetricResult(MetricResult::Min(result)) =>
-                    SingleMetricResult::from(result).into_datum(),
-                AggregationResult::MetricResult(MetricResult::Max(result)) =>
-                    SingleMetricResult::from(result).into_datum(),
-                _ => todo!("support other metric results"),
-            })
-            .collect();
-
+        let datums: Vec<AggregationResult> = self.0.into_values().collect();
         vec![datums].into_iter()
     }
 }

@@ -76,8 +76,8 @@ pub fn agg_sfunc(state: Option<Internal>, agg_definition: JsonB) -> Option<Inter
 }
 
 /// Final function for agg aggregate
-/// Returns the stored agg definition
+/// Returns a not supported error
 #[pg_extern(stable, parallel_safe)]
 pub fn agg_finalfunc(_state: Option<Internal>) -> JsonB {
-    JsonB(serde_json::json!({"result": "not supported"}))
+    JsonB(serde_json::json!({"error": "not supported"}))
 }

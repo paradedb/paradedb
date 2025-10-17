@@ -9,3 +9,6 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.al
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT country, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country;
+
+-- normal scan
+SET paradedb.enable_aggregate_custom_scan TO off; SET paradedb.enable_mixed_fast_field_exec = false; SELECT country, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country;

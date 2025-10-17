@@ -21,6 +21,7 @@ use crate::aggregate::execute_aggregation;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -169,17 +170,34 @@ impl TopNScanExecState {
 
         let mut results = HashMap::default();
 
-        for agg_info in window_aggs {
-            // Use the aggregate execution pipeline to compute the window aggregate
+        // Combine all window aggregates into a single AggregationSpec
+        // This allows us to execute all aggregations in a single Tantivy pass
+        let mut combined_agg_types = Vec::new();
+        let mut agg_index_to_te_index = Vec::new(); // Maps aggregate index to target entry index
+
+        for agg_info in window_aggs.iter() {
+            for agg_type in &agg_info.agg_spec.agg_types {
+                agg_index_to_te_index.push(agg_info.target_entry_index);
+                combined_agg_types.push(agg_type.clone());
+            }
+        }
+
+        if !combined_agg_types.is_empty() {
+            // Create a combined AggregationSpec
+            let combined_spec = AggregationSpec {
+                agg_types: combined_agg_types.clone(),
+                grouping_columns: Vec::new(), // No grouping for window functions
+            };
+
+            // Convert to AggQueryParams and execute once
             let base_query = state.search_query_input();
-            let agg_params = agg_info.agg_spec.to_agg_params(
+            let agg_params = combined_spec.to_agg_params(
                 base_query,
                 &[],   // No ORDER BY for window functions
                 &None, // No LIMIT for window functions
                 &None, // No OFFSET for window functions
             );
 
-            // Execute the aggregation using the existing pipeline
             let indexrel = state
                 .indexrel
                 .as_ref()
@@ -194,57 +212,43 @@ impl TopNScanExecState {
             )
             .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
 
-            // Extract the result from the aggregation
-            // For window functions without PARTITION BY, we expect a simple ungrouped result
-            // Format: {"0": {...}, "_doc_count": {"value": N}}
-            let datum = if let Some(result_obj) = agg_result.as_object() {
-                // Look for the aggregate result with key "0" (first aggregate)
-                if let Some(agg_value_json) = result_obj.get("0") {
-                    let agg_type = agg_info
-                        .agg_spec
-                        .agg_types
-                        .first()
-                        .expect("should have at least one aggregate");
+            // Extract results for each aggregate
+            // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": N}}
+            if let Some(result_obj) = agg_result.as_object() {
+                let doc_count = result_obj
+                    .get("_doc_count")
+                    .and_then(|v| v.get("value"))
+                    .and_then(|v| v.as_f64())
+                    .map(|f| f as i64);
 
-                    // For Custom aggregates, return the raw JSON result
-                    if matches!(agg_type, AggregateType::Custom { .. }) {
-                        JsonB(agg_value_json.clone()).into_datum().unwrap()
+                for (agg_idx, (agg_type, te_idx)) in combined_agg_types
+                    .iter()
+                    .zip(agg_index_to_te_index.iter())
+                    .enumerate()
+                {
+                    let datum = if let Some(agg_value_json) = result_obj.get(&agg_idx.to_string()) {
+                        // For Custom aggregates, return the raw JSON result
+                        if matches!(agg_type, AggregateType::Custom { .. }) {
+                            JsonB(agg_value_json.clone()).into_datum().unwrap()
+                        } else {
+                            // Extract the aggregate value using the same method as AggregateScanState
+                            let agg_result_value =
+                                AggregateScanState::extract_aggregate_value_from_json(
+                                    agg_value_json,
+                                );
+                            let agg_value = agg_type
+                                .result_from_aggregate_with_doc_count(agg_result_value, doc_count);
+
+                            agg_value.into_datum()
+                        }
                     } else {
-                        // Extract doc_count for NULL handling
-                        let doc_count = result_obj
-                            .get("_doc_count")
-                            .and_then(|v| v.get("value"))
-                            .and_then(|v| v.as_f64())
-                            .map(|f| f as i64);
+                        // No aggregate result found, return empty value
+                        agg_type.empty_value().into_datum()
+                    };
 
-                        // Extract the aggregate value using the same method as AggregateScanState
-                        let agg_result_value =
-                            AggregateScanState::extract_aggregate_value_from_json(agg_value_json);
-                        let agg_value = agg_type
-                            .result_from_aggregate_with_doc_count(agg_result_value, doc_count);
-
-                        agg_value.into_datum()
-                    }
-                } else {
-                    // No aggregate result found
-                    let agg_type = agg_info
-                        .agg_spec
-                        .agg_types
-                        .first()
-                        .expect("should have at least one aggregate");
-                    agg_type.empty_value().into_datum()
+                    results.insert(*te_idx, datum);
                 }
-            } else {
-                // Result is not an object, return empty value
-                let agg_type = agg_info
-                    .agg_spec
-                    .agg_types
-                    .first()
-                    .expect("should have at least one aggregate");
-                agg_type.empty_value().into_datum()
-            };
-
-            results.insert(agg_info.target_entry_index, datum);
+            }
         }
 
         self.computed_aggregates = Some(results.clone());

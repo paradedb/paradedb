@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760676372565,
+  "lastUpdate": 1760717715672,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4612,6 +4612,72 @@ window.BENCHMARK_DATA = {
             "value": 131.26231044744569,
             "unit": "median tps",
             "extra": "avg tps: 133.2089763859613, max tps: 559.0636801484873, count: 55162"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82295d032148e1213204605f400dc76732cfe3bd",
+          "message": "chore: update to pgrx 0.16.1 (#3276)\n\n## What\n\nUpdate to `pgrx` v0.16.1. This does **not** also add pg18 support to\npg_search.\n\n## Why\n\nStaying current is good.\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-17T11:57:16-04:00",
+          "tree_id": "fc498e17a4350e45dca9662bea925fd282711cb7",
+          "url": "https://github.com/paradedb/paradedb/commit/82295d032148e1213204605f400dc76732cfe3bd"
+        },
+        "date": 1760717713478,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 810.6039412058861,
+            "unit": "median tps",
+            "extra": "avg tps: 809.6714081223233, max tps: 861.7694867698227, count: 55220"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3303.3151663671915,
+            "unit": "median tps",
+            "extra": "avg tps: 3278.0735093849976, max tps: 3310.3221181403146, count: 55220"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 800.1211190227024,
+            "unit": "median tps",
+            "extra": "avg tps: 799.439596976372, max tps: 858.1859208306324, count: 55220"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 713.521502892991,
+            "unit": "median tps",
+            "extra": "avg tps: 710.1655731932766, max tps: 716.7210926994779, count: 55220"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1722.046878588238,
+            "unit": "median tps",
+            "extra": "avg tps: 1719.0310173478645, max tps: 1743.924662589505, count: 110440"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1292.0369708073245,
+            "unit": "median tps",
+            "extra": "avg tps: 1280.151679120454, max tps: 1294.8654551850316, count: 55220"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 108.48366002370362,
+            "unit": "median tps",
+            "extra": "avg tps: 120.57789195659647, max tps: 1019.4469704074934, count: 55220"
           }
         ]
       }

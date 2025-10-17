@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::agg_funcoid;
 use crate::api::window_function::window_func_oid;
 use crate::api::FieldName;
 use crate::nodecast;
@@ -136,6 +137,7 @@ impl WindowAggregateInfo {
             AggregateType::Avg { .. } => window_functions::aggregates::AVG,
             AggregateType::Min { .. } => window_functions::aggregates::MIN,
             AggregateType::Max { .. } => window_functions::aggregates::MAX,
+            AggregateType::Custom { .. } => true, // Custom aggregates are always supported
         }
     }
 }
@@ -226,6 +228,7 @@ unsafe fn extract_standard_aggregate(
     window_func: *mut pg_sys::WindowFunc,
 ) -> Option<AggregateType> {
     use pg_sys::*;
+    use pgrx::{FromDatum, JsonB};
 
     let aggfnoid = (*window_func).winfnoid.to_u32();
     let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
@@ -236,6 +239,32 @@ unsafe fn extract_standard_aggregate(
     } else {
         None
     };
+
+    // Handle custom agg function
+    let custom_agg_oid = agg_funcoid().to_u32();
+    if aggfnoid == custom_agg_oid {
+        if args.is_empty() {
+            return None;
+        }
+
+        // Extract the jsonb argument
+        let first_arg = args.get_ptr(0)?;
+        let json_value = if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
+            if (*const_node).constisnull {
+                return None;
+            }
+            let jsonb_datum = (*const_node).constvalue;
+            let jsonb = JsonB::from_datum(jsonb_datum, false)?;
+            jsonb.0
+        } else {
+            return None;
+        };
+
+        return Some(AggregateType::Custom {
+            agg_json: json_value,
+            filter,
+        });
+    }
 
     // Handle COUNT(*) special case - same logic as aggregatescan
     if aggfnoid == F_COUNT_ && args.is_empty() {

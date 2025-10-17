@@ -528,6 +528,11 @@ fn convert_aggregate_value_to_datum(
         AggregateValue::Null => OwnedValue::Null,
         AggregateValue::Int(val) => OwnedValue::I64(*val),
         AggregateValue::Float(val) => OwnedValue::F64(*val),
+        AggregateValue::Json(val) => {
+            // For JSON values, serialize to string and convert to OwnedValue
+            let json_str = val.to_string();
+            OwnedValue::Str(json_str)
+        }
     };
 
     // Determine the best target type for conversion

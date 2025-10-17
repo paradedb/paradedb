@@ -131,6 +131,17 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 5: Window aggregate with ORDER BY in OVER clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -144,8 +155,29 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    SUM(price) OVER (ORDER BY rating DESC) as running_total
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 6: Window aggregate with ROWS frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 SELECT 
     id,
     name,
@@ -195,6 +227,17 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 9: COUNT with specific column (not *)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -207,8 +250,30 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(brand) OVER () as brand_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 10: Complex PARTITION BY and ORDER BY combination
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category,
+    brand,
+    rating,
+    COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 SELECT 
     id,
     name,
@@ -252,6 +317,17 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 13: Multiple different PARTITION BY clauses
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -268,8 +344,32 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
+SELECT 
+    id,
+    name,
+    category,
+    brand,
+    rating,
+    COUNT(*) OVER (PARTITION BY category) as by_category,
+    COUNT(*) OVER (PARTITION BY brand) as by_brand,
+    COUNT(*) OVER () as total
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 -- Test 14: Window aggregate with GROUPS frame (PG17+)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+
 SELECT 
     id,
     name,

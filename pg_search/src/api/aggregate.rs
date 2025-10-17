@@ -17,7 +17,8 @@
 
 use std::error::Error;
 
-use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
+use pgrx::{default, pg_extern, FromDatum, Internal, Json, JsonB, PgRelation};
+use tantivy::aggregation::agg_req::Aggregation;
 
 use crate::aggregate::execute_aggregate_json;
 use crate::postgres::rel::PgSearchRelation;
@@ -41,4 +42,42 @@ pub fn aggregate(
         memory_limit.try_into()?,
         bucket_limit.try_into()?,
     )?))
+}
+
+/// State transition function for agg aggregate
+/// This accumulates the agg definition (which should be the same across all rows)
+#[pg_extern(stable, parallel_safe)]
+pub fn agg_sfunc(state: Option<Internal>, agg_definition: JsonB) -> Option<Internal> {
+    // On first call, validate and store the agg definition
+    if state.is_none() {
+        let agg_value: serde_json::Value = agg_definition.0;
+
+        // Validate it's a valid Tantivy aggregation by attempting to deserialize
+        if let Err(e) = serde_json::from_value::<Aggregation>(agg_value.clone()) {
+            pgrx::error!("Invalid Tantivy aggregation definition: {}", e);
+        }
+
+        // Store the validated JSON in an Internal datum
+        // We use a Box<serde_json::Value> to store it
+        unsafe {
+            let boxed = Box::new(agg_value);
+            Some(
+                pgrx::Internal::from_datum(
+                    pgrx::pg_sys::Datum::from(Box::into_raw(boxed) as *mut std::ffi::c_void),
+                    false,
+                )
+                .unwrap(),
+            )
+        }
+    } else {
+        // Just return the existing state
+        state
+    }
+}
+
+/// Final function for agg aggregate
+/// Returns the stored agg definition
+#[pg_extern(stable, parallel_safe)]
+pub fn agg_finalfunc(_state: Option<Internal>) -> JsonB {
+    JsonB(serde_json::json!({"result": "not supported"}))
 }

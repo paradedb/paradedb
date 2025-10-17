@@ -208,6 +208,23 @@ LIMIT 3;
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
+SELECT 
+    id,
+    name,
+    category,
+    rating,
+    COUNT(*) OVER (PARTITION BY category) as category_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | category | rating | category_count 
+----+-------------+----------+--------+----------------
+  1 | MacBook Pro | Laptops  |    4.8 |              4
+  5 | ASUS ROG    | Laptops  |    4.7 |              4
+  3 | ThinkPad X1 | Laptops  |    4.5 |              4
+(3 rows)
+
 -- Test 5: Window aggregate with ORDER BY in OVER clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -238,6 +255,23 @@ LIMIT 3;
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    SUM(price) OVER (ORDER BY rating DESC) as running_total
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | price | running_total 
+----+-------------+--------+-------+---------------
+  1 | MacBook Pro |    4.8 |  2499 |          2499
+  5 | ASUS ROG    |    4.7 |  1899 |          4398
+  3 | ThinkPad X1 |    4.5 |  1599 |          5997
+(3 rows)
+
 -- Test 6: Window aggregate with ROWS frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -266,6 +300,22 @@ LIMIT 3;
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating |     moving_avg     
+----+-------------+--------+--------------------
+  1 | MacBook Pro |    4.8 | 4.7500000000000000
+  5 | ASUS ROG    |    4.7 | 4.6666666666666667
+  3 | ThinkPad X1 |    4.5 | 4.5333333333333333
+(3 rows)
 
 -- Test 7: MIN and MAX window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -346,6 +396,23 @@ LIMIT 3;
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
+SELECT 
+    id,
+    name,
+    rating,
+    in_stock,
+    COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | in_stock | in_stock_count 
+----+-------------+--------+----------+----------------
+  1 | MacBook Pro |    4.8 | t        |              4
+  5 | ASUS ROG    |    4.7 | t        |              4
+  3 | ThinkPad X1 |    4.5 | t        |              4
+(3 rows)
+
 -- Test 9: COUNT with specific column (not *)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -374,6 +441,22 @@ LIMIT 3;
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(brand) OVER () as brand_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | brand_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
 
 -- Test 10: Complex PARTITION BY and ORDER BY combination
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -408,6 +491,24 @@ LIMIT 3;
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
+
+SELECT 
+    id,
+    name,
+    category,
+    brand,
+    rating,
+    COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | category | brand  | rating | category_rank_count 
+----+-------------+----------+--------+--------+---------------------
+  1 | MacBook Pro | Laptops  | Apple  |    4.8 |                   1
+  5 | ASUS ROG    | Laptops  | ASUS   |    4.7 |                   2
+  3 | ThinkPad X1 | Laptops  | Lenovo |    4.5 |                   3
+(3 rows)
 
 -- Test 11: Window aggregate without ORDER BY on base query
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -479,6 +580,23 @@ LIMIT 3;
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
 
+SELECT 
+    id,
+    name,
+    rating,
+    price,
+    SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | price | range_sum 
+----+-------------+--------+-------+-----------
+  1 | MacBook Pro |    4.8 |  2499 |      7396
+  5 | ASUS ROG    |    4.7 |  1899 |      7396
+  3 | ThinkPad X1 |    4.5 |  1599 |      7396
+(3 rows)
+
 -- Test 13: Multiple different PARTITION BY clauses
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -522,6 +640,26 @@ LIMIT 3;
                                              Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (24 rows)
 
+SELECT 
+    id,
+    name,
+    category,
+    brand,
+    rating,
+    COUNT(*) OVER (PARTITION BY category) as by_category,
+    COUNT(*) OVER (PARTITION BY brand) as by_brand,
+    COUNT(*) OVER () as total
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | category | brand  | rating | by_category | by_brand | total 
+----+-------------+----------+--------+--------+-------------+----------+-------
+  1 | MacBook Pro | Laptops  | Apple  |    4.8 |           4 |        1 |     4
+  5 | ASUS ROG    | Laptops  | ASUS   |    4.7 |           4 |        1 |     4
+  3 | ThinkPad X1 | Laptops  | Lenovo |    4.5 |           4 |        1 |     4
+(3 rows)
+
 -- Test 14: Window aggregate with GROUPS frame (PG17+)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -553,6 +691,22 @@ LIMIT 3;
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | group_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           2
+  5 | ASUS ROG    |    4.7 |           2
+  3 | ThinkPad X1 |    4.5 |           2
+(3 rows)
 
 -- Test 15: TopN with no @@@ operator (should not trigger window function handling)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

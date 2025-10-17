@@ -303,3 +303,14 @@ impl OrderByInfo {
         matches!(self.feature, OrderByFeature::Score)
     }
 }
+
+/// Get the OID of the agg() function
+pub fn agg_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.agg(jsonb)".into_datum()],
+        )
+        .expect("the `paradedb.agg(jsonb)` function should exist")
+    }
+}

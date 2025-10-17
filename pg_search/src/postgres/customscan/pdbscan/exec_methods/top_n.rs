@@ -189,6 +189,15 @@ impl TopNScanExecState {
 
                     (total_count as i64).into_datum().unwrap()
                 }
+                AggregateType::Custom { .. } => {
+                    // For custom aggregates in window functions, return empty JSON for now
+                    // TODO: Implement actual custom aggregate execution
+                    // This would require running Tantivy's AggregationCollector
+                    use pgrx::{IntoDatum, JsonB};
+                    JsonB(serde_json::json!({"result": "not implemented"}))
+                        .into_datum()
+                        .unwrap()
+                }
                 _ => panic!("Unsupported window aggregate type: {:?}", agg_type),
             };
 

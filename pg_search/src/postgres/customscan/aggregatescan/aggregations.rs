@@ -76,7 +76,16 @@ pub struct AggregateCSClause {
     indexrelid: pg_sys::Oid,
 }
 
-struct FilterAggregationMetric(FilterAggregation);
+#[derive(Debug, Clone)]
+pub enum MetricAggregations {
+    Average(AverageAggregation),
+    Count(CountAggregation),
+    Sum(SumAggregation),
+    Min(MinAggregation),
+    Max(MaxAggregation),
+    Filter(FilterAggregation),
+}
+
 struct FilterAggregationGroupedQual(Aggregations);
 struct FilterAggregationUngroupedQual(Aggregations);
 
@@ -107,22 +116,22 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         let mut aggregations = Aggregations::new();
-        let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-            self,
-            Aggregations::new(),
-        )?;
-        let has_terms_aggregations = !terms_aggregations.is_empty();
+        // let terms_aggregations = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+        //     self,
+        //     Aggregations::new(),
+        // )?;
+        // let has_terms_aggregations = !terms_aggregations.is_empty();
 
-        let filter_aggregations = <Self as IterFlat<FilterAggregationMetric>>::into_iter(self)?;
-        if has_terms_aggregations {
-            let sub_aggregations =
-                <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
-            add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
-        } else {
-            let sub_aggregations =
-                <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
-            add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
-        }
+        let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
+        // if has_terms_aggregations {
+        //     let sub_aggregations =
+        //         <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
+        //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
+        // } else {
+        //     let sub_aggregations =
+        //         <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
+        //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
+        // }
 
         Ok(aggregations)
     }
@@ -238,20 +247,14 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
     }
 }
 
-impl Into<FilterAggregation> for FilterAggregationMetric {
-    fn into(self) -> FilterAggregation {
-        self.0
-    }
-}
 
-impl IterFlat<FilterAggregationMetric> for AggregateCSClause {
+impl IterFlat<MetricAggregations> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationMetric>> {
         Ok(self.aggregates.aggregates().into_iter().map(|agg| {
-            let filter_query = match agg.filter_expr() {
-                Some(query) => FilterAggQuery::new(query.clone(), self.indexrelid),
-                None => FilterAggQuery::new(SearchQueryInput::All, self.indexrelid),
-            };
-            FilterAggregationMetric(FilterAggregation::new_with_query(Box::new(filter_query)))
+            let filter_query = agg.filter_expr().map(|query| FilterAggQuery::new(query.clone(), self.indexrelid));
+            match filter_query {
+                Some(filter_query) => MetricAggregations::Filter(FilterAggregation::new_with_query(Box::new(filter_query))),
+            }
         }))
     }
 }

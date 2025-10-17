@@ -55,28 +55,7 @@ pub mod window_functions {
     pub const JOIN_SUPPORT: bool = false;
 
     /// Enable support for `FILTER` clause in window functions.
-    pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
-
-    /// Supported aggregate functions in window functions
-    pub mod aggregates {
-        /// Enable support for `COUNT(*)` in window functions.
-        pub const COUNT_ANY: bool = true;
-
-        /// Enable support for `COUNT(field)` in window functions.
-        pub const COUNT: bool = false;
-
-        /// Enable support for `SUM(field)` in window functions.
-        pub const SUM: bool = false;
-
-        /// Enable support for `AVG(field)` in window functions.
-        pub const AVG: bool = false;
-
-        /// Enable support for `MIN(field)` in window functions.
-        pub const MIN: bool = false;
-
-        /// Enable support for `MAX(field)` in window functions.
-        pub const MAX: bool = false;
-    }
+    pub const WINDOW_AGG_FILTER_CLAUSE: bool = true;
 }
 
 /// Information about a window aggregate to compute during TopN execution
@@ -105,9 +84,6 @@ impl WindowAggregateInfo {
 
         // Check if all aggregate functions are supported
         for agg_type in &agg_spec.agg_types {
-            if !Self::is_window_agg_supported(agg_type) {
-                return false;
-            }
             // Check if this aggregate has a filter
             let has_filter = agg_type.has_filter();
             if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
@@ -124,21 +100,6 @@ impl WindowAggregateInfo {
 
         // All required features are supported
         true
-    }
-
-    /// Check if a specific aggregate type is supported (for window functions)
-    fn is_window_agg_supported(agg_type: &AggregateType) -> bool {
-        use crate::postgres::customscan::pdbscan::projections::window_agg::window_functions;
-
-        match agg_type {
-            AggregateType::CountAny { .. } => window_functions::aggregates::COUNT_ANY,
-            AggregateType::Count { .. } => window_functions::aggregates::COUNT,
-            AggregateType::Sum { .. } => window_functions::aggregates::SUM,
-            AggregateType::Avg { .. } => window_functions::aggregates::AVG,
-            AggregateType::Min { .. } => window_functions::aggregates::MIN,
-            AggregateType::Max { .. } => window_functions::aggregates::MAX,
-            AggregateType::Custom { .. } => true, // Custom aggregates are always supported
-        }
     }
 }
 

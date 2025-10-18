@@ -208,7 +208,8 @@ impl CustomScan for AggregateScan {
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-            let mut agg_idx = 0;
+
+            let mut aggs_processed = 0;
             let mut natts_processed = 0;
 
             // Fill in values according to the target list mapping
@@ -224,19 +225,20 @@ impl CustomScan for AggregateScan {
                             .expect("should be able to convert to datum")
                     }
                     TargetListEntry::Aggregate(agg_type) => {
-                        agg_idx += 1;
-
-                        if agg_type.can_use_doc_count() {
+                        let datum = if agg_type.can_use_doc_count() {
                             row.doc_count()
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
                             SingleMetricResult::new(
                                 expected_typoid,
-                                row.aggregates[agg_idx].clone(),
+                                row.aggregates[aggs_processed].clone(),
                             )
                             .into_datum()
-                        }
+                        };
+
+                        aggs_processed += 1;
+                        datum
                     }
                 };
 

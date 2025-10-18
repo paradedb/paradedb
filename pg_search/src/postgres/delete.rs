@@ -116,7 +116,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
                 pg_sys::vacuum_delay_point();
 
                 // On PG18+, vacuum_delay_point requires passing an is_analyze parameter for whether it
-                // is being called inder an ANALYZE query
+                // is being called inside an ANALYZE query
                 #[cfg(feature = "pg18")]
                 pg_sys::vacuum_delay_point(false);
             }

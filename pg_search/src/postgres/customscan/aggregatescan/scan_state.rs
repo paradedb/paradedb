@@ -15,30 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::aggregatescan::AggregateCSClause;
-use crate::postgres::customscan::aggregatescan::privdat::AggregateValue;
+use crate::customscan::aggregatescan::{AggregateCSClause, AggregationResultsRow};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
-use tinyvec::TinyVec;
-
-pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
-
-// For GROUP BY results, we need both the group keys and aggregate values
-#[derive(Debug, Clone)]
-pub struct GroupedAggregateRow {
-    pub group_keys: Vec<OwnedValue>, // The values of the grouping columns
-    pub aggregate_values: AggregateRow,
-}
 
 #[derive(Default)]
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<Vec<TantivySingleMetricResult>>),
+    Emitting(std::vec::IntoIter<AggregationResultsRow>),
     Completed,
 }
 
@@ -65,13 +54,6 @@ impl AggregateScanState {
             .as_ref()
             .map(|(_, rel)| rel)
             .expect("PdbScanState: indexrel should be initialized")
-    }
-
-    pub fn process_aggregation_results(
-        &self,
-        result: serde_json::Value,
-    ) -> Vec<GroupedAggregateRow> {
-        todo!()
     }
 }
 

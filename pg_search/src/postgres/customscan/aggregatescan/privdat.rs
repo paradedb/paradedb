@@ -110,48 +110,6 @@ impl SolvePostgresExpressions for AggregateType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
-pub enum AggregateValue {
-    #[default]
-    Null,
-    Int(i64),
-    Float(f64),
-}
-
-/// Enum to specify how numbers should be converted for different aggregate types
-#[derive(Debug, Clone, Copy)]
-enum NumberConversionMode {
-    /// For COUNT: validate integer, check range, always return Int
-    ToInt,
-    /// For SUM/MIN/MAX: preserve original type (Int or Float)
-    Preserve,
-    /// For AVG: always convert to Float
-    ToFloat,
-}
-
-/// Represents an aggregate result that can be either a direct value or wrapped in a "value" object
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AggregateResult {
-    /// Direct numeric value (e.g., `42`)
-    DirectValue(serde_json::Number),
-    /// Object with "value" field (e.g., `{"value": 42}`)
-    ValueObject { value: Option<serde_json::Number> },
-    /// Null value
-    Null,
-}
-
-impl AggregateResult {
-    /// Extract the numeric value, returning None if null
-    pub fn extract_number(&self) -> Option<&serde_json::Number> {
-        match self {
-            AggregateResult::DirectValue(num) => Some(num),
-            AggregateResult::ValueObject { value } => value.as_ref(),
-            AggregateResult::Null => None,
-        }
-    }
-}
-
 // TODO: We should use Tantivy's native aggregate types (CountAggregation, SumAggregation, etc.)
 // which implement serde, but the current fork/version produces incorrect JSON structure.
 // The Tantivy types serialize to {"field": "name", "missing": null} instead of
@@ -201,15 +159,6 @@ impl AggregateType {
         let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_query)?;
 
         Some(agg_type)
-    }
-
-    pub fn empty_value(&self) -> AggregateValue {
-        match self {
-            // COUNT of empty set is 0
-            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
-            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-            _ => AggregateValue::Null,
-        }
     }
 
     /// Get the field name for field-based aggregates (None for COUNT)
@@ -268,141 +217,6 @@ impl AggregateType {
             AggregateType::Min { filter, .. } => filter,
             AggregateType::Max { filter, .. } => filter,
         }
-    }
-
-    pub fn to_json(&self) -> serde_json::Value {
-        let (key, field) = match self {
-            AggregateType::CountAny { .. } => ("value_count", "ctid"),
-            AggregateType::Count { field, .. } => ("value_count", field.as_str()),
-            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
-            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
-            AggregateType::Min { field, .. } => ("min", field.as_str()),
-            AggregateType::Max { field, .. } => ("max", field.as_str()),
-        };
-
-        if let Some(missing) = self.missing() {
-            serde_json::json!({
-                key: {
-                    "field": field,
-                    "missing": missing,
-                }
-            })
-        } else {
-            serde_json::json!({
-                key: {
-                    "field": field,
-                }
-            })
-        }
-    }
-
-    /// Convert AggregateResult to AggregateValue with empty result set handling.
-    ///
-    /// This method handles the interaction between aggregate types, document counts,
-    /// and number processing to ensure correct behavior across all scenarios:
-    ///
-    /// ## Empty Result Set Handling
-    /// When `doc_count` is provided and equals 0, this indicates an empty result set:
-    /// - **COUNT**: Returns 0 (counting zero documents is valid and equals 0)
-    /// - **SUM**: Returns NULL (sum of empty set is undefined/NULL in SQL standard)
-    /// - **AVG/MIN/MAX**: Processed normally (will return NULL from empty AggregateResult)
-    ///
-    /// ## Document Count Usage by Aggregate Type
-    /// - **SUM**: Uses `doc_count` to distinguish truly empty buckets (doc_count=0) from
-    ///   buckets containing documents with zero/null field values
-    /// - **Other aggregates**: Ignore `doc_count` as they can determine emptiness from
-    ///   the aggregate result itself
-    ///
-    /// ## Number Processing and Type Conversion
-    /// Once a valid numeric result is extracted, it undergoes type-specific processing:
-    /// - **COUNT**: Validates integer values, checks range, always returns Int
-    /// - **SUM/MIN/MAX**: Preserves original type (Int or Float) from the result
-    /// - **AVG**: Always converts to Float (division result should be floating-point)
-    ///
-    /// ## Parameters
-    /// - `result`: The raw aggregate result from the search engine (JSON format)
-    /// - `doc_count`: Optional document count for the bucket/result set being processed
-    ///
-    /// ## Returns
-    /// `AggregateValue` which can be Int, Float, or Null depending on the aggregate type
-    /// and the input data.
-    pub fn result_from_aggregate_with_doc_count(
-        &self,
-        result: AggregateResult,
-        doc_count: Option<i64>,
-    ) -> AggregateValue {
-        // Handle empty result sets (doc_count = 0) based on SQL standard behavior:
-        // - COUNT(*) and COUNT(field) return 0 for empty sets
-        // - All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-        if doc_count == Some(0) {
-            return self.empty_value();
-        }
-
-        // Extract the numeric value from the aggregate result
-        // This handles both direct values and {"value": ...} wrapped objects
-        match result.extract_number() {
-            None => AggregateValue::Null,
-            Some(num) => {
-                // Determine the appropriate number conversion mode based on aggregate type
-                let processing_type = match self {
-                    AggregateType::CountAny { .. } => NumberConversionMode::ToInt,
-                    AggregateType::Count { .. } => NumberConversionMode::ToInt,
-                    AggregateType::Sum { .. } => NumberConversionMode::Preserve,
-                    AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
-                    AggregateType::Min { .. } => NumberConversionMode::Preserve,
-                    AggregateType::Max { .. } => NumberConversionMode::Preserve,
-                };
-
-                // Process and convert the number according to the aggregate type requirements
-                Self::process_number(num, processing_type)
-            }
-        }
-    }
-
-    /// Process a number value based on the aggregate type requirements
-    fn process_number(
-        num: &serde_json::Number,
-        processing_type: NumberConversionMode,
-    ) -> AggregateValue {
-        match processing_type {
-            NumberConversionMode::ToInt => {
-                let f64_val = num.as_f64().expect("invalid COUNT result");
-                if f64_val.fract() != 0.0 {
-                    panic!("COUNT should not have a fractional result");
-                }
-                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-                    panic!("COUNT value was out of range");
-                }
-                AggregateValue::Int(f64_val as i64)
-            }
-            NumberConversionMode::Preserve => {
-                if let Some(int_val) = num.as_i64() {
-                    AggregateValue::Int(int_val)
-                } else if let Some(f64_val) = num.as_f64() {
-                    AggregateValue::Float(f64_val)
-                } else {
-                    panic!("Numeric result should be a valid number");
-                }
-            }
-            NumberConversionMode::ToFloat => {
-                let f64_val = num.as_f64().expect("invalid float result");
-                AggregateValue::Float(f64_val)
-            }
-        }
-    }
-}
-
-impl AggregateValue {
-    pub fn into_datum(self) -> pg_sys::Datum {
-        match self {
-            AggregateValue::Int(val) => val.into_datum().unwrap(),
-            AggregateValue::Float(val) => val.into_datum().unwrap(),
-            AggregateValue::Null => pg_sys::Datum::null(),
-        }
-    }
-
-    pub fn is_null(&self) -> bool {
-        matches!(self, AggregateValue::Null)
     }
 }
 

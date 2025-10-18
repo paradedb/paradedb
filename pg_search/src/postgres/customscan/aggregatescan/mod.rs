@@ -220,7 +220,7 @@ impl CustomScan for AggregateScan {
                     TargetListEntry::Aggregate(_) => {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
-                        let datum = SingleMetricResult::new(expected_typoid, row[agg_idx].clone())
+                        let datum = SingleMetricResult::new(expected_typoid, row.aggregates[agg_idx].clone())
                             .into_datum();
                         if let Some(datum) = datum {
                             datums[i] = datum;
@@ -371,7 +371,7 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 fn execute(
     state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<Vec<TantivySingleMetricResult>> {
+) -> std::vec::IntoIter<AggregationResultsRow> {
     let planstate = state.planstate();
     let expr_context = state.runtime_context;
 
@@ -436,30 +436,14 @@ impl From<TantivyAggregationResults> for AggregationResults {
 }
 
 impl IntoIterator for AggregationResults {
-    type Item = Vec<TantivySingleMetricResult>;
+    type Item = AggregationResultsRow;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut rows = Vec::new();
         let key_accumulator = Vec::new();
-        self.flatten(&mut rows, key_accumulator, None);
-        pgrx::info!("flattened: {:?}", rows);
-
-        todo!()
-
-        // let results: Vec<TantivySingleMetricResult> = self
-        //     .0
-        //     .into_values()
-        //     .map(|result| match result {
-        //         AggregationResult::MetricResult(MetricResult::Average(result)) => result,
-        //         AggregationResult::MetricResult(MetricResult::Count(result)) => result,
-        //         AggregationResult::MetricResult(MetricResult::Sum(result)) => result,
-        //         AggregationResult::MetricResult(MetricResult::Min(result)) => result,
-        //         AggregationResult::MetricResult(MetricResult::Max(result)) => result,
-        //         _ => todo!("support other metric results"),
-        //     })
-        //     .collect();
-        // vec![results].into_iter()
+        self.flatten_into(&mut rows, key_accumulator, None);
+        rows.into_iter()
     }
 }
 
@@ -471,7 +455,7 @@ struct AggregationResultsRow {
 }
 
 impl AggregationResults {
-    fn flatten(
+    fn flatten_into(
         self,
         rows: &mut Vec<AggregationResultsRow>,
         key_accumulator: Vec<OwnedValue>,
@@ -494,7 +478,7 @@ impl AggregationResults {
                             new_keys.push(key_value);
 
                             if !bucket_entry.sub_aggregation.0.is_empty() {
-                                AggregationResults(bucket_entry.sub_aggregation.0).flatten(
+                                AggregationResults(bucket_entry.sub_aggregation.0).flatten_into(
                                     rows,
                                     new_keys,
                                     Some(doc_count),

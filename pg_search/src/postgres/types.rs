@@ -726,12 +726,14 @@ impl TryFrom<TantivyValue> for bool {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Bool(val) = value.0 {
-            Ok(val)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::Bool(val) => Ok(val),
+            OwnedValue::U64(val) => Ok(val != 0),
+            OwnedValue::I64(val) => Ok(val != 0),
+            OwnedValue::F64(val) => Ok(val != 0.0),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "bool".to_string(),
-            ))
+            )),
         }
     }
 }

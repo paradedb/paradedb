@@ -218,12 +218,10 @@ impl CustomScan for AggregateScan {
                 let expected_typoid = attr.type_oid().value();
 
                 let datum = match entry {
-                    &TargetListEntry::GroupingColumn(gc_idx) => {
-                        row.group_keys[gc_idx]
-                            .clone()
-                            .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                            .expect("should be able to convert to datum")
-                    }
+                    &TargetListEntry::GroupingColumn(gc_idx) => row.group_keys[gc_idx]
+                        .clone()
+                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                        .expect("should be able to convert to datum"),
                     TargetListEntry::Aggregate(agg_type) => {
                         let datum = if agg_type.can_use_doc_count() {
                             row.doc_count()

@@ -213,14 +213,20 @@ impl CustomScan for AggregateScan {
 
             // Fill in values according to the target list mapping
             for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                match entry {
+                let attr = tupdesc.get(i).expect("missing attribute");
+                let expected_typoid = attr.type_oid().value();
+
+                let datum = match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
-                        todo!()
+                        row.group_keys[gc_idx]
+                            .clone()
+                            .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                            .expect("should be able to convert to datum")
                     }
                     TargetListEntry::Aggregate(agg_type) => {
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let expected_typoid = attr.type_oid().value();
-                        let datum = if agg_type.can_use_doc_count() {
+                        agg_idx += 1;
+
+                        if agg_type.can_use_doc_count() {
                             row.doc_count()
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
@@ -230,17 +236,18 @@ impl CustomScan for AggregateScan {
                                 row.aggregates[agg_idx].clone(),
                             )
                             .into_datum()
-                        };
-                        if let Some(datum) = datum {
-                            datums[i] = datum;
-                            isnull[i] = false;
-                        } else {
-                            datums[i] = pg_sys::Datum::null();
-                            isnull[i] = true;
                         }
-                        agg_idx += 1;
                     }
+                };
+
+                if let Some(datum) = datum {
+                    datums[i] = datum;
+                    isnull[i] = false;
+                } else {
+                    datums[i] = pg_sys::Datum::null();
+                    isnull[i] = true;
                 }
+
                 natts_processed += 1;
             }
 
@@ -458,7 +465,7 @@ impl IntoIterator for AggregationResults {
 
 #[derive(Debug)]
 struct AggregationResultsRow {
-    group_keys: Vec<OwnedValue>,
+    group_keys: Vec<TantivyValue>,
     aggregates: Vec<TantivySingleMetricResult>,
     doc_count: Option<u64>,
 }
@@ -476,7 +483,7 @@ impl AggregationResults {
     fn flatten_into(
         self,
         rows: &mut Vec<AggregationResultsRow>,
-        key_accumulator: Vec<OwnedValue>,
+        key_accumulator: Vec<TantivyValue>,
         doc_count: Option<u64>,
     ) {
         for (_name, result) in self.0 {
@@ -488,10 +495,10 @@ impl AggregationResults {
                                 let mut new_keys = key_accumulator.clone();
                                 let doc_count = bucket_entry.doc_count;
                                 let key_value = match bucket_entry.key {
-                                    Key::Str(s) => OwnedValue::Str(s),
-                                    Key::I64(v) => OwnedValue::I64(v),
-                                    Key::U64(v) => OwnedValue::U64(v),
-                                    Key::F64(v) => OwnedValue::F64(v),
+                                    Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
+                                    Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
+                                    Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
+                                    Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
                                 };
 
                                 new_keys.push(key_value);

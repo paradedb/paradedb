@@ -41,7 +41,7 @@ jobs:
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
+            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search:

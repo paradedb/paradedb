@@ -153,7 +153,12 @@ pub extern "C-unwind" fn amrescan(
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from({
-                    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                    #[cfg(any(
+                        feature = "pg14",
+                        feature = "pg15",
+                        feature = "pg16",
+                        feature = "pg17"
+                    ))]
                     {
                         (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
                     }

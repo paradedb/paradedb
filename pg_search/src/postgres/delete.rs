@@ -112,7 +112,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         for doc_id in 0..segment_reader.max_doc() {
             if doc_id % 100 == 0 {
                 // we think there's a pending interrupt, so this should raise a cancel query ERROR
-                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                #[cfg(any(
+                    feature = "pg14",
+                    feature = "pg15",
+                    feature = "pg16",
+                    feature = "pg17"
+                ))]
                 pg_sys::vacuum_delay_point();
 
                 // On PG18+, vacuum_delay_point requires passing an is_analyze parameter for whether it

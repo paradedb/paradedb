@@ -36,7 +36,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
     ParallelScanState::size_of(u16::MAX as usize, &[], false)
 }
 
-#[cfg(feature = "pg17")]
+#[cfg(any(feature = "pg17", feature = "pg18"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan(
     _nkeys: i32,

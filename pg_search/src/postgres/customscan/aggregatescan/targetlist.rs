@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
@@ -25,15 +26,47 @@ use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) enum TargetListEntry {
+    // the grouping columns are not guaranteed to the in the same order in the GROUP BY vs target list,
+    // so we store the index of the grouping column in the GROUP BY list
+    // todo (@rebasedming): we should sort the grouping columns so they match the order in the target list
+    GroupingColumn(usize),
+    Aggregate(AggregateType),
+}
+
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TargetList {
-    aggregates: Vec<AggregateType>,
+    entries: Vec<TargetListEntry>,
+    groupby: GroupByClause,
     uses_our_operator: bool,
 }
 
 impl TargetList {
-    pub fn aggregates(&self) -> Vec<AggregateType> {
-        self.aggregates.clone()
+    pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
+        self.entries
+            .iter()
+            .filter_map(|entry| match entry {
+                TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+                TargetListEntry::GroupingColumn(_) => None,
+            })
+    }
+
+    pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
+        self.entries
+            .iter_mut()
+            .filter_map(|entry| match entry {
+                TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+                TargetListEntry::GroupingColumn(_) => None,
+            })
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
+        self.entries.iter()
+    }
+
+    pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
+        self.groupby.grouping_columns()
     }
 
     pub fn uses_our_operator(&self) -> bool {
@@ -48,7 +81,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
         &self,
         builder: CustomPathBuilder<AggregateScan>,
     ) -> CustomPathBuilder<AggregateScan> {
-        builder
+        self.groupby.add_to_custom_path(builder)
     }
 
     fn from_pg(
@@ -77,21 +110,32 @@ impl CustomScanClause<AggregateScan> for TargetList {
         };
         let heap_oid = unsafe { (*heap_rte).relid };
 
-        let mut aggregates = Vec::new();
+        let groupby_clause = GroupByClause::from_pg(args, heap_rti, index)?;
+        let grouping_columns = groupby_clause.grouping_columns();
+        let mut entries = Vec::new();
         let mut uses_our_operator = false;
 
         for expr in target_list.iter_ptr() {
             unsafe {
                 let node_tag = (*expr).type_;
+                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-                if let Some(_var) = nodecast!(Var, T_Var, expr) {
-                    continue;
-                } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
-                    let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
-                    if find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node).is_some()
-                    {
-                        continue;
-                    } else {
+                if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    // This is a Var - it should be a grouping column
+                    // Find which grouping column this is
+                    let mut found = false;
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        if (*var).varattno == gc.attno
+                            && gc.field_name == field_name.clone().into_inner()
+                        {
+                            entries.push(TargetListEntry::GroupingColumn(i));
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
                         return None;
                     }
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
@@ -121,7 +165,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                         }
                     }
 
-                    aggregates.push(aggregate);
+                    entries.push(TargetListEntry::Aggregate(aggregate));
                 } else {
                     return None;
                 }
@@ -129,7 +173,8 @@ impl CustomScanClause<AggregateScan> for TargetList {
         }
 
         Some(TargetList {
-            aggregates,
+            entries,
+            groupby: groupby_clause,
             uses_our_operator,
         })
     }

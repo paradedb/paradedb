@@ -26,7 +26,7 @@ use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
-use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
+use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
@@ -72,7 +72,6 @@ impl AggregationKey for FilterAggUngroupedKey {
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,
-    groupby: GroupByClause,
     orderby: OrderByClause,
     limit_offset: LimitOffsetClause,
     quals: SearchQueryClause,
@@ -149,12 +148,20 @@ impl CollectAggregations for AggregateCSClause {
 }
 
 impl AggregateCSClause {
-    pub fn aggregates(&self) -> Vec<AggregateType> {
+    pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.targetlist.aggregates()
     }
 
+    pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
+        self.targetlist.aggregates_mut()
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
+        self.targetlist.entries()
+    }
+
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
-        self.groupby.grouping_columns()
+        self.targetlist.grouping_columns()
     }
 
     pub fn has_orderby(&self) -> bool {
@@ -162,11 +169,11 @@ impl AggregateCSClause {
     }
 
     pub fn has_groupby(&self) -> bool {
-        !self.groupby.grouping_columns().is_empty()
+        !self.targetlist.grouping_columns().is_empty()
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {
-        self.groupby.grouping_columns().is_empty()
+        self.targetlist.grouping_columns().is_empty()
             && self.orderby.orderby_info().is_empty()
             && !self.orderby.has_orderby()
     }
@@ -187,8 +194,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         &self,
         builder: CustomPathBuilder<AggregateScan>,
     ) -> CustomPathBuilder<AggregateScan> {
-        let mut builder = self.groupby.add_to_custom_path(builder);
-        builder = self.targetlist.add_to_custom_path(builder);
+        let mut builder = self.targetlist.add_to_custom_path(builder);
         builder = self.orderby.add_to_custom_path(builder);
         builder = self.limit_offset.add_to_custom_path(builder);
         builder = self.quals.add_to_custom_path(builder);
@@ -200,14 +206,12 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
-        let groupby = GroupByClause::from_pg(args, heap_rti, index)?;
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
         let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         Some(Self {
-            groupby,
             targetlist,
             orderby,
             limit_offset,
@@ -235,7 +239,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
             }
         };
 
-        let grouping_columns = self.groupby.grouping_columns();
+        let grouping_columns = self.targetlist.grouping_columns();
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
@@ -264,11 +268,11 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
 
 impl CollectFlat<MetricAggregations> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
-        Ok(self.targetlist.aggregates().into_iter().map(|agg| {
-            let metric_agg = agg.into();
-            pgrx::info!("metric_agg: {:?}", metric_agg);
-            metric_agg
-        }))
+        Ok(self
+            .targetlist
+            .aggregates()
+            .into_iter()
+            .map(|agg| agg.clone().into()))
     }
 }
 

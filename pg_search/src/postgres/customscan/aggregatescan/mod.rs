@@ -34,13 +34,13 @@ use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, Groupin
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, AggregateValue, PrivateData, TargetListEntry,
+    AggregateType, AggregateValue, PrivateData,
 };
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
-use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
+use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -97,52 +97,8 @@ impl CustomScan for AggregateScan {
         let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
         let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
 
-        // Create a new target list which includes grouping columns and replaces aggregates
-        // with FuncExprs which will be produced by our CustomScan.
-        //
-        // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
-        // them with.
-        let grouping_columns = aggregate_clause.grouping_columns();
-        let parse = builder.args().root().parse;
-        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
-        let mut target_list_mapping = Vec::new();
-        let mut agg_idx = 0;
-
-        for (te_idx, input_te) in target_list.iter_ptr().enumerate() {
-            unsafe {
-                let var_context =
-                    VarContext::from_planner(builder.args().root() as *const _ as *mut _);
-
-                if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
-                {
-                    // This is a Var - it should be a grouping column
-                    // Find which grouping column this is
-                    let mut found = false;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno
-                            && gc.field_name == field_name.clone().into_inner()
-                        {
-                            target_list_mapping.push(TargetListEntry::GroupingColumn(i));
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        return None;
-                    }
-                } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
-                    agg_idx += 1;
-                } else {
-                    return None;
-                }
-            };
-        }
-
         Some(builder.build(PrivateData {
             heap_rti,
-            target_list_mapping,
             indexrelid: index.oid(),
             aggregate_clause,
         }))
@@ -185,8 +141,6 @@ impl CustomScan for AggregateScan {
             }
         }
 
-        builder.custom_state().target_list_mapping =
-            builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
@@ -245,7 +199,6 @@ impl CustomScan for AggregateScan {
                 next
             }
             ExecutionState::Emitting(row_iter) => {
-                pgrx::info!("emitting");
                 // Emit the next row.
                 row_iter.next()
             }
@@ -262,32 +215,24 @@ impl CustomScan for AggregateScan {
                 (*state.planstate()).ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-
-            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
-            let target_list_mapping = &state.custom_state().target_list_mapping;
-
-            assert_eq!(
-                natts,
-                target_list_mapping.len(),
-                "Target list mapping length mismatch"
-            );
-
-            // Simple slot setup
             pg_sys::ExecClearTuple(slot);
 
+            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+            let mut agg_idx = 0;
+            let mut natts_processed = 0;
 
             // Fill in values according to the target list mapping
-            for (i, entry) in target_list_mapping.iter().enumerate() {
+            for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
                 match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
                         todo!()
                     }
-                    TargetListEntry::Aggregate(agg_idx) => {
+                    TargetListEntry::Aggregate(_) => {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
-                        let datum = SingleMetricResult::new(expected_typoid, row[*agg_idx].clone())
+                        let datum = SingleMetricResult::new(expected_typoid, row[agg_idx].clone())
                             .into_datum();
                         if let Some(datum) = datum {
                             datums[i] = datum;
@@ -296,9 +241,13 @@ impl CustomScan for AggregateScan {
                             datums[i] = pg_sys::Datum::null();
                             isnull[i] = true;
                         }
+                        agg_idx += 1;
                     }
                 }
+                natts_processed += 1;
             }
+
+            assert_eq!(natts, natts_processed, "target list length mismatch",);
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
@@ -378,8 +327,7 @@ impl SolvePostgresExpressions for AggregateScanState {
         self.aggregate_clause.query_mut().has_heap_filters()
             || self
                 .aggregate_clause
-                .aggregates()
-                .iter_mut()
+                .aggregates_mut()
                 .any(|agg| agg.has_heap_filters())
     }
 
@@ -387,8 +335,7 @@ impl SolvePostgresExpressions for AggregateScanState {
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
                 .aggregate_clause
-                .aggregates()
-                .iter_mut()
+                .aggregates_mut()
                 .any(|agg| agg.has_postgres_expressions())
     }
 
@@ -397,8 +344,7 @@ impl SolvePostgresExpressions for AggregateScanState {
             .query_mut()
             .init_postgres_expressions(planstate);
         self.aggregate_clause
-            .aggregates()
-            .iter_mut()
+            .aggregates_mut()
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
@@ -407,8 +353,7 @@ impl SolvePostgresExpressions for AggregateScanState {
             .query_mut()
             .solve_postgres_expressions(expr_context);
         self.aggregate_clause
-            .aggregates()
-            .iter_mut()
+            .aggregates_mut()
             .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }
 }

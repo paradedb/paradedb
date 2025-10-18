@@ -407,16 +407,9 @@ impl AggregateValue {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum TargetListEntry {
-    GroupingColumn(usize), // Index into grouping_columns vec
-    Aggregate(usize),      // Index into aggregate_types vec
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
-    pub target_list_mapping: Vec<TargetListEntry>,
     pub aggregate_clause: AggregateCSClause,
 }
 

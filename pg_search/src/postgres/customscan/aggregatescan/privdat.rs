@@ -158,6 +158,10 @@ impl AggregateType {
         Some(agg_type)
     }
 
+    pub fn can_use_doc_count(&self) -> bool {
+        matches!(self, AggregateType::CountAny { .. })
+    }
+
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {

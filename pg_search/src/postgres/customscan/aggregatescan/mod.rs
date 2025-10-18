@@ -217,11 +217,20 @@ impl CustomScan for AggregateScan {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
                         todo!()
                     }
-                    TargetListEntry::Aggregate(_) => {
+                    TargetListEntry::Aggregate(agg_type) => {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
-                        let datum = SingleMetricResult::new(expected_typoid, row.aggregates[agg_idx].clone())
-                            .into_datum();
+                        let datum = if agg_type.can_use_doc_count() {
+                            row.doc_count()
+                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum")
+                        } else {
+                            SingleMetricResult::new(
+                                expected_typoid,
+                                row.aggregates[agg_idx].clone(),
+                            )
+                            .into_datum()
+                        };
                         if let Some(datum) = datum {
                             datums[i] = datum;
                             isnull[i] = false;
@@ -454,6 +463,15 @@ struct AggregationResultsRow {
     doc_count: Option<u64>,
 }
 
+impl AggregationResultsRow {
+    fn doc_count(&self) -> TantivyValue {
+        match self.doc_count {
+            Some(doc_count) => TantivyValue(OwnedValue::U64(doc_count)),
+            None => TantivyValue(OwnedValue::Null),
+        }
+    }
+}
+
 impl AggregationResults {
     fn flatten_into(
         self,
@@ -463,39 +481,38 @@ impl AggregationResults {
     ) {
         for (_name, result) in self.0 {
             match result {
-                AggregationResult::BucketResult(bucket) => match bucket {
-                    BucketResult::Terms { buckets, .. } => {
-                        for bucket_entry in buckets {
-                            let mut new_keys = key_accumulator.clone();
-                            let doc_count = bucket_entry.doc_count;
-                            let key_value = match bucket_entry.key {
-                                Key::Str(s) => OwnedValue::Str(s),
-                                Key::I64(v) => OwnedValue::I64(v),
-                                Key::U64(v) => OwnedValue::U64(v),
-                                Key::F64(v) => OwnedValue::F64(v),
-                            };
+                AggregationResult::BucketResult(bucket) => {
+                    match bucket {
+                        BucketResult::Terms { buckets, .. } => {
+                            for bucket_entry in buckets {
+                                let mut new_keys = key_accumulator.clone();
+                                let doc_count = bucket_entry.doc_count;
+                                let key_value = match bucket_entry.key {
+                                    Key::Str(s) => OwnedValue::Str(s),
+                                    Key::I64(v) => OwnedValue::I64(v),
+                                    Key::U64(v) => OwnedValue::U64(v),
+                                    Key::F64(v) => OwnedValue::F64(v),
+                                };
 
-                            new_keys.push(key_value);
+                                new_keys.push(key_value);
 
-                            if !bucket_entry.sub_aggregation.0.is_empty() {
-                                AggregationResults(bucket_entry.sub_aggregation.0).flatten_into(
-                                    rows,
-                                    new_keys,
-                                    Some(doc_count),
-                                );
-                            } else {
-                                rows.push(AggregationResultsRow {
-                                    group_keys: new_keys,
-                                    aggregates: Vec::new(),
-                                    doc_count: Some(doc_count),
-                                });
+                                if !bucket_entry.sub_aggregation.0.is_empty() {
+                                    AggregationResults(bucket_entry.sub_aggregation.0)
+                                        .flatten_into(rows, new_keys, Some(doc_count));
+                                } else {
+                                    rows.push(AggregationResultsRow {
+                                        group_keys: new_keys,
+                                        aggregates: Vec::new(),
+                                        doc_count: Some(doc_count),
+                                    });
+                                }
                             }
                         }
+                        _ => {
+                            todo!("support other bucket results");
+                        }
                     }
-                    _ => {
-                        todo!("support other bucket results");
-                    }
-                },
+                }
 
                 AggregationResult::MetricResult(metric) => {
                     let single = match metric {
@@ -506,8 +523,6 @@ impl AggregationResults {
                         | MetricResult::Max(result) => result,
                         unknown => todo!("support other metric results: {:?}", unknown),
                     };
-
-                    pgrx::info!("single: {:?}", single);
 
                     if let Some(existing_row) = rows.last_mut() {
                         existing_row.aggregates.push(single);

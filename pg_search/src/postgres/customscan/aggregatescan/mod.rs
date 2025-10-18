@@ -29,24 +29,16 @@ use crate::nodecast;
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::HashMap;
-use crate::customscan::aggregatescan::aggregations::{AggregateCSClause, CollectAggregations};
+use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
-use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
-use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
-use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, AggregateValue, PrivateData,
-};
-use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
-use crate::postgres::customscan::aggregatescan::scan_state::{
-    AggregateScanState, ExecutionState, GroupedAggregateRow,
-};
-use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
+use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
+use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
+use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
@@ -54,12 +46,9 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::query::SearchQueryInput;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
-use std::collections::hash_map::IntoValues;
 use std::ffi::CStr;
 use tantivy::aggregation::agg_result::{
     AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult, MetricResult,
@@ -188,7 +177,6 @@ impl CustomScan for AggregateScan {
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let next = match &mut state.custom_state_mut().state {
             ExecutionState::Completed => {
-                pgrx::info!("completed");
                 return std::ptr::null_mut();
             }
             ExecutionState::NotStarted => {
@@ -453,8 +441,8 @@ impl IntoIterator for AggregationResults {
 
     fn into_iter(self) -> Self::IntoIter {
         let mut rows = Vec::new();
-        let mut key_accumulator = Vec::new();
-        let flattened = self.flatten(&mut rows, key_accumulator, None);
+        let key_accumulator = Vec::new();
+        self.flatten(&mut rows, key_accumulator, None);
         pgrx::info!("flattened: {:?}", rows);
 
         todo!()
@@ -486,7 +474,7 @@ impl AggregationResults {
     fn flatten(
         self,
         rows: &mut Vec<AggregationResultsRow>,
-        mut key_accumulator: Vec<OwnedValue>,
+        key_accumulator: Vec<OwnedValue>,
         doc_count: Option<u64>,
     ) {
         for (_name, result) in self.0 {

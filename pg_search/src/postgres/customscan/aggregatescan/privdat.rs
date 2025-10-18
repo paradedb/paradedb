@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{AsCStr, OrderByInfo};
+use crate::api::AsCStr;
 use crate::customscan::aggregatescan::aggregations::AggregateCSClause;
-use crate::customscan::aggregatescan::{AggregateScan, CustomScanClause, GroupingColumn};
+use crate::customscan::aggregatescan::CustomScanClause;
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -564,13 +564,13 @@ pub enum MetricAggregations {
     // Filter(FilterAggregation),
 }
 
-impl Into<MetricAggregations> for AggregateType {
-    fn into(self) -> MetricAggregations {
-        if self.has_filter() {
+impl From<AggregateType> for MetricAggregations {
+    fn from(val: AggregateType) -> Self {
+        if val.has_filter() {
             todo!("support filter aggs");
         }
 
-        match self {
+        match val {
             AggregateType::CountAny { .. } => MetricAggregations::Count(CountAggregation {
                 field: "ctid".to_string(),
                 missing: None,
@@ -594,9 +594,9 @@ impl Into<MetricAggregations> for AggregateType {
     }
 }
 
-impl Into<Aggregation> for MetricAggregations {
-    fn into(self) -> Aggregation {
-        match self {
+impl From<MetricAggregations> for Aggregation {
+    fn from(val: MetricAggregations) -> Self {
+        match val {
             MetricAggregations::Average(agg) => Aggregation {
                 agg: AggregationVariants::Average(agg),
                 sub_aggregation: Aggregations::new(),

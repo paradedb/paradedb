@@ -15,17 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::OrderByInfo;
-use crate::customscan::aggregatescan::{AggregateCSClause, AggregateScan, CustomScanClause};
-use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
-use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateResult, AggregateType, AggregateValue,
-};
+use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::privdat::AggregateValue;
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
-use crate::query::SearchQueryInput;
-use tantivy::aggregation::agg_result::AggregationResult;
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::schema::OwnedValue;
 

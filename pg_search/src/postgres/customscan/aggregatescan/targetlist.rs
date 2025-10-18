@@ -44,21 +44,17 @@ pub(crate) struct TargetList {
 
 impl TargetList {
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
-        self.entries
-            .iter()
-            .filter_map(|entry| match entry {
-                TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-                TargetListEntry::GroupingColumn(_) => None,
-            })
+        self.entries.iter().filter_map(|entry| match entry {
+            TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+            TargetListEntry::GroupingColumn(_) => None,
+        })
     }
 
     pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
-        self.entries
-            .iter_mut()
-            .filter_map(|entry| match entry {
-                TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-                TargetListEntry::GroupingColumn(_) => None,
-            })
+        self.entries.iter_mut().filter_map(|entry| match entry {
+            TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+            TargetListEntry::GroupingColumn(_) => None,
+        })
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {

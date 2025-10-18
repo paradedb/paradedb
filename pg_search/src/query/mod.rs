@@ -89,7 +89,7 @@ impl<'a> QueryContext<'a> {
 
     pub fn parser(&self) -> QueryParser {
         QueryParser::for_index(
-            &self.reader.searcher().index(),
+            self.reader.searcher().index(),
             self.schema.fields().map(|(f, _)| f).collect(),
         )
     }

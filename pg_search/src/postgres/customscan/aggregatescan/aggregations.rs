@@ -22,7 +22,6 @@ use crate::customscan::aggregatescan::GroupingColumn;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
@@ -31,14 +30,11 @@ use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::ExprContextGuard;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::query::{QueryContext, SearchQueryInput};
+use crate::query::SearchQueryInput;
 
 use anyhow::Result;
 use pgrx::pg_sys;
-use pgrx::PgList;
-use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -46,9 +42,7 @@ use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{
     CustomOrder, FilterAggregation, OrderTarget, SerializableQuery, TermsAggregation,
 };
-use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
-use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
+use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 
 trait AggregationKey {
     const NAME: &'static str;
@@ -268,17 +262,13 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
 
 impl CollectFlat<MetricAggregations> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
-        Ok(self
-            .targetlist
-            .aggregates()
-            .into_iter()
-            .map(|agg| agg.clone().into()))
+        Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
     }
 }
 
-impl Into<Aggregations> for FilterAggregationUngroupedQual {
-    fn into(self) -> Aggregations {
-        self.0
+impl From<FilterAggregationUngroupedQual> for Aggregations {
+    fn from(val: FilterAggregationUngroupedQual) -> Self {
+        val.0
     }
 }
 
@@ -300,9 +290,9 @@ impl Into<Aggregations> for FilterAggregationUngroupedQual {
 //     }
 // }
 
-impl Into<Aggregations> for FilterAggregationGroupedQual {
-    fn into(self) -> Aggregations {
-        self.0
+impl From<FilterAggregationGroupedQual> for Aggregations {
+    fn from(val: FilterAggregationGroupedQual) -> Self {
+        val.0
     }
 }
 

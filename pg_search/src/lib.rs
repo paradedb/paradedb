@@ -90,7 +90,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::options::init();
     gucs::init();
 
-    #[cfg(not(feature = "pg17"))]
+    #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();
 
     #[allow(static_mut_refs)]
@@ -141,7 +141,7 @@ pub mod pg_test {
 
         let mut options: Vec<&'static str> = Vec::new();
 
-        if cfg!(not(feature = "pg17")) {
+        if cfg!(not(any(feature = "pg17", feature = "pg18"))) {
             options.push("shared_preload_libraries='pg_search'");
         }
 

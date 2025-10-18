@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature};
-use crate::customscan::aggregatescan::privdat::MetricAggregations;
 use crate::customscan::aggregatescan::AggregateType;
 use crate::customscan::aggregatescan::GroupingColumn;
 use crate::gucs;
@@ -41,6 +40,9 @@ use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{
     CustomOrder, FilterAggregation, OrderTarget, SerializableQuery, TermsAggregation,
+};
+use tantivy::aggregation::metric::{
+    AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
 };
 use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 
@@ -407,5 +409,71 @@ fn add_filter_aggregations<Agg, SubAgg>(
             sub_aggregation: sub_aggregation.into(),
         };
         aggregations.insert(format!("{}_{}", FilterKey::NAME, idx), agg);
+    }
+}
+
+#[derive(Debug, Clone)]
+enum MetricAggregations {
+    Average(AverageAggregation),
+    Count(CountAggregation),
+    Sum(SumAggregation),
+    Min(MinAggregation),
+    Max(MaxAggregation),
+}
+
+impl From<AggregateType> for MetricAggregations {
+    fn from(val: AggregateType) -> Self {
+        if val.has_filter() {
+            todo!("support filter aggs");
+        }
+
+        match val {
+            AggregateType::CountAny { .. } => MetricAggregations::Count(CountAggregation {
+                field: "ctid".to_string(),
+                missing: None,
+            }),
+            AggregateType::Count { field, missing, .. } => {
+                MetricAggregations::Count(CountAggregation { field, missing })
+            }
+            AggregateType::Sum { field, missing, .. } => {
+                MetricAggregations::Sum(SumAggregation { field, missing })
+            }
+            AggregateType::Avg { field, missing, .. } => {
+                MetricAggregations::Average(AverageAggregation { field, missing })
+            }
+            AggregateType::Min { field, missing, .. } => {
+                MetricAggregations::Min(MinAggregation { field, missing })
+            }
+            AggregateType::Max { field, missing, .. } => {
+                MetricAggregations::Max(MaxAggregation { field, missing })
+            }
+        }
+    }
+}
+
+impl From<MetricAggregations> for Aggregation {
+    fn from(val: MetricAggregations) -> Self {
+        match val {
+            MetricAggregations::Average(agg) => Aggregation {
+                agg: AggregationVariants::Average(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Count(agg) => Aggregation {
+                agg: AggregationVariants::Count(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Sum(agg) => Aggregation {
+                agg: AggregationVariants::Sum(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Min(agg) => Aggregation {
+                agg: AggregationVariants::Min(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+            MetricAggregations::Max(agg) => Aggregation {
+                agg: AggregationVariants::Max(agg),
+                sub_aggregation: Aggregations::new(),
+            },
+        }
     }
 }

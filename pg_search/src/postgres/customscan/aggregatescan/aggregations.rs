@@ -71,7 +71,7 @@ impl AggregationKey for FilterAggUngroupedKey {
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
-    aggregates: TargetList,
+    targetlist: TargetList,
     groupby: GroupByClause,
     orderby: OrderByClause,
     limit_offset: LimitOffsetClause,
@@ -150,7 +150,7 @@ impl CollectAggregations for AggregateCSClause {
 
 impl AggregateCSClause {
     pub fn aggregates(&self) -> Vec<AggregateType> {
-        self.aggregates.aggregates()
+        self.targetlist.aggregates()
     }
 
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
@@ -188,7 +188,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         builder: CustomPathBuilder<AggregateScan>,
     ) -> CustomPathBuilder<AggregateScan> {
         let mut builder = self.groupby.add_to_custom_path(builder);
-        builder = self.aggregates.add_to_custom_path(builder);
+        builder = self.targetlist.add_to_custom_path(builder);
         builder = self.orderby.add_to_custom_path(builder);
         builder = self.limit_offset.add_to_custom_path(builder);
         builder = self.quals.add_to_custom_path(builder);
@@ -201,14 +201,14 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         index: &PgSearchRelation,
     ) -> Option<Self> {
         let groupby = GroupByClause::from_pg(args, heap_rti, index)?;
-        let aggregates = TargetList::from_pg(args, heap_rti, index)?;
+        let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
         let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         Some(Self {
             groupby,
-            aggregates,
+            targetlist,
             orderby,
             limit_offset,
             quals,
@@ -264,7 +264,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
 
 impl CollectFlat<MetricAggregations> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
-        Ok(self.aggregates.aggregates().into_iter().map(|agg| {
+        Ok(self.targetlist.aggregates().into_iter().map(|agg| {
             let metric_agg = agg.into();
             pgrx::info!("metric_agg: {:?}", metric_agg);
             metric_agg

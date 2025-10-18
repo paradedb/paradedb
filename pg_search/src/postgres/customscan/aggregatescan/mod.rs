@@ -509,7 +509,7 @@ impl IntoIterator for AggregationResults {
     fn into_iter(self) -> Self::IntoIter {
         let mut rows = Vec::new();
         let mut key_accumulator = Vec::new();
-        let flattened = self.flatten(&mut rows, key_accumulator);
+        let flattened = self.flatten(&mut rows, key_accumulator, None);
         pgrx::info!("flattened: {:?}", rows);
 
         todo!()
@@ -534,17 +534,23 @@ impl IntoIterator for AggregationResults {
 struct AggregationResultsRow {
     group_keys: Vec<OwnedValue>,
     aggregates: Vec<TantivySingleMetricResult>,
+    doc_count: Option<u64>,
 }
 
 impl AggregationResults {
-    fn flatten(self, rows: &mut Vec<AggregationResultsRow>, mut key_accumulator: Vec<OwnedValue>) {
+    fn flatten(
+        self,
+        rows: &mut Vec<AggregationResultsRow>,
+        mut key_accumulator: Vec<OwnedValue>,
+        doc_count: Option<u64>,
+    ) {
         for (_name, result) in self.0 {
             match result {
                 AggregationResult::BucketResult(bucket) => match bucket {
                     BucketResult::Terms { buckets, .. } => {
                         for bucket_entry in buckets {
                             let mut new_keys = key_accumulator.clone();
-
+                            let doc_count = bucket_entry.doc_count;
                             let key_value = match bucket_entry.key {
                                 Key::Str(s) => OwnedValue::Str(s),
                                 Key::I64(v) => OwnedValue::I64(v),
@@ -555,12 +561,16 @@ impl AggregationResults {
                             new_keys.push(key_value);
 
                             if !bucket_entry.sub_aggregation.0.is_empty() {
-                                AggregationResults(bucket_entry.sub_aggregation.0)
-                                    .flatten(rows, new_keys);
+                                AggregationResults(bucket_entry.sub_aggregation.0).flatten(
+                                    rows,
+                                    new_keys,
+                                    Some(doc_count),
+                                );
                             } else {
                                 rows.push(AggregationResultsRow {
                                     group_keys: new_keys,
                                     aggregates: Vec::new(),
+                                    doc_count: Some(doc_count),
                                 });
                             }
                         }
@@ -588,6 +598,7 @@ impl AggregationResults {
                         rows.push(AggregationResultsRow {
                             group_keys: key_accumulator.clone(),
                             aggregates: vec![single],
+                            doc_count,
                         });
                     }
                 }

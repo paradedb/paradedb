@@ -62,10 +62,10 @@ use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::collections::hash_map::IntoValues;
 use std::ffi::CStr;
 use tantivy::aggregation::agg_result::{
-    AggregationResult, AggregationResults as TantivyAggregationResults, MetricResult,
+    AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult, MetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
+use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -287,7 +287,8 @@ impl CustomScan for AggregateScan {
                     TargetListEntry::Aggregate(agg_idx) => {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
-                        let datum = SingleMetricResult::new(expected_typoid, row[*agg_idx].clone()).into_datum();
+                        let datum = SingleMetricResult::new(expected_typoid, row[*agg_idx].clone())
+                            .into_datum();
                         if let Some(datum) = datum {
                             datums[i] = datum;
                             isnull[i] = false;
@@ -310,62 +311,6 @@ impl CustomScan for AggregateScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
-}
-
-/// Convert a group value (OwnedValue) to a PostgreSQL Datum
-unsafe fn convert_group_value_to_datum(
-    group_val: OwnedValue,
-    typoid: pg_sys::Oid,
-) -> (pg_sys::Datum, bool) {
-    let oid = pgrx::PgOid::from(typoid);
-    let tantivy_value = TantivyValue(group_val);
-    match tantivy_value.try_into_datum(oid) {
-        Ok(Some(datum)) => (datum, false),
-        Ok(None) => (pg_sys::Datum::from(0), true),
-        Err(e) => {
-            panic!("Failed to convert TantivyValue to datum: {e:?}");
-        }
-    }
-}
-
-/// Convert an AggregateValue to a PostgreSQL Datum using TantivyValue's conversion infrastructure
-fn convert_aggregate_value_to_datum(
-    agg_value: &AggregateValue,
-    expected_typoid: pg_sys::Oid,
-) -> (pg_sys::Datum, bool) {
-    // Convert AggregateValue to OwnedValue
-    let owned_value = match agg_value {
-        AggregateValue::Null => OwnedValue::Null,
-        AggregateValue::Int(val) => OwnedValue::I64(*val),
-        AggregateValue::Float(val) => OwnedValue::F64(*val),
-    };
-
-    // Determine the best target type for conversion
-    // For numeric compatibility, prefer wider types when converting floats to integer types
-    let target_oid = match (&owned_value, expected_typoid) {
-        // For null values, use the expected type
-        (OwnedValue::Null, _) => expected_typoid,
-
-        // For integer values, use the expected type directly
-        (OwnedValue::I64(_), _) => expected_typoid,
-
-        // For float values, be more lenient with integer target types
-        (OwnedValue::F64(_), pg_sys::INT2OID) => pg_sys::INT8OID, // Use BIGINT instead of SMALLINT
-        (OwnedValue::F64(_), pg_sys::INT4OID) => pg_sys::INT8OID, // Use BIGINT instead of INTEGER
-        (OwnedValue::F64(_), _) => expected_typoid,               // Keep other types as-is
-
-        // Default case
-        _ => expected_typoid,
-    };
-
-    let tantivy_value = TantivyValue(owned_value);
-    unsafe {
-        match tantivy_value.try_into_datum(pgrx::PgOid::from(target_oid)) {
-            Ok(Some(datum)) => (datum, false),
-            Ok(None) => (pg_sys::Datum::null(), true),
-            Err(e) => (pg_sys::Datum::null(), true),
-        }
-    }
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
@@ -562,20 +507,91 @@ impl IntoIterator for AggregationResults {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let results: Vec<TantivySingleMetricResult> = self
-            .0
-            .into_values()
-            .map(|result| {
-                match result {
-                    AggregationResult::MetricResult(MetricResult::Average(result)) => result,
-                    AggregationResult::MetricResult(MetricResult::Count(result)) => result,
-                    AggregationResult::MetricResult(MetricResult::Sum(result)) => result,
-                    AggregationResult::MetricResult(MetricResult::Min(result)) => result,
-                    AggregationResult::MetricResult(MetricResult::Max(result)) => result,
-                    _ => todo!("support other metric results"),
+        let mut rows = Vec::new();
+        let mut key_accumulator = Vec::new();
+        let flattened = self.flatten(&mut rows, key_accumulator);
+        pgrx::info!("flattened: {:?}", rows);
+
+        todo!()
+
+        // let results: Vec<TantivySingleMetricResult> = self
+        //     .0
+        //     .into_values()
+        //     .map(|result| match result {
+        //         AggregationResult::MetricResult(MetricResult::Average(result)) => result,
+        //         AggregationResult::MetricResult(MetricResult::Count(result)) => result,
+        //         AggregationResult::MetricResult(MetricResult::Sum(result)) => result,
+        //         AggregationResult::MetricResult(MetricResult::Min(result)) => result,
+        //         AggregationResult::MetricResult(MetricResult::Max(result)) => result,
+        //         _ => todo!("support other metric results"),
+        //     })
+        //     .collect();
+        // vec![results].into_iter()
+    }
+}
+
+#[derive(Debug)]
+struct AggregationResultsRow {
+    group_keys: Vec<OwnedValue>,
+    aggregates: Vec<TantivySingleMetricResult>,
+}
+
+impl AggregationResults {
+    fn flatten(self, rows: &mut Vec<AggregationResultsRow>, mut key_accumulator: Vec<OwnedValue>) {
+        for (_name, result) in self.0 {
+            match result {
+                AggregationResult::BucketResult(bucket) => match bucket {
+                    BucketResult::Terms { buckets, .. } => {
+                        for bucket_entry in buckets {
+                            let mut new_keys = key_accumulator.clone();
+
+                            let key_value = match bucket_entry.key {
+                                Key::Str(s) => OwnedValue::Str(s),
+                                Key::I64(v) => OwnedValue::I64(v),
+                                Key::U64(v) => OwnedValue::U64(v),
+                                Key::F64(v) => OwnedValue::F64(v),
+                            };
+
+                            new_keys.push(key_value);
+
+                            if !bucket_entry.sub_aggregation.0.is_empty() {
+                                AggregationResults(bucket_entry.sub_aggregation.0)
+                                    .flatten(rows, new_keys);
+                            } else {
+                                rows.push(AggregationResultsRow {
+                                    group_keys: new_keys,
+                                    aggregates: Vec::new(),
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        todo!("support other bucket results");
+                    }
+                },
+
+                AggregationResult::MetricResult(metric) => {
+                    let single = match metric {
+                        MetricResult::Average(result)
+                        | MetricResult::Count(result)
+                        | MetricResult::Sum(result)
+                        | MetricResult::Min(result)
+                        | MetricResult::Max(result) => result,
+                        unknown => todo!("support other metric results: {:?}", unknown),
+                    };
+
+                    pgrx::info!("single: {:?}", single);
+
+                    if let Some(existing_row) = rows.last_mut() {
+                        existing_row.aggregates.push(single);
+                    } else {
+                        rows.push(AggregationResultsRow {
+                            group_keys: key_accumulator.clone(),
+                            aggregates: vec![single],
+                        });
+                    }
                 }
-            })
-            .collect();
-        vec![results].into_iter()
+            }
+        }
     }
 }

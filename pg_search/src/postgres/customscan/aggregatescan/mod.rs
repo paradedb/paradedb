@@ -288,14 +288,17 @@ impl CustomScan for AggregateScan {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
                         let metric_result = match &row[*agg_idx] {
-                            AggregationResult::MetricResult(MetricResult::Average(result)) => result,
+                            AggregationResult::MetricResult(MetricResult::Average(result)) => {
+                                result
+                            }
                             AggregationResult::MetricResult(MetricResult::Count(result)) => result,
                             AggregationResult::MetricResult(MetricResult::Sum(result)) => result,
                             AggregationResult::MetricResult(MetricResult::Min(result)) => result,
                             AggregationResult::MetricResult(MetricResult::Max(result)) => result,
                             _ => todo!("support other metric results"),
                         };
-                        let datum = SingleMetricResult::new(expected_typoid, metric_result.clone()).into_datum();
+                        let datum = SingleMetricResult::new(expected_typoid, metric_result.clone())
+                            .into_datum();
                         if let Some(datum) = datum {
                             datums[i] = datum;
                             isnull[i] = false;
@@ -523,12 +526,15 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
+    pgrx::info!("result: {:?}", result);
+
     result.into_iter()
 }
 
+#[derive(Debug)]
 struct SingleMetricResult {
     oid: pg_sys::Oid,
-    inner: TantivySingleMetricResult
+    inner: TantivySingleMetricResult,
 }
 
 impl SingleMetricResult {
@@ -553,6 +559,7 @@ impl IntoDatum for SingleMetricResult {
     }
 }
 
+#[derive(Debug)]
 struct AggregationResults(HashMap<String, AggregationResult>);
 
 impl From<TantivyAggregationResults> for AggregationResults {

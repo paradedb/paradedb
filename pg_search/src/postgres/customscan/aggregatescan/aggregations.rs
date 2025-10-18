@@ -86,20 +86,29 @@ trait CollectNested<Leaf, Key: AggregationKey> {
     fn variant(&self, leaf: Leaf) -> AggregationVariants;
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
+    fn collect(&self, aggregations: &mut Aggregations) -> Result<()> {
         for leaf in self.into_iter()? {
             let aggregation = Aggregation {
                 agg: self.variant(leaf),
-                sub_aggregation: aggregations,
+                sub_aggregation: aggregations.clone(), // clone if you need to preserve the existing nested state
             };
-            aggregations = HashMap::from([(Key::NAME.to_string(), aggregation)]);
+            aggregations.insert(Key::NAME.to_string(), aggregation);
         }
-        Ok(aggregations)
+        Ok(())
     }
 }
-
-trait IterFlat<Leaf> {
+trait CollectFlat<Leaf>
+where
+    Leaf: Into<Aggregation>,
+{
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+
+    fn collect(&self, aggregations: &mut Aggregations) -> Result<()> {
+        for (idx, leaf) in self.into_iter()?.enumerate() {
+            aggregations.insert(idx.to_string(), leaf.into());
+        }
+        Ok(())
+    }
 }
 
 pub trait CollectAggregations {
@@ -108,22 +117,12 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        let mut aggregations = Aggregations::new();
+        let mut aggs = Aggregations::new();
 
         if !self.has_groupby() {
-            for (idx, metric_agg) in
-                <Self as IterFlat<MetricAggregations>>::into_iter(self)?.enumerate()
-            {
-                aggregations.insert(idx.to_string(), metric_agg.into());
-            }
+            <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
         } else {
-            let terms_aggregations =
-                <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-                    self,
-                    Aggregations::new(),
-                )?;
-
-            todo!()
+            <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, &mut aggs)?;
         }
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 
@@ -145,7 +144,7 @@ impl CollectAggregations for AggregateCSClause {
         //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         // }
 
-        Ok(aggregations)
+        Ok(aggs)
     }
 }
 
@@ -263,7 +262,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
     }
 }
 
-impl IterFlat<MetricAggregations> for AggregateCSClause {
+impl CollectFlat<MetricAggregations> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
         Ok(self.aggregates.aggregates().into_iter().map(|agg| {
             let metric_agg = agg.into();

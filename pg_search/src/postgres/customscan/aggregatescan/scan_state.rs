@@ -25,8 +25,8 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use tantivy::schema::OwnedValue;
 use tantivy::aggregation::agg_result::AggregationResult;
+use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
 use tinyvec::TinyVec;

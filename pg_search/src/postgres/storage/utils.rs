@@ -237,7 +237,7 @@ unsafe fn extend_by_one_buffer(
         )
     }
 
-    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
     {
         pg_sys::ExtendBufferedRel(
             pg_sys::BufferManagerRelation {

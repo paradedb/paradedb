@@ -77,7 +77,14 @@ pub unsafe fn register() {
     pg_sys::ProcessUtility_hook = Some(process_utility_hook);
 
     PREV_EXECUTOR_RUN_HOOK = pg_sys::ExecutorRun_hook;
-    pg_sys::ExecutorRun_hook = Some(executor_run_hook);
+    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+    {
+        pg_sys::ExecutorRun_hook = Some(executor_run_hook);
+    }
+    #[cfg(feature = "pg18")]
+    {
+        pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg18);
+    }
 
     PREV_EXECUTOR_FINISH_HOOK = pg_sys::ExecutorFinish_hook;
     pg_sys::ExecutorFinish_hook = Some(executor_finish_hook);
@@ -105,6 +112,7 @@ pub unsafe fn register() {
         aminsertcleanup_stack();
     }
 
+    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_run_hook(
         query_desc: *mut QueryDesc,
@@ -114,6 +122,17 @@ pub unsafe fn register() {
     ) {
         EXECUTOR_RUN_STACK.push(None);
         pg_sys::standard_ExecutorRun(query_desc, direction, count, execute_once);
+    }
+
+    #[cfg(feature = "pg18")]
+    #[pg_guard]
+    unsafe extern "C-unwind" fn executor_run_hook_pg18(
+        query_desc: *mut QueryDesc,
+        direction: ScanDirection::Type,
+        count: uint64,
+    ) {
+        EXECUTOR_RUN_STACK.push(None);
+        pg_sys::standard_ExecutorRun(query_desc, direction, count);
     }
 
     #[pg_guard]

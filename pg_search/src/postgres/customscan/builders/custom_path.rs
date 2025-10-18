@@ -51,8 +51,11 @@ impl OrderByStyle {
             }
             #[cfg(feature = "pg18")]
             {
-                // TODO
-                SortDirection::Asc
+                match (*pathkey).pk_cmptype as u32 {
+                    val if val == pg_sys::CompareType::COMPARE_LT as u32 => SortDirection::Asc,
+                    val if val == pg_sys::CompareType::COMPARE_GT as u32 => SortDirection::Desc,
+                    value => panic!("unrecognized compare type: {value}"),
+                }
             }
         }
     }

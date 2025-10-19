@@ -32,7 +32,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
@@ -81,7 +81,7 @@ trait CollectNested<Leaf, Key: AggregationKey> {
     fn variant(&self, leaf: Leaf) -> AggregationVariants;
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, aggregations: &mut Aggregations) -> Result<()> {
+    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
         for leaf in self.into_iter()? {
             let aggregation = Aggregation {
                 agg: self.variant(leaf),
@@ -89,20 +89,20 @@ trait CollectNested<Leaf, Key: AggregationKey> {
             };
             aggregations.insert(Key::NAME.to_string(), aggregation);
         }
-        Ok(())
+        Ok(aggregations)
     }
 }
-trait CollectFlat<Leaf>
+trait CollectFlat<Leaf, Marker>
 where
     Leaf: Into<Aggregation>,
 {
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, aggregations: &mut Aggregations) -> Result<()> {
+    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
         for (idx, leaf) in self.into_iter()?.enumerate() {
             aggregations.insert(idx.to_string(), leaf.into());
         }
-        Ok(())
+        Ok(aggregations)
     }
 }
 
@@ -112,23 +112,52 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        let mut aggs = Aggregations::new();
-        <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
+        if !self.has_groupby() {
+            Ok(
+                <Self as CollectFlat<MetricAggregations, NoGroupBy>>::collect(
+                    self,
+                    Aggregations::new(),
+                )?,
+            )
+        } else {
+            let metrics = <Self as CollectFlat<MetricAggregations, HasGroupBy>>::collect(
+                self,
+                Aggregations::new(),
+            )?;
+            let mut term_aggs = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+                self,
+                Aggregations::new(),
+            )?;
 
-        if self.has_groupby() {
-            let metrics = std::mem::take(&mut aggs);
-            <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, &mut aggs)?;
-
-            if let Some(Aggregation { agg, .. }) = aggs.remove(GroupedKey::NAME) {
-                aggs.insert(
+            if let Some(Aggregation { agg, .. }) = term_aggs.remove(GroupedKey::NAME) {
+                Ok(Aggregations::from([(
                     GroupedKey::NAME.to_string(),
                     Aggregation {
                         agg,
                         sub_aggregation: metrics,
                     },
-                );
+                )]))
+            } else {
+                bail!("group key not found")
             }
         }
+
+        // <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
+
+        // if self.has_groupby() {
+        //     let metrics = std::mem::take(&mut aggs);
+        //     <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, &mut aggs)?;
+
+        //     if let Some(Aggregation { agg, .. }) = aggs.remove(GroupedKey::NAME) {
+        //         aggs.insert(
+        //             GroupedKey::NAME.to_string(),
+        //             Aggregation {
+        //                 agg,
+        //                 sub_aggregation: metrics,
+        //             },
+        //         );
+        //     }
+        // }
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 
         // let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
@@ -148,8 +177,6 @@ impl CollectAggregations for AggregateCSClause {
         //         <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
         //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
         // }
-
-        Ok(aggs)
     }
 }
 
@@ -272,9 +299,24 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
     }
 }
 
-impl CollectFlat<MetricAggregations> for AggregateCSClause {
+pub struct HasGroupBy;
+pub struct NoGroupBy;
+
+impl CollectFlat<MetricAggregations, NoGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
         Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
+    }
+}
+
+impl CollectFlat<MetricAggregations, HasGroupBy> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
+        Ok(self.targetlist.aggregates().filter_map(|agg| {
+            if !agg.can_use_doc_count() {
+                Some(agg.clone().into())
+            } else {
+                None
+            }
+        }))
     }
 }
 

@@ -3032,7 +3032,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -4968,7 +4968,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -5022,7 +5022,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "bitpacking",
 ]
@@ -5030,7 +5030,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -5045,7 +5045,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -5078,7 +5078,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "nom",
 ]
@@ -5086,7 +5086,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -5099,7 +5099,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -5112,7 +5112,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#4e14aded41e82de09e0140a4925370af1ad0de49"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.merge-memory#abe5badecd569d28fbb4fbdf47f6897357c0f67c"
 dependencies = [
  "serde",
 ]

@@ -138,7 +138,7 @@ impl CollectAggregations for AggregateCSClause {
                     },
                 )]))
             } else {
-                bail!("group key not found")
+                bail!("should have a group key: {:?}", term_aggs)
             }
         }
 

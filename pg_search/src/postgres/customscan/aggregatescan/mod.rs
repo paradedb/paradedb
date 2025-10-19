@@ -209,7 +209,7 @@ impl CustomScan for AggregateScan {
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-            let mut aggs_processed = 0;
+            let mut aggregates = row.aggregates.clone().into_iter();
             let mut natts_processed = 0;
 
             // Fill in values according to the target list mapping
@@ -223,20 +223,17 @@ impl CustomScan for AggregateScan {
                         .try_into_datum(pgrx::PgOid::from(expected_typoid))
                         .expect("should be able to convert to datum"),
                     TargetListEntry::Aggregate(agg_type) => {
-                        let datum = if agg_type.can_use_doc_count() {
+                        if agg_type.can_use_doc_count() {
                             row.doc_count()
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
                             SingleMetricResult::new(
                                 expected_typoid,
-                                row.aggregates[aggs_processed].clone(),
+                                aggregates.next().expect("should have an aggregate"),
                             )
                             .into_datum()
-                        };
-
-                        aggs_processed += 1;
-                        datum
+                        }
                     }
                 };
 
@@ -456,10 +453,70 @@ impl IntoIterator for AggregationResults {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
+        self.flatten_into(Vec::new(), None).into_iter()
+    }
+}
+
+impl AggregationResults {
+    fn flatten_into(
+        self,
+        key_accumulator: Vec<TantivyValue>,
+        doc_count: Option<u64>,
+    ) -> Vec<AggregationResultsRow> {
         let mut rows = Vec::new();
-        let key_accumulator = Vec::new();
-        self.flatten_into(&mut rows, key_accumulator, None);
-        rows.into_iter()
+
+        for (_name, result) in self.0 {
+            match result {
+                AggregationResult::BucketResult(bucket) => match bucket {
+                    BucketResult::Terms { buckets, .. } => {
+                        for bucket_entry in buckets {
+                            let mut new_keys = key_accumulator.clone();
+                            let doc_count = bucket_entry.doc_count;
+                            let key_value = match bucket_entry.key {
+                                Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
+                                Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
+                                Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
+                                Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
+                            };
+                            new_keys.push(key_value);
+
+                            let sub_aggs = AggregationResults(bucket_entry.sub_aggregation.0)
+                                .flatten_into(new_keys.clone(), Some(doc_count));
+
+                            if sub_aggs.is_empty() {
+                                rows.push(AggregationResultsRow {
+                                    group_keys: new_keys,
+                                    aggregates: Vec::new(),
+                                    doc_count: Some(doc_count),
+                                });
+                            } else {
+                                rows.extend(sub_aggs);
+                            }
+                        }
+                    }
+                    _ => todo!("support other bucket types"),
+                },
+
+                AggregationResult::MetricResult(metric) => {
+                    let single = match metric {
+                        MetricResult::Average(result)
+                        | MetricResult::Count(result)
+                        | MetricResult::Sum(result)
+                        | MetricResult::Min(result)
+                        | MetricResult::Max(result) => result,
+                        other => todo!("support other metric results: {:?}", other),
+                    };
+
+                    rows.push(AggregationResultsRow {
+                        group_keys: key_accumulator.clone(),
+                        aggregates: vec![single],
+                        doc_count,
+                    });
+                }
+            }
+        }
+
+        rows
     }
 }
 
@@ -475,73 +532,6 @@ impl AggregationResultsRow {
         match self.doc_count {
             Some(doc_count) => TantivyValue(OwnedValue::U64(doc_count)),
             None => TantivyValue(OwnedValue::Null),
-        }
-    }
-}
-
-impl AggregationResults {
-    fn flatten_into(
-        self,
-        rows: &mut Vec<AggregationResultsRow>,
-        key_accumulator: Vec<TantivyValue>,
-        doc_count: Option<u64>,
-    ) {
-        for (_name, result) in self.0 {
-            match result {
-                AggregationResult::BucketResult(bucket) => {
-                    match bucket {
-                        BucketResult::Terms { buckets, .. } => {
-                            for bucket_entry in buckets {
-                                let mut new_keys = key_accumulator.clone();
-                                let doc_count = bucket_entry.doc_count;
-                                let key_value = match bucket_entry.key {
-                                    Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
-                                    Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
-                                    Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
-                                    Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
-                                };
-
-                                new_keys.push(key_value);
-
-                                if !bucket_entry.sub_aggregation.0.is_empty() {
-                                    AggregationResults(bucket_entry.sub_aggregation.0)
-                                        .flatten_into(rows, new_keys, Some(doc_count));
-                                } else {
-                                    rows.push(AggregationResultsRow {
-                                        group_keys: new_keys,
-                                        aggregates: Vec::new(),
-                                        doc_count: Some(doc_count),
-                                    });
-                                }
-                            }
-                        }
-                        _ => {
-                            todo!("support other bucket results");
-                        }
-                    }
-                }
-
-                AggregationResult::MetricResult(metric) => {
-                    let single = match metric {
-                        MetricResult::Average(result)
-                        | MetricResult::Count(result)
-                        | MetricResult::Sum(result)
-                        | MetricResult::Min(result)
-                        | MetricResult::Max(result) => result,
-                        unknown => todo!("support other metric results: {:?}", unknown),
-                    };
-
-                    if let Some(existing_row) = rows.last_mut() {
-                        existing_row.aggregates.push(single);
-                    } else {
-                        rows.push(AggregationResultsRow {
-                            group_keys: key_accumulator.clone(),
-                            aggregates: vec![single],
-                            doc_count,
-                        });
-                    }
-                }
-            }
         }
     }
 }

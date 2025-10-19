@@ -67,6 +67,7 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+        pgrx::info!("create_custom_path");
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
@@ -85,7 +86,7 @@ impl CustomScan for AggregateScan {
         };
         let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
         let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
-
+        pgrx::info!("builder");
         Some(builder.build(PrivateData {
             heap_rti,
             indexrelid: index.oid(),
@@ -146,7 +147,7 @@ impl CustomScan for AggregateScan {
 
         // Use pre-computed filter groups from the scan state
         // let filter_groups = &state.custom_state().filter_groups;
-        todo!()
+        todo!("explain")
     }
 
     fn begin_custom_scan(
@@ -223,6 +224,8 @@ impl CustomScan for AggregateScan {
                         .try_into_datum(pgrx::PgOid::from(expected_typoid))
                         .expect("should be able to convert to datum"),
                     TargetListEntry::Aggregate(agg_type) => {
+                        pgrx::info!("agg_type: {:?}", agg_type);
+                        pgrx::info!("can_use_doc_count: {:?}", agg_type.can_use_doc_count());
                         if agg_type.can_use_doc_count() {
                             row.doc_count()
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
@@ -453,7 +456,9 @@ impl IntoIterator for AggregationResults {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.flatten_into(Vec::new(), None).into_iter()
+        let result = self.flatten_into(Vec::new(), None);
+        pgrx::info!("result: {:?}", result);
+        result.into_iter()
     }
 }
 
@@ -463,6 +468,7 @@ impl AggregationResults {
         key_accumulator: Vec<TantivyValue>,
         doc_count: Option<u64>,
     ) -> Vec<AggregationResultsRow> {
+        pgrx::info!("flattening {:?}", self.0);
         let mut rows = Vec::new();
 
         for (_name, result) in self.0 {
@@ -480,17 +486,22 @@ impl AggregationResults {
                             };
                             new_keys.push(key_value);
 
-                            let sub_aggs = AggregationResults(bucket_entry.sub_aggregation.0)
-                                .flatten_into(new_keys.clone(), Some(doc_count));
+                            let sub = AggregationResults(bucket_entry.sub_aggregation.0);
+                            let mut sub_rows = sub.flatten_into(new_keys.clone(), Some(doc_count));
 
-                            if sub_aggs.is_empty() {
+                            if sub_rows.is_empty() {
                                 rows.push(AggregationResultsRow {
                                     group_keys: new_keys,
                                     aggregates: Vec::new(),
                                     doc_count: Some(doc_count),
                                 });
                             } else {
-                                rows.extend(sub_aggs);
+                                for mut row in sub_rows.drain(..) {
+                                    let mut merged_keys = new_keys.clone();
+                                    merged_keys.extend(row.group_keys);
+                                    row.group_keys = merged_keys;
+                                    rows.push(row);
+                                }
                             }
                         }
                     }

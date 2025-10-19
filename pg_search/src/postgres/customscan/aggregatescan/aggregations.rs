@@ -124,22 +124,10 @@ impl CollectAggregations for AggregateCSClause {
                 self,
                 Aggregations::new(),
             )?;
-            let mut term_aggs = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
+            Ok(<Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
                 self,
-                Aggregations::new(),
-            )?;
-
-            if let Some(Aggregation { agg, .. }) = term_aggs.remove(GroupedKey::NAME) {
-                Ok(Aggregations::from([(
-                    GroupedKey::NAME.to_string(),
-                    Aggregation {
-                        agg,
-                        sub_aggregation: metrics,
-                    },
-                )]))
-            } else {
-                bail!("should have a group key: {:?}", term_aggs)
-            }
+                metrics,
+            )?)
         }
 
         // <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
@@ -273,6 +261,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
         };
 
         let grouping_columns = self.targetlist.grouping_columns();
+        pgrx::info!("grouping_columns: {:?}", grouping_columns);
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {

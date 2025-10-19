@@ -254,7 +254,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
         };
 
         let grouping_columns = self.targetlist.grouping_columns();
-        pgrx::info!("grouping_columns: {:?}", grouping_columns);
+
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {

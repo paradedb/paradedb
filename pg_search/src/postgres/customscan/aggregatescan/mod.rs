@@ -467,89 +467,93 @@ impl AggregationResults {
     ) -> Vec<AggregationResultsRow> {
         let mut entries: Vec<_> = self.0.into_iter().collect();
         entries.sort_by_key(|(k, _)| k.clone());
-        let mut rows = Vec::new();
-        let mut top_metrics: Vec<TantivySingleMetricResult> = Vec::new();
 
+        let mut rows = Vec::new();
+        let mut top_metrics = Vec::new();
+
+        // Collect all metric results at this level
         for (_name, result) in &entries {
             if let AggregationResult::MetricResult(metric) = result {
                 let single = match metric {
-                    MetricResult::Average(result)
-                    | MetricResult::Count(result)
-                    | MetricResult::Sum(result)
-                    | MetricResult::Min(result)
-                    | MetricResult::Max(result) => result.clone(),
+                    MetricResult::Average(r)
+                    | MetricResult::Count(r)
+                    | MetricResult::Sum(r)
+                    | MetricResult::Min(r)
+                    | MetricResult::Max(r) => r.clone(),
                     other => todo!("support other metric results: {:?}", other),
                 };
                 top_metrics.push(single);
             }
         }
 
-        if !top_metrics.is_empty() {
-            rows.push(AggregationResultsRow {
-                group_keys: key_accumulator.clone(),
-                aggregates: top_metrics,
-                doc_count,
-            });
-        }
-
-        for (_name, result) in &entries {
+        // Recurse into buckets
+        for (_name, result) in entries {
             if let AggregationResult::BucketResult(bucket) = result {
                 match bucket {
                     BucketResult::Terms { buckets, .. } => {
                         for bucket_entry in buckets {
                             let mut new_keys = key_accumulator.clone();
                             let doc_count = bucket_entry.doc_count;
-                            let key_value = match &bucket_entry.key {
-                                Key::Str(s) => TantivyValue(OwnedValue::Str(s.clone())),
-                                Key::I64(v) => TantivyValue(OwnedValue::I64(*v)),
-                                Key::U64(v) => TantivyValue(OwnedValue::U64(*v)),
-                                Key::F64(v) => TantivyValue(OwnedValue::F64(*v)),
+                            let key_value = match bucket_entry.key {
+                                Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
+                                Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
+                                Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
+                                Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
                             };
                             new_keys.push(key_value);
 
-                            let sub = AggregationResults(bucket_entry.sub_aggregation.0.clone());
-                            let mut sub_rows = sub.flatten_into(new_keys.clone(), Some(doc_count));
+                            // Flatten sub aggregations recursively
+                            let sub = AggregationResults(bucket_entry.sub_aggregation.0);
+                            let sub_rows = sub.flatten_into(new_keys.clone(), Some(doc_count));
 
                             if sub_rows.is_empty() {
+                                // no deeper rows, emit directly
                                 rows.push(AggregationResultsRow {
                                     group_keys: new_keys,
-                                    aggregates: Vec::new(),
+                                    aggregates: top_metrics.clone(),
                                     doc_count: Some(doc_count),
                                 });
                             } else {
-                                let mut merged = AggregationResultsRow {
-                                    group_keys: new_keys.clone(),
-                                    aggregates: Vec::new(),
-                                    doc_count: Some(doc_count),
-                                };
-                                for row in sub_rows {
-                                    merged.aggregates.extend(row.aggregates);
-                                }
-                                rows.push(merged);
+                                // extend flattened results
+                                rows.extend(sub_rows);
                             }
                         }
                     }
+
                     BucketResult::Filter(filter_bucket) => {
-                        let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
-                        let mut sub_rows = sub.flatten_into(key_accumulator.clone(), doc_count);
+                        let sub = AggregationResults(filter_bucket.sub_aggregations.0);
+                        let sub_rows = sub.flatten_into(key_accumulator.clone(), doc_count);
+
+                        let mut sub_metrics = Vec::new();
+                        for r in sub_rows {
+                            sub_metrics.extend(r.aggregates);
+                        }
 
                         if let Some(last_row) = rows.last_mut() {
-                            for sub_row in sub_rows {
-                                last_row.aggregates.extend(sub_row.aggregates);
-                            }
-                        } else if sub_rows.is_empty() {
+                            last_row.aggregates.extend(sub_metrics);
+                        } else {
+                            let mut merged = top_metrics.clone();
+                            merged.extend(sub_metrics);
                             rows.push(AggregationResultsRow {
                                 group_keys: key_accumulator.clone(),
-                                aggregates: Vec::new(),
+                                aggregates: merged,
                                 doc_count,
                             });
-                        } else {
-                            rows.extend(sub_rows);
                         }
                     }
+
                     _ => todo!("support other bucket types"),
                 }
             }
+        }
+
+        // Only if there are no buckets at all (pure metrics case)
+        if rows.is_empty() && !top_metrics.is_empty() {
+            rows.push(AggregationResultsRow {
+                group_keys: key_accumulator,
+                aggregates: top_metrics,
+                doc_count,
+            });
         }
 
         rows

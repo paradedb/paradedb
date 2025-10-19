@@ -83,16 +83,23 @@ trait CollectNested<Key: AggregationKey> {
         mut aggregations: Aggregations,
         children: Aggregations,
     ) -> Result<Aggregations> {
-        for leaf in self.into_iter()? {
-            let aggregation = Aggregation {
-                agg: leaf,
-                sub_aggregation: children.clone(),
-            };
-            aggregations.insert(Key::NAME.to_string(), aggregation);
-        }
+        let groupings: Vec<_> = self.into_iter()?.collect();
+
+        let nested = groupings.into_iter().rfold(children, |sub, leaf| {
+            Aggregations::from([(
+                GroupedKey::NAME.to_string(),
+                Aggregation {
+                    agg: leaf,
+                    sub_aggregation: sub,
+                },
+            )])
+        });
+
+        aggregations.extend(nested);
         Ok(aggregations)
     }
 }
+
 trait CollectFlat<Leaf, Marker> {
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 

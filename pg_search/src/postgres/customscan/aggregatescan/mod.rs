@@ -505,8 +505,7 @@ impl AggregationResults {
                             new_keys.push(key_value);
 
                             let sub = AggregationResults(bucket_entry.sub_aggregation.0.clone());
-                            let mut sub_rows =
-                                sub.flatten_into(new_keys.clone(), Some(doc_count));
+                            let mut sub_rows = sub.flatten_into(new_keys.clone(), Some(doc_count));
 
                             if sub_rows.is_empty() {
                                 rows.push(AggregationResultsRow {
@@ -525,10 +524,8 @@ impl AggregationResults {
                         }
                     }
                     BucketResult::Filter(filter_bucket) => {
-                        let sub =
-                            AggregationResults(filter_bucket.sub_aggregations.0.clone());
-                        let mut sub_rows =
-                            sub.flatten_into(key_accumulator.clone(), doc_count);
+                        let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
+                        let mut sub_rows = sub.flatten_into(key_accumulator.clone(), doc_count);
 
                         if let Some(last_row) = rows.last_mut() {
                             for sub_row in sub_rows {

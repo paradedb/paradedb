@@ -42,7 +42,7 @@ use tantivy::aggregation::bucket::{CustomOrder, FilterAggregation, OrderTarget, 
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
 };
-use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
+use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
 
 trait AggregationKey {
     const NAME: &'static str;
@@ -89,15 +89,25 @@ trait CollectNested<Key: AggregationKey> {
         Ok(aggregations)
     }
 }
-trait CollectFlat<Leaf, Marker>
-where
-    Leaf: Into<Aggregation>,
-{
+trait CollectFlat<Leaf, Marker> {
     fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
 
-    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
+    fn collect(
+        &self,
+        mut aggregations: Aggregations,
+        children: Aggregations,
+    ) -> Result<Aggregations>
+    where
+        Leaf: Into<AggregationVariants>,
+    {
         for (idx, leaf) in self.into_iter()?.enumerate() {
-            aggregations.insert(idx.to_string(), leaf.into());
+            aggregations.insert(
+                idx.to_string(),
+                Aggregation {
+                    agg: leaf.into(),
+                    sub_aggregation: children.clone(),
+                },
+            );
         }
         Ok(aggregations)
     }
@@ -110,13 +120,16 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         if !self.has_groupby() {
-            Ok(<Self as CollectFlat<AggregateType, NoGroupBy>>::collect(
-                self,
-                Aggregations::new(),
+            Ok(<Self as CollectFlat<
+                AggregateType,
+                MetricsWithoutGroupBy,
+            >>::collect(
+                self, Aggregations::new(), Aggregations::new()
             )?)
         } else {
-            let metrics = <Self as CollectFlat<AggregateType, HasGroupBy>>::collect(
+            let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,
+                Aggregations::new(),
                 Aggregations::new(),
             )?;
             Ok(<Self as CollectNested<GroupedKey>>::collect(self, metrics)?)
@@ -276,16 +289,17 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
     }
 }
 
-pub struct HasGroupBy;
-pub struct NoGroupBy;
+pub struct MetricsWithGroupBy;
+pub struct MetricsWithoutGroupBy;
+pub struct Filters;
 
-impl CollectFlat<AggregateType, NoGroupBy> for AggregateCSClause {
+impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
     }
 }
 
-impl CollectFlat<AggregateType, HasGroupBy> for AggregateCSClause {
+impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().filter_map(|agg| {
             if !agg.can_use_doc_count() {
@@ -297,70 +311,21 @@ impl CollectFlat<AggregateType, HasGroupBy> for AggregateCSClause {
     }
 }
 
-impl From<FilterAggregationUngroupedQual> for Aggregations {
-    fn from(val: FilterAggregationUngroupedQual) -> Self {
-        val.0
+impl CollectFlat<FilterQuery, Filters> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterQuery>> {
+        Ok(self.targetlist.aggregates().filter_map(|agg| {
+            if let Some(filter_expr) = agg.filter_expr() {
+                Some(FilterQuery { inner: Some(filter_expr.clone()), indexrelid: agg.indexrelid() })
+            } else {
+                None
+            }
+        }))
     }
 }
 
-// impl IterFlat<FilterAggregationUngroupedQual> for AggregateCSClause {
-//     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationUngroupedQual>> {
-//         Ok(self
-//             .aggregates
-//             .aggregates()
-//             .into_iter()
-//             .enumerate()
-//             .map(|(idx, agg)| {
-//                 let agg = agg.to_tantivy_agg().expect(&format!(
-//                     "{:?} should be converted to a Tantivy aggregation",
-//                     agg
-//                 ));
-//                 let sub_agg = Aggregations::from([(FilterAggUngroupedKey::NAME.to_string(), agg)]);
-//                 FilterAggregationUngroupedQual(sub_agg)
-//             }))
-//     }
-// }
-
-impl From<FilterAggregationGroupedQual> for Aggregations {
-    fn from(val: FilterAggregationGroupedQual) -> Self {
-        val.0
-    }
-}
-
-// impl IterFlat<FilterAggregationGroupedQual> for AggregateCSClause {
-//     fn into_iter(&self) -> Result<impl Iterator<Item = FilterAggregationGroupedQual>> {
-//         Ok(self
-//             .aggregates
-//             .aggregates()
-//             .into_iter()
-//             .enumerate()
-//             .map(|(idx, agg)| {
-//                 let metric_agg = agg.to_tantivy_agg().expect(&format!(
-//                     "{:?} should be converted to a Tantivy aggregation",
-//                     agg
-//                 ));
-//                 let sub_agg = Aggregations::from([(idx.to_string(), metric_agg)]);
-//                 let terms_agg = <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-//                     self,
-//                     Aggregations::from(sub_agg),
-//                 )
-//                 .unwrap();
-
-//                 FilterAggregationGroupedQual(terms_agg)
-//             }))
-//     }
-// }
-
-impl From<AggregateType> for Aggregation {
+impl From<AggregateType> for AggregationVariants {
     fn from(val: AggregateType) -> Self {
-        let can_use_doc_count = val.can_use_doc_count();
-        let filter_query = val.filter_expr().as_ref().map(|query| {
-            AggregationVariants::Filter(FilterAggregation::new_with_query(
-                to_tantivy_query(query.clone(), val.indexrelid())
-                    .expect("should be able to convert to Box<dyn Query>"),
-            ))
-        });
-        let metrics_query = match val {
+        match val {
             AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
                 field: "ctid".to_string(),
                 missing: None,
@@ -380,24 +345,23 @@ impl From<AggregateType> for Aggregation {
             AggregateType::Max { field, missing, .. } => {
                 AggregationVariants::Max(MaxAggregation { field, missing })
             }
-        };
-
-        match (filter_query, metrics_query) {
-            (Some(filter_query), metrics_query) => Aggregation {
-                agg: filter_query,
-                sub_aggregation: Aggregations::from([(
-                    0.to_string(),
-                    Aggregation {
-                        agg: metrics_query,
-                        sub_aggregation: Aggregations::new(),
-                    },
-                )]),
-            },
-            (None, metrics_query) => Aggregation {
-                agg: metrics_query,
-                sub_aggregation: Aggregations::new(),
-            },
         }
+    }
+}
+
+struct FilterQuery {
+    inner: Option<SearchQueryInput>,
+    indexrelid: pg_sys::Oid,
+}
+
+impl From<FilterQuery> for AggregationVariants {
+    fn from(val: FilterQuery) -> Self {
+        let tantivy_query = match val.inner {
+            Some(query) => to_tantivy_query(query.clone(), val.indexrelid)
+                .expect("should be able to convert to Box<dyn Query>"),
+            None => Box::new(AllQuery),
+        };
+        AggregationVariants::Filter(FilterAggregation::new_with_query(tantivy_query))
     }
 }
 

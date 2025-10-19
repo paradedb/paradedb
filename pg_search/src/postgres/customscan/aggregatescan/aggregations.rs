@@ -38,9 +38,7 @@ use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{
-    CustomOrder, FilterAggregation, OrderTarget, SerializableQuery, TermsAggregation,
-};
+use tantivy::aggregation::bucket::{CustomOrder, FilterAggregation, OrderTarget, TermsAggregation};
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
 };
@@ -85,7 +83,7 @@ trait CollectNested<Leaf, Key: AggregationKey> {
         for leaf in self.into_iter()? {
             let aggregation = Aggregation {
                 agg: self.variant(leaf),
-                sub_aggregation: aggregations.clone(), // clone if you need to preserve the existing nested state
+                sub_aggregation: aggregations.clone(),
             };
             aggregations.insert(Key::NAME.to_string(), aggregation);
         }
@@ -113,21 +111,16 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         if !self.has_groupby() {
-            Ok(
-                <Self as CollectFlat<MetricAggregations, NoGroupBy>>::collect(
-                    self,
-                    Aggregations::new(),
-                )?,
-            )
+            Ok(<Self as CollectFlat<AggregateType, NoGroupBy>>::collect(
+                self,
+                Aggregations::new(),
+            )?)
         } else {
-            let metrics = <Self as CollectFlat<MetricAggregations, HasGroupBy>>::collect(
+            let metrics = <Self as CollectFlat<AggregateType, HasGroupBy>>::collect(
                 self,
                 Aggregations::new(),
             )?;
-            Ok(<Self as CollectNested<TermsAggregation, GroupedKey>>::collect(
-                self,
-                metrics,
-            )?)
+            Ok(<Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, metrics)?)
         }
 
         // <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
@@ -291,14 +284,14 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
 pub struct HasGroupBy;
 pub struct NoGroupBy;
 
-impl CollectFlat<MetricAggregations, NoGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
+impl CollectFlat<AggregateType, NoGroupBy> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
     }
 }
 
-impl CollectFlat<MetricAggregations, HasGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = MetricAggregations>> {
+impl CollectFlat<AggregateType, HasGroupBy> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().filter_map(|agg| {
             if !agg.can_use_doc_count() {
                 Some(agg.clone().into())
@@ -363,75 +356,53 @@ impl From<FilterAggregationGroupedQual> for Aggregations {
 //     }
 // }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct FilterAggQuery {
-    query: SearchQueryInput,
-    indexrelid: pg_sys::Oid,
-    #[serde(skip)]
-    tantivy_query: OnceLock<Box<dyn Query>>,
-}
-
-impl Clone for FilterAggQuery {
-    fn clone(&self) -> Self {
-        Self {
-            query: self.query.clone(),
-            indexrelid: self.indexrelid,
-            tantivy_query: OnceLock::new(),
-        }
-    }
-}
-
-impl Query for FilterAggQuery {
-    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        self.tantivy_query
-            .get_or_init(|| self.tantivy_query().unwrap())
-            .weight(enable_scoring)
-    }
-}
-
-impl SerializableQuery for FilterAggQuery {
-    fn clone_box(&self) -> Box<dyn SerializableQuery> {
-        Box::new(self.clone())
-    }
-}
-
-impl FilterAggQuery {
-    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Self {
-        Self {
-            query,
-            indexrelid,
-            tantivy_query: OnceLock::new(),
-        }
-    }
-
-    fn tantivy_query(&self) -> Result<Box<dyn Query>> {
-        let standalone_context = ExprContextGuard::new();
-        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
-        let schema = index.schema()?;
-        let reader = SearchIndexReader::open_with_context(
-            &index,
-            self.query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?;
-        let parser = || {
-            QueryParser::for_index(
-                reader.searcher().index(),
-                schema.fields().map(|(f, _)| f).collect(),
-            )
+impl From<AggregateType> for Aggregation {
+    fn from(val: AggregateType) -> Self {
+        let can_use_doc_count = val.can_use_doc_count();
+        let filter_query = val.filter_expr().as_ref().map(|query| {
+            AggregationVariants::Filter(FilterAggregation::new_with_query(
+                to_tantivy_query(query.clone(), val.indexrelid())
+                    .expect("should be able to convert to Box<dyn Query>"),
+            ))
+        });
+        let metrics_query = match val {
+            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
+                field: "ctid".to_string(),
+                missing: None,
+            }),
+            AggregateType::Count { field, missing, .. } => {
+                AggregationVariants::Count(CountAggregation { field, missing })
+            }
+            AggregateType::Sum { field, missing, .. } => {
+                AggregationVariants::Sum(SumAggregation { field, missing })
+            }
+            AggregateType::Avg { field, missing, .. } => {
+                AggregationVariants::Average(AverageAggregation { field, missing })
+            }
+            AggregateType::Min { field, missing, .. } => {
+                AggregationVariants::Min(MinAggregation { field, missing })
+            }
+            AggregateType::Max { field, missing, .. } => {
+                AggregationVariants::Max(MaxAggregation { field, missing })
+            }
         };
-        let heap_oid = index.heap_relation().map(|r| r.oid());
-        Ok(Box::new(self.query.clone().into_tantivy_query(
-            &schema,
-            &parser,
-            reader.searcher(),
-            index.oid(),
-            heap_oid,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?))
+
+        match (filter_query, metrics_query) {
+            (Some(filter_query), metrics_query) => Aggregation {
+                agg: filter_query,
+                sub_aggregation: Aggregations::from([(
+                    0.to_string(),
+                    Aggregation {
+                        agg: metrics_query,
+                        sub_aggregation: Aggregations::new(),
+                    },
+                )]),
+            },
+            (None, metrics_query) => Aggregation {
+                agg: metrics_query,
+                sub_aggregation: Aggregations::new(),
+            },
+        }
     }
 }
 
@@ -453,68 +424,33 @@ fn add_filter_aggregations<Agg, SubAgg>(
     }
 }
 
-#[derive(Debug, Clone)]
-enum MetricAggregations {
-    Average(AverageAggregation),
-    Count(CountAggregation),
-    Sum(SumAggregation),
-    Min(MinAggregation),
-    Max(MaxAggregation),
-}
-
-impl From<AggregateType> for MetricAggregations {
-    fn from(val: AggregateType) -> Self {
-        if val.has_filter() {
-            todo!("support filter aggs");
-        }
-
-        match val {
-            AggregateType::CountAny { .. } => MetricAggregations::Count(CountAggregation {
-                field: "ctid".to_string(),
-                missing: None,
-            }),
-            AggregateType::Count { field, missing, .. } => {
-                MetricAggregations::Count(CountAggregation { field, missing })
-            }
-            AggregateType::Sum { field, missing, .. } => {
-                MetricAggregations::Sum(SumAggregation { field, missing })
-            }
-            AggregateType::Avg { field, missing, .. } => {
-                MetricAggregations::Average(AverageAggregation { field, missing })
-            }
-            AggregateType::Min { field, missing, .. } => {
-                MetricAggregations::Min(MinAggregation { field, missing })
-            }
-            AggregateType::Max { field, missing, .. } => {
-                MetricAggregations::Max(MaxAggregation { field, missing })
-            }
-        }
-    }
-}
-
-impl From<MetricAggregations> for Aggregation {
-    fn from(val: MetricAggregations) -> Self {
-        match val {
-            MetricAggregations::Average(agg) => Aggregation {
-                agg: AggregationVariants::Average(agg),
-                sub_aggregation: Aggregations::new(),
-            },
-            MetricAggregations::Count(agg) => Aggregation {
-                agg: AggregationVariants::Count(agg),
-                sub_aggregation: Aggregations::new(),
-            },
-            MetricAggregations::Sum(agg) => Aggregation {
-                agg: AggregationVariants::Sum(agg),
-                sub_aggregation: Aggregations::new(),
-            },
-            MetricAggregations::Min(agg) => Aggregation {
-                agg: AggregationVariants::Min(agg),
-                sub_aggregation: Aggregations::new(),
-            },
-            MetricAggregations::Max(agg) => Aggregation {
-                agg: AggregationVariants::Max(agg),
-                sub_aggregation: Aggregations::new(),
-            },
-        }
-    }
+#[inline]
+fn to_tantivy_query(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Result<Box<dyn Query>> {
+    let standalone_context = ExprContextGuard::new();
+    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    let schema = index.schema()?;
+    let reader = SearchIndexReader::open_with_context(
+        &index,
+        query.clone(),
+        false,
+        MvccSatisfies::Snapshot,
+        NonNull::new(standalone_context.as_ptr()),
+        None,
+    )?;
+    let parser = || {
+        QueryParser::for_index(
+            reader.searcher().index(),
+            schema.fields().map(|(f, _)| f).collect(),
+        )
+    };
+    let heap_oid = index.heap_relation().map(|r| r.oid());
+    Ok(Box::new(query.clone().into_tantivy_query(
+        &schema,
+        &parser,
+        reader.searcher(),
+        index.oid(),
+        heap_oid,
+        NonNull::new(standalone_context.as_ptr()),
+        None,
+    )?))
 }

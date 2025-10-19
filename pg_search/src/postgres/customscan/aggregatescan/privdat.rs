@@ -46,31 +46,37 @@ use tantivy::schema::OwnedValue;
 pub enum AggregateType {
     CountAny {
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
     Count {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
     Sum {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
     Avg {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
     Min {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
     Max {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
     },
 }
 
@@ -144,6 +150,7 @@ impl AggregateType {
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Some(AggregateType::CountAny {
                 filter: filter_query,
+                indexrelid: bm25_index.oid(),
             });
         }
 
@@ -153,7 +160,8 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_query)?;
+        let agg_type =
+            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
 
         Some(agg_type)
     }
@@ -174,6 +182,17 @@ impl AggregateType {
         }
     }
 
+    pub fn indexrelid(&self) -> pg_sys::Oid {
+        match self {
+            AggregateType::CountAny { indexrelid, .. } => *indexrelid,
+            AggregateType::Count { indexrelid, .. } => *indexrelid,
+            AggregateType::Sum { indexrelid, .. } => *indexrelid,
+            AggregateType::Avg { indexrelid, .. } => *indexrelid,
+            AggregateType::Min { indexrelid, .. } => *indexrelid,
+            AggregateType::Max { indexrelid, .. } => *indexrelid,
+        }
+    }
+
     pub fn missing(&self) -> Option<f64> {
         match self {
             AggregateType::CountAny { .. } => None,
@@ -188,7 +207,7 @@ impl AggregateType {
     /// Check if this aggregate has a filter
     pub fn has_filter(&self) -> bool {
         match self {
-            AggregateType::CountAny { filter } => filter.is_some(),
+            AggregateType::CountAny { filter, .. } => filter.is_some(),
             AggregateType::Count { filter, .. } => filter.is_some(),
             AggregateType::Sum { filter, .. } => filter.is_some(),
             AggregateType::Avg { filter, .. } => filter.is_some(),
@@ -200,7 +219,7 @@ impl AggregateType {
     /// Get the filter expression if present
     pub fn filter_expr(&self) -> &Option<SearchQueryInput> {
         match self {
-            AggregateType::CountAny { filter } => filter,
+            AggregateType::CountAny { filter, .. } => filter,
             AggregateType::Count { filter, .. } => filter,
             AggregateType::Sum { filter, .. } => filter,
             AggregateType::Avg { filter, .. } => filter,
@@ -211,7 +230,7 @@ impl AggregateType {
 
     pub fn filter_expr_mut(&mut self) -> &mut Option<SearchQueryInput> {
         match self {
-            AggregateType::CountAny { filter } => filter,
+            AggregateType::CountAny { filter, .. } => filter,
             AggregateType::Count { filter, .. } => filter,
             AggregateType::Sum { filter, .. } => filter,
             AggregateType::Avg { filter, .. } => filter,
@@ -326,18 +345,21 @@ fn create_aggregate_from_oid(
     field: String,
     missing: Option<f64>,
     filter: Option<SearchQueryInput>,
+    indexrelid: pg_sys::Oid,
 ) -> Option<AggregateType> {
     match aggfnoid {
         F_COUNT_ANY => Some(AggregateType::Count {
             field,
             missing,
             filter,
+            indexrelid,
         }),
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggregateType::Avg {
                 field,
                 missing,
                 filter,
+                indexrelid,
             })
         }
         F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
@@ -345,6 +367,7 @@ fn create_aggregate_from_oid(
                 field,
                 missing,
                 filter,
+                indexrelid,
             })
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
@@ -353,6 +376,7 @@ fn create_aggregate_from_oid(
                 field,
                 missing,
                 filter,
+                indexrelid,
             })
         }
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
@@ -361,6 +385,7 @@ fn create_aggregate_from_oid(
             field,
             missing,
             filter,
+            indexrelid,
         }),
         _ => {
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);

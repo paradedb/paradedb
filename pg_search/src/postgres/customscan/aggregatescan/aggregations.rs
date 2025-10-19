@@ -113,11 +113,21 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         let mut aggs = Aggregations::new();
+        <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
 
-        if !self.has_groupby() {
-            <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
-        } else {
+        if self.has_groupby() {
+            let metrics = std::mem::take(&mut aggs);
             <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, &mut aggs)?;
+
+            if let Some(Aggregation { agg, .. }) = aggs.remove(GroupedKey::NAME) {
+                aggs.insert(
+                    GroupedKey::NAME.to_string(),
+                    Aggregation {
+                        agg,
+                        sub_aggregation: metrics,
+                    },
+                );
+            }
         }
         // let has_terms_aggregations = !terms_aggregations.is_empty();
 

@@ -75,14 +75,13 @@ pub struct AggregateCSClause {
 struct FilterAggregationGroupedQual(Aggregations);
 struct FilterAggregationUngroupedQual(Aggregations);
 
-trait CollectNested<Leaf, Key: AggregationKey> {
-    fn variant(&self, leaf: Leaf) -> AggregationVariants;
-    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+trait CollectNested<Key: AggregationKey> {
+    fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>>;
 
     fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
         for leaf in self.into_iter()? {
             let aggregation = Aggregation {
-                agg: self.variant(leaf),
+                agg: leaf,
                 sub_aggregation: aggregations.clone(),
             };
             aggregations.insert(Key::NAME.to_string(), aggregation);
@@ -120,7 +119,7 @@ impl CollectAggregations for AggregateCSClause {
                 self,
                 Aggregations::new(),
             )?;
-            Ok(<Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, metrics)?)
+            Ok(<Self as CollectNested<GroupedKey>>::collect(self, metrics)?)
         }
 
         // <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
@@ -235,12 +234,8 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 }
 
-impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
-    fn variant(&self, leaf: TermsAggregation) -> AggregationVariants {
-        AggregationVariants::Terms(leaf)
-    }
-
-    fn into_iter(&self) -> Result<impl Iterator<Item = TermsAggregation>> {
+impl CollectNested<GroupedKey> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
         let orderby_info = self.orderby.orderby_info();
 
         let size = {
@@ -276,7 +271,7 @@ impl CollectNested<TermsAggregation, GroupedKey> for AggregateCSClause {
                 });
             }
 
-            terms_agg
+            AggregationVariants::Terms(terms_agg)
         }))
     }
 }

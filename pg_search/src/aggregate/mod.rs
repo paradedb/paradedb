@@ -242,7 +242,6 @@ impl<'a> ParallelAggregationWorker<'a> {
         )?;
 
         let aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
-        pgrx::info!("final request: {:?}", aggregations);
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(

@@ -67,7 +67,6 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        pgrx::info!("create_custom_path");
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
@@ -86,7 +85,7 @@ impl CustomScan for AggregateScan {
         };
         let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
         let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
-        pgrx::info!("builder");
+
         Some(builder.build(PrivateData {
             heap_rti,
             indexrelid: index.oid(),
@@ -407,7 +406,7 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
-    pgrx::info!("result: {:?}", result);
+    // pgrx::info!("raw: {:?}", result);
 
     result.into_iter()
 }
@@ -455,7 +454,7 @@ impl IntoIterator for AggregationResults {
 
     fn into_iter(self) -> Self::IntoIter {
         let result = self.flatten_into(Vec::new(), None);
-        pgrx::info!("result: {:?}", result);
+        // pgrx::info!("processed: {:?}", result);
         result.into_iter()
     }
 }
@@ -469,6 +468,7 @@ impl AggregationResults {
         let mut entries: Vec<_> = self.0.into_iter().collect();
         entries.sort_by_key(|(k, _)| k.clone());
         let mut rows = Vec::new();
+        let mut top_metrics: Vec<TantivySingleMetricResult> = Vec::new();
 
         for (_name, result) in &entries {
             if let AggregationResult::MetricResult(metric) = result {
@@ -480,13 +480,16 @@ impl AggregationResults {
                     | MetricResult::Max(result) => result.clone(),
                     other => todo!("support other metric results: {:?}", other),
                 };
-
-                rows.push(AggregationResultsRow {
-                    group_keys: key_accumulator.clone(),
-                    aggregates: vec![single],
-                    doc_count,
-                });
+                top_metrics.push(single);
             }
+        }
+
+        if !top_metrics.is_empty() {
+            rows.push(AggregationResultsRow {
+                group_keys: key_accumulator.clone(),
+                aggregates: top_metrics,
+                doc_count,
+            });
         }
 
         for (_name, result) in &entries {
@@ -514,12 +517,15 @@ impl AggregationResults {
                                     doc_count: Some(doc_count),
                                 });
                             } else {
-                                for mut row in sub_rows.drain(..) {
-                                    let mut merged_keys = new_keys.clone();
-                                    merged_keys.extend(row.group_keys);
-                                    row.group_keys = merged_keys;
-                                    rows.push(row);
+                                let mut merged = AggregationResultsRow {
+                                    group_keys: new_keys.clone(),
+                                    aggregates: Vec::new(),
+                                    doc_count: Some(doc_count),
+                                };
+                                for row in sub_rows {
+                                    merged.aggregates.extend(row.aggregates);
                                 }
+                                rows.push(merged);
                             }
                         }
                     }

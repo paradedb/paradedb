@@ -78,11 +78,11 @@ struct FilterAggregationUngroupedQual(Aggregations);
 trait CollectNested<Key: AggregationKey> {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>>;
 
-    fn collect(&self, mut aggregations: Aggregations) -> Result<Aggregations> {
+    fn collect(&self, mut aggregations: Aggregations, children: Aggregations) -> Result<Aggregations> {
         for leaf in self.into_iter()? {
             let aggregation = Aggregation {
                 agg: leaf,
-                sub_aggregation: aggregations.clone(),
+                sub_aggregation: children.clone(),
             };
             aggregations.insert(Key::NAME.to_string(), aggregation);
         }
@@ -119,57 +119,24 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        if !self.has_groupby() {
-            Ok(<Self as CollectFlat<
+        let agg = if !self.has_groupby() {
+            <Self as CollectFlat<
                 AggregateType,
                 MetricsWithoutGroupBy,
             >>::collect(
                 self, Aggregations::new(), Aggregations::new()
-            )?)
+            )?
         } else {
             let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,
                 Aggregations::new(),
                 Aggregations::new(),
             )?;
-            Ok(<Self as CollectNested<GroupedKey>>::collect(self, metrics)?)
-        }
+            <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?
+        };
 
-        // <Self as CollectFlat<MetricAggregations>>::collect(self, &mut aggs)?;
-
-        // if self.has_groupby() {
-        //     let metrics = std::mem::take(&mut aggs);
-        //     <Self as CollectNested<TermsAggregation, GroupedKey>>::collect(self, &mut aggs)?;
-
-        //     if let Some(Aggregation { agg, .. }) = aggs.remove(GroupedKey::NAME) {
-        //         aggs.insert(
-        //             GroupedKey::NAME.to_string(),
-        //             Aggregation {
-        //                 agg,
-        //                 sub_aggregation: metrics,
-        //             },
-        //         );
-        //     }
-        // }
-        // let has_terms_aggregations = !terms_aggregations.is_empty();
-
-        // let metric_aggregations = <Self as IterFlat<MetricAggregations>>::into_iter(self)?;
-        // for (idx, metric_agg) in metric_aggregations.enumerate() {
-        //     aggregations.insert(idx.to_string(), metric_agg.into());
-        // }
-
-        // for (idx, term_agg) in terms_aggregations.into_iter().enumerate() {
-        //     aggregations.insert(idx.to_string(), term_agg.into());
-        // }
-        // if has_terms_aggregations {
-        //     let sub_aggregations =
-        //         <Self as IterFlat<FilterAggregationGroupedQual>>::into_iter(self)?;
-        //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
-        // } else {
-        //     let sub_aggregations =
-        //         <Self as IterFlat<FilterAggregationUngroupedQual>>::into_iter(self)?;
-        //     add_filter_aggregations(&mut aggregations, filter_aggregations, sub_aggregations);
-        // }
+        // pgrx::info!("query: {:?}", agg);
+        Ok(agg)
     }
 }
 
@@ -293,13 +260,13 @@ pub struct MetricsWithGroupBy;
 pub struct MetricsWithoutGroupBy;
 pub struct Filters;
 
-impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
+impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
     }
 }
 
-impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
+impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().filter_map(|agg| {
             if !agg.can_use_doc_count() {

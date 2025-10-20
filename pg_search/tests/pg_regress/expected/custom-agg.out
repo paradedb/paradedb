@@ -165,10 +165,10 @@ SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |             agg             
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+-----------------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"result": "not supported"}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"result": "not supported"}
+ id |        description         | severity | category | response_time | status_code |        timestamp         |            agg             
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+----------------------------
+  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"error": "not supported"}
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"error": "not supported"}
 (2 rows)
 
 -- Test 6: EXPLAIN query to show custom agg is recognized

@@ -91,7 +91,7 @@ pub enum ExecMethodType {
         heaprelid: pg_sys::Oid,
         limit: usize,
         orderby_info: Option<Vec<OrderByInfo>>,
-        window_aggregates: Option<Vec<WindowAggregateInfo>>,
+        window_aggregates: Vec<WindowAggregateInfo>,
     },
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,

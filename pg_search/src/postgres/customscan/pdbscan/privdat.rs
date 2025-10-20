@@ -52,7 +52,7 @@ pub struct PrivateData {
     join_predicates: Option<SearchQueryInput>,
     ambulkdelete_epoch: u32,
     // Window aggregates to compute during TopN execution
-    window_aggregates: Option<Vec<WindowAggregateInfo>>,
+    window_aggregates: Vec<WindowAggregateInfo>,
 }
 
 mod var_attname_lookup_serializer {
@@ -224,7 +224,7 @@ impl PrivateData {
     }
 
     pub fn set_window_aggregates(&mut self, window_aggregates: Vec<WindowAggregateInfo>) {
-        self.window_aggregates = Some(window_aggregates);
+        self.window_aggregates = window_aggregates;
     }
 }
 
@@ -295,7 +295,7 @@ impl PrivateData {
         self.ambulkdelete_epoch
     }
 
-    pub fn window_aggregates(&self) -> &Option<Vec<WindowAggregateInfo>> {
+    pub fn window_aggregates(&self) -> &Vec<WindowAggregateInfo> {
         &self.window_aggregates
     }
 }

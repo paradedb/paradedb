@@ -95,7 +95,7 @@ pub struct PdbScanState {
     pub doc_from_heap_state: Option<HeapFetchState>,
 
     // Window aggregate support
-    pub window_aggregates: Option<Vec<WindowAggregateInfo>>,
+    pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
     pub const_window_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
 

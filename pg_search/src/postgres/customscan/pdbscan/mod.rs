@@ -1342,7 +1342,7 @@ fn check_visibility(
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
-    let has_window_aggs = state.custom_state().window_aggregates.is_some();
+    let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
 
     if !need_scores && !need_snippets && !has_window_aggs {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
@@ -1365,12 +1365,12 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     );
 
     // Now inject window aggregate placeholders
-    let (targetlist, const_window_agg_nodes) =
-        if let Some(window_aggs) = &state.custom_state().window_aggregates {
-            inject_window_aggregate_placeholders(targetlist, window_aggs)
-        } else {
-            (targetlist, HashMap::default())
-        };
+    let (targetlist, const_window_agg_nodes) = if !state.custom_state().window_aggregates.is_empty()
+    {
+        inject_window_aggregate_placeholders(targetlist, &state.custom_state().window_aggregates)
+    } else {
+        (targetlist, HashMap::default())
+    };
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);

@@ -55,7 +55,7 @@ pub struct TopNScanExecState {
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
     scale_factor: f64,
     // Window aggregates to compute
-    window_aggregates: Option<Vec<WindowAggregateInfo>>,
+    window_aggregates: Vec<WindowAggregateInfo>,
     // Computed aggregate results (stored once, reused for all rows)
     computed_aggregates: Option<HashMap<usize, pg_sys::Datum>>,
 }
@@ -103,7 +103,7 @@ impl TopNScanExecState {
             chunk_size: 0,
             claimed_segments: RefCell::default(),
             scale_factor,
-            window_aggregates: None,
+            window_aggregates: Vec::new(),
             computed_aggregates: None,
         }
     }
@@ -164,9 +164,10 @@ impl TopNScanExecState {
 
     /// Compute window aggregates based on the search results
     fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
-        let Some(window_aggs) = &self.window_aggregates else {
+        if self.window_aggregates.is_empty() {
             return;
-        };
+        }
+        let window_aggs = &self.window_aggregates;
 
         let mut results = HashMap::default();
 
@@ -308,7 +309,7 @@ impl ExecMethod for TopNScanExecState {
         self.exhausted = self.search_results.original_len() < local_limit;
 
         // Compute window aggregates if needed
-        if self.window_aggregates.is_some() && self.computed_aggregates.is_none() {
+        if !self.window_aggregates.is_empty() && self.computed_aggregates.is_none() {
             self.compute_window_aggregates(state);
         }
 

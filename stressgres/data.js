@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760994980134,
+  "lastUpdate": 1760994983212,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20584,6 +20584,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.95365555749433, max segment_count: 107.0, count: 57310"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfa35818db696e79cd0a935a0615c62569febc28",
+          "message": "fix: Bound memory usage during merges. (#3376)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-20T13:46:38-07:00",
+          "tree_id": "e963d07459f674c8eb3d7894bf7363d727044cde",
+          "url": "https://github.com/paradedb/paradedb/commit/cfa35818db696e79cd0a935a0615c62569febc28"
+        },
+        "date": 1760994981339,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.853102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.606398916736772, max cpu: 42.72997, count: 57920"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.8828752212103, max mem: 229.32421875, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.36340246220791, max cpu: 33.300297, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.42079713937326, max mem: 164.09375, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24367,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23338.190037983426, max block_count: 26089.0, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.56156767955801, max segment_count: 105.0, count: 57920"
           }
         ]
       }

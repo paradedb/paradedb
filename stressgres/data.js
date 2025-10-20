@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760996431178,
+  "lastUpdate": 1760996434338,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41962,6 +41962,114 @@ window.BENCHMARK_DATA = {
             "value": 156.7734375,
             "unit": "median mem",
             "extra": "avg mem: 155.4591076179866, max mem: 158.96875, count: 55483"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfa35818db696e79cd0a935a0615c62569febc28",
+          "message": "fix: Bound memory usage during merges. (#3376)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-20T13:46:38-07:00",
+          "tree_id": "e963d07459f674c8eb3d7894bf7363d727044cde",
+          "url": "https://github.com/paradedb/paradedb/commit/cfa35818db696e79cd0a935a0615c62569febc28"
+        },
+        "date": 1760996432443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.733231391793264, max cpu: 46.242775, count: 55455"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.87269611903795, max mem: 157.23046875, count: 55455"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.66908617130794, max cpu: 28.015566, count: 55455"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 110.15782891251916, max mem: 111.4140625, count: 55455"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.942564468139265, max cpu: 9.504951, count: 55455"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 147.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 125.30203381401587, max mem: 147.4609375, count: 55455"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30162,
+            "unit": "median block_count",
+            "extra": "avg block_count: 30636.460337210352, max block_count: 62209.0, count: 55455"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.13633547689691, max cpu: 4.660194, count: 55455"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 90.10523115589217, max mem: 126.859375, count: 55455"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.937859525741594, max segment_count: 53.0, count: 55455"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.91476895851506, max cpu: 28.346458, count: 110910"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.6836051964994, max mem: 157.8203125, count: 110910"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.003190710467903, max cpu: 27.853, count: 55455"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.7814138434316, max mem: 158.88671875, count: 55455"
           }
         ]
       }

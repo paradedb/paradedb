@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760995672322,
+  "lastUpdate": 1760995702246,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24088,6 +24088,54 @@ window.BENCHMARK_DATA = {
             "value": 5.933347828518007,
             "unit": "median tps",
             "extra": "avg tps: 5.944328760916979, max tps: 7.652684622604453, count: 55970"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfa35818db696e79cd0a935a0615c62569febc28",
+          "message": "fix: Bound memory usage during merges. (#3376)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-20T13:46:38-07:00",
+          "tree_id": "e963d07459f674c8eb3d7894bf7363d727044cde",
+          "url": "https://github.com/paradedb/paradedb/commit/cfa35818db696e79cd0a935a0615c62569febc28"
+        },
+        "date": 1760995700384,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1190.9599309405676,
+            "unit": "median tps",
+            "extra": "avg tps: 1188.5101556171298, max tps: 1262.6507665018576, count: 56661"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1169.8765589759264,
+            "unit": "median tps",
+            "extra": "avg tps: 1134.8075632440923, max tps: 1343.55275950097, count: 56661"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1894.637492200709,
+            "unit": "median tps",
+            "extra": "avg tps: 1799.5962046261852, max tps: 2122.3680440650214, count: 56661"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.742889193888474,
+            "unit": "median tps",
+            "extra": "avg tps: 5.727521294504843, max tps: 7.041146028193382, count: 56661"
           }
         ]
       }

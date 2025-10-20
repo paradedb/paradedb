@@ -53,16 +53,6 @@ impl AggregationKey for GroupedKey {
     const NAME: &'static str = "grouped";
 }
 
-struct FilterKey;
-impl AggregationKey for FilterKey {
-    const NAME: &'static str = "filter";
-}
-
-struct FilterAggUngroupedKey;
-impl AggregationKey for FilterAggUngroupedKey {
-    const NAME: &'static str = "filter_agg";
-}
-
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,
@@ -71,9 +61,6 @@ pub struct AggregateCSClause {
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
 }
-
-struct FilterAggregationGroupedQual(Aggregations);
-struct FilterAggregationUngroupedQual(Aggregations);
 
 trait CollectNested<Key: AggregationKey> {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>>;
@@ -133,7 +120,8 @@ impl CollectAggregations for AggregateCSClause {
         let agg = if !self.has_groupby() {
             let metrics =
                 <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
-            let filters = <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::into_iter(self)?;
+            let filters =
+                <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::into_iter(self)?;
 
             filters
                 .zip(metrics)
@@ -161,17 +149,22 @@ impl CollectAggregations for AggregateCSClause {
                 Aggregations::new(),
                 Aggregations::new(),
             )?;
-            let terms = <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+            let terms =
+                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
 
             if self.has_filter() {
-                let filters = <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
-                filters.enumerate().map(|(idx, filter)| {
-                    let filter_agg = Aggregation {
-                        agg: filter.into(),
-                        sub_aggregation: terms.clone(),
-                    };
-                    (idx.to_string(), filter_agg)
-                }).collect::<Aggregations>()
+                let filters =
+                    <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
+                filters
+                    .enumerate()
+                    .map(|(idx, filter)| {
+                        let filter_agg = Aggregation {
+                            agg: filter.into(),
+                            sub_aggregation: terms.clone(),
+                        };
+                        (idx.to_string(), filter_agg)
+                    })
+                    .collect::<Aggregations>()
             } else {
                 terms
             }
@@ -204,7 +197,9 @@ impl AggregateCSClause {
     }
 
     pub fn has_filter(&self) -> bool {
-        self.targetlist.aggregates().any(|agg| agg.filter_expr().is_some())
+        self.targetlist
+            .aggregates()
+            .any(|agg| agg.filter_expr().is_some())
     }
 
     pub fn has_orderby(&self) -> bool {
@@ -337,7 +332,6 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
 
 pub struct MetricsWithGroupBy;
 pub struct MetricsWithoutGroupBy;
-
 pub struct FiltersWithGroupBy;
 pub struct FiltersWithoutGroupBy;
 
@@ -433,24 +427,6 @@ impl From<FilterQuery> for AggregationVariants {
         AggregationVariants::Filter(FilterAggregation::new_with_query(tantivy_query))
     }
 }
-
-// #[inline]
-// fn add_filter_aggregations<Agg, SubAgg>(
-//     aggregations: &mut Aggregations,
-//     aggs: impl Iterator<Item = Agg>,
-//     sub_aggs: impl Iterator<Item = SubAgg>,
-// ) where
-//     Agg: Into<FilterAggregation>,
-//     SubAgg: Into<Aggregations>,
-// {
-//     for (idx, (aggregation, sub_aggregation)) in aggs.zip(sub_aggs).enumerate() {
-//         let agg = Aggregation {
-//             agg: AggregationVariants::Filter(aggregation.into()),
-//             sub_aggregation: sub_aggregation.into(),
-//         };
-//         aggregations.insert(format!("{}_{}", FilterKey::NAME, idx), agg);
-//     }
-// }
 
 #[inline]
 fn to_tantivy_query(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Result<Box<dyn Query>> {

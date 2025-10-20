@@ -170,7 +170,8 @@ impl CollectAggregations for AggregateCSClause {
             }
         };
 
-        pgrx::info!("query: {:?}", agg);
+        pgrx::info!("request: {:?} \n", agg);
+
         Ok(agg)
     }
 }
@@ -182,6 +183,10 @@ impl AggregateCSClause {
 
     pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
         self.targetlist.aggregates_mut()
+    }
+
+    pub fn can_use_doc_count(&self, agg: &AggregateType) -> bool {
+        self.has_groupby() && !self.has_filter() && matches!(agg, AggregateType::CountAny { .. })
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {

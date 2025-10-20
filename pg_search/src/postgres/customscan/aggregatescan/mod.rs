@@ -224,16 +224,19 @@ impl CustomScan for AggregateScan {
                         .try_into_datum(pgrx::PgOid::from(expected_typoid))
                         .expect("should be able to convert to datum"),
                     TargetListEntry::Aggregate(agg_type) => {
-                        if agg_type.can_use_doc_count() && !state.custom_state().aggregate_clause.has_filter() {
-                            pgrx::info!("using doc count {:?}", row.doc_count);
+                        if agg_type.can_use_doc_count()
+                            && !state.custom_state().aggregate_clause.has_filter()
+                            && state.custom_state().aggregate_clause.has_groupby()
+                        {
                             row.doc_count()
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
-                            pgrx::info!("using aggregate");
                             SingleMetricResult::new(
                                 expected_typoid,
-                                aggregates.next().unwrap_or(TantivySingleMetricResult { value: Some(0.0) })
+                                aggregates
+                                    .next()
+                                    .unwrap_or(TantivySingleMetricResult { value: Some(0.0) }),
                             )
                             .into_datum()
                         }
@@ -488,15 +491,14 @@ impl AggregationResults {
         self,
         key_accumulator: Vec<TantivyValue>,
         doc_count: Option<u64>,
-        under_terms_bucket: bool,
+        _under_terms_bucket: bool, // kept for signature compatibility, unused now
         out: &mut Vec<AggregationResultsRow>, // shared accumulator
     ) {
-        // sort entries deterministically
+        // deterministic order
         let mut entries: Vec<_> = self.0.into_iter().collect();
         entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
-        // collect metrics at this level
-        let mut metric_values: Vec<TantivySingleMetricResult> = Vec::new();
+        // 1. emit any metrics at this level
         for (_name, result) in &entries {
             if let AggregationResult::MetricResult(metric) = result {
                 let single = match metric {
@@ -507,38 +509,49 @@ impl AggregationResults {
                     | MetricResult::Max(r) => r.clone(),
                     other => todo!("support other metric results: {:?}", other),
                 };
-                metric_values.push(single);
+
+                Self::merge_or_push(
+                    out,
+                    AggregationResultsRow {
+                        group_keys: key_accumulator.clone(),
+                        aggregates: vec![single],
+                        doc_count,
+                    },
+                );
             }
         }
 
-        // process buckets
-        for (_name, result) in &entries {
+        // 2. handle buckets
+        for (_name, result) in entries {
             if let AggregationResult::BucketResult(bucket) = result {
                 match bucket {
                     BucketResult::Terms { buckets, .. } => {
                         for bucket_entry in buckets {
                             let mut new_keys = key_accumulator.clone();
-                            let term_dc = bucket_entry.doc_count;
-                            let key_value = match &bucket_entry.key {
-                                Key::Str(s) => TantivyValue(OwnedValue::Str(s.clone())),
-                                Key::I64(v) => TantivyValue(OwnedValue::I64(*v)),
-                                Key::U64(v) => TantivyValue(OwnedValue::U64(*v)),
-                                Key::F64(v) => TantivyValue(OwnedValue::F64(*v)),
+                            let key_value = match bucket_entry.key {
+                                Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
+                                Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
+                                Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
+                                Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
                             };
                             new_keys.push(key_value);
 
-                            let sub = AggregationResults(bucket_entry.sub_aggregation.0.clone());
-                            let before_len = out.len();
-                            sub.flatten_into(new_keys.clone(), Some(term_dc), true, out);
+                            let sub = AggregationResults(bucket_entry.sub_aggregation.0);
+                            sub.flatten_into(
+                                new_keys.clone(),
+                                Some(bucket_entry.doc_count),
+                                false,
+                                out,
+                            );
 
-                            // if recursion didn’t add anything, emit/merge a leaf row
-                            if out.len() == before_len {
+                            // if nothing added deeper, emit leaf with doc_count only
+                            if !out.iter().any(|r| r.group_keys == new_keys) {
                                 Self::merge_or_push(
                                     out,
                                     AggregationResultsRow {
                                         group_keys: new_keys,
-                                        aggregates: metric_values.clone(),
-                                        doc_count: Some(term_dc),
+                                        aggregates: Vec::new(),
+                                        doc_count: Some(bucket_entry.doc_count),
                                     },
                                 );
                             }
@@ -546,37 +559,23 @@ impl AggregationResults {
                     }
 
                     BucketResult::Filter(filter_bucket) => {
-                        let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
-                        sub.flatten_into(key_accumulator.clone(), None, false, out);
+                        let sub = AggregationResults(filter_bucket.sub_aggregations.0);
+                        sub.flatten_into(
+                            key_accumulator.clone(),
+                            Some(filter_bucket.doc_count),
+                            false,
+                            out,
+                        );
                     }
 
                     _ => todo!("support other bucket types"),
                 }
             }
         }
-
-        // emit metrics if no buckets
-        if !metric_values.is_empty()
-            && !entries
-                .iter()
-                .any(|(_, r)| matches!(r, AggregationResult::BucketResult(_)))
-        {
-            Self::merge_or_push(
-                out,
-                AggregationResultsRow {
-                    group_keys: key_accumulator,
-                    aggregates: metric_values,
-                    doc_count,
-                },
-            );
-        }
     }
 
-    /// merge rows by group_keys, or push if new
     fn merge_or_push(out: &mut Vec<AggregationResultsRow>, mut row: AggregationResultsRow) {
         if let Some(existing) = out.iter_mut().find(|r| r.group_keys == row.group_keys) {
-            pgrx::info!("existing aggregations {:?}", existing.aggregates);
-            pgrx::info!("new aggregations {:?}", row.aggregates);
             existing.aggregates.append(&mut row.aggregates);
             existing.doc_count = match (existing.doc_count, row.doc_count) {
                 (Some(a), Some(b)) => Some(a.max(b)),

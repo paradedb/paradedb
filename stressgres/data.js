@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760992097477,
+  "lastUpdate": 1760992100582,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20116,6 +20116,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.43040559246954, max segment_count: 105.0, count: 57792"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a7429f155e46ac931beb3b4072ebe260a25fc2a",
+          "message": "fix: Bound memory usage during merges. (#3370)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.",
+          "timestamp": "2025-10-20T10:32:56-07:00",
+          "tree_id": "cb6ff29aafe0ee58def09c38cfd902ab27424ec1",
+          "url": "https://github.com/paradedb/paradedb/commit/6a7429f155e46ac931beb3b4072ebe260a25fc2a"
+        },
+        "date": 1760992098785,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.704340000000002,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.408340184365944, max cpu: 42.72997, count: 57310"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.37388626548596, max mem: 231.64453125, count: 57310"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43563248519834, max cpu: 33.136093, count: 57310"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 162.92670536337462, max mem: 164.8515625, count: 57310"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24596,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23443.193439190367, max block_count: 26335.0, count: 57310"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.95365555749433, max segment_count: 107.0, count: 57310"
           }
         ]
       }

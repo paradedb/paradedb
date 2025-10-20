@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760997646736,
+  "lastUpdate": 1760997775866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35080,6 +35080,60 @@ window.BENCHMARK_DATA = {
             "value": 18.252997570149105,
             "unit": "median tps",
             "extra": "avg tps: 18.384288383000023, max tps: 20.723912371257615, count: 55455"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2201b1e442cf1339f5195a7965edb6558ead5b6",
+          "message": "fix: Backward compatibility issue with `keyword` tokenizer (#3381)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `0.19.0` the `keyword` tokenizer name got changed because the\n`remove_long` filter got changed from `usize::MAX` to `None`. This means\nif an index was created pre-`0.19.0` with a `keyword` tokenizer, we\nwould not be able to find it post upgrade because the names were\ndifferent.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-20T17:11:13-04:00",
+          "tree_id": "d7856564d5d02601965c0353a1ba3ccc9862769b",
+          "url": "https://github.com/paradedb/paradedb/commit/c2201b1e442cf1339f5195a7965edb6558ead5b6"
+        },
+        "date": 1760997773887,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.558061921834756,
+            "unit": "median tps",
+            "extra": "avg tps: 36.6661855742038, max tps: 39.238330881285286, count: 55517"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.55161758049513,
+            "unit": "median tps",
+            "extra": "avg tps: 274.03938447133294, max tps: 2775.0322645902484, count: 55517"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1027.514477017986,
+            "unit": "median tps",
+            "extra": "avg tps: 1025.207710763111, max tps: 1046.5366156215548, count: 55517"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.15126248000493,
+            "unit": "median tps",
+            "extra": "avg tps: 155.48921959512813, max tps: 868.8807577899655, count: 111034"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.318797052277308,
+            "unit": "median tps",
+            "extra": "avg tps: 18.407546804838994, max tps: 19.806065084552028, count: 55517"
           }
         ]
       }

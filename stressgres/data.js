@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760993673469,
+  "lastUpdate": 1760994176912,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41250,6 +41250,54 @@ window.BENCHMARK_DATA = {
             "value": 114.42384620444503,
             "unit": "median tps",
             "extra": "avg tps: 113.94582167359255, max tps: 129.9228526762332, count: 107270"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a7429f155e46ac931beb3b4072ebe260a25fc2a",
+          "message": "fix: Bound memory usage during merges. (#3370)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.",
+          "timestamp": "2025-10-20T10:32:56-07:00",
+          "tree_id": "cb6ff29aafe0ee58def09c38cfd902ab27424ec1",
+          "url": "https://github.com/paradedb/paradedb/commit/6a7429f155e46ac931beb3b4072ebe260a25fc2a"
+        },
+        "date": 1760994175154,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 671.506138224446,
+            "unit": "median tps",
+            "extra": "avg tps: 670.6752984943937, max tps: 960.2689749733402, count: 53653"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 711.8189898304978,
+            "unit": "median tps",
+            "extra": "avg tps: 712.6317967618577, max tps: 1226.2073162467025, count: 53653"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 112.06458698226318,
+            "unit": "median tps",
+            "extra": "avg tps: 112.2172384690557, max tps: 123.7513712232016, count: 53653"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 113.9740691554262,
+            "unit": "median tps",
+            "extra": "avg tps: 113.19992326248219, max tps: 127.36675288334447, count: 107306"
           }
         ]
       }

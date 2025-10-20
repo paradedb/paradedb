@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760992992080,
+  "lastUpdate": 1760993494721,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33640,6 +33640,60 @@ window.BENCHMARK_DATA = {
             "value": 18.494425561841183,
             "unit": "median tps",
             "extra": "avg tps: 18.507322391072236, max tps: 20.329696327426415, count: 55762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a7429f155e46ac931beb3b4072ebe260a25fc2a",
+          "message": "fix: Bound memory usage during merges. (#3370)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.",
+          "timestamp": "2025-10-20T10:32:56-07:00",
+          "tree_id": "cb6ff29aafe0ee58def09c38cfd902ab27424ec1",
+          "url": "https://github.com/paradedb/paradedb/commit/6a7429f155e46ac931beb3b4072ebe260a25fc2a"
+        },
+        "date": 1760993492842,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.715296458793276,
+            "unit": "median tps",
+            "extra": "avg tps: 38.73087832101083, max tps: 40.92993764260331, count: 55483"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.46265906350487,
+            "unit": "median tps",
+            "extra": "avg tps: 275.44794414623385, max tps: 2831.724756353682, count: 55483"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1019.325957912643,
+            "unit": "median tps",
+            "extra": "avg tps: 1014.3010439781335, max tps: 1033.358161834248, count: 55483"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.84394182931493,
+            "unit": "median tps",
+            "extra": "avg tps: 155.6362782291585, max tps: 842.7373980918788, count: 110966"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.340272356927972,
+            "unit": "median tps",
+            "extra": "avg tps: 19.318486894750617, max tps: 19.92165638037148, count: 55483"
           }
         ]
       }

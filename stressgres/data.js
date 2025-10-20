@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760992301431,
+  "lastUpdate": 1760992307843,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29776,6 +29776,108 @@ window.BENCHMARK_DATA = {
             "value": 156.8515625,
             "unit": "median mem",
             "extra": "avg mem: 174.36926770771936, max mem: 216.71484375, count: 55989"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbb2ffd6857fd1da99b586797ef4f428a4651877",
+          "message": "fix: Backward compatibility issue with `keyword` tokenizer (#3379)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `0.19.0` the `keyword` tokenizer name got changed because the\n`remove_long` filter got changed from `usize::MAX` to `None`. This means\nif an index was created pre-`0.19.0` with a `keyword` tokenizer, we\nwould not be able to find it post upgrade because the names were\ndifferent.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-20T15:49:51-04:00",
+          "tree_id": "caf51880c19023fb1bc9d3d54f01a25969284f28",
+          "url": "https://github.com/paradedb/paradedb/commit/fbb2ffd6857fd1da99b586797ef4f428a4651877"
+        },
+        "date": 1760992303142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05073220831193668, max background_merging: 1.0, count: 56473"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.765452080448817, max cpu: 9.486166, count: 56473"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 18.522066615351584, max mem: 20.5703125, count: 56473"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.906487449338261, max cpu: 28.015566, count: 56473"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.9557336857879, max mem: 170.85546875, count: 56473"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 57147,
+            "unit": "median block_count",
+            "extra": "avg block_count: 56929.76937651621, max block_count: 57147.0, count: 56473"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.323074743682824, max segment_count: 57.0, count: 56473"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.741116704391741, max cpu: 27.745665, count: 56473"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 146.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.20524527484372, max mem: 154.85546875, count: 56473"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.133912461537888, max cpu: 28.042841, count: 56473"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 226.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.23047974806545, max mem: 247.37109375, count: 56473"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.896829637865128, max cpu: 33.300297, count: 56473"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.39118590133782, max mem: 216.75390625, count: 56473"
           }
         ]
       }

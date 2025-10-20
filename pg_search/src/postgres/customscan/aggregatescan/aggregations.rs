@@ -133,7 +133,7 @@ impl CollectAggregations for AggregateCSClause {
         let agg = if !self.has_groupby() {
             let metrics =
                 <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
-            let filters = <Self as CollectFlat<Option<FilterQuery>, Filters>>::into_iter(self)?;
+            let filters = <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::into_iter(self)?;
 
             filters
                 .zip(metrics)
@@ -161,10 +161,23 @@ impl CollectAggregations for AggregateCSClause {
                 Aggregations::new(),
                 Aggregations::new(),
             )?;
-            <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?
+            let terms = <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+
+            if self.has_filter() {
+                let filters = <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
+                filters.enumerate().map(|(idx, filter)| {
+                    let filter_agg = Aggregation {
+                        agg: filter.into(),
+                        sub_aggregation: terms.clone(),
+                    };
+                    (idx.to_string(), filter_agg)
+                }).collect::<Aggregations>()
+            } else {
+                terms
+            }
         };
 
-        // pgrx::info!("query: {:?}", agg);
+        pgrx::info!("query: {:?}", agg);
         Ok(agg)
     }
 }
@@ -188,6 +201,10 @@ impl AggregateCSClause {
 
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.targetlist.grouping_columns()
+    }
+
+    pub fn has_filter(&self) -> bool {
+        self.targetlist.aggregates().any(|agg| agg.filter_expr().is_some())
     }
 
     pub fn has_orderby(&self) -> bool {
@@ -320,7 +337,9 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
 
 pub struct MetricsWithGroupBy;
 pub struct MetricsWithoutGroupBy;
-pub struct Filters;
+
+pub struct FiltersWithGroupBy;
+pub struct FiltersWithoutGroupBy;
 
 impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
@@ -340,7 +359,7 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
     }
 }
 
-impl CollectFlat<Option<FilterQuery>, Filters> for AggregateCSClause {
+impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             if let Some(filter_expr) = agg.filter_expr() {
@@ -350,6 +369,24 @@ impl CollectFlat<Option<FilterQuery>, Filters> for AggregateCSClause {
                 })
             } else {
                 None
+            }
+        }))
+    }
+}
+
+impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
+    fn into_iter(&self) -> Result<impl Iterator<Item = FilterQuery>> {
+        Ok(self.targetlist.aggregates().map(|agg| {
+            if let Some(filter_expr) = agg.filter_expr() {
+                FilterQuery {
+                    inner: Some(filter_expr.clone()),
+                    indexrelid: agg.indexrelid(),
+                }
+            } else {
+                FilterQuery {
+                    inner: None,
+                    indexrelid: agg.indexrelid(),
+                }
             }
         }))
     }

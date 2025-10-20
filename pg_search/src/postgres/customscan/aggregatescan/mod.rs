@@ -426,7 +426,7 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
-    // pgrx::info!("raw: {:?}", result);
+    pgrx::info!("raw: {:?}", result);
 
     result.into_iter()
 }

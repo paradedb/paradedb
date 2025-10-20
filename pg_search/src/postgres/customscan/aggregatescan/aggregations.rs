@@ -21,7 +21,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
-use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
+use crate::postgres::customscan::aggregatescan::query::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::aggregatescan::{AggregateType, GroupByClause, GroupingColumn};

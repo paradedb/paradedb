@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760992100582,
+  "lastUpdate": 1760992301431,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23338,6 +23338,54 @@ window.BENCHMARK_DATA = {
             "value": 5.815650142388769,
             "unit": "median tps",
             "extra": "avg tps: 5.837825216066002, max tps: 7.5004943200781655, count: 55989"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbb2ffd6857fd1da99b586797ef4f428a4651877",
+          "message": "fix: Backward compatibility issue with `keyword` tokenizer (#3379)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `0.19.0` the `keyword` tokenizer name got changed because the\n`remove_long` filter got changed from `usize::MAX` to `None`. This means\nif an index was created pre-`0.19.0` with a `keyword` tokenizer, we\nwould not be able to find it post upgrade because the names were\ndifferent.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-20T15:49:51-04:00",
+          "tree_id": "caf51880c19023fb1bc9d3d54f01a25969284f28",
+          "url": "https://github.com/paradedb/paradedb/commit/fbb2ffd6857fd1da99b586797ef4f428a4651877"
+        },
+        "date": 1760992299601,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1182.9557737904192,
+            "unit": "median tps",
+            "extra": "avg tps: 1181.157107795844, max tps: 1243.8837895434442, count: 56473"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1241.4161575380278,
+            "unit": "median tps",
+            "extra": "avg tps: 1186.3012267056629, max tps: 1272.7083785856848, count: 56473"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1087.4068678344015,
+            "unit": "median tps",
+            "extra": "avg tps: 1006.2379049591625, max tps: 1465.5573647482815, count: 56473"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.745715036351283,
+            "unit": "median tps",
+            "extra": "avg tps: 5.774768036625439, max tps: 7.467635937932237, count: 56473"
           }
         ]
       }

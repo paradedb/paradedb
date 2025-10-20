@@ -431,7 +431,7 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
-    // pgrx::info!("raw: {:?}", result);
+    pgrx::info!("raw: {:?}", result);
 
     result.into_iter()
 }
@@ -479,9 +479,9 @@ impl IntoIterator for AggregationResults {
 
     fn into_iter(self) -> Self::IntoIter {
         let mut result = Vec::new();
-        self.flatten_into(Vec::new(), None, false, &mut result);
-        // pgrx::info!("\n\n");
-        // pgrx::info!("processed: {:?}", result);
+        self.flatten_into(Vec::new(), None, &mut result);
+        pgrx::info!("\n\n");
+        pgrx::info!("processed: {:?}", result);
         result.into_iter()
     }
 }
@@ -491,7 +491,6 @@ impl AggregationResults {
         self,
         key_accumulator: Vec<TantivyValue>,
         doc_count: Option<u64>,
-        _under_terms_bucket: bool, // kept for signature compatibility, unused now
         out: &mut Vec<AggregationResultsRow>, // shared accumulator
     ) {
         // deterministic order
@@ -537,12 +536,7 @@ impl AggregationResults {
                             new_keys.push(key_value);
 
                             let sub = AggregationResults(bucket_entry.sub_aggregation.0);
-                            sub.flatten_into(
-                                new_keys.clone(),
-                                Some(bucket_entry.doc_count),
-                                false,
-                                out,
-                            );
+                            sub.flatten_into(new_keys.clone(), Some(bucket_entry.doc_count), out);
 
                             // if nothing added deeper, emit leaf with doc_count only
                             if !out.iter().any(|r| r.group_keys == new_keys) {
@@ -563,7 +557,6 @@ impl AggregationResults {
                         sub.flatten_into(
                             key_accumulator.clone(),
                             Some(filter_bucket.doc_count),
-                            false,
                             out,
                         );
                     }

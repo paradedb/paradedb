@@ -165,7 +165,8 @@ impl CollectAggregations for AggregateCSClause {
                             self,
                             Aggregations::new(),
                             metric_agg,
-                        ).expect("should be able to collect nested aggregations");
+                        )
+                        .expect("should be able to collect nested aggregations");
                         let filter_agg = Aggregation {
                             agg: filter.into(),
                             sub_aggregation: sub_agg,
@@ -179,15 +180,11 @@ impl CollectAggregations for AggregateCSClause {
                     Aggregations::new(),
                     Aggregations::new(),
                 )?;
-                <Self as CollectNested<GroupedKey>>::collect(
-                    self,
-                    Aggregations::new(),
-                    metrics,
-                )?
+                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?
             }
         };
 
-        // pgrx::info!("request: {:?} \n", agg);
+        pgrx::info!("request: {:?} \n", agg);
 
         Ok(agg)
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760990882129,
+  "lastUpdate": 1760991397397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4744,6 +4744,72 @@ window.BENCHMARK_DATA = {
             "value": 257.3222990100554,
             "unit": "median tps",
             "extra": "avg tps: 257.4448656485894, max tps: 871.2972047043079, count: 55365"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a7429f155e46ac931beb3b4072ebe260a25fc2a",
+          "message": "fix: Bound memory usage during merges. (#3370)\n\n## What\n\nBound memory usage during merges, rather than opening buffers as large\nas the posting list and positions files.\n\n## Why\n\nhttps://github.com/paradedb/tantivy/pull/32 optimized merge throughput\nby reading the entire postings/positions files into buffers at once.\nThis memory was not accounted for by the `maintenance_work_mem` setting,\nand was unbounded.\n\n## How\n\nhttps://github.com/paradedb/tantivy/pull/71 moves to using a fixed size\nbuffer per file: see the explanation there.\n\n## Tests\n\nExisting tests all pass, and stressgres is not impacted.\n\nUsing a modified stressgres config that foreground merges in a single\nthread, peak memory usage was below 128MB.",
+          "timestamp": "2025-10-20T10:32:56-07:00",
+          "tree_id": "cb6ff29aafe0ee58def09c38cfd902ab27424ec1",
+          "url": "https://github.com/paradedb/paradedb/commit/6a7429f155e46ac931beb3b4072ebe260a25fc2a"
+        },
+        "date": 1760991395621,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 783.888269653532,
+            "unit": "median tps",
+            "extra": "avg tps: 784.305496312892, max tps: 907.9593663683058, count: 54794"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3174.366127263351,
+            "unit": "median tps",
+            "extra": "avg tps: 3163.5324700105157, max tps: 3198.1090373955576, count: 54794"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 773.7520028506101,
+            "unit": "median tps",
+            "extra": "avg tps: 773.4922648181698, max tps: 882.3756698624558, count: 54794"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 656.9798983415538,
+            "unit": "median tps",
+            "extra": "avg tps: 656.5672346589139, max tps: 665.2942892905395, count: 54794"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1702.8104965058278,
+            "unit": "median tps",
+            "extra": "avg tps: 1700.2485182803914, max tps: 1737.9646055769265, count: 109588"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1285.5195441404858,
+            "unit": "median tps",
+            "extra": "avg tps: 1275.5579836080626, max tps: 1298.861309636085, count: 54794"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 201.1711542849864,
+            "unit": "median tps",
+            "extra": "avg tps: 189.85943469941807, max tps: 1050.1466004654249, count: 54794"
           }
         ]
       }

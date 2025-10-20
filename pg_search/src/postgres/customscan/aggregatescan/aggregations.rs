@@ -16,8 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature};
-use crate::customscan::aggregatescan::AggregateType;
-use crate::customscan::aggregatescan::GroupingColumn;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -26,6 +24,7 @@ use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::quals::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{AggregateType, GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::ExprContextGuard;
@@ -34,6 +33,7 @@ use crate::query::SearchQueryInput;
 
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
+use std::collections::BTreeMap;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -182,6 +182,10 @@ impl AggregateCSClause {
         self.targetlist.entries()
     }
 
+    pub fn groupby(&self) -> &GroupByClause {
+        self.targetlist.groupby()
+    }
+
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.targetlist.grouping_columns()
     }
@@ -221,6 +225,35 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         builder = self.limit_offset.add_to_custom_path(builder);
         builder = self.quals.add_to_custom_path(builder);
         builder
+    }
+
+    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+        let aggregate: BTreeMap<_, _> = CollectAggregations::collect(self)
+            .expect("should be able to collect aggregations")
+            .into_iter()
+            .collect();
+
+        let aggregate_types = std::iter::once((
+            String::from("Applies to Aggregates"),
+            self.targetlist
+                .aggregates()
+                .map(|agg| agg.clone().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+        let aggregate_json = std::iter::once((
+            String::from("Aggregate Definition"),
+            serde_json::to_string(&aggregate).expect("should be able to serialize aggregations"),
+        ));
+
+        aggregate_types
+            .chain(self.groupby().explain_output())
+            .chain(self.limit_offset.explain_output())
+            .chain(aggregate_json)
+    }
+
+    fn explain_needs_indent(&self) -> bool {
+        true
     }
 
     fn from_pg(

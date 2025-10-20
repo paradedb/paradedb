@@ -50,6 +50,21 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         builder
     }
 
+    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+        let joined = self
+            .grouping_columns
+            .iter()
+            .map(|column| column.field_name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        std::iter::once((String::from("Group By"), joined))
+    }
+
+    fn explain_needs_indent(&self) -> bool {
+        true
+    }
+
     fn from_pg(
         args: &Self::Args,
         heap_rti: pg_sys::Index,

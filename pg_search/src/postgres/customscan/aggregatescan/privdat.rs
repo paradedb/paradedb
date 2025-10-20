@@ -240,6 +240,19 @@ impl AggregateType {
     }
 }
 
+impl std::fmt::Display for AggregateType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AggregateType::CountAny { .. } => write!(f, "COUNT(*)"),
+            AggregateType::Count { .. } => write!(f, "COUNT({})", self.field_name().unwrap()),
+            AggregateType::Sum { .. } => write!(f, "SUM({})", self.field_name().unwrap()),
+            AggregateType::Avg { .. } => write!(f, "AVG({})", self.field_name().unwrap()),
+            AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
+            AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
     pub indexrelid: pg_sys::Oid,

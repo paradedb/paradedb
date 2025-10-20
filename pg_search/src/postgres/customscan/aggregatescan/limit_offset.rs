@@ -48,6 +48,24 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
         builder
     }
 
+    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+        let mut output = Vec::new();
+
+        if let Some(limit) = self.limit() {
+            output.push((String::from("Limit"), limit.to_string()));
+        }
+
+        if let Some(offset) = self.offset() {
+            output.push((String::from("Offset"), offset.to_string()));
+        }
+
+        output.into_iter()
+    }
+
+    fn explain_needs_indent(&self) -> bool {
+        true
+    }
+
     fn from_pg(
         args: &Self::Args,
         heap_rti: pg_sys::Index,

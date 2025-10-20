@@ -61,6 +61,10 @@ impl TargetList {
         self.entries.iter()
     }
 
+    pub fn groupby(&self) -> &GroupByClause {
+        &self.groupby
+    }
+
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.groupby.grouping_columns()
     }

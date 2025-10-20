@@ -143,10 +143,11 @@ impl CustomScan for AggregateScan {
         explainer: &mut Explainer,
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
-
-        // Use pre-computed filter groups from the scan state
-        // let filter_groups = &state.custom_state().filter_groups;
-        todo!("explain")
+        explainer.add_query(state.custom_state().aggregate_clause.query());
+        state
+            .custom_state()
+            .aggregate_clause
+            .add_to_explainer(explainer);
     }
 
     fn begin_custom_scan(
@@ -368,6 +369,25 @@ pub trait CustomScanClause<CS: CustomScan> {
 
     fn add_to_custom_path(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>;
 
+    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+        std::iter::empty()
+    }
+
+    fn explain_needs_indent(&self) -> bool {
+        false
+    }
+
+    fn add_to_explainer(&self, explainer: &mut Explainer) {
+        for (key, value) in self.explain_output() {
+            let indent = if self.explain_needs_indent() {
+                "  "
+            } else {
+                ""
+            };
+            explainer.add_text(&format!("{}{}", indent, key), &value);
+        }
+    }
+
     fn build(
         builder: CustomPathBuilder<CS>,
         heap_rti: pg_sys::Index,
@@ -466,7 +486,7 @@ impl AggregationResults {
         doc_count: Option<u64>,
     ) -> Vec<AggregationResultsRow> {
         let mut entries: Vec<_> = self.0.into_iter().collect();
-        entries.sort_by_key(|(k, _)| k.clone());
+        entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
         let mut rows = Vec::new();
         let mut top_metrics = Vec::new();

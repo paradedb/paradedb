@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760993497768,
+  "lastUpdate": 1760993670589,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41202,6 +41202,54 @@ window.BENCHMARK_DATA = {
             "value": 113.76165798082026,
             "unit": "median tps",
             "extra": "avg tps: 112.56599987007637, max tps: 142.5537484296695, count: 106896"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbb2ffd6857fd1da99b586797ef4f428a4651877",
+          "message": "fix: Backward compatibility issue with `keyword` tokenizer (#3379)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `0.19.0` the `keyword` tokenizer name got changed because the\n`remove_long` filter got changed from `usize::MAX` to `None`. This means\nif an index was created pre-`0.19.0` with a `keyword` tokenizer, we\nwould not be able to find it post upgrade because the names were\ndifferent.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-20T15:49:51-04:00",
+          "tree_id": "caf51880c19023fb1bc9d3d54f01a25969284f28",
+          "url": "https://github.com/paradedb/paradedb/commit/fbb2ffd6857fd1da99b586797ef4f428a4651877"
+        },
+        "date": 1760993668837,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 660.8511002565754,
+            "unit": "median tps",
+            "extra": "avg tps: 660.1959424057673, max tps: 1001.3684952197798, count: 53635"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 701.4760662007559,
+            "unit": "median tps",
+            "extra": "avg tps: 700.9297816876805, max tps: 1125.7977993563622, count: 53635"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 113.64938444060543,
+            "unit": "median tps",
+            "extra": "avg tps: 113.70842537829381, max tps: 123.41149170688598, count: 53635"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 114.42384620444503,
+            "unit": "median tps",
+            "extra": "avg tps: 113.94582167359255, max tps: 129.9228526762332, count: 107270"
           }
         ]
       }

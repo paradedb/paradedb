@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760991582448,
+  "lastUpdate": 1760991585538,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20020,6 +20020,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.66482392901705, max segment_count: 107.0, count: 57704"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbb2ffd6857fd1da99b586797ef4f428a4651877",
+          "message": "fix: Backward compatibility issue with `keyword` tokenizer (#3379)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `0.19.0` the `keyword` tokenizer name got changed because the\n`remove_long` filter got changed from `usize::MAX` to `None`. This means\nif an index was created pre-`0.19.0` with a `keyword` tokenizer, we\nwould not be able to find it post upgrade because the names were\ndifferent.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-20T15:49:51-04:00",
+          "tree_id": "caf51880c19023fb1bc9d3d54f01a25969284f28",
+          "url": "https://github.com/paradedb/paradedb/commit/fbb2ffd6857fd1da99b586797ef4f428a4651877"
+        },
+        "date": 1760991583754,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.527472254381454, max cpu: 42.72997, count: 57792"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.79904252534953, max mem: 229.83984375, count: 57792"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.49491778829047, max cpu: 33.20158, count: 57792"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.89009467681512, max mem: 164.1953125, count: 57792"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24517,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23230.689784053156, max block_count: 26073.0, count: 57792"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.43040559246954, max segment_count: 105.0, count: 57792"
           }
         ]
       }

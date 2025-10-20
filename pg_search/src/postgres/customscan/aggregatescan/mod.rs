@@ -431,7 +431,7 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
-    pgrx::info!("raw: {:?}", result);
+    // pgrx::info!("raw: {:?}", result);
 
     result.into_iter()
 }
@@ -480,8 +480,8 @@ impl IntoIterator for AggregationResults {
     fn into_iter(self) -> Self::IntoIter {
         let mut result = Vec::new();
         self.flatten_into(Vec::new(), None, false, &mut result);
-        pgrx::info!("\n\n");
-        pgrx::info!("processed: {:?}", result);
+        // pgrx::info!("\n\n");
+        // pgrx::info!("processed: {:?}", result);
         result.into_iter()
     }
 }

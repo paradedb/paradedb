@@ -144,33 +144,50 @@ impl CollectAggregations for AggregateCSClause {
                 })
                 .collect::<Aggregations>()
         } else {
-            let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
-                self,
-                Aggregations::new(),
-                Aggregations::new(),
-            )?;
-            let terms =
-                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
-
             if self.has_filter() {
+                let metrics =
+                    <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
                 let filters =
                     <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
+
                 filters
+                    .zip(metrics)
                     .enumerate()
-                    .map(|(idx, filter)| {
+                    .map(|(idx, (filter, metric))| {
+                        let metric_agg = Aggregations::from([(
+                            0.to_string(),
+                            Aggregation {
+                                agg: metric.into(),
+                                sub_aggregation: Aggregations::new(),
+                            },
+                        )]);
+                        let sub_agg = <Self as CollectNested<GroupedKey>>::collect(
+                            self,
+                            Aggregations::new(),
+                            metric_agg,
+                        ).expect("should be able to collect nested aggregations");
                         let filter_agg = Aggregation {
                             agg: filter.into(),
-                            sub_aggregation: terms.clone(),
+                            sub_aggregation: sub_agg,
                         };
                         (idx.to_string(), filter_agg)
                     })
                     .collect::<Aggregations>()
             } else {
-                terms
+                let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
+                    self,
+                    Aggregations::new(),
+                    Aggregations::new(),
+                )?;
+                <Self as CollectNested<GroupedKey>>::collect(
+                    self,
+                    Aggregations::new(),
+                    metrics,
+                )?
             }
         };
 
-        pgrx::info!("request: {:?} \n", agg);
+        // pgrx::info!("request: {:?} \n", agg);
 
         Ok(agg)
     }

@@ -103,13 +103,11 @@ jobs:
             arch: arm64
 
     steps:
+      - name: Install Dependencies
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+
       - name: Checkout Git Repository
         uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-
-      - name: Install Dependencies
-        run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -237,3 +235,10 @@ jobs:
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-ubuntu\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

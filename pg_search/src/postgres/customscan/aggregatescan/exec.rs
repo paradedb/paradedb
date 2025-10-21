@@ -19,7 +19,9 @@ use crate::gucs;
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::HashMap;
-use crate::customscan::aggregatescan::build::{AggregationKey, FilterSentinelKey, GroupedKey};
+use crate::customscan::aggregatescan::build::{
+    AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
+};
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -27,7 +29,8 @@ use crate::postgres::types::TantivyValue;
 
 use pgrx::{pg_sys, IntoDatum};
 use tantivy::aggregation::agg_result::{
-    AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult, MetricResult,
+    AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult,
+    MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
@@ -98,7 +101,6 @@ impl IntoDatum for SingleMetricResult {
 
 #[derive(Debug)]
 struct AggregationResults(HashMap<String, AggregationResult>);
-
 impl From<TantivyAggregationResults> for AggregationResults {
     fn from(results: TantivyAggregationResults) -> Self {
         Self(results.0)
@@ -147,9 +149,45 @@ enum AggregationStyle {
     GroupedWithFilter,
 }
 
+struct MetricResult(TantivyMetricResult);
+impl Into<TantivySingleMetricResult> for MetricResult {
+    fn into(self) -> TantivySingleMetricResult {
+        match self.0 {
+            TantivyMetricResult::Average(r)
+            | TantivyMetricResult::Count(r)
+            | TantivyMetricResult::Sum(r)
+            | TantivyMetricResult::Min(r)
+            | TantivyMetricResult::Max(r) => r,
+            unsupported => {
+                panic!("unsupported metric type: {:?}", unsupported);
+            }
+        }
+    }
+}
+
 impl AggregationResults {
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        if self.0.is_empty() {
+            return true;
+        }
+
+        let doc_count = self
+            .0
+            .get(DocCountKey::NAME)
+            .and_then(|result| match result {
+                AggregationResult::MetricResult(TantivyMetricResult::Count(
+                    TantivySingleMetricResult { value, .. },
+                )) => value.clone(),
+                _ => None,
+            });
+
+        if let Some(doc_count) = doc_count {
+            if doc_count == 0.0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn style(&self) -> AggregationStyle {
@@ -207,7 +245,7 @@ impl AggregationResults {
     }
 
     fn flatten_grouped(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
+        if self.is_empty() {
             return;
         }
 
@@ -250,17 +288,7 @@ impl AggregationResults {
 
             for (_name, result) in entries {
                 if let AggregationResult::MetricResult(metric) = result {
-                    let single = match metric {
-                        MetricResult::Average(r)
-                        | MetricResult::Count(r)
-                        | MetricResult::Sum(r)
-                        | MetricResult::Min(r)
-                        | MetricResult::Max(r) => r,
-                        other => {
-                            pgrx::warning!("unsupported metric type in flatten_into: {:?}", other);
-                            continue;
-                        }
-                    };
+                    let single = MetricResult(metric).into();
                     row.aggregates.push(Some(single));
                 }
             }
@@ -268,7 +296,7 @@ impl AggregationResults {
     }
 
     fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
+        if self.is_empty() {
             return;
         }
 
@@ -279,20 +307,7 @@ impl AggregationResults {
         for (_name, result) in entries {
             match result {
                 AggregationResult::MetricResult(metric) => {
-                    let single = match metric {
-                        MetricResult::Average(r)
-                        | MetricResult::Count(r)
-                        | MetricResult::Sum(r)
-                        | MetricResult::Min(r)
-                        | MetricResult::Max(r) => r,
-                        other => {
-                            pgrx::warning!(
-                                "unsupported metric type in flatten_ungrouped: {:?}",
-                                other
-                            );
-                            continue;
-                        }
-                    };
+                    let single = MetricResult(metric).into();
                     aggregates.push(Some(single));
                 }
                 AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
@@ -315,7 +330,7 @@ impl AggregationResults {
     }
 
     fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
+        if self.is_empty() {
             return;
         }
 
@@ -333,8 +348,7 @@ impl AggregationResults {
                 filter_bucket
             }
             _ => {
-                pgrx::warning!("missing filter_sentinel in flatten_grouped_with_filter");
-                return;
+                panic!("missing filter_sentinel in flatten_grouped_with_filter");
             }
         };
 
@@ -380,14 +394,7 @@ impl AggregationResults {
 
                     for (_n, res) in current {
                         if let AggregationResult::MetricResult(metric) = res {
-                            let single = match metric {
-                                MetricResult::Average(r)
-                                | MetricResult::Count(r)
-                                | MetricResult::Sum(r)
-                                | MetricResult::Min(r)
-                                | MetricResult::Max(r) => r,
-                                _ => continue,
-                            };
+                            let single = MetricResult(metric).into();
                             found_metrics.push(Some(single));
                         }
                     }

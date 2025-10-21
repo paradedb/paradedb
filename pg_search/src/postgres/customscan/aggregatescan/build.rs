@@ -36,9 +36,15 @@ use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
+use tantivy::aggregation::metric::CountAggregation;
 
 pub trait AggregationKey {
     const NAME: &'static str;
+}
+
+pub struct DocCountKey;
+impl AggregationKey for DocCountKey {
+    const NAME: &'static str = "_doc_count";
 }
 
 pub struct GroupedKey;
@@ -121,7 +127,7 @@ impl CollectAggregations for AggregateCSClause {
             let filters =
                 <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::into_iter(self)?;
 
-            filters
+            let mut aggs = filters
                 .zip(metrics)
                 .enumerate()
                 .map(|(idx, (filter, metric))| {
@@ -140,7 +146,20 @@ impl CollectAggregations for AggregateCSClause {
 
                     (idx.to_string(), agg)
                 })
-                .collect::<Aggregations>()
+                .collect::<Aggregations>();
+
+            aggs.insert(
+                DocCountKey::NAME.to_string(),
+                Aggregation {
+                    agg: AggregationVariants::Count(CountAggregation {
+                        field: "ctid".to_string(),
+                        missing: None,
+                    }),
+                    sub_aggregation: Aggregations::new(),
+                },
+            );
+
+            aggs
         } else {
             let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,

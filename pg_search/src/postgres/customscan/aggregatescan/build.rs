@@ -67,14 +67,14 @@ pub struct AggregateCSClause {
 }
 
 trait CollectNested<Key: AggregationKey> {
-    fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>>;
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>>;
 
     fn collect(
         &self,
         mut aggregations: Aggregations,
         children: Aggregations,
     ) -> Result<Aggregations> {
-        let groupings: Vec<_> = self.into_iter()?.collect();
+        let groupings: Vec<_> = self.iter_leaves()?.collect();
 
         let nested = groupings.into_iter().rfold(children, |sub, leaf| {
             Aggregations::from([(
@@ -92,7 +92,7 @@ trait CollectNested<Key: AggregationKey> {
 }
 
 trait CollectFlat<Leaf, Marker> {
-    fn into_iter(&self) -> Result<impl Iterator<Item = Leaf>>;
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = Leaf>>;
 
     fn collect(
         &self,
@@ -102,7 +102,7 @@ trait CollectFlat<Leaf, Marker> {
     where
         Leaf: Into<AggregationVariants>,
     {
-        for (idx, leaf) in self.into_iter()?.enumerate() {
+        for (idx, leaf) in self.iter_leaves()?.enumerate() {
             aggregations.insert(
                 idx.to_string(),
                 Aggregation {
@@ -123,9 +123,11 @@ impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         let agg = if !self.has_groupby() {
             let metrics =
-                <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
+                <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::iter_leaves(self)?;
             let filters =
-                <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::into_iter(self)?;
+                <Self as CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy>>::iter_leaves(
+                    self,
+                )?;
 
             let mut aggs = filters
                 .zip(metrics)
@@ -171,9 +173,9 @@ impl CollectAggregations for AggregateCSClause {
 
             if self.has_filter() {
                 let metrics =
-                    <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
+                    <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::iter_leaves(self)?;
                 let filters =
-                    <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
+                    <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::iter_leaves(self)?;
 
                 let mut aggs = filters
                     .zip(metrics)
@@ -346,7 +348,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 }
 
 impl CollectNested<GroupedKey> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
         let orderby_info = self.orderby.orderby_info();
 
         let size = {
@@ -395,13 +397,13 @@ pub struct FiltersWithGroupBy;
 pub struct FiltersWithoutGroupBy;
 
 impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().cloned())
     }
 }
 
 impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().filter_map(|agg| {
             if !agg.can_use_doc_count() {
                 Some(agg.clone())
@@ -413,7 +415,7 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
 }
 
 impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             agg.filter_expr().as_ref().map(|filter_expr| {
                 FilterQuery::new(filter_expr.clone(), agg.indexrelid())
@@ -424,7 +426,7 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
 }
 
 impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
-    fn into_iter(&self) -> Result<impl Iterator<Item = FilterQuery>> {
+    fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterQuery>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             if let Some(filter_expr) = agg.filter_expr() {
                 FilterQuery::new(filter_expr.clone(), agg.indexrelid())

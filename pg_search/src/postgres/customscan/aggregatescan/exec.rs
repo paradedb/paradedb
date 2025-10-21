@@ -55,6 +55,7 @@ pub fn aggregation_results_iter(
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+        expr_context,
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
@@ -142,7 +143,7 @@ impl AggregationResults {
             return true;
         }
 
-        let doc_count = self
+        let _doc_count = self
             .0
             .get(DocCountKey::NAME)
             .and_then(|result| match result {
@@ -152,8 +153,8 @@ impl AggregationResults {
                 _ => None,
             });
 
-        if let Some(doc_count) = doc_count {
-            if doc_count == 0.0 {
+        if let Some(_doc_count) = _doc_count {
+            if _doc_count == 0.0 {
                 return true;
             }
         }

@@ -17,6 +17,7 @@
 
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 
@@ -60,5 +61,41 @@ impl CustomScanState for AggregateScanState {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
         // TODO: Unused currently. See the comment on `trait CustomScanState` regarding making this
         // more useful.
+    }
+}
+
+impl SolvePostgresExpressions for AggregateScanState {
+    fn has_heap_filters(&mut self) -> bool {
+        self.aggregate_clause.query_mut().has_heap_filters()
+            || self
+                .aggregate_clause
+                .aggregates_mut()
+                .any(|agg| agg.has_heap_filters())
+    }
+
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.aggregate_clause.query_mut().has_postgres_expressions()
+            || self
+                .aggregate_clause
+                .aggregates_mut()
+                .any(|agg| agg.has_postgres_expressions())
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.aggregate_clause
+            .query_mut()
+            .init_postgres_expressions(planstate);
+        self.aggregate_clause
+            .aggregates_mut()
+            .for_each(|agg| agg.init_postgres_expressions(planstate));
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.aggregate_clause
+            .query_mut()
+            .solve_postgres_expressions(expr_context);
+        self.aggregate_clause
+            .aggregates_mut()
+            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }
 }

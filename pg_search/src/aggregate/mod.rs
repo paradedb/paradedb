@@ -32,6 +32,7 @@ use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, Colle
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -229,13 +230,13 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
-        let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
+        let standalone_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &indexrel,
             self.query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
-            NonNull::new(standalone_context),
+            NonNull::new(standalone_context.as_ptr()),
             None,
         )?;
 
@@ -338,15 +339,15 @@ pub fn execute_aggregate(
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
+    expr_context: *mut pg_sys::ExprContext,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),
             false,
             MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
+            NonNull::new(expr_context),
             None,
         )?;
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();

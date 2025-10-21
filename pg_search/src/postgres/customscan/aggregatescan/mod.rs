@@ -377,22 +377,17 @@ pub trait CustomScanClause<CS: CustomScan> {
 
     fn add_to_custom_path(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>;
 
-    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
-        std::iter::empty()
+    fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
+        Box::new(std::iter::empty())
     }
 
     fn explain_needs_indent(&self) -> bool {
-        false
+        true
     }
 
     fn add_to_explainer(&self, explainer: &mut Explainer) {
         for (key, value) in self.explain_output() {
-            let indent = if self.explain_needs_indent() {
-                "  "
-            } else {
-                ""
-            };
-            explainer.add_text(&format!("{}{}", indent, key), &value);
+            explainer.add_text(&format!("  {}", key), &value);
         }
     }
 
@@ -562,6 +557,10 @@ impl AggregationResults {
     }
 
     fn flatten_grouped(self, out: &mut Vec<AggregationResultsRow>) {
+        if self.0.is_empty() {
+            return;
+        }
+
         // 1. collect all group key paths first
         self.collect_group_keys(Vec::new(), out);
 
@@ -619,6 +618,10 @@ impl AggregationResults {
     }
 
     fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
+        if self.0.is_empty() {
+            return;
+        }
+
         let mut aggregates = Vec::new();
         let mut entries: Vec<_> = self.0.into_iter().collect();
         entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
@@ -662,7 +665,11 @@ impl AggregationResults {
     }
 
     fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {
-        // 1. Identify numbered filters and sentinel
+        if self.0.is_empty() {
+            return;
+        }
+
+        // Ensure stable sorting of results
         let mut filter_entries: Vec<_> = self
             .0
             .iter()
@@ -670,6 +677,7 @@ impl AggregationResults {
             .collect();
         filter_entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
+        // Extract the sentinel filter bucket, used to get all the group keys
         let sentinel = match self.0.get(FilterSentinelKey::NAME) {
             Some(AggregationResult::BucketResult(BucketResult::Filter(filter_bucket))) => {
                 filter_bucket
@@ -680,15 +688,13 @@ impl AggregationResults {
             }
         };
 
-        // 2. Collect all group key paths from the sentinel
+        // Collect all group keys from the sentinel
         let sentinel_sub = AggregationResults(sentinel.sub_aggregations.0.clone());
         let mut rows = Vec::new();
         sentinel_sub.collect_group_keys(Vec::new(), &mut rows);
 
-        // 3. Determine how many filters there are total
+        // For each row of group keys, collect aggregates
         let num_filters = filter_entries.len();
-
-        // 4. For each row, collect aggregates across all filters (padded if missing)
         for row in &mut rows {
             let mut aggregates = Vec::new();
 
@@ -701,7 +707,6 @@ impl AggregationResults {
                     let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
                     let mut current = sub.0;
 
-                    // traverse grouped buckets along same group_keys
                     for key in &row.group_keys {
                         if let Some(AggregationResult::BucketResult(BucketResult::Terms {
                             buckets,
@@ -723,7 +728,6 @@ impl AggregationResults {
                         }
                     }
 
-                    // collect metric results if present
                     for (_n, res) in current {
                         if let AggregationResult::MetricResult(metric) = res {
                             let single = match metric {
@@ -747,7 +751,6 @@ impl AggregationResults {
                 }
             }
 
-            // now assign final aggregates for the row
             row.aggregates = aggregates;
         }
 
@@ -764,95 +767,3 @@ impl AggregationResults {
         }
     }
 }
-
-// fn flatten_into(
-//     self,
-//     key_accumulator: Vec<TantivyValue>,
-//     doc_count: Option<u64>,
-//     out: &mut Vec<AggregationResultsRow>, // shared accumulator
-// ) {
-//     // deterministic order
-//     let mut entries: Vec<_> = self.0.into_iter().collect();
-//     entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
-
-//     // 1. emit any metrics at this level
-//     for (_name, result) in &entries {
-//         if let AggregationResult::MetricResult(metric) = result {
-//             let single = match metric {
-//                 MetricResult::Average(r)
-//                 | MetricResult::Count(r)
-//                 | MetricResult::Sum(r)
-//                 | MetricResult::Min(r)
-//                 | MetricResult::Max(r) => r.clone(),
-//                 other => todo!("support other metric results: {:?}", other),
-//             };
-
-//             Self::merge_or_push(
-//                 out,
-//                 AggregationResultsRow {
-//                     group_keys: key_accumulator.clone(),
-//                     aggregates: vec![single],
-//                     doc_count,
-//                 },
-//             );
-//         }
-//     }
-
-//     // 2. handle buckets
-//     for (_name, result) in entries {
-//         if let AggregationResult::BucketResult(bucket) = result {
-//             match bucket {
-//                 BucketResult::Terms { buckets, .. } => {
-//                     for bucket_entry in buckets {
-//                         let mut new_keys = key_accumulator.clone();
-//                         let key_value = match bucket_entry.key {
-//                             Key::Str(s) => TantivyValue(OwnedValue::Str(s)),
-//                             Key::I64(v) => TantivyValue(OwnedValue::I64(v)),
-//                             Key::U64(v) => TantivyValue(OwnedValue::U64(v)),
-//                             Key::F64(v) => TantivyValue(OwnedValue::F64(v)),
-//                         };
-//                         new_keys.push(key_value);
-
-//                         let sub = AggregationResults(bucket_entry.sub_aggregation.0);
-//                         sub.flatten_into(new_keys.clone(), Some(bucket_entry.doc_count), out);
-
-//                         // if nothing added deeper, emit leaf with doc_count only
-//                         if !out.iter().any(|r| r.group_keys == new_keys) {
-//                             Self::merge_or_push(
-//                                 out,
-//                                 AggregationResultsRow {
-//                                     group_keys: new_keys,
-//                                     aggregates: Vec::new(),
-//                                     doc_count: Some(bucket_entry.doc_count),
-//                                 },
-//                             );
-//                         }
-//                     }
-//                 }
-
-//                 BucketResult::Filter(filter_bucket) => {
-//                     let sub = AggregationResults(filter_bucket.sub_aggregations.0);
-//                     sub.flatten_into(
-//                         key_accumulator.clone(),
-//                         Some(filter_bucket.doc_count),
-//                         out,
-//                     );
-//                 }
-
-//                 _ => todo!("support other bucket types"),
-//             }
-//         }
-//     }
-// }
-
-// fn merge_or_push(out: &mut Vec<AggregationResultsRow>, mut row: AggregationResultsRow) {
-//     if let Some(existing) = out.iter_mut().find(|r| r.group_keys == row.group_keys) {
-//         existing.aggregates.append(&mut row.aggregates);
-//         existing.doc_count = match (existing.doc_count, row.doc_count) {
-//             (Some(a), Some(b)) => Some(a.max(b)),
-//             (a, b) => a.or(b),
-//         };
-//     } else {
-//         out.push(row);
-//     }
-// }

@@ -50,7 +50,11 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         builder
     }
 
-    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+    fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
+        if self.grouping_columns.is_empty() {
+            return Box::new(std::iter::empty());
+        }
+
         let joined = self
             .grouping_columns
             .iter()
@@ -58,11 +62,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
             .collect::<Vec<_>>()
             .join(", ");
 
-        std::iter::once((String::from("Group By"), joined))
-    }
-
-    fn explain_needs_indent(&self) -> bool {
-        true
+        Box::new(std::iter::once((String::from("Group By"), joined) ))
     }
 
     fn from_pg(

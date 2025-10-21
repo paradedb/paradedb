@@ -280,7 +280,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         builder
     }
 
-    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+    fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
         let aggregate =
             CollectAggregations::collect(self).expect("should be able to collect aggregations");
 
@@ -304,14 +304,12 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
-        aggregate_types
-            .chain(self.groupby().explain_output())
-            .chain(self.limit_offset.explain_output())
-            .chain(aggregate_json)
-    }
-
-    fn explain_needs_indent(&self) -> bool {
-        true
+        Box::new(
+            aggregate_types
+                .chain(self.groupby().explain_output())
+                .chain(self.limit_offset.explain_output())
+                .chain(aggregate_json),
+        )
     }
 
     fn from_pg(

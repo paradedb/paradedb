@@ -48,7 +48,7 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
         builder
     }
 
-    fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
+    fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
         let mut output = Vec::new();
 
         if let Some(limit) = self.limit() {
@@ -59,11 +59,7 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
             output.push((String::from("Offset"), offset.to_string()));
         }
 
-        output.into_iter()
-    }
-
-    fn explain_needs_indent(&self) -> bool {
-        true
+        Box::new(output.into_iter())
     }
 
     fn from_pg(

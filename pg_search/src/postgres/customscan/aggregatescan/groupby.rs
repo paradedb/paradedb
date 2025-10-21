@@ -62,7 +62,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
             .collect::<Vec<_>>()
             .join(", ");
 
-        Box::new(std::iter::once((String::from("Group By"), joined) ))
+        Box::new(std::iter::once((String::from("Group By"), joined)))
     }
 
     fn from_pg(

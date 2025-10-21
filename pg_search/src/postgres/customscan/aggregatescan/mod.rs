@@ -220,12 +220,13 @@ impl CustomScan for AggregateScan {
                 let attr = tupdesc.get(i).expect("missing attribute");
                 let expected_typoid = attr.type_oid().value();
 
-                let datum = match entry {
-                    &TargetListEntry::GroupingColumn(gc_idx) => row.group_keys[gc_idx]
+                let datum = match (entry, row.is_empty()) {
+                    (TargetListEntry::GroupingColumn(gc_idx), false) => row.group_keys[*gc_idx]
                         .clone()
                         .try_into_datum(pgrx::PgOid::from(expected_typoid))
                         .expect("should be able to convert to datum"),
-                    TargetListEntry::Aggregate(agg_type) => {
+                    (TargetListEntry::GroupingColumn(_), true) => None,
+                    (TargetListEntry::Aggregate(agg_type), false) => {
                         if agg_type.can_use_doc_count()
                             && !state.custom_state().aggregate_clause.has_filter()
                             && state.custom_state().aggregate_clause.has_groupby()
@@ -243,6 +244,9 @@ impl CustomScan for AggregateScan {
                             )
                             .into_datum()
                         }
+                    }
+                    (TargetListEntry::Aggregate(agg_type), true) => {
+                        SingleMetricResult::new(expected_typoid, agg_type.nullish()).into_datum()
                     }
                 };
 
@@ -429,9 +433,11 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
-    // pgrx::info!("raw: {:?}", result);
-
-    result.into_iter()
+    if result.is_empty() {
+        vec![AggregationResultsRow::default()].into_iter()
+    } else {
+        result.into_iter()
+    }
 }
 
 #[derive(Debug)]
@@ -483,13 +489,11 @@ impl IntoIterator for AggregationResults {
             AggregationStyle::GroupedWithFilter => self.flatten_grouped_with_filter(&mut result),
         }
 
-        // pgrx::info!("\n\n");
-        // pgrx::info!("processed: {:?}", result);
         result.into_iter()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct AggregationResultsRow {
     group_keys: Vec<TantivyValue>,
     aggregates: Vec<Option<TantivySingleMetricResult>>,
@@ -503,6 +507,10 @@ impl AggregationResultsRow {
             None => TantivyValue(OwnedValue::Null),
         }
     }
+
+    fn is_empty(&self) -> bool {
+        self.group_keys.is_empty() && self.aggregates.is_empty() && self.doc_count.is_none()
+    }
 }
 
 enum AggregationStyle {
@@ -512,6 +520,20 @@ enum AggregationStyle {
 }
 
 impl AggregationResults {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn style(&self) -> AggregationStyle {
+        if self.0.contains_key(FilterSentinelKey::NAME) {
+            AggregationStyle::GroupedWithFilter
+        } else if self.0.contains_key(GroupedKey::NAME) {
+            AggregationStyle::Grouped
+        } else {
+            AggregationStyle::Ungrouped
+        }
+    }
+
     fn collect_group_keys(
         &self,
         key_accumulator: Vec<TantivyValue>,
@@ -755,15 +777,5 @@ impl AggregationResults {
         }
 
         out.extend(rows);
-    }
-
-    fn style(&self) -> AggregationStyle {
-        if self.0.contains_key(FilterSentinelKey::NAME) {
-            AggregationStyle::GroupedWithFilter
-        } else if self.0.contains_key(GroupedKey::NAME) {
-            AggregationStyle::Grouped
-        } else {
-            AggregationStyle::Ungrouped
-        }
     }
 }

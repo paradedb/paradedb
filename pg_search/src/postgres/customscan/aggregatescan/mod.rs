@@ -30,9 +30,7 @@ pub mod targetlist;
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::postgres::customscan::aggregatescan::exec::{
-    aggregation_results_iter, SingleMetricResult,
-};
+use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
@@ -48,10 +46,12 @@ use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::ffi::CStr;
+use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -229,18 +229,24 @@ impl CustomScan for AggregateScan {
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
-                            SingleMetricResult::new(
-                                expected_typoid,
-                                aggregates
-                                    .next()
-                                    .and_then(|v| v)
-                                    .unwrap_or_else(|| agg_type.nullish()),
-                            )
-                            .into_datum()
+                            aggregates
+                                .next()
+                                .and_then(|v| v)
+                                .unwrap_or_else(|| agg_type.nullish())
+                                .value
+                                .and_then(|value| {
+                                    TantivyValue(OwnedValue::F64(value))
+                                        .try_into_datum(expected_typoid.into())
+                                        .unwrap()
+                                })
                         }
                     }
                     (TargetListEntry::Aggregate(agg_type), true) => {
-                        SingleMetricResult::new(expected_typoid, agg_type.nullish()).into_datum()
+                        agg_type.nullish().value.and_then(|value| {
+                            TantivyValue(OwnedValue::F64(value))
+                                .try_into_datum(expected_typoid.into())
+                                .unwrap()
+                        })
                     }
                 };
 

@@ -96,7 +96,6 @@ impl FilterQuery {
             )
         };
         let heap_oid = index.heap_relation().map(|r| r.oid());
-        // pgrx::info!("returning tantivy query");
         let tantivy_query = Box::new(query.clone().into_tantivy_query(
             &schema,
             &parser,

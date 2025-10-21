@@ -27,7 +27,6 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::types::TantivyValue;
 
-use pgrx::{pg_sys, IntoDatum};
 use tantivy::aggregation::agg_result::{
     AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult,
     MetricResult as TantivyMetricResult,
@@ -68,34 +67,6 @@ pub fn aggregation_results_iter(
         }
     } else {
         result.into_iter()
-    }
-}
-
-#[derive(Debug)]
-pub struct SingleMetricResult {
-    oid: pg_sys::Oid,
-    inner: TantivySingleMetricResult,
-}
-
-impl SingleMetricResult {
-    pub fn new(oid: pg_sys::Oid, inner: TantivySingleMetricResult) -> Self {
-        Self { oid, inner }
-    }
-}
-
-impl IntoDatum for SingleMetricResult {
-    fn into_datum(self) -> Option<pg_sys::Datum> {
-        unsafe {
-            self.inner.value.and_then(|value| {
-                TantivyValue(OwnedValue::F64(value))
-                    .try_into_datum(self.oid.into())
-                    .unwrap()
-            })
-        }
-    }
-
-    fn type_oid() -> pg_sys::Oid {
-        pg_sys::FLOAT8OID
     }
 }
 

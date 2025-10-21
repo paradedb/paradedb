@@ -214,8 +214,6 @@ impl CollectAggregations for AggregateCSClause {
             }
         };
 
-        // pgrx::info!("request: {:?} \n", agg);
-
         Ok(agg)
     }
 }
@@ -329,6 +327,13 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
         let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
+
+        if !gucs::enable_custom_scan_without_operator()
+            && !quals.uses_our_operator()
+            && !targetlist.uses_our_operator()
+        {
+            return None;
+        }
 
         Some(Self {
             targetlist,

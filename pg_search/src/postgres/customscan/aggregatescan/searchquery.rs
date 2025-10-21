@@ -28,6 +28,7 @@ use pgrx::pg_sys;
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
     query: SearchQueryInput,
+    uses_our_operator: bool,
 }
 
 impl SearchQueryClause {
@@ -37,6 +38,10 @@ impl SearchQueryClause {
 
     pub fn query_mut(&mut self) -> &mut SearchQueryInput {
         &mut self.query
+    }
+
+    pub fn uses_our_operator(&self) -> bool {
+        self.uses_our_operator
     }
 }
 
@@ -71,6 +76,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         if !has_where_clause {
             return Some(SearchQueryClause {
                 query: SearchQueryInput::All,
+                uses_our_operator: false,
             });
         }
 
@@ -91,6 +97,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
 
         Some(SearchQueryClause {
             query: SearchQueryInput::from(&quals),
+            uses_our_operator: where_qual_state.uses_our_operator,
         })
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761074625093,
+  "lastUpdate": 1761074628793,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14932,6 +14932,126 @@ window.BENCHMARK_DATA = {
             "value": 150.2890625,
             "unit": "median mem",
             "extra": "avg mem: 129.84513651973649, max mem: 153.1015625, count: 55253"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2732cb46711b35eee908d3b7755b74086a16f9eb",
+          "message": "chore: Fix `Cargo.toml` syntax. (#3386)\n\n## What\n\n`main` is currently rendering a warning:\n```console\nwarning: Cargo.toml: unused manifest key: workspace.dependencies.tantivy.ref\nwarning: Cargo.toml: unused manifest key: patch.crates-io.tantivy-tokenizer-api.ref\n```\n\n## Why\n\n`ref` is not a valid key: `rev` is. Because of the lockfile, this is\nharmless (note that we were still using the specified sha), but it could\ncause trouble if someone changed our Tantivy fork's `main` branch, and\nthen also ran a `cargo update`.\n\n## Tests\n\nThe warning is gone, and the lockfile looks correct. Unfortunately,\nthere does not currently appear to be a way to turn \"unused manifest\nkey\" warnings into errors.",
+          "timestamp": "2025-10-21T11:39:20-07:00",
+          "tree_id": "e7ba3b4168f7a697c639c3b946558596990306b6",
+          "url": "https://github.com/paradedb/paradedb/commit/2732cb46711b35eee908d3b7755b74086a16f9eb"
+        },
+        "date": 1761074626898,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9131691675967915, max cpu: 14.271556, count: 55328"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 157.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.61307728173347, max mem: 157.5703125, count: 55328"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609784976346928, max cpu: 9.458128, count: 55328"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.47343872846931, max mem: 29.97265625, count: 55328"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.923720613963888, max cpu: 14.754097, count: 55328"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.7701953294444, max mem: 155.8046875, count: 55328"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.644046959861797, max cpu: 9.29332, count: 55328"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.95565296391518, max mem: 157.515625, count: 55328"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.676152856388211, max cpu: 9.495549, count: 110656"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.6325555804701, max mem: 159.58984375, count: 110656"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 29154,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28786.675263880858, max block_count: 55678.0, count: 55328"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.738233805668017, max segment_count: 58.0, count: 55328"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5430451696453975, max cpu: 9.504951, count: 55328"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.90892354458865, max mem: 159.71484375, count: 55328"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.01881390676714, max cpu: 4.743083, count: 55328"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 130.29023286412396, max mem: 152.83203125, count: 55328"
           }
         ]
       }

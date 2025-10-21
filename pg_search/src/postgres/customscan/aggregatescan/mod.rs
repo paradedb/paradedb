@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod aggregations;
+pub mod aggregate_type;
+pub mod build;
+pub mod exec;
 pub mod groupby;
 pub mod limit_offset;
 pub mod orderby;
@@ -24,16 +26,14 @@ pub mod query;
 pub mod scan_state;
 pub mod targetlist;
 
-use crate::gucs;
 use crate::nodecast;
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
-use crate::api::HashMap;
-use crate::customscan::aggregatescan::aggregations::{
-    AggregateCSClause, AggregationKey, FilterSentinelKey, GroupedKey,
+use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::exec::{
+    aggregation_results_iter, SingleMetricResult,
 };
 use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
-use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
+use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
 use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
@@ -47,17 +47,10 @@ use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::ffi::CStr;
-use tantivy::aggregation::agg_result::{
-    AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult, MetricResult,
-};
-use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
-use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -184,7 +177,7 @@ impl CustomScan for AggregateScan {
             }
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
-                let mut row_iter = execute(state);
+                let mut row_iter = aggregation_results_iter(state);
                 let next = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
                 next
@@ -276,58 +269,6 @@ impl CustomScan for AggregateScan {
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 }
 
-/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
-/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
-unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
-    if (*plan).targetlist.is_null() {
-        return;
-    }
-
-    let targetlist = (*plan).targetlist;
-    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
-    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
-
-    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
-            // Create a flat copy of the target entry
-            let new_te = pg_sys::flatCopyTargetEntry(te);
-            // Replace the T_Aggref with a T_FuncExpr placeholder
-            let funcexpr = make_placeholder_func_expr(aggref);
-            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
-            new_targetlist.push(new_te);
-        } else {
-            // For non-Aggref entries, just make a flat copy
-            let copied_te = pg_sys::flatCopyTargetEntry(te);
-            new_targetlist.push(copied_te);
-        }
-    }
-
-    (*plan).targetlist = new_targetlist.into_pg();
-}
-
-unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
-    let paradedb_funcexpr: *mut pg_sys::FuncExpr =
-        pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
-    (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*paradedb_funcexpr).funcid = placeholder_procid();
-    (*paradedb_funcexpr).funcresulttype = (*aggref).aggtype;
-    (*paradedb_funcexpr).funcretset = false;
-    (*paradedb_funcexpr).funcvariadic = false;
-    (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
-    (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
-    (*paradedb_funcexpr).inputcollid = (*aggref).inputcollid;
-    (*paradedb_funcexpr).location = (*aggref).location;
-    (*paradedb_funcexpr).args = PgList::<pg_sys::Node>::new().into_pg();
-
-    paradedb_funcexpr
-}
-
-/// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
-unsafe fn placeholder_procid() -> pg_sys::Oid {
-    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
-        .expect("the `now()` function should exist")
-}
-
 impl ExecMethod for AggregateScan {
     fn exec_methods() -> *const pg_sys::CustomExecMethods {
         <AggregateScan as PlainExecCapable>::exec_methods()
@@ -385,10 +326,6 @@ pub trait CustomScanClause<CS: CustomScan> {
         Box::new(std::iter::empty())
     }
 
-    fn explain_needs_indent(&self) -> bool {
-        true
-    }
-
     fn add_to_explainer(&self, explainer: &mut Explainer) {
         for (key, value) in self.explain_output() {
             explainer.add_text(&format!("  {}", key), &value);
@@ -409,379 +346,54 @@ pub trait CustomScanClause<CS: CustomScan> {
     }
 }
 
-fn execute(
-    state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<AggregationResultsRow> {
-    let planstate = state.planstate();
-    let expr_context = state.runtime_context;
+/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
+/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    if (*plan).targetlist.is_null() {
+        return;
+    }
 
-    state
-        .custom_state_mut()
-        .prepare_query_for_execution(planstate, expr_context);
+    let targetlist = (*plan).targetlist;
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
 
-    let aggregate_clause = state.custom_state().aggregate_clause.clone();
-    let query = aggregate_clause.query().clone();
-
-    let result: AggregationResults = execute_aggregate(
-        state.custom_state().indexrel(),
-        query,
-        AggregateRequest::Sql(aggregate_clause),
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
-    .into();
-
-    // pgrx::info!("result {:?}", result);
-
-    if result.is_empty() {
-        if state.custom_state().aggregate_clause.has_groupby() {
-            vec![].into_iter()
+    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+            // Replace the T_Aggref with a T_FuncExpr placeholder
+            let funcexpr = make_placeholder_func_expr(aggref);
+            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
+            new_targetlist.push(new_te);
         } else {
-            vec![AggregationResultsRow::default()].into_iter()
+            // For non-Aggref entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
         }
-    } else {
-        result.into_iter()
     }
+
+    (*plan).targetlist = new_targetlist.into_pg();
 }
 
-#[derive(Debug)]
-struct SingleMetricResult {
-    oid: pg_sys::Oid,
-    inner: TantivySingleMetricResult,
+unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
+    let paradedb_funcexpr: *mut pg_sys::FuncExpr =
+        pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
+    (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
+    (*paradedb_funcexpr).funcid = placeholder_procid();
+    (*paradedb_funcexpr).funcresulttype = (*aggref).aggtype;
+    (*paradedb_funcexpr).funcretset = false;
+    (*paradedb_funcexpr).funcvariadic = false;
+    (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+    (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
+    (*paradedb_funcexpr).inputcollid = (*aggref).inputcollid;
+    (*paradedb_funcexpr).location = (*aggref).location;
+    (*paradedb_funcexpr).args = PgList::<pg_sys::Node>::new().into_pg();
+
+    paradedb_funcexpr
 }
 
-impl SingleMetricResult {
-    fn new(oid: pg_sys::Oid, inner: TantivySingleMetricResult) -> Self {
-        Self { oid, inner }
-    }
-}
-
-impl IntoDatum for SingleMetricResult {
-    fn into_datum(self) -> Option<pg_sys::Datum> {
-        unsafe {
-            self.inner.value.and_then(|value| {
-                TantivyValue(OwnedValue::F64(value))
-                    .try_into_datum(self.oid.into())
-                    .unwrap()
-            })
-        }
-    }
-
-    fn type_oid() -> pg_sys::Oid {
-        pg_sys::FLOAT8OID
-    }
-}
-
-#[derive(Debug)]
-struct AggregationResults(HashMap<String, AggregationResult>);
-
-impl From<TantivyAggregationResults> for AggregationResults {
-    fn from(results: TantivyAggregationResults) -> Self {
-        Self(results.0)
-    }
-}
-
-impl IntoIterator for AggregationResults {
-    type Item = AggregationResultsRow;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut result = Vec::new();
-        match self.style() {
-            AggregationStyle::Ungrouped => self.flatten_ungrouped(&mut result),
-            AggregationStyle::Grouped => self.flatten_grouped(&mut result),
-            AggregationStyle::GroupedWithFilter => self.flatten_grouped_with_filter(&mut result),
-        }
-
-        result.into_iter()
-    }
-}
-
-#[derive(Debug, Default)]
-struct AggregationResultsRow {
-    group_keys: Vec<TantivyValue>,
-    aggregates: Vec<Option<TantivySingleMetricResult>>,
-    doc_count: Option<u64>,
-}
-
-impl AggregationResultsRow {
-    fn doc_count(&self) -> TantivyValue {
-        match self.doc_count {
-            Some(doc_count) => TantivyValue(OwnedValue::U64(doc_count)),
-            None => TantivyValue(OwnedValue::Null),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.group_keys.is_empty() && self.aggregates.is_empty() && self.doc_count.is_none()
-    }
-}
-
-enum AggregationStyle {
-    Ungrouped,
-    Grouped,
-    GroupedWithFilter,
-}
-
-impl AggregationResults {
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn style(&self) -> AggregationStyle {
-        if self.0.contains_key(FilterSentinelKey::NAME) {
-            AggregationStyle::GroupedWithFilter
-        } else if self.0.contains_key(GroupedKey::NAME) {
-            AggregationStyle::Grouped
-        } else {
-            AggregationStyle::Ungrouped
-        }
-    }
-
-    fn collect_group_keys(
-        &self,
-        key_accumulator: Vec<TantivyValue>,
-        out: &mut Vec<AggregationResultsRow>,
-    ) {
-        // look only at the "grouped" terms bucket at this level
-        if let Some(AggregationResult::BucketResult(BucketResult::Terms { buckets, .. })) =
-            self.0.get(GroupedKey::NAME)
-        {
-            for bucket_entry in buckets {
-                // extend the key path with this bucket's key
-                let mut new_keys = key_accumulator.clone();
-                let key_val = match &bucket_entry.key {
-                    Key::Str(s) => TantivyValue(OwnedValue::Str(s.clone())),
-                    Key::I64(i) => TantivyValue(OwnedValue::I64(*i)),
-                    Key::U64(u) => TantivyValue(OwnedValue::U64(*u)),
-                    Key::F64(f) => TantivyValue(OwnedValue::F64(*f)),
-                };
-                new_keys.push(key_val);
-
-                // check if this bucket has a child "grouped" terms bucket
-                let sub = AggregationResults(bucket_entry.sub_aggregation.0.clone());
-                let has_child_grouped = match sub.0.get(GroupedKey::NAME) {
-                    Some(AggregationResult::BucketResult(BucketResult::Terms {
-                        buckets, ..
-                    })) => !buckets.is_empty(),
-                    _ => false,
-                };
-
-                if has_child_grouped {
-                    // not a leaf yet; keep descending
-                    sub.collect_group_keys(new_keys, out);
-                } else {
-                    // leaf: emit ONLY the deepest group path
-                    out.push(AggregationResultsRow {
-                        group_keys: new_keys,
-                        aggregates: Vec::new(),
-                        doc_count: Some(bucket_entry.doc_count),
-                    });
-                }
-            }
-        }
-    }
-
-    fn flatten_grouped(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
-            return;
-        }
-
-        // 1. collect all group key paths first
-        self.collect_group_keys(Vec::new(), out);
-
-        // 2. for each row, chase down aggregate values matching its group keys
-        for row in out.iter_mut() {
-            let mut current = self.0.clone();
-
-            // traverse down into nested "grouped" buckets following group_keys
-            for key in &row.group_keys {
-                if let Some(AggregationResult::BucketResult(BucketResult::Terms {
-                    buckets, ..
-                })) = current.get(GroupedKey::NAME)
-                {
-                    // find the bucket whose key matches this level
-                    let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
-                        (Key::Str(s), OwnedValue::Str(v)) => s == v,
-                        (Key::I64(i), OwnedValue::I64(v)) => i == v,
-                        (Key::U64(i), OwnedValue::U64(v)) => i == v,
-                        (Key::F64(i), OwnedValue::F64(v)) => i == v,
-                        _ => false,
-                    });
-
-                    if let Some(bucket) = maybe_bucket {
-                        // descend into this bucket’s sub-aggregations
-                        current = bucket.sub_aggregation.0.clone();
-                    } else {
-                        // no matching bucket found — bail out early
-                        current.clear();
-                        break;
-                    }
-                }
-            }
-
-            // 3. collect any metric results at this nested level
-            let mut entries: Vec<_> = current.into_iter().collect();
-            entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
-
-            for (_name, result) in entries {
-                if let AggregationResult::MetricResult(metric) = result {
-                    let single = match metric {
-                        MetricResult::Average(r)
-                        | MetricResult::Count(r)
-                        | MetricResult::Sum(r)
-                        | MetricResult::Min(r)
-                        | MetricResult::Max(r) => r,
-                        other => {
-                            pgrx::warning!("unsupported metric type in flatten_into: {:?}", other);
-                            continue;
-                        }
-                    };
-                    row.aggregates.push(Some(single));
-                }
-            }
-        }
-    }
-
-    fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
-            return;
-        }
-
-        let mut aggregates = Vec::new();
-        let mut entries: Vec<_> = self.0.into_iter().collect();
-        entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
-
-        for (_name, result) in entries {
-            match result {
-                AggregationResult::MetricResult(metric) => {
-                    let single = match metric {
-                        MetricResult::Average(r)
-                        | MetricResult::Count(r)
-                        | MetricResult::Sum(r)
-                        | MetricResult::Min(r)
-                        | MetricResult::Max(r) => r,
-                        other => {
-                            pgrx::warning!(
-                                "unsupported metric type in flatten_ungrouped: {:?}",
-                                other
-                            );
-                            continue;
-                        }
-                    };
-                    aggregates.push(Some(single));
-                }
-                AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
-                    let mut sub_rows = Vec::new();
-                    let sub = AggregationResults(filter_bucket.sub_aggregations.0);
-                    sub.flatten_ungrouped(&mut sub_rows);
-                    for sub_row in sub_rows {
-                        aggregates.extend(sub_row.aggregates);
-                    }
-                }
-                unsupported => todo!("unsupported bucket type: {:?}", unsupported),
-            }
-        }
-
-        out.push(AggregationResultsRow {
-            group_keys: Vec::new(),
-            aggregates,
-            doc_count: None,
-        });
-    }
-
-    fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {
-        if self.0.is_empty() {
-            return;
-        }
-
-        // Ensure stable sorting of results
-        let mut filter_entries: Vec<_> = self
-            .0
-            .iter()
-            .filter(|(k, _)| *k != FilterSentinelKey::NAME)
-            .collect();
-        filter_entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
-
-        // Extract the sentinel filter bucket, used to get all the group keys
-        let sentinel = match self.0.get(FilterSentinelKey::NAME) {
-            Some(AggregationResult::BucketResult(BucketResult::Filter(filter_bucket))) => {
-                filter_bucket
-            }
-            _ => {
-                pgrx::warning!("missing filter_sentinel in flatten_grouped_with_filter");
-                return;
-            }
-        };
-
-        // Collect all group keys from the sentinel
-        let sentinel_sub = AggregationResults(sentinel.sub_aggregations.0.clone());
-        let mut rows = Vec::new();
-        sentinel_sub.collect_group_keys(Vec::new(), &mut rows);
-
-        // For each row of group keys, collect aggregates
-        let num_filters = filter_entries.len();
-        for row in &mut rows {
-            let mut aggregates = Vec::new();
-
-            for (_filter_name, filter_result) in &filter_entries {
-                let mut found_metrics: Vec<Option<TantivySingleMetricResult>> = Vec::new();
-
-                if let AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) =
-                    filter_result
-                {
-                    let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
-                    let mut current = sub.0;
-
-                    for key in &row.group_keys {
-                        if let Some(AggregationResult::BucketResult(BucketResult::Terms {
-                            buckets,
-                            ..
-                        })) = current.get(GroupedKey::NAME)
-                        {
-                            if let Some(bucket) = buckets.iter().find(|b| match (&b.key, &key.0) {
-                                (Key::Str(s), OwnedValue::Str(v)) => s == v,
-                                (Key::I64(i), OwnedValue::I64(v)) => i == v,
-                                (Key::U64(i), OwnedValue::U64(v)) => i == v,
-                                (Key::F64(i), OwnedValue::F64(v)) => i == v,
-                                _ => false,
-                            }) {
-                                current = bucket.sub_aggregation.0.clone();
-                            } else {
-                                current.clear();
-                                break;
-                            }
-                        }
-                    }
-
-                    for (_n, res) in current {
-                        if let AggregationResult::MetricResult(metric) = res {
-                            let single = match metric {
-                                MetricResult::Average(r)
-                                | MetricResult::Count(r)
-                                | MetricResult::Sum(r)
-                                | MetricResult::Min(r)
-                                | MetricResult::Max(r) => r,
-                                _ => continue,
-                            };
-                            found_metrics.push(Some(single));
-                        }
-                    }
-                }
-
-                // pad: if no metrics found for this filter, insert an empty placeholder
-                if found_metrics.is_empty() {
-                    aggregates.push(None);
-                } else {
-                    aggregates.extend(found_metrics);
-                }
-            }
-
-            row.aggregates = aggregates;
-        }
-
-        out.extend(rows);
-    }
+/// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
+unsafe fn placeholder_procid() -> pg_sys::Oid {
+    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
+        .expect("the `now()` function should exist")
 }

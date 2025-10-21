@@ -28,9 +28,7 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
-use crate::postgres::customscan::aggregatescan::aggregations::{
-    AggregateCSClause, CollectAggregations,
-};
+use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;

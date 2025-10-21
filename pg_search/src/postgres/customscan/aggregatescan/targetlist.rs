@@ -17,7 +17,8 @@
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;

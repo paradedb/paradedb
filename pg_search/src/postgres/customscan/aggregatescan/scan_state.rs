@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::aggregatescan::{AggregateCSClause, AggregationResultsRow};
+use crate::customscan::aggregatescan::exec::AggregationResultsRow;
+use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 

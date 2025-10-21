@@ -27,7 +27,7 @@ use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause
 use crate::postgres::customscan::aggregatescan::{AggregateType, GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::utils::ExprContextGuard;
+use crate::postgres::utils::{sort_json_keys, ExprContextGuard};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
@@ -281,10 +281,8 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 
     fn explain_output(&self) -> impl Iterator<Item = (String, String)> {
-        let aggregate: BTreeMap<_, _> = CollectAggregations::collect(self)
-            .expect("should be able to collect aggregations")
-            .into_iter()
-            .collect();
+        let aggregate =
+            CollectAggregations::collect(self).expect("should be able to collect aggregations");
 
         let aggregate_types = std::iter::once((
             String::from("Applies to Aggregates"),
@@ -294,10 +292,17 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 .collect::<Vec<_>>()
                 .join(", "),
         ));
-        let aggregate_json = std::iter::once((
-            String::from("Aggregate Definition"),
-            serde_json::to_string(&aggregate).expect("should be able to serialize aggregations"),
-        ));
+
+        let aggregate_json = {
+            let mut aggregate_json =
+                serde_json::to_value(&aggregate).expect("should be able to serialize aggregations");
+            sort_json_keys(&mut aggregate_json);
+            std::iter::once((
+                String::from("Aggregate Definition"),
+                serde_json::to_string(&aggregate_json)
+                    .expect("should be able to serialize aggregations"),
+            ))
+        };
 
         aggregate_types
             .chain(self.groupby().explain_output())

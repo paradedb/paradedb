@@ -40,6 +40,7 @@ use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+use tantivy::aggregation::metric::SingleMetricResult;
 use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -201,6 +202,18 @@ impl AggregateType {
             AggregateType::Avg { missing, .. } => *missing,
             AggregateType::Min { missing, .. } => *missing,
             AggregateType::Max { missing, .. } => *missing,
+        }
+    }
+
+    pub fn nullish(&self) -> SingleMetricResult {
+        match self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => {
+                SingleMetricResult { value: Some(0.0) }
+            }
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => SingleMetricResult { value: None },
         }
     }
 

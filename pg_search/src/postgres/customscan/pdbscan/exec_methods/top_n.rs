@@ -26,6 +26,8 @@ use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::index::SegmentId;
 
 pub struct TopNScanExecState {
@@ -175,7 +177,16 @@ impl ExecMethod for TopNScanExecState {
             (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        let mut search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+        self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+            // TODO: (Optionally?) wrap in MVCCFilterCollector.
+            let aggregations: Aggregations =
+                serde_json::from_str(r#"{"count": { "value_count": { "field": "ctid" }}}"#)
+                    .expect("Constant agg definition");
+            let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                aggregations.clone(),
+                // TODO: configure both of these!
+                AggregationLimitsGuard::new(None, None),
+            );
             self.search_reader
                 .as_ref()
                 .unwrap()
@@ -187,7 +198,7 @@ impl ExecMethod for TopNScanExecState {
                     orderby_info,
                     local_limit,
                     self.offset,
-                    None,
+                    Some(aggregation_collector),
                 )
         } else {
             self.search_reader
@@ -215,6 +226,12 @@ impl ExecMethod for TopNScanExecState {
                     (*parallel_state)
                         .aggregation_append(agg_result, segment_count)
                         .expect("Failed to append aggregation result");
+
+                    let result = (*parallel_state)
+                        .aggregation_wait()
+                        .expect("Failed to append aggregation result");
+
+                    pgrx::log!(">>> final aggregation result: {result:?}");
                 }
             }
         }

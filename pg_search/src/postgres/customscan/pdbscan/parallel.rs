@@ -42,7 +42,7 @@ impl ParallelQueryCapable for PdbScan {
             segments.len(),
             &serialized_query,
             // TODO: Consume aggregate definition.
-            false,
+            true,
         )
     }
 
@@ -60,7 +60,7 @@ impl ParallelQueryCapable for PdbScan {
                 segments,
                 &serialized_query,
                 // TODO: Consume aggregate definition.
-                false,
+                true,
             );
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }

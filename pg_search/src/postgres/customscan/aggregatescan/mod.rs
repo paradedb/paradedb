@@ -656,7 +656,7 @@ impl AggregationResults {
     }
 
     fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {
-        // 1. Identify the sentinel and numbered filters
+        // 1. Identify numbered filters and sentinel
         let mut filter_entries: Vec<_> = self
             .0
             .iter()
@@ -672,23 +672,28 @@ impl AggregationResults {
             }
         };
 
-        // 2. Extract group keys from the sentinel's grouped sub-aggregation
+        // 2. Collect all group key paths from the sentinel
         let sentinel_sub = AggregationResults(sentinel.sub_aggregations.0.clone());
         let mut rows = Vec::new();
         sentinel_sub.collect_group_keys(Vec::new(), &mut rows);
 
-        // 3. For each row (group key path), gather aggregates from each numbered filter
-        for row in &mut rows {
-            let mut all_aggregates = Vec::new();
+        // 3. Determine how many filters there are total
+        let num_filters = filter_entries.len();
 
-            for (filter_name, filter_result) in &filter_entries {
+        // 4. For each row, collect aggregates across all filters (padded if missing)
+        for row in &mut rows {
+            let mut aggregates = Vec::new();
+
+            for (_filter_name, filter_result) in &filter_entries {
+                let mut found_metrics: Vec<TantivySingleMetricResult> = Vec::new();
+
                 if let AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) =
                     filter_result
                 {
                     let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
                     let mut current = sub.0;
 
-                    // Traverse into the grouped buckets following the same group_keys path
+                    // traverse grouped buckets along same group_keys
                     for key in &row.group_keys {
                         if let Some(AggregationResult::BucketResult(BucketResult::Terms { buckets, .. })) =
                             current.get(GroupedKey::NAME)
@@ -708,7 +713,7 @@ impl AggregationResults {
                         }
                     }
 
-                    // Collect metric results at this matching group path
+                    // collect metric results if present
                     for (_n, res) in current {
                         if let AggregationResult::MetricResult(metric) = res {
                             let single = match metric {
@@ -717,27 +722,28 @@ impl AggregationResults {
                                 | MetricResult::Sum(r)
                                 | MetricResult::Min(r)
                                 | MetricResult::Max(r) => r,
-                                other => {
-                                    pgrx::warning!(
-                                        "unsupported metric type in flatten_grouped_with_filter: {:?}",
-                                        other
-                                    );
-                                    continue;
-                                }
+                                _ => continue,
                             };
-                            all_aggregates.push(single);
+                            found_metrics.push(single);
                         }
                     }
+                }
+
+                // pad: if no metrics found for this filter, insert an empty placeholder
+                if found_metrics.is_empty() {
+                    aggregates.push(TantivySingleMetricResult { value: None });
                 } else {
-                    pgrx::warning!("non-filter entry {:?} in flatten_grouped_with_filter", filter_name);
+                    aggregates.extend(found_metrics);
                 }
             }
 
-            row.aggregates = all_aggregates;
+            // now assign final aggregates for the row
+            row.aggregates = aggregates;
         }
 
         out.extend(rows);
     }
+
 
 
     fn style(&self) -> AggregationStyle {

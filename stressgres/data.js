@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761075133016,
+  "lastUpdate": 1761075136130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21988,6 +21988,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.93168392522065, max segment_count: 107.0, count: 57556"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20b42dd78177a4bbf48fd1f84c520b44f1b9974c",
+          "message": "chore: Fix `Cargo.toml` syntax. (#3388)\n\n## What\n\n`main` is currently rendering a warning:\n```console\nwarning: Cargo.toml: unused manifest key: workspace.dependencies.tantivy.ref\nwarning: Cargo.toml: unused manifest key: patch.crates-io.tantivy-tokenizer-api.ref\n```\n\n## Why\n\n`ref` is not a valid key: `rev` is. Because of the lockfile, this is\nharmless (note that we were still using the specified sha), but it could\ncause trouble if someone changed our Tantivy fork's `main` branch, and\nthen also ran a `cargo update`.\n\n## Tests\n\nThe warning is gone, and the lockfile looks correct. Unfortunately,\nthere does not currently appear to be a way to turn \"unused manifest\nkey\" warnings into errors.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-21T12:02:23-07:00",
+          "tree_id": "61c594d1e0e86a486bdb57a669e69103fc08f5f9",
+          "url": "https://github.com/paradedb/paradedb/commit/20b42dd78177a4bbf48fd1f84c520b44f1b9974c"
+        },
+        "date": 1761075134257,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.656378607610865, max cpu: 42.64561, count: 57897"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.5634266186072, max mem: 228.61328125, count: 57897"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.47960857850926, max cpu: 33.267326, count: 57897"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.98792481151872, max mem: 163.453125, count: 57897"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24322,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23320.71323211911, max block_count: 26114.0, count: 57897"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.58928787329222, max segment_count: 107.0, count: 57897"
           }
         ]
       }

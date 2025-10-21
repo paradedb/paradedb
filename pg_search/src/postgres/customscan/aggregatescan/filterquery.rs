@@ -27,7 +27,7 @@ use pgrx::pg_sys;
 use std::ptr::NonNull;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, SerializableQuery};
-use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
+use tantivy::query::{EmptyQuery, EnableScoring, Query, QueryParser, Weight};
 
 #[derive(Debug)]
 pub struct FilterQuery {
@@ -54,6 +54,7 @@ impl Clone for FilterQuery {
 
 impl Query for FilterQuery {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        // todo: assert once that we are in execution time
         self.tantivy_query.weight(enable_scoring)
     }
 }
@@ -77,7 +78,22 @@ impl serde::Serialize for FilterQuery {
 }
 
 impl FilterQuery {
-    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Result<Self> {
+    pub fn new(
+        query: SearchQueryInput,
+        indexrelid: pg_sys::Oid,
+        is_execution_time: bool,
+    ) -> Result<Self> {
+        // If not called at execution time, Postgres expressions in the `SearchQueryInput`
+        // have not been solved and generating the Tantivy query will fail. To get around this,
+        // we produce a junk Tantivy query (which doesn't matter since we're not in execution time).
+        if !is_execution_time {
+            return Ok(Self {
+                query,
+                indexrelid,
+                tantivy_query: Box::new(EmptyQuery),
+            });
+        }
+
         let standalone_context = ExprContextGuard::new();
         let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
         let schema = index.schema()?;

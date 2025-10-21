@@ -38,6 +38,11 @@ use tantivy::schema::OwnedValue;
 pub fn aggregation_results_iter(
     state: &mut CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<AggregationResultsRow> {
+    state
+        .custom_state_mut()
+        .aggregate_clause
+        .set_is_execution_time();
+
     let planstate = state.planstate();
     let expr_context = state.runtime_context;
 

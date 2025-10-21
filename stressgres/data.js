@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761074433862,
+  "lastUpdate": 1761074625093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5272,6 +5272,72 @@ window.BENCHMARK_DATA = {
             "value": 135.76800864951258,
             "unit": "median tps",
             "extra": "avg tps: 164.39699997685614, max tps: 632.4548640680572, count: 55253"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2732cb46711b35eee908d3b7755b74086a16f9eb",
+          "message": "chore: Fix `Cargo.toml` syntax. (#3386)\n\n## What\n\n`main` is currently rendering a warning:\n```console\nwarning: Cargo.toml: unused manifest key: workspace.dependencies.tantivy.ref\nwarning: Cargo.toml: unused manifest key: patch.crates-io.tantivy-tokenizer-api.ref\n```\n\n## Why\n\n`ref` is not a valid key: `rev` is. Because of the lockfile, this is\nharmless (note that we were still using the specified sha), but it could\ncause trouble if someone changed our Tantivy fork's `main` branch, and\nthen also ran a `cargo update`.\n\n## Tests\n\nThe warning is gone, and the lockfile looks correct. Unfortunately,\nthere does not currently appear to be a way to turn \"unused manifest\nkey\" warnings into errors.",
+          "timestamp": "2025-10-21T11:39:20-07:00",
+          "tree_id": "e7ba3b4168f7a697c639c3b946558596990306b6",
+          "url": "https://github.com/paradedb/paradedb/commit/2732cb46711b35eee908d3b7755b74086a16f9eb"
+        },
+        "date": 1761074623171,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 789.7463225762256,
+            "unit": "median tps",
+            "extra": "avg tps: 789.607408464289, max tps: 867.5836814103162, count: 55328"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3330.383363101314,
+            "unit": "median tps",
+            "extra": "avg tps: 3300.319475359415, max tps: 3339.836931659396, count: 55328"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 782.7879777694457,
+            "unit": "median tps",
+            "extra": "avg tps: 781.835784507879, max tps: 788.7216165859595, count: 55328"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 694.8913992604727,
+            "unit": "median tps",
+            "extra": "avg tps: 688.9821814438878, max tps: 708.4161643566719, count: 55328"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1679.536315960674,
+            "unit": "median tps",
+            "extra": "avg tps: 1667.924005468738, max tps: 1688.9641452025598, count: 110656"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1278.0817134904564,
+            "unit": "median tps",
+            "extra": "avg tps: 1264.6763032458057, max tps: 1287.1953489630894, count: 55328"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 89.95113668982518,
+            "unit": "median tps",
+            "extra": "avg tps: 108.54154829579775, max tps: 859.8008701184805, count: 55328"
           }
         ]
       }

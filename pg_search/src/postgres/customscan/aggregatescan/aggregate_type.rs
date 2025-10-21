@@ -76,13 +76,6 @@ pub enum AggregateType {
     },
 }
 
-impl ExplainFormat for AggregateType {
-    fn explain_format(&self) -> String {
-        todo!()
-        // self.format_aggregate()
-    }
-}
-
 impl SolvePostgresExpressions for AggregateType {
     fn has_heap_filters(&mut self) -> bool {
         self.filter_expr_mut()

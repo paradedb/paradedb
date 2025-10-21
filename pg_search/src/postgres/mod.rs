@@ -337,6 +337,12 @@ impl ParallelScanPayload {
     }
 }
 
+pub struct ParallelScanArgs<'a> {
+    segment_readers: &'a [SegmentReader],
+    query: Vec<u8>,
+    with_aggregates: bool,
+}
+
 // We do not know ahead of time how many workers there will be, so we preallocate fixed size
 // arrays for metrics for up to a given number of parallel workers.
 const WORKER_METRICS_MAX_COUNT: usize = 256;
@@ -358,9 +364,9 @@ impl ParallelScanState {
         std::mem::size_of::<Self>() + dynamic_layout.total.size()
     }
 
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
+    fn init(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
-        self.init_without_mutex(segments, query, with_aggregates);
+        self.init_without_mutex(args.segment_readers, &args.query, args.with_aggregates);
     }
 
     fn init_without_mutex(

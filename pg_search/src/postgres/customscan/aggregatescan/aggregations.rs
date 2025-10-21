@@ -44,13 +44,18 @@ use tantivy::aggregation::metric::{
 };
 use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
 
-trait AggregationKey {
+pub(crate) trait AggregationKey {
     const NAME: &'static str;
 }
 
-struct GroupedKey;
+pub(crate) struct GroupedKey;
 impl AggregationKey for GroupedKey {
     const NAME: &'static str = "grouped";
+}
+
+pub(crate) struct FilterSentinelKey;
+impl AggregationKey for FilterSentinelKey {
+    const NAME: &'static str = "filter_sentinel";
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -144,13 +149,21 @@ impl CollectAggregations for AggregateCSClause {
                 })
                 .collect::<Aggregations>()
         } else {
+            let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
+                self,
+                Aggregations::new(),
+                Aggregations::new(),
+            )?;
+            let term_aggs =
+                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+
             if self.has_filter() {
                 let metrics =
                     <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::into_iter(self)?;
                 let filters =
                     <Self as CollectFlat<FilterQuery, FiltersWithGroupBy>>::into_iter(self)?;
 
-                filters
+                let mut aggs = filters
                     .zip(metrics)
                     .enumerate()
                     .map(|(idx, (filter, metric))| {
@@ -173,18 +186,27 @@ impl CollectAggregations for AggregateCSClause {
                         };
                         (idx.to_string(), filter_agg)
                     })
-                    .collect::<Aggregations>()
+                    .collect::<Aggregations>();
+
+                aggs.insert(
+                    FilterSentinelKey::NAME.to_string(),
+                    Aggregation {
+                        agg: FilterQuery {
+                            inner: Some(self.quals.query().clone()),
+                            indexrelid: self.indexrelid,
+                        }
+                        .into(),
+                        sub_aggregation: term_aggs,
+                    },
+                );
+
+                aggs
             } else {
-                let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
-                    self,
-                    Aggregations::new(),
-                    Aggregations::new(),
-                )?;
-                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?
+                term_aggs
             }
         };
 
-        pgrx::info!("request: {:?} \n", agg);
+        // pgrx::info!("request: {:?} \n", agg);
 
         Ok(agg)
     }

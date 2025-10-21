@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761074628793,
+  "lastUpdate": 1761075133016,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17638,6 +17638,42 @@ window.BENCHMARK_DATA = {
             "value": 5.217846956983522,
             "unit": "median tps",
             "extra": "avg tps: 4.720952250748591, max tps: 5.788904367285689, count: 57556"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20b42dd78177a4bbf48fd1f84c520b44f1b9974c",
+          "message": "chore: Fix `Cargo.toml` syntax. (#3388)\n\n## What\n\n`main` is currently rendering a warning:\n```console\nwarning: Cargo.toml: unused manifest key: workspace.dependencies.tantivy.ref\nwarning: Cargo.toml: unused manifest key: patch.crates-io.tantivy-tokenizer-api.ref\n```\n\n## Why\n\n`ref` is not a valid key: `rev` is. Because of the lockfile, this is\nharmless (note that we were still using the specified sha), but it could\ncause trouble if someone changed our Tantivy fork's `main` branch, and\nthen also ran a `cargo update`.\n\n## Tests\n\nThe warning is gone, and the lockfile looks correct. Unfortunately,\nthere does not currently appear to be a way to turn \"unused manifest\nkey\" warnings into errors.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-21T12:02:23-07:00",
+          "tree_id": "61c594d1e0e86a486bdb57a669e69103fc08f5f9",
+          "url": "https://github.com/paradedb/paradedb/commit/20b42dd78177a4bbf48fd1f84c520b44f1b9974c"
+        },
+        "date": 1761075131106,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.235726223180752,
+            "unit": "median tps",
+            "extra": "avg tps: 7.078577641690772, max tps: 10.960953473945391, count: 57897"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.330017694720304,
+            "unit": "median tps",
+            "extra": "avg tps: 4.810136113460047, max tps: 5.890860625338833, count: 57897"
           }
         ]
       }

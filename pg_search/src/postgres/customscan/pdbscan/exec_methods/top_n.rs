@@ -17,11 +17,11 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
+use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -29,8 +29,18 @@ use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggrega
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::index::SegmentId;
+
+struct PreparedAggregations {
+    aggregations: Aggregations,
+    combined_agg_types: Vec<AggregateType>,
+    agg_index_to_te_index: Vec<usize>,
+}
 
 pub struct TopNScanExecState {
     // required
@@ -54,8 +64,6 @@ pub struct TopNScanExecState {
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
-    // Computed aggregate results (stored once, reused for all rows)
-    computed_aggregates: Option<HashMap<usize, pg_sys::Datum>>,
 }
 
 impl TopNScanExecState {
@@ -102,7 +110,6 @@ impl TopNScanExecState {
             claimed_segments: RefCell::default(),
             scale_factor,
             window_aggregates: Vec::new(),
-            computed_aggregates: None,
         }
     }
 
@@ -160,80 +167,72 @@ impl TopNScanExecState {
         }
     }
 
-    /// Compute window aggregates based on the search results
-    fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
+    fn prepare_aggregations(&self, state: &mut PdbScanState) -> Option<PreparedAggregations> {
         if self.window_aggregates.is_empty() {
-            return;
+            return None;
         }
-        let window_aggs = &self.window_aggregates;
-
-        let mut results = HashMap::default();
 
         // Combine all window aggregates from all TargetLists
         // This allows us to execute all aggregations in a single Tantivy pass
+        // TODO: This could also be done via a multi-collector.
         let mut combined_agg_types = Vec::new();
-        let mut agg_index_to_te_index = Vec::new(); // Maps aggregate index to target entry index
-
-        for agg_info in window_aggs.iter() {
+        let mut agg_index_to_te_index = Vec::new();
+        for agg_info in &self.window_aggregates {
             for agg_type in agg_info.targetlist.aggregates() {
-                agg_index_to_te_index.push(agg_info.target_entry_index);
                 combined_agg_types.push(agg_type.clone());
+                agg_index_to_te_index.push(agg_info.target_entry_index);
             }
         }
 
-        if !combined_agg_types.is_empty() {
-            // Convert aggregates to Tantivy Aggregations
-            let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
-            for (idx, agg_type) in combined_agg_types.iter().enumerate() {
-                let agg_variant = agg_type.clone().into();
-                aggregations.insert(
-                    idx.to_string(),
-                    tantivy::aggregation::agg_req::Aggregation {
-                        agg: agg_variant,
-                        sub_aggregation: tantivy::aggregation::agg_req::Aggregations::new(),
-                    },
-                );
-            }
+        // Convert aggregates to Tantivy Aggregations
+        let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
+        for (idx, agg_type) in combined_agg_types.iter().enumerate() {
+            let agg_variant = agg_type.clone().into();
+            aggregations.insert(
+                idx.to_string(),
+                tantivy::aggregation::agg_req::Aggregation {
+                    agg: agg_variant,
+                    sub_aggregation: tantivy::aggregation::agg_req::Aggregations::new(),
+                },
+            );
+        }
 
-            let indexrel = state
-                .indexrel
-                .as_ref()
-                .expect("indexrel should be open for window aggregate");
+        Some(PreparedAggregations {
+            aggregations,
+            combined_agg_types,
+            agg_index_to_te_index,
+        })
+    }
 
-            let base_query = state.search_query_input().clone();
+    fn finalize_aggregates(
+        &self,
+        aggregations: PreparedAggregations,
+        agg_limits: AggregationLimitsGuard,
+        intermediate_results: IntermediateAggregationResults,
+    ) -> HashMap<usize, pg_sys::Datum> {
+        let final_result = intermediate_results
+            .into_final_result(aggregations.aggregations, agg_limits)
+            .expect("failed to finalize aggregate");
 
-            // Use ExprContextGuard for standalone execution
-            let standalone_context = crate::postgres::utils::ExprContextGuard::new();
+        // For window functions (no GROUP BY), we expect a single ungrouped result
+        // Convert to AggregationResults and extract Datums
+        let agg_results_wrapper: AggregationResults = final_result.into();
+        let datum_vec =
+            agg_results_wrapper.flatten_ungrouped_to_datums(&aggregations.combined_agg_types);
 
-            let agg_results: tantivy::aggregation::agg_result::AggregationResults =
-                execute_aggregate(
-                    indexrel,
-                    base_query,
-                    AggregateRequest::Json(aggregations),
-                    true,                                              // solve_mvcc
-                    gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-                    tantivy::aggregation::DEFAULT_BUCKET_LIMIT,        // bucket_limit
-                    standalone_context.as_ptr(),
-                )
-                .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
-
-            // For window functions (no GROUP BY), we expect a single ungrouped result
-            // Convert to AggregationResults and extract Datums
-            let agg_results_wrapper: AggregationResults = agg_results.into();
-            let datum_vec = agg_results_wrapper.flatten_ungrouped_to_datums(&combined_agg_types);
-
-            // Map aggregate results to target entry indices
-            for (agg_idx, te_idx) in agg_index_to_te_index.iter().enumerate() {
+        // Map aggregate results to target entry indices
+        aggregations
+            .agg_index_to_te_index
+            .into_iter()
+            .enumerate()
+            .map(|(agg_idx, te_idx)| {
                 let datum = datum_vec
                     .get(agg_idx)
                     .and_then(|d| *d)
                     .unwrap_or(pg_sys::Datum::null());
-                results.insert(*te_idx, datum);
-            }
-        }
-
-        self.computed_aggregates = Some(results.clone());
-        state.window_aggregate_results = Some(results);
+                (te_idx, datum)
+            })
+            .collect()
     }
 }
 
@@ -270,7 +269,24 @@ impl ExecMethod for TopNScanExecState {
             (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        let search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+        // TODO: only execute aggregations on our first query.
+        let aggregations = self.prepare_aggregations(state);
+        let agg_limits = AggregationLimitsGuard::new(
+            Some(gucs::adjust_work_mem().get().try_into().unwrap()),
+            // TODO: configure?
+            Some(tantivy::aggregation::DEFAULT_BUCKET_LIMIT),
+        );
+
+        // Run the TopN (and optional aggregate) query.
+        self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+            let maybe_aggregation_collector = aggregations.as_ref().map(|aggregations| {
+                // TODO: (Optionally?) wrap in MVCCFilterCollector.
+                // See also https://github.com/paradedb/paradedb/issues/3253.
+                DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    agg_limits.clone(),
+                )
+            });
             self.search_reader
                 .as_ref()
                 .unwrap()
@@ -282,7 +298,7 @@ impl ExecMethod for TopNScanExecState {
                     orderby_info,
                     local_limit,
                     self.offset,
-                    None,
+                    maybe_aggregation_collector,
                 )
         } else {
             self.search_reader
@@ -298,20 +314,37 @@ impl ExecMethod for TopNScanExecState {
                 )
         };
 
-        if let Some(agg_result) = self.search_results.take_aggregation_results() {
-            let segment_count = self
-                .claimed_segments
-                .borrow()
-                .as_ref()
-                .expect("Should have claimed segments while running.")
-                .len();
-            if let Some(parallel_state) = state.parallel_state {
+        // If aggregates were executed, publish their results in our state for projection during
+        // the scan.
+        if let Some(aggregations) = aggregations {
+            let agg_result = self
+                .search_results
+                .take_aggregation_results()
+                .expect("an aggregation request should produce a result");
+            let intermediate_results = if let Some(parallel_state) = state.parallel_state {
+                let segment_count = self
+                    .claimed_segments
+                    .borrow()
+                    .as_ref()
+                    .expect("Should have claimed segments while running.")
+                    .len();
                 unsafe {
                     (*parallel_state)
                         .aggregation_append(agg_result, segment_count)
                         .expect("Failed to append aggregation result");
+
+                    (*parallel_state).aggregation_wait()
                 }
-            }
+            } else {
+                // Not parallel: finalize without propagating through the parallel state.
+                agg_result
+            };
+
+            let window_aggregate_results =
+                self.finalize_aggregates(aggregations, agg_limits, intermediate_results);
+
+            pgrx::log!(">>> final aggregation result: {window_aggregate_results:?}");
+            state.window_aggregate_results = Some(window_aggregate_results);
         }
 
         // Record the offset to start from for the next query.
@@ -320,11 +353,6 @@ impl ExecMethod for TopNScanExecState {
         // If we got fewer results than we requested, then the query is exhausted: there is no
         // point executing further queries.
         self.exhausted = self.search_results.original_len() < local_limit;
-
-        // Compute window aggregates if needed
-        if !self.window_aggregates.is_empty() && self.computed_aggregates.is_none() {
-            self.compute_window_aggregates(state);
-        }
 
         // But if we got any results at all, then the query was a success.
         self.search_results.original_len() > 0
@@ -400,6 +428,5 @@ impl ExecMethod for TopNScanExecState {
         self.chunk_size = 0;
         self.found = 0;
         self.offset = 0;
-        self.computed_aggregates = None;
     }
 }

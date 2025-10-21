@@ -29,13 +29,12 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
-use crate::postgres::{ParallelExplainData, ParallelScanState};
+use crate::postgres::{ParallelExplainData, ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -184,8 +183,8 @@ impl PdbScanState {
         serde_json::to_value(&self.base_search_query_input)
     }
 
-    pub fn parallel_serialization_data(&self) -> (&[SegmentReader], Vec<u8>) {
-        let serialized_query = serde_json::to_vec(self.search_query_input())
+    pub fn parallel_scan_args(&self) -> ParallelScanArgs<'_> {
+        let query = serde_json::to_vec(self.search_query_input())
             .expect("should be able to serialize query");
 
         let segment_readers = self
@@ -194,7 +193,13 @@ impl PdbScanState {
             .expect("search reader must be initialized to build parallel serialization data")
             .segment_readers();
 
-        (segment_readers, serialized_query)
+        let with_aggregates = !self.window_aggregates.is_empty();
+
+        ParallelScanArgs {
+            segment_readers,
+            query,
+            with_aggregates,
+        }
     }
 
     pub fn has_postgres_expressions(&mut self) -> bool {
@@ -357,6 +362,7 @@ impl PdbScanState {
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
+        self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);
     }
 

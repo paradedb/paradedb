@@ -32,7 +32,6 @@ use pgrx::PgList;
 pub enum TargetListEntry {
     // the grouping columns are not guaranteed to the in the same order in the GROUP BY vs target list,
     // so we store the index of the grouping column in the GROUP BY list
-    // todo (@rebasedming): we should sort the grouping columns so they match the order in the target list
     GroupingColumn(usize),
     Aggregate(AggregateType),
 }

@@ -55,50 +55,6 @@ use tantivy::{
 };
 use thiserror::Error;
 
-/// Bundle of context parameters for query conversion
-///
-/// This struct owns an ExprContextGuard and provides references to the components needed
-/// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
-/// remains valid for the lifetime of this struct.
-///
-/// Note: Currently this uses ExprContextGuard which is specific to execution-time contexts
-/// (created via ExecAssignExprContext). For planner-time usage, we would need to support
-/// the planner's expression context as well.
-pub struct QueryContext<'a> {
-    pub schema: &'a SearchIndexSchema,
-    pub reader: &'a SearchIndexReader,
-    pub index: &'a PgSearchRelation,
-    pub context: ExprContextGuard, // Execution-time expression context
-}
-
-impl<'a> QueryContext<'a> {
-    /// Create a new QueryContext, taking ownership of the provided ExprContextGuard
-    pub fn new(
-        schema: &'a SearchIndexSchema,
-        reader: &'a SearchIndexReader,
-        index: &'a PgSearchRelation,
-        context: ExprContextGuard,
-    ) -> Self {
-        Self {
-            schema,
-            reader,
-            index,
-            context,
-        }
-    }
-
-    pub fn parser(&self) -> QueryParser {
-        QueryParser::for_index(
-            self.reader.searcher().index(),
-            self.schema.fields().map(|(f, _)| f).collect(),
-        )
-    }
-
-    pub fn heap_oid(&self) -> Option<pg_sys::Oid> {
-        self.index.heap_relation().map(|r| r.oid())
-    }
-}
-
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {

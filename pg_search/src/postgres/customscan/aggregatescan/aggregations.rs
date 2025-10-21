@@ -32,11 +32,9 @@ use crate::postgres::utils::{sort_json_keys, ExprContextGuard};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use pgrx::pg_sys;
-use std::collections::BTreeMap;
 use std::ptr::NonNull;
-use std::sync::{Arc, OnceLock};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{
@@ -45,7 +43,7 @@ use tantivy::aggregation::bucket::{
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
 };
-use tantivy::query::{AllQuery, EnableScoring, Query, QueryParser, Weight};
+use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 
 pub(crate) trait AggregationKey {
     const NAME: &'static str;
@@ -356,10 +354,12 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
                 }
             });
 
-            let mut terms_agg = TermsAggregation::default();
-            terms_agg.field = column.field_name.clone();
-            terms_agg.size = Some(size);
-            terms_agg.segment_size = Some(size);
+            let mut terms_agg = TermsAggregation {
+                field: column.field_name.clone(),
+                size: Some(size),
+                segment_size: Some(size),
+                ..Default::default()
+            };
 
             if let Some(orderby) = orderby {
                 terms_agg.order = Some(CustomOrder {
@@ -380,7 +380,7 @@ pub struct FiltersWithoutGroupBy;
 
 impl CollectFlat<AggregateType, MetricsWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
-        Ok(self.targetlist.aggregates().map(|agg| agg.clone().into()))
+        Ok(self.targetlist.aggregates().cloned())
     }
 }
 
@@ -388,7 +388,7 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = AggregateType>> {
         Ok(self.targetlist.aggregates().filter_map(|agg| {
             if !agg.can_use_doc_count() {
-                Some(agg.clone().into())
+                Some(agg.clone())
             } else {
                 None
             }
@@ -399,14 +399,10 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
 impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
     fn into_iter(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            if let Some(filter_expr) = agg.filter_expr() {
-                Some(
-                    FilterQuery::new(filter_expr.clone(), agg.indexrelid())
-                        .expect("should be able to create filter query"),
-                )
-            } else {
-                None
-            }
+            agg.filter_expr().as_ref().map(|filter_expr| {
+                FilterQuery::new(filter_expr.clone(), agg.indexrelid())
+                    .expect("should be able to create filter query")
+            })
         }))
     }
 }

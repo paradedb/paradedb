@@ -38,8 +38,6 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use pgrx::PgList;
-use serde::Deserialize;
-use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
 use tantivy::aggregation::metric::SingleMetricResult;
 use tantivy::schema::OwnedValue;
 

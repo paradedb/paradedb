@@ -18,8 +18,6 @@
 use crate::customscan::aggregatescan::{AggregateCSClause, AggregationResultsRow};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
-use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
 

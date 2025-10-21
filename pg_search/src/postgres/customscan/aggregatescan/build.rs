@@ -17,45 +17,36 @@
 
 use crate::api::{FieldName, OrderByFeature};
 use crate::gucs;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
-use crate::postgres::customscan::aggregatescan::query::SearchQueryClause;
+use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::utils::{sort_json_keys, ExprContextGuard};
+use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
 use anyhow::Result;
 use pgrx::pg_sys;
-use std::ptr::NonNull;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{
-    CustomOrder, FilterAggregation, OrderTarget, SerializableQuery, TermsAggregation,
-};
-use tantivy::aggregation::metric::{
-    AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SumAggregation,
-};
-use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
+use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
 
-pub(crate) trait AggregationKey {
+pub trait AggregationKey {
     const NAME: &'static str;
 }
 
-pub(crate) struct GroupedKey;
+pub struct GroupedKey;
 impl AggregationKey for GroupedKey {
     const NAME: &'static str = "grouped";
 }
 
-pub(crate) struct FilterSentinelKey;
+pub struct FilterSentinelKey;
 impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
@@ -419,117 +410,5 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
                     .expect("should be able to create filter query")
             }
         }))
-    }
-}
-
-impl From<AggregateType> for AggregationVariants {
-    fn from(val: AggregateType) -> Self {
-        match val {
-            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
-                field: "ctid".to_string(),
-                missing: None,
-            }),
-            AggregateType::Count { field, missing, .. } => {
-                AggregationVariants::Count(CountAggregation { field, missing })
-            }
-            AggregateType::Sum { field, missing, .. } => {
-                AggregationVariants::Sum(SumAggregation { field, missing })
-            }
-            AggregateType::Avg { field, missing, .. } => {
-                AggregationVariants::Average(AverageAggregation { field, missing })
-            }
-            AggregateType::Min { field, missing, .. } => {
-                AggregationVariants::Min(MinAggregation { field, missing })
-            }
-            AggregateType::Max { field, missing, .. } => {
-                AggregationVariants::Max(MaxAggregation { field, missing })
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-struct FilterQuery {
-    query: SearchQueryInput,
-    indexrelid: pg_sys::Oid,
-    tantivy_query: Box<dyn Query>,
-}
-
-impl From<FilterQuery> for AggregationVariants {
-    fn from(val: FilterQuery) -> Self {
-        AggregationVariants::Filter(FilterAggregation::new_with_query(Box::new(val)))
-    }
-}
-
-impl Clone for FilterQuery {
-    fn clone(&self) -> Self {
-        Self {
-            query: self.query.clone(),
-            indexrelid: self.indexrelid,
-            tantivy_query: self.tantivy_query.box_clone(),
-        }
-    }
-}
-
-impl Query for FilterQuery {
-    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        self.tantivy_query.weight(enable_scoring)
-    }
-}
-
-impl SerializableQuery for FilterQuery {
-    fn clone_box(&self) -> Box<dyn SerializableQuery> {
-        Box::new(self.clone())
-    }
-}
-
-impl serde::Serialize for FilterQuery {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let raw = self.query.explain_format();
-        serde_json::from_str::<serde_json::Value>(&raw)
-            .expect("should be able to serialize searchqueryinput")
-            .serialize(serializer)
-    }
-}
-
-impl FilterQuery {
-    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Result<Self> {
-        let standalone_context = ExprContextGuard::new();
-        let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-        let schema = index.schema()?;
-        let reader = SearchIndexReader::open_with_context(
-            &index,
-            query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?;
-        let parser = || {
-            QueryParser::for_index(
-                reader.searcher().index(),
-                schema.fields().map(|(f, _)| f).collect(),
-            )
-        };
-        let heap_oid = index.heap_relation().map(|r| r.oid());
-        // pgrx::info!("returning tantivy query");
-        let tantivy_query = Box::new(query.clone().into_tantivy_query(
-            &schema,
-            &parser,
-            reader.searcher(),
-            index.oid(),
-            heap_oid,
-            NonNull::new(standalone_context.as_ptr()),
-            None,
-        )?);
-
-        Ok(Self {
-            query,
-            indexrelid,
-            tantivy_query,
-        })
     }
 }

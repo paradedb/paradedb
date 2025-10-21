@@ -17,7 +17,6 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::customscan::aggregatescan::CustomScanClause;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;

@@ -28,7 +28,7 @@ use pgrx::pg_sys;
 use pgrx::PgList;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) enum TargetListEntry {
+pub enum TargetListEntry {
     // the grouping columns are not guaranteed to the in the same order in the GROUP BY vs target list,
     // so we store the index of the grouping column in the GROUP BY list
     // todo (@rebasedming): we should sort the grouping columns so they match the order in the target list
@@ -37,7 +37,7 @@ pub(crate) enum TargetListEntry {
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TargetList {
+pub struct TargetList {
     entries: Vec<TargetListEntry>,
     groupby: GroupByClause,
     uses_our_operator: bool,

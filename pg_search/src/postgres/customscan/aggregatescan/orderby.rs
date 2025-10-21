@@ -27,7 +27,7 @@ use pgrx::pg_sys;
 use pgrx::PgList;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct OrderByClause {
+pub struct OrderByClause {
     #[serde(skip)]
     pathkeys: Option<PathKeyInfo>,
     orderby_info: Vec<OrderByInfo>,

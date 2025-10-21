@@ -23,7 +23,6 @@ use crate::customscan::aggregatescan::build::{AggregationKey, FilterSentinelKey,
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::types::TantivyValue;
 
 use pgrx::{pg_sys, IntoDatum};

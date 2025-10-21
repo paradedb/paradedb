@@ -16,11 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::customscan::aggregatescan::CustomScanClause;
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
@@ -35,7 +33,11 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use pgrx::PgList;
-use tantivy::aggregation::metric::SingleMetricResult;
+use tantivy::aggregation::agg_req::AggregationVariants;
+use tantivy::aggregation::metric::{
+    AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
+    SumAggregation,
+};
 use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -245,6 +247,32 @@ impl std::fmt::Display for AggregateType {
             AggregateType::Avg { .. } => write!(f, "AVG({})", self.field_name().unwrap()),
             AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
             AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
+        }
+    }
+}
+
+impl From<AggregateType> for AggregationVariants {
+    fn from(val: AggregateType) -> Self {
+        match val {
+            AggregateType::CountAny { .. } => AggregationVariants::Count(CountAggregation {
+                field: "ctid".to_string(),
+                missing: None,
+            }),
+            AggregateType::Count { field, missing, .. } => {
+                AggregationVariants::Count(CountAggregation { field, missing })
+            }
+            AggregateType::Sum { field, missing, .. } => {
+                AggregationVariants::Sum(SumAggregation { field, missing })
+            }
+            AggregateType::Avg { field, missing, .. } => {
+                AggregationVariants::Average(AverageAggregation { field, missing })
+            }
+            AggregateType::Min { field, missing, .. } => {
+                AggregationVariants::Min(MinAggregation { field, missing })
+            }
+            AggregateType::Max { field, missing, .. } => {
+                AggregationVariants::Max(MaxAggregation { field, missing })
+            }
         }
     }
 }

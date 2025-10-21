@@ -30,7 +30,7 @@ pub struct GroupingColumn {
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct GroupByClause {
+pub struct GroupByClause {
     grouping_columns: Vec<GroupingColumn>,
 }
 

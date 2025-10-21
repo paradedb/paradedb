@@ -433,8 +433,14 @@ fn execute(
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
 
+    pgrx::info!("result: {:?}", result);
+
     if result.is_empty() {
-        vec![AggregationResultsRow::default()].into_iter()
+        if state.custom_state().aggregate_clause.has_groupby() {
+            vec![].into_iter()
+        } else {
+            vec![AggregationResultsRow::default()].into_iter()
+        }
     } else {
         result.into_iter()
     }

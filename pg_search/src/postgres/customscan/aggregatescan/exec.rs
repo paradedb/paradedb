@@ -57,9 +57,9 @@ pub fn aggregation_results_iter(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+        true,
+        gucs::adjust_work_mem().get().try_into().unwrap(),
+        DEFAULT_BUCKET_LIMIT,
         expr_context,
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
@@ -127,9 +127,9 @@ enum AggregationStyle {
 }
 
 struct MetricResult(TantivyMetricResult);
-impl Into<TantivySingleMetricResult> for MetricResult {
-    fn into(self) -> TantivySingleMetricResult {
-        match self.0 {
+impl From<MetricResult> for TantivySingleMetricResult {
+    fn from(val: MetricResult) -> Self {
+        match val.0 {
             TantivyMetricResult::Average(r)
             | TantivyMetricResult::Count(r)
             | TantivyMetricResult::Sum(r)
@@ -154,7 +154,7 @@ impl AggregationResults {
             .and_then(|result| match result {
                 AggregationResult::MetricResult(TantivyMetricResult::Count(
                     TantivySingleMetricResult { value, .. },
-                )) => value.clone(),
+                )) => *value,
                 _ => None,
             });
 

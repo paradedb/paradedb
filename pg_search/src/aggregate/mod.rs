@@ -43,6 +43,7 @@ use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollect
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateRequest {
     Sql(AggregateCSClause),

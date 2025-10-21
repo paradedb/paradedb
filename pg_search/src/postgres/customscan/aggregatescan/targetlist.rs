@@ -27,6 +27,7 @@ use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum TargetListEntry {
     // the grouping columns are not guaranteed to the in the same order in the GROUP BY vs target list,

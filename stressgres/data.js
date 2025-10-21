@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761076758081,
+  "lastUpdate": 1761077448789,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44826,6 +44826,54 @@ window.BENCHMARK_DATA = {
             "value": 113.9740691554262,
             "unit": "median tps",
             "extra": "avg tps: 113.19992326248219, max tps: 127.36675288334447, count: 107306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2732cb46711b35eee908d3b7755b74086a16f9eb",
+          "message": "chore: Fix `Cargo.toml` syntax. (#3386)\n\n## What\n\n`main` is currently rendering a warning:\n```console\nwarning: Cargo.toml: unused manifest key: workspace.dependencies.tantivy.ref\nwarning: Cargo.toml: unused manifest key: patch.crates-io.tantivy-tokenizer-api.ref\n```\n\n## Why\n\n`ref` is not a valid key: `rev` is. Because of the lockfile, this is\nharmless (note that we were still using the specified sha), but it could\ncause trouble if someone changed our Tantivy fork's `main` branch, and\nthen also ran a `cargo update`.\n\n## Tests\n\nThe warning is gone, and the lockfile looks correct. Unfortunately,\nthere does not currently appear to be a way to turn \"unused manifest\nkey\" warnings into errors.",
+          "timestamp": "2025-10-21T11:39:20-07:00",
+          "tree_id": "e7ba3b4168f7a697c639c3b946558596990306b6",
+          "url": "https://github.com/paradedb/paradedb/commit/2732cb46711b35eee908d3b7755b74086a16f9eb"
+        },
+        "date": 1761077446774,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 687.22277747543,
+            "unit": "median tps",
+            "extra": "avg tps: 688.1592968426888, max tps: 1064.5190916575689, count: 53681"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 723.2952887992498,
+            "unit": "median tps",
+            "extra": "avg tps: 725.087001816555, max tps: 1210.061394279931, count: 53681"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 109.27631029271737,
+            "unit": "median tps",
+            "extra": "avg tps: 109.47498931465078, max tps: 130.9019692326755, count: 53681"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 112.27609309648422,
+            "unit": "median tps",
+            "extra": "avg tps: 110.96159390911265, max tps: 143.7028268871902, count: 107362"
           }
         ]
       }

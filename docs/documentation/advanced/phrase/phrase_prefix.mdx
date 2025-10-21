@@ -2,10 +2,17 @@
 title: Phrase Prefix
 ---
 
+<Note>
+Phrase features may not behave as expected with tokenizers that have multiple tokens
+per phrase (such as ngram). Consider using a different tokenizer or switch to 
+parse/match
+</Note>
+
 ## Basic Usage
 
 Identifies documents containing a [phrase](/documentation/concepts/phrase) followed by a term prefix. The field must be indexed with a
 [record](/documentation/indexing/record) of `position`.
+
 
 <CodeGroup>
 ```sql Function Syntax

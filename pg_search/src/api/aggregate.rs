@@ -33,12 +33,17 @@ pub fn aggregate(
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
-    Ok(JsonB(serde_json::to_value(execute_aggregate(
+    let aggregate = execute_aggregate(
         &relation,
         query,
         AggregateRequest::Json(serde_json::from_value(agg.0)?),
         solve_mvcc,
         memory_limit.try_into()?,
         bucket_limit.try_into()?,
-    )?)?))
+    )?;
+    if aggregate.0.is_empty() {
+        Ok(JsonB(serde_json::Value::Null))
+    } else {
+        Ok(JsonB(serde_json::to_value(aggregate)?))
+    }
 }

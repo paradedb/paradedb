@@ -36,7 +36,7 @@ use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{
@@ -194,7 +194,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: FilterQuery::new(self.quals.query().clone(), self.indexrelid).into(),
+                        agg: FilterQuery::new(self.quals.query().clone(), self.indexrelid)?.into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -400,7 +400,10 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
     fn into_iter(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             if let Some(filter_expr) = agg.filter_expr() {
-                Some(FilterQuery::new(filter_expr.clone(), agg.indexrelid()))
+                Some(
+                    FilterQuery::new(filter_expr.clone(), agg.indexrelid())
+                        .expect("should be able to create filter query"),
+                )
             } else {
                 None
             }
@@ -413,8 +416,10 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
         Ok(self.targetlist.aggregates().map(|agg| {
             if let Some(filter_expr) = agg.filter_expr() {
                 FilterQuery::new(filter_expr.clone(), agg.indexrelid())
+                    .expect("should be able to create filter query")
             } else {
                 FilterQuery::new(SearchQueryInput::All, agg.indexrelid())
+                    .expect("should be able to create filter query")
             }
         }))
     }
@@ -450,7 +455,7 @@ impl From<AggregateType> for AggregationVariants {
 struct FilterQuery {
     query: SearchQueryInput,
     indexrelid: pg_sys::Oid,
-    tantivy_query: OnceLock<Box<dyn Query>>,
+    tantivy_query: Box<dyn Query>,
 }
 
 impl From<FilterQuery> for AggregationVariants {
@@ -464,16 +469,14 @@ impl Clone for FilterQuery {
         Self {
             query: self.query.clone(),
             indexrelid: self.indexrelid,
-            tantivy_query: OnceLock::new(),
+            tantivy_query: self.tantivy_query.box_clone(),
         }
     }
 }
 
 impl Query for FilterQuery {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        self.tantivy_query
-            .get_or_init(|| self.tantivy_query().unwrap())
-            .weight(enable_scoring)
+        self.tantivy_query.weight(enable_scoring)
     }
 }
 
@@ -496,21 +499,13 @@ impl serde::Serialize for FilterQuery {
 }
 
 impl FilterQuery {
-    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Self {
-        Self {
-            query,
-            indexrelid,
-            tantivy_query: OnceLock::new(),
-        }
-    }
-
-    fn tantivy_query(&self) -> Result<Box<dyn Query>> {
+    pub fn new(query: SearchQueryInput, indexrelid: pg_sys::Oid) -> Result<Self> {
         let standalone_context = ExprContextGuard::new();
-        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
+        let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
         let schema = index.schema()?;
         let reader = SearchIndexReader::open_with_context(
             &index,
-            self.query.clone(),
+            query.clone(),
             false,
             MvccSatisfies::Snapshot,
             NonNull::new(standalone_context.as_ptr()),
@@ -523,7 +518,8 @@ impl FilterQuery {
             )
         };
         let heap_oid = index.heap_relation().map(|r| r.oid());
-        Ok(Box::new(self.query.clone().into_tantivy_query(
+        // pgrx::info!("returning tantivy query");
+        let tantivy_query = Box::new(query.clone().into_tantivy_query(
             &schema,
             &parser,
             reader.searcher(),
@@ -531,6 +527,12 @@ impl FilterQuery {
             heap_oid,
             NonNull::new(standalone_context.as_ptr()),
             None,
-        )?))
+        )?);
+
+        Ok(Self {
+            query,
+            indexrelid,
+            tantivy_query,
+        })
     }
 }

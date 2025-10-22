@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761176384531,
+  "lastUpdate": 1761177127787,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27244,6 +27244,54 @@ window.BENCHMARK_DATA = {
             "value": 5.879563060627156,
             "unit": "median tps",
             "extra": "avg tps: 5.8915097055396135, max tps: 7.774583780077115, count: 56338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75abffef3954cf33f8c53329359f46442f44141",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3396)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-22T19:11:01-04:00",
+          "tree_id": "ee35c350f0102bc2b0361254da3f5f178847e0fc",
+          "url": "https://github.com/paradedb/paradedb/commit/b75abffef3954cf33f8c53329359f46442f44141"
+        },
+        "date": 1761177125691,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1113.642989870668,
+            "unit": "median tps",
+            "extra": "avg tps: 1113.8337519739678, max tps: 1193.97178690719, count: 56235"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1239.6517319941013,
+            "unit": "median tps",
+            "extra": "avg tps: 1188.8504092217831, max tps: 1281.086344118621, count: 56235"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1116.6733796754784,
+            "unit": "median tps",
+            "extra": "avg tps: 1027.9531089526756, max tps: 1496.5772762730955, count: 56235"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.896833108410936,
+            "unit": "median tps",
+            "extra": "avg tps: 5.9150299201217855, max tps: 7.514927991133347, count: 56235"
           }
         ]
       }

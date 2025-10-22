@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761173389334,
+  "lastUpdate": 1761174111583,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18562,6 +18562,42 @@ window.BENCHMARK_DATA = {
             "value": 5.40004500845122,
             "unit": "median tps",
             "extra": "avg tps: 4.879363572449276, max tps: 5.998895840815732, count: 57880"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c8f4b3c36318e8cbce1359777945214760a0dc3",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3395)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T18:33:24-04:00",
+          "tree_id": "dd13e55fd8c8cfdc853d712439db0ea550c01c0d",
+          "url": "https://github.com/paradedb/paradedb/commit/0c8f4b3c36318e8cbce1359777945214760a0dc3"
+        },
+        "date": 1761174109730,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.36908001494428,
+            "unit": "median tps",
+            "extra": "avg tps: 7.149360917078068, max tps: 11.116855959699716, count: 57483"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.30577853982026,
+            "unit": "median tps",
+            "extra": "avg tps: 4.79295836150738, max tps: 5.864228104617053, count: 57483"
           }
         ]
       }

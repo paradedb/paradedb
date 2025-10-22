@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761175664743,
+  "lastUpdate": 1761176261053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47532,6 +47532,54 @@ window.BENCHMARK_DATA = {
             "value": 117.5511985980777,
             "unit": "median tps",
             "extra": "avg tps: 116.69004886223483, max tps: 158.54878152192714, count: 107118"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c8f4b3c36318e8cbce1359777945214760a0dc3",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3395)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T18:33:24-04:00",
+          "tree_id": "dd13e55fd8c8cfdc853d712439db0ea550c01c0d",
+          "url": "https://github.com/paradedb/paradedb/commit/0c8f4b3c36318e8cbce1359777945214760a0dc3"
+        },
+        "date": 1761176259049,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 649.8084177527272,
+            "unit": "median tps",
+            "extra": "avg tps: 651.2789676474148, max tps: 1028.435575170336, count: 53569"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 705.2613708546303,
+            "unit": "median tps",
+            "extra": "avg tps: 706.1621462098715, max tps: 1048.6444970985794, count: 53569"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 113.43480057104982,
+            "unit": "median tps",
+            "extra": "avg tps: 113.63236069847078, max tps: 125.64486198508725, count: 53569"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 114.1395615516778,
+            "unit": "median tps",
+            "extra": "avg tps: 113.47440021487675, max tps: 127.15264849063571, count: 107138"
           }
         ]
       }

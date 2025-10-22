@@ -79,6 +79,7 @@ impl ProximityWeight {
             right_postings,
             fieldnorm_reader,
             weight_opt,
+            reader.max_doc(),
         )))
     }
 
@@ -107,6 +108,7 @@ impl ProximityWeight {
                 right_postings,
                 self.fieldnorm_reader(segment_reader)?,
                 self.weight_opt.clone(),
+                segment_reader.max_doc(),
             );
 
             let mut doc_ids = Vec::new();

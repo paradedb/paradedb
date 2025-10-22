@@ -176,6 +176,22 @@ pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 }
 
 #[pg_extern]
+pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let mut sizes: Vec<_> = index
+        .options()
+        .foreground_layer_sizes()
+        .into_iter()
+        .chain(index.options().background_layer_sizes())
+        .map(|layer_size| layer_size.into())
+        .collect();
+
+    sizes.sort_unstable();
+    sizes.dedup();
+    sizes.into_iter().collect()
+}
+
+#[pg_extern]
 unsafe fn merge_info(
     index: PgRelation,
 ) -> TableIterator<

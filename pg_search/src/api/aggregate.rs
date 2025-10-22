@@ -19,8 +19,9 @@ use std::error::Error;
 
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 
-use crate::aggregate::execute_aggregate_json;
+use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 
 #[pg_extern]
@@ -33,12 +34,19 @@ pub fn aggregate(
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
-    Ok(JsonB(execute_aggregate_json(
+    let standalone_context = ExprContextGuard::new();
+    let aggregate = execute_aggregate(
         &relation,
-        &query,
-        agg.0,
+        query,
+        AggregateRequest::Json(serde_json::from_value(agg.0)?),
         solve_mvcc,
         memory_limit.try_into()?,
         bucket_limit.try_into()?,
-    )?))
+        standalone_context.as_ptr(),
+    )?;
+    if aggregate.0.is_empty() {
+        Ok(JsonB(serde_json::Value::Null))
+    } else {
+        Ok(JsonB(serde_json::to_value(aggregate)?))
+    }
 }

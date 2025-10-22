@@ -27,11 +27,8 @@ use heap_field_filter::HeapFieldFilter;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
-use crate::postgres::utils::ExprContextGuard;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -54,39 +51,6 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
-
-/// Bundle of context parameters for query conversion
-///
-/// This struct owns an ExprContextGuard and provides references to the components needed
-/// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
-/// remains valid for the lifetime of this struct.
-///
-/// Note: Currently this uses ExprContextGuard which is specific to execution-time contexts
-/// (created via ExecAssignExprContext). For planner-time usage, we would need to support
-/// the planner's expression context as well.
-pub struct QueryContext<'a> {
-    pub schema: &'a SearchIndexSchema,
-    pub reader: &'a SearchIndexReader,
-    pub index: &'a PgSearchRelation,
-    pub context: ExprContextGuard, // Execution-time expression context
-}
-
-impl<'a> QueryContext<'a> {
-    /// Create a new QueryContext, taking ownership of the provided ExprContextGuard
-    pub fn new(
-        schema: &'a SearchIndexSchema,
-        reader: &'a SearchIndexReader,
-        index: &'a PgSearchRelation,
-        context: ExprContextGuard,
-    ) -> Self {
-        Self {
-            schema,
-            reader,
-            index,
-            context,
-        }
-    }
-}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]

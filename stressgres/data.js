@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761175560720,
+  "lastUpdate": 1761175661297,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5602,6 +5602,72 @@ window.BENCHMARK_DATA = {
             "value": 139.7940869118805,
             "unit": "median tps",
             "extra": "avg tps: 143.12323292177456, max tps: 571.5735878131366, count: 55271"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75abffef3954cf33f8c53329359f46442f44141",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3396)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-22T19:11:01-04:00",
+          "tree_id": "ee35c350f0102bc2b0361254da3f5f178847e0fc",
+          "url": "https://github.com/paradedb/paradedb/commit/b75abffef3954cf33f8c53329359f46442f44141"
+        },
+        "date": 1761175659342,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 779.7717915424215,
+            "unit": "median tps",
+            "extra": "avg tps: 778.9981170731384, max tps: 783.5051512800744, count: 55333"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3307.369461827732,
+            "unit": "median tps",
+            "extra": "avg tps: 3279.51164573242, max tps: 3328.1897616237707, count: 55333"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 777.180694994295,
+            "unit": "median tps",
+            "extra": "avg tps: 775.919697746241, max tps: 840.208717376122, count: 55333"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 674.8846909446045,
+            "unit": "median tps",
+            "extra": "avg tps: 671.4077800276858, max tps: 683.4838942032546, count: 55333"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1711.0748897826002,
+            "unit": "median tps",
+            "extra": "avg tps: 1706.836280927423, max tps: 1738.560512240244, count: 110666"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1277.5105900269346,
+            "unit": "median tps",
+            "extra": "avg tps: 1269.2878986498542, max tps: 1284.5914436964674, count: 55333"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 241.96750652659108,
+            "unit": "median tps",
+            "extra": "avg tps: 250.22622032169298, max tps: 907.1356194965216, count: 55333"
           }
         ]
       }

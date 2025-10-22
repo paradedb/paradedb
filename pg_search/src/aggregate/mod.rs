@@ -22,6 +22,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::OrderByInfo;
 use crate::api::{FieldName, OrderByFeature};
+use crate::api::{HashMap, HashSet};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -39,8 +40,6 @@ use crate::query::QueryContext;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
-use rustc_hash::FxHashSet;
-use std::collections::HashMap;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::FilterAggregation;
@@ -259,11 +258,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
     }
 
-    fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
+    fn checkout_segments(&mut self, worker_number: i32) -> HashSet<SegmentId> {
         let nworkers = self.state.launched_workers();
         let nsegments = self.config.total_segments;
 
-        let mut segment_ids = FxHashSet::default();
+        let mut segment_ids = HashSet::default();
         let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
         while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
@@ -703,11 +702,11 @@ pub fn build_aggregation_query_from_search_input(
 fn build_direct_aggregation_query(
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
 
     if !qparams.grouping_columns.is_empty() {
         // GROUP BY: Build nested terms aggregation
-        let mut metrics = HashMap::new();
+        let mut metrics = HashMap::default();
 
         // Build metrics for all aggregates except COUNT(*)
         // COUNT(*) uses doc_count directly from buckets
@@ -776,11 +775,11 @@ pub fn build_aggregation_query(
     filter_aggregations: Vec<FilterAggregation>,
     qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
 
     // Build nested terms structure if we have grouping columns
     let nested_terms = if !qparams.grouping_columns.is_empty() {
-        Some(build_nested_terms(qparams, HashMap::new())?)
+        Some(build_nested_terms(qparams, HashMap::default())?)
     } else {
         None
     };
@@ -808,16 +807,16 @@ pub fn build_aggregation_query(
 
         let sub_aggs = if is_grouped && is_count_any {
             // GROUP BY with COUNT(*): No metric needed, use doc_count from buckets
-            build_nested_terms(qparams, HashMap::new())?
+            build_nested_terms(qparams, HashMap::default())?
         } else {
             let base = AggregateType::to_tantivy_agg(agg)?;
             if is_grouped {
                 // GROUP BY with other aggregates: filter -> grouped -> buckets -> metric
-                let metric_leaf = HashMap::from([(idx.to_string(), base)]);
+                let metric_leaf = HashMap::from_iter([(idx.to_string(), base)]);
                 build_nested_terms(qparams, metric_leaf)?
             } else {
                 // No GROUP BY: filter -> filtered_agg (metric)
-                HashMap::from([("filtered_agg".to_string(), base)])
+                HashMap::from_iter([("filtered_agg".to_string(), base)])
             }
         };
 
@@ -911,7 +910,7 @@ fn build_nested_terms(
             sub_aggregation: current,
         };
 
-        current = HashMap::from([("grouped".to_string(), terms_agg)]);
+        current = HashMap::from_iter([("grouped".to_string(), terms_agg)]);
     }
 
     Ok(current)

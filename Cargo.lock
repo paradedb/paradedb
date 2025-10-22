@@ -3188,7 +3188,6 @@ dependencies = [
  "tantivy-fst",
  "thiserror 2.0.16",
  "time",
- "tinyvec",
  "tokenizers",
  "uuid",
  "vergen",

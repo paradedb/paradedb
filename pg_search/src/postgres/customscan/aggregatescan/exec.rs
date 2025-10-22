@@ -226,10 +226,10 @@ impl AggregationResults {
             return;
         }
 
-        // 1. collect all group key paths first
+        // collect all group key paths first
         self.collect_group_keys(Vec::new(), out);
 
-        // 2. for each row, chase down aggregate values matching its group keys
+        // for each row, chase down aggregate values matching its group keys
         for row in out.iter_mut() {
             let mut current = self.0.clone();
 
@@ -259,7 +259,7 @@ impl AggregationResults {
                 }
             }
 
-            // 3. collect any metric results at this nested level
+            // collect any metric results at this nested level
             let mut entries: Vec<_> = current.into_iter().collect();
             entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
@@ -311,7 +311,7 @@ impl AggregationResults {
             return;
         }
 
-        // Ensure stable sorting of results
+        // ensure stable sorting of results
         let mut filter_entries: Vec<_> = self
             .0
             .iter()
@@ -319,7 +319,7 @@ impl AggregationResults {
             .collect();
         filter_entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
-        // Extract the sentinel filter bucket, used to get all the group keys
+        // extract the sentinel filter bucket, used to get all the group keys
         let sentinel = match self.0.get(FilterSentinelKey::NAME) {
             Some(AggregationResult::BucketResult(BucketResult::Filter(filter_bucket))) => {
                 filter_bucket
@@ -329,12 +329,12 @@ impl AggregationResults {
             }
         };
 
-        // Collect all group keys from the sentinel
+        // collect all group keys from the sentinel
         let sentinel_sub = AggregationResults(sentinel.sub_aggregations.0.clone());
         let mut rows = Vec::new();
         sentinel_sub.collect_group_keys(Vec::new(), &mut rows);
 
-        // For each row of group keys, collect aggregates
+        // for each row of group keys, collect aggregates
         let num_filters = filter_entries.len();
         for row in &mut rows {
             let mut aggregates = Vec::new();
@@ -377,7 +377,8 @@ impl AggregationResults {
                     }
                 }
 
-                // pad: if no metrics found for this filter, insert an empty placeholder
+                // if a bucket has multiple sub aggs but no agg was found, that means the agg is null
+                // and we should insert an empty placeholder
                 if found_metrics.is_empty() {
                     aggregates.push(None);
                 } else {

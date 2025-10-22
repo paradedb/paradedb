@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761168930750,
+  "lastUpdate": 1761169624538,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38086,6 +38086,60 @@ window.BENCHMARK_DATA = {
             "value": 18.942255093256815,
             "unit": "median tps",
             "extra": "avg tps: 18.939140686066835, max tps: 20.642522274173583, count: 55368"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2faaf50722cd366feca5b83ea11869f2465a1063",
+          "message": "chore: refactor aggregate scan (#3389)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA refactor of the aggregate custom scan code, mostly around splitting\nstuff up across files, general cleanup, etc. No functional changes with\none exception: I have a branch of Tantivy up that allows the query\npassed into `FilterQuery` to be serialized, which allows the EXPLAIN\noutput of filter aggs to just print the raw Tantivy JSON instead of\ndoing some custom serialization, which has changed the regression test\noutputs.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T16:53:12-04:00",
+          "tree_id": "e9fe6b32dcb79dfffd308f95d4162873e94aa5db",
+          "url": "https://github.com/paradedb/paradedb/commit/2faaf50722cd366feca5b83ea11869f2465a1063"
+        },
+        "date": 1761169622449,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.5248039345475,
+            "unit": "median tps",
+            "extra": "avg tps: 38.6499937160526, max tps: 40.634765997341574, count: 55454"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 249.66415623107463,
+            "unit": "median tps",
+            "extra": "avg tps: 283.5031295108322, max tps: 2783.6030063754565, count: 55454"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1029.072706061908,
+            "unit": "median tps",
+            "extra": "avg tps: 1023.6793994381595, max tps: 1035.767089825823, count: 55454"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.7456533931186,
+            "unit": "median tps",
+            "extra": "avg tps: 158.6590172327779, max tps: 872.6715193916002, count: 110908"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.93819515084849,
+            "unit": "median tps",
+            "extra": "avg tps: 18.055431331906462, max tps: 20.971133944522528, count: 55454"
           }
         ]
       }

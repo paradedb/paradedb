@@ -144,6 +144,8 @@ impl From<MetricResult> for TantivySingleMetricResult {
 
 impl AggregationResults {
     fn is_empty(&self) -> bool {
+        // we should return an empty result set if either the Aggregations JSON is empty,
+        // or if the top-level `_doc_count` is `0.0` (i.e. zero documents were matched)
         if self.0.is_empty() {
             return true;
         }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761174111583,
+  "lastUpdate": 1761174114824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23212,6 +23212,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.70799930891499, max segment_count: 106.0, count: 57880"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c8f4b3c36318e8cbce1359777945214760a0dc3",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3395)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T18:33:24-04:00",
+          "tree_id": "dd13e55fd8c8cfdc853d712439db0ea550c01c0d",
+          "url": "https://github.com/paradedb/paradedb/commit/0c8f4b3c36318e8cbce1359777945214760a0dc3"
+        },
+        "date": 1761174112952,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.79405,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.382767217282577, max cpu: 42.899704, count: 57483"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.74573997692795, max mem: 229.81640625, count: 57483"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.51565676663758, max cpu: 33.267326, count: 57483"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 165.41375928535393, max mem: 170.80859375, count: 57483"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24505,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23368.641250456658, max block_count: 26210.0, count: 57483"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.73223387784215, max segment_count: 106.0, count: 57483"
           }
         ]
       }

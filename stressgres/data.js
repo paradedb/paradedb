@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761169627924,
+  "lastUpdate": 1761170324548,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46704,6 +46704,54 @@ window.BENCHMARK_DATA = {
             "value": 115.92609152925651,
             "unit": "median tps",
             "extra": "avg tps: 115.03675982244364, max tps: 134.17659489608525, count: 107428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2faaf50722cd366feca5b83ea11869f2465a1063",
+          "message": "chore: refactor aggregate scan (#3389)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA refactor of the aggregate custom scan code, mostly around splitting\nstuff up across files, general cleanup, etc. No functional changes with\none exception: I have a branch of Tantivy up that allows the query\npassed into `FilterQuery` to be serialized, which allows the EXPLAIN\noutput of filter aggs to just print the raw Tantivy JSON instead of\ndoing some custom serialization, which has changed the regression test\noutputs.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T16:53:12-04:00",
+          "tree_id": "e9fe6b32dcb79dfffd308f95d4162873e94aa5db",
+          "url": "https://github.com/paradedb/paradedb/commit/2faaf50722cd366feca5b83ea11869f2465a1063"
+        },
+        "date": 1761170322439,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 660.3934712922425,
+            "unit": "median tps",
+            "extra": "avg tps: 660.8769080768614, max tps: 975.8868841705462, count: 53559"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 692.8497881480688,
+            "unit": "median tps",
+            "extra": "avg tps: 697.4905605949184, max tps: 1267.9170260607666, count: 53559"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 114.98781330216647,
+            "unit": "median tps",
+            "extra": "avg tps: 115.12152486805441, max tps: 133.87870161222088, count: 53559"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 117.5511985980777,
+            "unit": "median tps",
+            "extra": "avg tps: 116.69004886223483, max tps: 158.54878152192714, count: 107118"
           }
         ]
       }

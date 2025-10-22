@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761169624538,
+  "lastUpdate": 1761169627924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46210,6 +46210,114 @@ window.BENCHMARK_DATA = {
             "value": 158.96484375,
             "unit": "median mem",
             "extra": "avg mem: 157.07348495238676, max mem: 160.1328125, count: 55368"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2faaf50722cd366feca5b83ea11869f2465a1063",
+          "message": "chore: refactor aggregate scan (#3389)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA refactor of the aggregate custom scan code, mostly around splitting\nstuff up across files, general cleanup, etc. No functional changes with\none exception: I have a branch of Tantivy up that allows the query\npassed into `FilterQuery` to be serialized, which allows the EXPLAIN\noutput of filter aggs to just print the raw Tantivy JSON instead of\ndoing some custom serialization, which has changed the regression test\noutputs.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-22T16:53:12-04:00",
+          "tree_id": "e9fe6b32dcb79dfffd308f95d4162873e94aa5db",
+          "url": "https://github.com/paradedb/paradedb/commit/2faaf50722cd366feca5b83ea11869f2465a1063"
+        },
+        "date": 1761169625874,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.513100789120642, max cpu: 37.944664, count: 55454"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 149.0346434375789, max mem: 157.26953125, count: 55454"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.629448333955301, max cpu: 28.042841, count: 55454"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 110.28776109759892, max mem: 111.62890625, count: 55454"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.950293892138358, max cpu: 9.504951, count: 55454"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 145.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 124.44157784492552, max mem: 145.70703125, count: 55454"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 31129.5,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31606.41176470588, max block_count: 64238.0, count: 55454"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.509089557993052, max cpu: 4.673807, count: 55454"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.43008816992462, max mem: 131.078125, count: 55454"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.80095214051286, max segment_count: 51.0, count: 55454"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.851696528974342, max cpu: 42.352943, count: 110908"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.48604678258107, max mem: 155.8984375, count: 110908"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.011400162432855, max cpu: 32.495163, count: 55454"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 158.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.36961004560087, max mem: 160.63671875, count: 55454"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761176264412,
+  "lastUpdate": 1761176381233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18784,6 +18784,42 @@ window.BENCHMARK_DATA = {
             "value": 5.30577853982026,
             "unit": "median tps",
             "extra": "avg tps: 4.79295836150738, max tps: 5.864228104617053, count: 57483"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75abffef3954cf33f8c53329359f46442f44141",
+          "message": "fix: Support deprecated raw tokenizer in `0.19.x` (#3396)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe same thing we did in #3379 also needs to be done for the raw\ntokenizer, which is the default for UUID fields.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-22T19:11:01-04:00",
+          "tree_id": "ee35c350f0102bc2b0361254da3f5f178847e0fc",
+          "url": "https://github.com/paradedb/paradedb/commit/b75abffef3954cf33f8c53329359f46442f44141"
+        },
+        "date": 1761176379184,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.282976000695056,
+            "unit": "median tps",
+            "extra": "avg tps: 7.076027225079997, max tps: 11.015818126089655, count: 57523"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.245650055866339,
+            "unit": "median tps",
+            "extra": "avg tps: 4.754655729662587, max tps: 5.810162233277084, count: 57523"
           }
         ]
       }

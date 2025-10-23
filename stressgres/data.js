@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761240742375,
+  "lastUpdate": 1761241465916,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19006,6 +19006,42 @@ window.BENCHMARK_DATA = {
             "value": 5.245650055866339,
             "unit": "median tps",
             "extra": "avg tps: 4.754655729662587, max tps: 5.810162233277084, count: 57523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "418751ab697d127b86edade6c1ecf380f3429e51",
+          "message": "feat: Introduce `pdb.index_layer_info`, which shows both foreground and background layers (#3397)\n\n# Ticket(s) Closed\n\n- Closes #3393 \n\n## What\n\nIntroduces a new view which shows all layer sizes for all indexes, not\njust the foreground ones.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-10-23T13:15:53-04:00",
+          "tree_id": "312319eab78f688fbb88e30a620430e173860bd3",
+          "url": "https://github.com/paradedb/paradedb/commit/418751ab697d127b86edade6c1ecf380f3429e51"
+        },
+        "date": 1761241463770,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.386310184640184,
+            "unit": "median tps",
+            "extra": "avg tps: 7.161975015710825, max tps: 11.099203238050283, count: 57569"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.276043280187912,
+            "unit": "median tps",
+            "extra": "avg tps: 4.775157329008591, max tps: 5.8536135445124895, count: 57569"
           }
         ]
       }

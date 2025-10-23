@@ -66,7 +66,7 @@ AS 'MODULE_PATHNAME', 'agg_sfunc_placeholder_wrapper';
 -- pg_search/src/api/aggregate.rs:89
 -- pg_search::api::aggregate::agg_finalfunc
 CREATE OR REPLACE FUNCTION "agg_finalfunc"(
-    internal,
+    internal
 )  RETURNS jsonb
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'agg_finalfunc_placeholder_wrapper';

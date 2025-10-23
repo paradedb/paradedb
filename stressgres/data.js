@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761262804546,
+  "lastUpdate": 1761262807845,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24340,6 +24340,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.92374398276071, max segment_count: 108.0, count: 57543"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "099e0f54d32f9c2821764a75d6985d3f2f94a3d6",
+          "message": "feat: Introduce `pdb.index_layer_info`, which shows both foreground and background layers (#3398)\n\n# Ticket(s) Closed\n\n- Closes #3393 \n\n## What\n\nIntroduces a new view which shows all layer sizes for all indexes, not\njust the foreground ones.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-23T19:10:52-04:00",
+          "tree_id": "0ced2d2ee30b726152d9d02d93e107e42efa027b",
+          "url": "https://github.com/paradedb/paradedb/commit/099e0f54d32f9c2821764a75d6985d3f2f94a3d6"
+        },
+        "date": 1761262805877,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.838305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.410894127949643, max cpu: 42.899704, count: 57499"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 227.44310607575784, max mem: 229.6796875, count: 57499"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.576144455903858, max cpu: 33.23442, count: 57499"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.57916673007355, max mem: 164.2421875, count: 57499"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24461,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23345.64397641698, max block_count: 26117.0, count: 57499"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.61614984608428, max segment_count: 105.0, count: 57499"
           }
         ]
       }

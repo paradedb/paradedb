@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761254135554,
+  "lastUpdate": 1761254852867,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49224,6 +49224,54 @@ window.BENCHMARK_DATA = {
             "value": 116.47890619317593,
             "unit": "median tps",
             "extra": "avg tps: 115.19513536476443, max tps: 124.18987066432204, count: 107364"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85a6e0ae4ca4872c3a3340915e00463c5cac85d0",
+          "message": "chore: Use smaller merge buffers. (#3399)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |",
+          "timestamp": "2025-10-23T13:20:43-07:00",
+          "tree_id": "4d21831ce0649a99a69b22305402b68c99c66b0e",
+          "url": "https://github.com/paradedb/paradedb/commit/85a6e0ae4ca4872c3a3340915e00463c5cac85d0"
+        },
+        "date": 1761254850917,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 682.7933116534786,
+            "unit": "median tps",
+            "extra": "avg tps: 682.9383801311249, max tps: 978.1997402603787, count: 53675"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 691.1550567318625,
+            "unit": "median tps",
+            "extra": "avg tps: 691.3980950297447, max tps: 1082.1818317431457, count: 53675"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 113.8184921289249,
+            "unit": "median tps",
+            "extra": "avg tps: 113.9864774070142, max tps: 127.48821294978352, count: 53675"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 115.85202321386839,
+            "unit": "median tps",
+            "extra": "avg tps: 114.91578661797672, max tps: 127.40662420271126, count: 107350"
           }
         ]
       }

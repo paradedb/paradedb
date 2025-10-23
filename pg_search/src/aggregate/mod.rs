@@ -30,6 +30,7 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
 use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, GroupingColumn};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
@@ -684,14 +685,14 @@ pub fn build_aggregation_query_from_search_input(
 
     // Slower path: Has FILTER clauses - use FilterAggregation structure
     let base_query_tantivy = to_tantivy_query(qctx, Some(qparams.base_query))?;
-    let base_filter = FilterAggregation::new_with_query(base_query_tantivy);
+    let base_filter = FilterAggregation::new_with_query(Box::new(FilterQuery(base_query_tantivy)));
 
     let filter_aggregations: Result<Vec<FilterAggregation>, Box<dyn Error>> = qparams
         .aggregate_types
         .iter()
         .map(|agg| {
             to_tantivy_query(qctx, agg.filter_expr().as_ref())
-                .map(FilterAggregation::new_with_query)
+                .map(|query| FilterAggregation::new_with_query(Box::new(FilterQuery(query))))
         })
         .collect();
 

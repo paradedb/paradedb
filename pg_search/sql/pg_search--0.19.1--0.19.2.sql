@@ -59,7 +59,7 @@ CREATE OR REPLACE FUNCTION "agg_sfunc"(
     jsonb
 )  RETURNS internal
 LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'agg_sfunc_placeholder_wrapper';
+AS 'MODULE_PATHNAME', 'agg_sfunc_wrapper';
 
 /* </end connected objects> */
 /* <begin connected objects> */
@@ -69,7 +69,7 @@ CREATE OR REPLACE FUNCTION "agg_finalfunc"(
     internal
 )  RETURNS jsonb
 LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'agg_finalfunc_placeholder_wrapper';
+AS 'MODULE_PATHNAME', 'agg_finalfunc_wrapper';
 
 /* </end connected objects> */
 /* <begin connected objects> */

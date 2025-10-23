@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761262807845,
+  "lastUpdate": 1761263563586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28234,6 +28234,54 @@ window.BENCHMARK_DATA = {
             "value": 5.86481189400183,
             "unit": "median tps",
             "extra": "avg tps: 5.863358634332431, max tps: 7.370665622036968, count: 56044"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "099e0f54d32f9c2821764a75d6985d3f2f94a3d6",
+          "message": "feat: Introduce `pdb.index_layer_info`, which shows both foreground and background layers (#3398)\n\n# Ticket(s) Closed\n\n- Closes #3393 \n\n## What\n\nIntroduces a new view which shows all layer sizes for all indexes, not\njust the foreground ones.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-23T19:10:52-04:00",
+          "tree_id": "0ced2d2ee30b726152d9d02d93e107e42efa027b",
+          "url": "https://github.com/paradedb/paradedb/commit/099e0f54d32f9c2821764a75d6985d3f2f94a3d6"
+        },
+        "date": 1761263561577,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1140.2261260223436,
+            "unit": "median tps",
+            "extra": "avg tps: 1114.7387921040136, max tps: 1221.8022691856868, count: 56178"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1341.4547989787893,
+            "unit": "median tps",
+            "extra": "avg tps: 1335.9009190862118, max tps: 1352.2813617192644, count: 56178"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1916.3741120009688,
+            "unit": "median tps",
+            "extra": "avg tps: 1845.2226656610787, max tps: 2099.757387665393, count: 56178"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.995779888993507,
+            "unit": "median tps",
+            "extra": "avg tps: 5.972189196773236, max tps: 7.291170859453254, count: 56178"
           }
         ]
       }

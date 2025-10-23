@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761251933803,
+  "lastUpdate": 1761252662910,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19228,6 +19228,42 @@ window.BENCHMARK_DATA = {
             "value": 5.276043280187912,
             "unit": "median tps",
             "extra": "avg tps: 4.775157329008591, max tps: 5.8536135445124895, count: 57569"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85a6e0ae4ca4872c3a3340915e00463c5cac85d0",
+          "message": "chore: Use smaller merge buffers. (#3399)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |",
+          "timestamp": "2025-10-23T13:20:43-07:00",
+          "tree_id": "4d21831ce0649a99a69b22305402b68c99c66b0e",
+          "url": "https://github.com/paradedb/paradedb/commit/85a6e0ae4ca4872c3a3340915e00463c5cac85d0"
+        },
+        "date": 1761252661058,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.435880861959562,
+            "unit": "median tps",
+            "extra": "avg tps: 7.207452074274881, max tps: 11.23574316747447, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.217845065936506,
+            "unit": "median tps",
+            "extra": "avg tps: 4.71637954165378, max tps: 5.784765723064775, count: 57543"
           }
         ]
       }

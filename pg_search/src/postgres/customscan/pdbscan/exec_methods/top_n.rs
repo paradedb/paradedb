@@ -17,13 +17,13 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::execute_aggregation;
+use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::agg::AggregationSpec;
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState;
-use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -162,6 +162,28 @@ impl TopNScanExecState {
         }
     }
 
+    /// Convert an aggregate value to the correct Datum type based on the aggregate type
+    fn convert_aggregate_value_to_datum(
+        agg_type: &AggregateType,
+        value: Option<f64>,
+    ) -> pg_sys::Datum {
+        match value {
+            Some(val) => {
+                // For COUNT aggregates, convert to i64
+                if matches!(
+                    agg_type,
+                    AggregateType::CountAny { .. } | AggregateType::Count { .. }
+                ) {
+                    (val as i64).into_datum().unwrap_or(pg_sys::Datum::null())
+                } else {
+                    // For other aggregates (SUM, AVG, MIN, MAX), keep as f64
+                    val.into_datum().unwrap_or(pg_sys::Datum::null())
+                }
+            }
+            None => pg_sys::Datum::null(),
+        }
+    }
+
     /// Compute window aggregates based on the search results
     fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
         if self.window_aggregates.is_empty() {
@@ -190,28 +212,34 @@ impl TopNScanExecState {
                 grouping_columns: Vec::new(), // No grouping for window functions
             };
 
-            // Convert to AggQueryParams and execute once
-            let base_query = state.search_query_input();
-            let agg_params = combined_spec.to_agg_params(
-                base_query,
-                &[],   // No ORDER BY for window functions
-                &None, // No LIMIT for window functions
-                &None, // No OFFSET for window functions
-            );
+            // Convert to Tantivy Aggregations
+            let aggregations = combined_spec
+                .to_tantivy_aggregations()
+                .unwrap_or_else(|e| pgrx::error!("Failed to build aggregations: {}", e));
 
             let indexrel = state
                 .indexrel
                 .as_ref()
                 .expect("indexrel should be open for window aggregate");
 
-            let agg_result = execute_aggregation(
+            let base_query = state.search_query_input().clone();
+
+            // Use ExprContextGuard for standalone execution
+            let standalone_context = crate::postgres::utils::ExprContextGuard::new();
+
+            let agg_result = execute_aggregate(
                 indexrel,
-                &agg_params,
+                base_query,
+                AggregateRequest::Json(aggregations),
                 true,                                              // solve_mvcc
                 gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
                 tantivy::aggregation::DEFAULT_BUCKET_LIMIT,        // bucket_limit
+                standalone_context.as_ptr(),
             )
             .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
+
+            let agg_result = serde_json::to_value(&agg_result)
+                .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregation result: {}", e));
 
             // Extract results for each aggregate
             // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": N}}
@@ -240,11 +268,13 @@ impl TopNScanExecState {
                             let agg_value = agg_type
                                 .result_from_aggregate_with_doc_count(agg_result_value, doc_count);
 
-                            agg_value.into_datum()
+                            // Convert SingleMetricResult to Datum with correct type
+                            Self::convert_aggregate_value_to_datum(agg_type, agg_value.value)
                         }
                     } else {
                         // No aggregate result found, return empty value
-                        agg_type.empty_value().into_datum()
+                        let empty = agg_type.empty_value();
+                        Self::convert_aggregate_value_to_datum(agg_type, empty.value)
                     };
 
                     results.insert(*te_idx, datum);

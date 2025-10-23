@@ -76,6 +76,11 @@ pub enum AggregateType {
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
     },
+    Custom {
+        agg_json: serde_json::Value,
+        filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
+    },
 }
 
 impl SolvePostgresExpressions for AggregateType {
@@ -156,7 +161,7 @@ impl AggregateType {
         matches!(self, AggregateType::CountAny { .. }) && !self.has_filter()
     }
 
-    /// Get the field name for field-based aggregates (None for COUNT)
+    /// Get the field name for field-based aggregates (None for COUNT and Custom)
     pub fn field_name(&self) -> Option<String> {
         match self {
             AggregateType::CountAny { .. } => None,
@@ -165,6 +170,7 @@ impl AggregateType {
             AggregateType::Avg { field, .. } => Some(field.clone()),
             AggregateType::Min { field, .. } => Some(field.clone()),
             AggregateType::Max { field, .. } => Some(field.clone()),
+            AggregateType::Custom { .. } => None,
         }
     }
 
@@ -176,6 +182,7 @@ impl AggregateType {
             AggregateType::Avg { indexrelid, .. } => *indexrelid,
             AggregateType::Min { indexrelid, .. } => *indexrelid,
             AggregateType::Max { indexrelid, .. } => *indexrelid,
+            AggregateType::Custom { indexrelid, .. } => *indexrelid,
         }
     }
 
@@ -187,6 +194,7 @@ impl AggregateType {
             AggregateType::Avg { missing, .. } => *missing,
             AggregateType::Min { missing, .. } => *missing,
             AggregateType::Max { missing, .. } => *missing,
+            AggregateType::Custom { .. } => None,
         }
     }
 
@@ -198,7 +206,8 @@ impl AggregateType {
             AggregateType::Sum { .. }
             | AggregateType::Avg { .. }
             | AggregateType::Min { .. }
-            | AggregateType::Max { .. } => SingleMetricResult { value: None },
+            | AggregateType::Max { .. }
+            | AggregateType::Custom { .. } => SingleMetricResult { value: None },
         }
     }
 
@@ -211,6 +220,7 @@ impl AggregateType {
             AggregateType::Avg { filter, .. } => filter.is_some(),
             AggregateType::Min { filter, .. } => filter.is_some(),
             AggregateType::Max { filter, .. } => filter.is_some(),
+            AggregateType::Custom { filter, .. } => filter.is_some(),
         }
     }
 
@@ -223,6 +233,7 @@ impl AggregateType {
             AggregateType::Avg { filter, .. } => filter,
             AggregateType::Min { filter, .. } => filter,
             AggregateType::Max { filter, .. } => filter,
+            AggregateType::Custom { filter, .. } => filter,
         }
     }
 
@@ -234,6 +245,121 @@ impl AggregateType {
             AggregateType::Avg { filter, .. } => filter,
             AggregateType::Min { filter, .. } => filter,
             AggregateType::Max { filter, .. } => filter,
+            AggregateType::Custom { filter, .. } => filter,
+        }
+    }
+
+    /// Helper function to get mutable filter from an aggregate type  
+    pub fn get_filter_mut(&mut self) -> Option<&mut SearchQueryInput> {
+        self.filter_expr_mut().as_mut()
+    }
+
+    pub fn result_type_oid(&self) -> pg_sys::Oid {
+        match &self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
+            AggregateType::Sum { .. }
+            | AggregateType::Avg { .. }
+            | AggregateType::Min { .. }
+            | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
+            AggregateType::Custom { .. } => pg_sys::JSONBOID,
+        }
+    }
+
+    /// Returns the empty/null value for this aggregate type when there are no matching rows
+    pub fn empty_value(&self) -> SingleMetricResult {
+        match self {
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => {
+                // COUNT returns 0 for empty sets
+                SingleMetricResult { value: Some(0.0) }
+            }
+            _ => {
+                // All other aggregates return NULL for empty sets
+                SingleMetricResult { value: None }
+            }
+        }
+    }
+
+    /// Convert an aggregate result with document count context
+    pub fn result_from_aggregate_with_doc_count(
+        &self,
+        result: serde_json::Value,
+        doc_count: Option<i64>,
+    ) -> SingleMetricResult {
+        // Handle empty result sets (doc_count = 0)
+        if doc_count == Some(0) {
+            return self.empty_value();
+        }
+
+        // Try to extract the value from the result
+        // The result can be:
+        // 1. {"value": N} - standard metric result
+        // 2. N - direct number
+        // 3. null - no result
+
+        let value_opt = if let Some(obj) = result.as_object() {
+            // Try to get "value" field
+            obj.get("value").and_then(|v| v.as_f64())
+        } else {
+            // Try direct number
+            result.as_f64()
+        };
+
+        SingleMetricResult { value: value_opt }
+    }
+
+    /// Create an AggregateType from a function OID
+    pub fn create_aggregate_from_oid(
+        aggfnoid: u32,
+        field: String,
+        missing: Option<f64>,
+        filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
+    ) -> Option<AggregateType> {
+        use pg_sys::*;
+        match aggfnoid {
+            F_COUNT_ANY => Some(AggregateType::Count {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(AggregateType::Avg {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(AggregateType::Sum {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(AggregateType::Max {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(AggregateType::Min {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            _ => {
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
         }
     }
 }
@@ -247,6 +373,7 @@ impl std::fmt::Display for AggregateType {
             AggregateType::Avg { .. } => write!(f, "AVG({})", self.field_name().unwrap()),
             AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
             AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
+            AggregateType::Custom { agg_json, .. } => write!(f, "CUSTOM_AGG({})", agg_json),
         }
     }
 }
@@ -272,6 +399,11 @@ impl From<AggregateType> for AggregationVariants {
             }
             AggregateType::Max { field, missing, .. } => {
                 AggregationVariants::Max(MaxAggregation { field, missing })
+            }
+            AggregateType::Custom { agg_json, .. } => {
+                // For Custom aggregates, deserialize the JSON directly into AggregationVariants
+                serde_json::from_value(agg_json)
+                    .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
             }
         }
     }
@@ -322,7 +454,7 @@ unsafe fn parse_aggregate_field(
 }
 
 /// Parse COALESCE expression to extract variable and missing value
-unsafe fn parse_coalesce_expression(
+pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
 ) -> Option<(*mut pg_sys::Var, Option<f64>)> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);

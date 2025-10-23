@@ -30,24 +30,31 @@ SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, now()
-   Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+   Group Key: logs.category
+   ->  Sort
+         Output: category
+         Sort Key: logs.category
+         ->  Custom Scan (ParadeDB Scan) on public.logs
+               Output: category
+               Table: logs
+               Index: logs_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | agg 
-----------+-----
- database | 
+ category |            agg             
+----------+----------------------------
+ database | {"error": "not supported"}
 (1 row)
 
 -- Test 2: Custom agg in window function
@@ -56,12 +63,12 @@ SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -89,16 +96,23 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, now(), now()
-   Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), CUSTOM_AGG({"terms":{"field":"severity"}})
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+   Group Key: logs.category
+   ->  Sort
+         Output: category
+         Sort Key: logs.category
+         ->  Custom Scan (ParadeDB Scan) on public.logs
+               Output: category
+               Table: logs
+               Index: logs_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT category, 
        COUNT(*),
@@ -106,9 +120,9 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | count | agg 
-----------+-------+-----
- database |     2 | 
+ category | count |            agg             
+----------+-------+----------------------------
+ database |     2 | {"error": "not supported"}
 (1 row)
 
 -- Test 4: Custom agg with FILTER (extracted at planning time)
@@ -117,22 +131,27 @@ SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: now()
-   Index: logs_idx
-     Combined Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}]}}
-     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}) FILTER (WHERE {"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}})
-(5 rows)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE (status_code >= 500))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: status_code
+         Table: logs
+         Index: logs_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: status_code
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
 
 SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
- agg 
------
- 
+            agg             
+----------------------------
+ {"error": "not supported"}
 (1 row)
 
 -- Test 5: Custom agg with FILTER and OVER (window function)
@@ -179,16 +198,23 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, now(), now()
-   Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), CUSTOM_AGG({"max":{"field":"response_time"}})
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"max":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
+   Group Key: logs.category
+   ->  Sort
+         Output: category
+         Sort Key: logs.category
+         ->  Custom Scan (ParadeDB Scan) on public.logs
+               Output: category
+               Table: logs
+               Index: logs_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT category, 
        COUNT(*),
@@ -196,9 +222,9 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | count | agg 
-----------+-------+-----
- database |     2 | 
+ category | count |            agg             
+----------+-------+----------------------------
+ database |     2 | {"error": "not supported"}
 (1 row)
 
 -- Cleanup

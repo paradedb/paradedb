@@ -17,13 +17,11 @@
 
 //! Unified aggregation specification shared by both pdbscan (window functions) and aggregatescan (GROUP BY)
 
-use crate::aggregate::AggQueryParams;
-use crate::api::OrderByInfo;
-use crate::postgres::customscan::aggregatescan::privdat::GroupingColumn;
-use crate::postgres::customscan::aggregatescan::AggregateType;
-use crate::query::SearchQueryInput;
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::groupby::GroupingColumn;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
+use tantivy::aggregation::agg_req::{Aggregation, Aggregations};
 
 /// This is the **core struct** that captures aggregation parameters at the SQL level,
 /// shared between:
@@ -58,30 +56,25 @@ impl AggregationSpec {
             .unwrap_or(pg_sys::INT8OID)
     }
 
-    /// Convert AggregationSpec to AggQueryParams for execution
+    /// Convert AggregationSpec to Tantivy Aggregations for execution (simple, no GROUP BY)
     ///
-    /// This function allows both window functions and GROUP BY queries to reuse the
-    /// existing Tantivy aggregation infrastructure (build_aggregation_query_from_search_input).
-    ///
-    /// # Arguments
-    /// * `base_query` - The search query from the WHERE clause
-    /// * `orderby_info` - ORDER BY specification (for GROUP BY queries, empty for window functions)
-    /// * `limit` - Optional LIMIT (for GROUP BY queries, None for window functions)
-    /// * `offset` - Optional OFFSET (for GROUP BY queries, None for window functions)
-    pub fn to_agg_params<'a>(
-        &'a self,
-        base_query: &'a SearchQueryInput,
-        orderby_info: &'a [OrderByInfo],
-        limit: &'a Option<u32>,
-        offset: &'a Option<u32>,
-    ) -> AggQueryParams<'a> {
-        AggQueryParams {
-            base_query,
-            aggregate_types: &self.agg_types,
-            grouping_columns: &self.grouping_columns,
-            orderby_info,
-            limit,
-            offset,
+    /// This is used for window functions which don't have GROUP BY.
+    /// For GROUP BY queries, use AggregateCSClause instead.
+    pub fn to_tantivy_aggregations(&self) -> Result<Aggregations, String> {
+        let mut aggregations = Aggregations::new();
+
+        for (idx, agg_type) in self.agg_types.iter().enumerate() {
+            // Convert each AggregateType to AggregationVariants
+            let agg_variant = agg_type.clone().into();
+            aggregations.insert(
+                idx.to_string(),
+                Aggregation {
+                    agg: agg_variant,
+                    sub_aggregation: Aggregations::new(),
+                },
+            );
         }
+
+        Ok(aggregations)
     }
 }

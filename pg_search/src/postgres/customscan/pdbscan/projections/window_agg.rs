@@ -16,14 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::agg_funcoid;
+use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_function::window_func_oid;
 use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
-use crate::postgres::customscan::aggregatescan::extract_filter_clause;
-use crate::postgres::customscan::aggregatescan::privdat::parse_coalesce_expression;
-use crate::postgres::customscan::aggregatescan::AggregateType;
-use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::customscan::aggregatescan::aggregate_type::{
+    parse_coalesce_expression, AggregateType,
+};
+use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::var::fieldname_from_var;
 use crate::postgres::var::get_var_relation_oid;
 use crate::postgres::PgSearchRelation;
@@ -224,12 +226,16 @@ unsafe fn extract_standard_aggregate(
         return Some(AggregateType::Custom {
             agg_json: json_value,
             filter,
+            indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
         });
     }
 
     // Handle COUNT(*) special case - same logic as aggregatescan
     if aggfnoid == F_COUNT_ && args.is_empty() {
-        return Some(AggregateType::CountAny { filter });
+        return Some(AggregateType::CountAny {
+            filter,
+            indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
+        });
     }
 
     // For other aggregates, we need a field name
@@ -242,8 +248,13 @@ unsafe fn extract_standard_aggregate(
     // Extract field name and missing value using the same logic as aggregatescan
     let (field, missing) = parse_aggregate_field_from_node(parse, first_arg)?;
 
-    let agg_type =
-        AggregateType::create_aggregate_from_oid(aggfnoid, field.into_inner(), missing, filter)?;
+    let agg_type = AggregateType::create_aggregate_from_oid(
+        aggfnoid,
+        field.into_inner(),
+        missing,
+        filter,
+        pg_sys::InvalidOid, // Will be filled in during planning
+    )?;
     Some(agg_type)
 }
 
@@ -417,22 +428,21 @@ pub unsafe fn convert_window_aggregate_filters(
                 if let SearchQueryInput::PostgresExpression { expr } = filter {
                     let filter_node = expr.node();
                     if !filter_node.is_null() {
-                        // Cast Node back to Expr for extract_filter_clause
-                        let filter_expr = filter_node as *mut pg_sys::Expr;
-
                         // Use the same logic as aggregatescan to convert the filter
                         let mut filter_qual_state = QualExtractState::default();
-                        let converted = extract_filter_clause(
-                            filter_expr,
-                            bm25_index,
+                        if let Some(qual) = extract_quals(
                             root,
                             heap_rti,
+                            filter_node,
+                            anyelement_query_input_opoid(),
+                            RestrictInfoType::BaseRelation,
+                            bm25_index,
+                            false, // convert_external_to_special_qual
                             &mut filter_qual_state,
-                        );
-
-                        // Replace the PostgresExpression with the converted SearchQueryInput
-                        if let Some(search_query) = converted {
-                            *filter = search_query;
+                            true, // attempt_pushdown
+                        ) {
+                            // Replace the PostgresExpression with the converted SearchQueryInput
+                            *filter = SearchQueryInput::from(&qual);
                         }
                     }
                 }

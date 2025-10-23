@@ -96,9 +96,9 @@ LIMIT 3;
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -138,12 +138,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":null,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":null,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -327,12 +327,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"Min":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Max":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"Min":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Max":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -418,12 +418,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, (paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -756,12 +756,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, price, rating, sales, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, category, brand, price, rating, sales, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, category, brand, price, rating, sales, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, category, brand, price, rating, sales, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1156,12 +1156,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null}}],"grouping_columns":[]}'::text)), rating
+   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null}}],"grouping_columns":[]}'::text), rating
+         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1764,12 +1764,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1811,12 +1811,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1977,12 +1977,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":0.0,"filter":null}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":4.0,"filter":null}}],"grouping_columns":[]}'::text))
+   Output: id, name, rating, price, (paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)), (paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":0.0,"filter":null}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":4.0,"filter":null}}],"grouping_columns":[]}'::text)
+         Output: id, name, rating, price, paradedb.window_func('{"agg_types":[{"CountAny":{"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text), paradedb.window_func('{"agg_types":[{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState

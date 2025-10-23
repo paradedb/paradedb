@@ -27,28 +27,6 @@ pub mod scan_state;
 pub mod searchquery;
 pub mod targetlist;
 
-<<<<<<< HEAD
-pub use privdat::AggregateType;
-
-use std::ffi::CStr;
-
-use crate::aggregate::{build_aggregation_json_for_explain, execute_aggregation, AggQueryParams};
-use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{HashMap, HashSet, OrderByFeature};
-use crate::gucs;
-use crate::index::mvcc::MvccSatisfies;
-use crate::nodecast;
-use crate::postgres::customscan::agg::AggregationSpec;
-use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
-};
-use crate::postgres::customscan::aggregatescan::scan_state::{
-    AggregateScanState, ExecutionState, GroupedAggregateRow,
-};
-use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
-};
-=======
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::AggregateCSClause;
@@ -58,7 +36,6 @@ use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
 use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
->>>>>>> main
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -106,26 +83,9 @@ impl CustomScan for AggregateScan {
         let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
 
         Some(builder.build(PrivateData {
-<<<<<<< HEAD
-            agg_spec: AggregationSpec {
-                agg_types: aggregate_types,
-                grouping_columns,
-            },
-            orderby_info,
-            indexrelid: bm25_index.oid(),
-            heap_rti,
-            query,
-            target_list_mapping,
-            has_order_by,
-            limit,
-            offset,
-            maybe_truncated,
-            filter_groups,
-=======
             heap_rti,
             indexrelid: index.oid(),
             aggregate_clause,
->>>>>>> main
         }))
     }
 
@@ -134,16 +94,8 @@ impl CustomScan for AggregateScan {
 
         if builder
             .custom_private()
-<<<<<<< HEAD
-            .agg_spec
-            .grouping_columns
-            .is_empty()
-            && builder.custom_private().orderby_info.is_empty()
-            && !builder.custom_private().has_order_by
-=======
             .aggregate_clause
             .planner_should_replace_aggrefs()
->>>>>>> main
         {
             unsafe {
                 let mut cscan = builder.build();
@@ -164,16 +116,8 @@ impl CustomScan for AggregateScan {
         // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
         if !builder
             .custom_private()
-<<<<<<< HEAD
-            .agg_spec
-            .grouping_columns
-            .is_empty()
-            || !builder.custom_private().orderby_info.is_empty()
-            || builder.custom_private().has_order_by
-=======
             .aggregate_clause
             .planner_should_replace_aggrefs()
->>>>>>> main
         {
             unsafe {
                 let cscan = builder.args().cscan;
@@ -182,13 +126,6 @@ impl CustomScan for AggregateScan {
             }
         }
 
-<<<<<<< HEAD
-        builder.custom_state().agg_spec = builder.custom_private().agg_spec.clone();
-        builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
-        builder.custom_state().target_list_mapping =
-            builder.custom_private().target_list_mapping.clone();
-=======
->>>>>>> main
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
@@ -345,26 +282,7 @@ impl ExecMethod for AggregateScan {
     }
 }
 
-<<<<<<< HEAD
-/// Convert an AggregateValue to a PostgreSQL Datum using TantivyValue's conversion infrastructure
-fn convert_aggregate_value_to_datum(
-    agg_value: &AggregateValue,
-    expected_typoid: pg_sys::Oid,
-) -> (pg_sys::Datum, bool) {
-    // Convert AggregateValue to OwnedValue
-    let owned_value = match agg_value {
-        AggregateValue::Null => OwnedValue::Null,
-        AggregateValue::Int(val) => OwnedValue::I64(*val),
-        AggregateValue::Float(val) => OwnedValue::F64(*val),
-        AggregateValue::Json(val) => {
-            // For JSON values, serialize to string and convert to OwnedValue
-            let json_str = val.to_string();
-            OwnedValue::Str(json_str)
-        }
-    };
-=======
 impl PlainExecCapable for AggregateScan {}
->>>>>>> main
 
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;
@@ -379,196 +297,9 @@ pub trait CustomScanClause<CS: CustomScan> {
         Box::new(std::iter::empty())
     }
 
-<<<<<<< HEAD
-fn explain_execution_strategy(
-    state: &CustomScanStateWrapper<AggregateScan>,
-    filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
-    explainer: &mut Explainer,
-) {
-    // Helper to add GROUP BY information
-    let add_group_by = |explainer: &mut Explainer| {
-        if !state.custom_state().agg_spec.grouping_columns.is_empty() {
-            let group_by_fields: String = state
-                .custom_state()
-                .agg_spec
-                .grouping_columns
-                .iter()
-                .map(|col| col.field_name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            explainer.add_text("  Group By", group_by_fields);
-        }
-    };
-
-    // Helper to add LIMIT/OFFSET information
-    let add_limit_offset = |explainer: &mut Explainer| {
-        if let Some(limit) = state.custom_state().limit {
-            let offset = state.custom_state().offset.unwrap_or(0);
-            if offset > 0 {
-                explainer.add_text("  Limit", limit.to_string());
-                explainer.add_text("  Offset", offset.to_string());
-            } else {
-                explainer.add_text("  Limit", limit.to_string());
-            }
-        }
-    };
-
-    // Helper to build aggregation definition JSON (for no-filter cases)
-    // Uses the shared function from aggregate module to avoid duplication
-    let build_aggregate_json = || -> Option<String> {
-        let qparams = AggQueryParams {
-            base_query: &state.custom_state().query,
-            aggregate_types: &state.custom_state().agg_spec.agg_types,
-            grouping_columns: &state.custom_state().agg_spec.grouping_columns,
-            orderby_info: &state.custom_state().orderby_info,
-            limit: &state.custom_state().limit,
-            offset: &state.custom_state().offset,
-        };
-        build_aggregation_json_for_explain(&qparams).ok()
-    };
-
-    // Helper to show base query + all aggregates (no filters case)
-    let explain_no_filters = |explainer: &mut Explainer| {
-        explainer.add_query(&state.custom_state().query);
-        let all_indices: Vec<usize> = (0..state.custom_state().agg_spec.agg_types.len()).collect();
-        explainer.add_text(
-            "  Applies to Aggregates",
-            AggregateType::format_aggregates(
-                &state.custom_state().agg_spec.agg_types,
-                &all_indices,
-            ),
-        );
-        add_group_by(explainer);
-        add_limit_offset(explainer);
-
-        // Add aggregate definition for no-filter cases (can be built without QueryContext)
-        if let Some(agg_def) = build_aggregate_json() {
-            explainer.add_text("  Aggregate Definition", agg_def);
-        }
-    };
-
-    if filter_groups.is_empty() {
-        explain_no_filters(explainer);
-    } else if filter_groups.len() == 1 {
-        // Single query
-        let (filter_expr, aggregate_indices) = &filter_groups[0];
-        if filter_expr.is_none() {
-            explain_no_filters(explainer);
-        } else {
-            // Show the combined query
-            let combined_query =
-                combine_query_with_filter(&state.custom_state().query, filter_expr);
-            explainer.add_text("  Combined Query", combined_query.explain_format());
-            add_group_by(explainer);
-            add_limit_offset(explainer);
-            explainer.add_text(
-                "  Applies to Aggregates",
-                AggregateType::format_aggregates(
-                    &state.custom_state().agg_spec.agg_types,
-                    aggregate_indices,
-                ),
-            );
-        }
-    } else {
-        // Multi-group
-        explainer.add_text(
-            "Execution Strategy",
-            format!("Multi-Query ({} Filter Groups)", filter_groups.len()),
-        );
-        add_group_by(explainer);
-        add_limit_offset(explainer);
-
-        for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
-            let combined_query =
-                combine_query_with_filter(&state.custom_state().query, filter_expr);
-
-            let query_label = if filter_expr.is_some() {
-                format!("  Group {} Query", group_idx + 1)
-            } else {
-                format!("  Group {} Query (No Filter)", group_idx + 1)
-            };
-            explainer.add_text(&query_label, combined_query.explain_format());
-            explainer.add_text(
-                &format!("  Group {} Aggregates", group_idx + 1),
-                AggregateType::format_aggregates(
-                    &state.custom_state().agg_spec.agg_types,
-                    aggregate_indices,
-                ),
-            );
-        }
-    }
-}
-
-fn combine_query_with_filter(
-    query: &SearchQueryInput,
-    filter_expr: &Option<SearchQueryInput>,
-) -> SearchQueryInput {
-    match filter_expr {
-        Some(filter) => match query {
-            SearchQueryInput::All => filter.clone(),
-            _ => SearchQueryInput::Boolean {
-                must: vec![query.clone(), filter.clone()],
-                should: vec![],
-                must_not: vec![],
-            },
-        },
-        None => query.clone(),
-    }
-}
-
-/// Extract grouping columns from pathkeys and validate they are fast fields
-fn extract_grouping_columns(
-    pathkeys: &PgList<pg_sys::PathKey>,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-) -> Option<Vec<GroupingColumn>> {
-    let mut grouping_columns = Vec::new();
-
-    for pathkey in pathkeys.iter_ptr() {
-        unsafe {
-            let equivclass = (*pathkey).pk_eclass;
-            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-            let mut found_valid_column = false;
-            for member in members.iter_ptr() {
-                let expr = (*member).em_expr;
-
-                // Create VarContext for field extraction
-                let var_context = VarContext::from_planner(root);
-
-                // Try to extract field name and variable info
-                let (field_name, attno) = if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                {
-                    // JSON operator expression or complex field access
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::InvalidOid {
-                        continue;
-                    }
-                    (field_name.to_string(), attno)
-                } else {
-                    continue;
-                };
-
-                // Check if this field exists in the index schema as a fast field
-                if let Some(search_field) = schema.search_field(&field_name) {
-                    if search_field.is_fast() {
-                        grouping_columns.push(GroupingColumn { field_name, attno });
-                        found_valid_column = true;
-                        break; // Found a valid grouping column for this pathkey
-                    }
-                }
-            }
-
-            if !found_valid_column {
-                return None;
-            }
-=======
     fn add_to_explainer(&self, explainer: &mut Explainer) {
         for (key, value) in self.explain_output() {
             explainer.add_text(&format!("  {}", key), &value);
->>>>>>> main
         }
     }
 
@@ -637,100 +368,3 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
     pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
         .expect("the `now()` function should exist")
 }
-<<<<<<< HEAD
-
-fn execute(
-    state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let planstate = state.planstate();
-    let expr_context = state.runtime_context;
-
-    state
-        .custom_state_mut()
-        .prepare_query_for_execution(planstate, expr_context);
-
-    let qparams = AggQueryParams {
-        base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
-        aggregate_types: &state.custom_state().agg_spec.agg_types,
-        grouping_columns: &state.custom_state().agg_spec.grouping_columns,
-        orderby_info: &state.custom_state().orderby_info,
-        limit: &state.custom_state().limit,
-        offset: &state.custom_state().offset,
-    };
-
-    let result = execute_aggregation(
-        state.custom_state().indexrel(),
-        &qparams,
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
-    // Process results using unified result processing
-    let aggregate_results = state.custom_state().process_aggregation_results(result);
-
-    aggregate_results.into_iter()
-}
-
-impl ExecMethod for AggregateScan {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        <AggregateScan as PlainExecCapable>::exec_methods()
-    }
-}
-
-impl PlainExecCapable for AggregateScan {}
-
-impl SolvePostgresExpressions for AggregateScanState {
-    fn has_heap_filters(&mut self) -> bool {
-        self.query.has_heap_filters()
-            || self
-                .agg_spec
-                .agg_types
-                .iter_mut()
-                .any(|agg| agg.has_heap_filters())
-    }
-
-    fn has_postgres_expressions(&mut self) -> bool {
-        self.query.has_postgres_expressions()
-            || self
-                .agg_spec
-                .agg_types
-                .iter_mut()
-                .any(|agg| agg.has_postgres_expressions())
-    }
-
-    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
-        self.query.init_postgres_expressions(planstate);
-        self.agg_spec
-            .agg_types
-            .iter_mut()
-            .for_each(|agg| agg.init_postgres_expressions(planstate));
-    }
-
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.query.solve_postgres_expressions(expr_context);
-        self.agg_spec
-            .agg_types
-            .iter_mut()
-            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
-    }
-}
-
-/// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
-fn extract_order_by_pathkeys(
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-) -> PathKeyInfo {
-    unsafe {
-        extract_pathkey_styles_with_sortability_check(
-            root,
-            heap_rti,
-            schema,
-            |search_field| search_field.is_fast(), // Use is_fast() for regular vars
-            |_search_field| false,                 // Don't accept lower functions in aggregatescan
-        )
-    }
-}
-=======
->>>>>>> main

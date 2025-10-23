@@ -23,7 +23,7 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "5f3f29f481df20488935f1fbd3084c57bf25def1", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "71c06fe78494533a7266953b59be8fba2b4c70e1", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
@@ -33,4 +33,4 @@ pgrx-tests = "=0.15.0"
 tantivy-jieba = "0.11.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "5f3f29f481df20488935f1fbd3084c57bf25def1" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "71c06fe78494533a7266953b59be8fba2b4c70e1" }

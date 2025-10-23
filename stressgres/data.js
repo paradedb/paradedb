@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761253422727,
+  "lastUpdate": 1761254132317,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40030,6 +40030,60 @@ window.BENCHMARK_DATA = {
             "value": 18.45144764326389,
             "unit": "median tps",
             "extra": "avg tps: 18.59180054687222, max tps: 20.31023551663802, count: 55337"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85a6e0ae4ca4872c3a3340915e00463c5cac85d0",
+          "message": "chore: Use smaller merge buffers. (#3399)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |",
+          "timestamp": "2025-10-23T13:20:43-07:00",
+          "tree_id": "4d21831ce0649a99a69b22305402b68c99c66b0e",
+          "url": "https://github.com/paradedb/paradedb/commit/85a6e0ae4ca4872c3a3340915e00463c5cac85d0"
+        },
+        "date": 1761254130403,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.536498200386546,
+            "unit": "median tps",
+            "extra": "avg tps: 37.58239033139021, max tps: 39.41545809114901, count: 55529"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.94065708711707,
+            "unit": "median tps",
+            "extra": "avg tps: 284.9007297590165, max tps: 2912.0307774634334, count: 55529"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.5503711174674,
+            "unit": "median tps",
+            "extra": "avg tps: 1027.9499767271134, max tps: 1071.1064905689148, count: 55529"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.52849510866143,
+            "unit": "median tps",
+            "extra": "avg tps: 157.88963256989817, max tps: 840.389668601968, count: 111058"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.72761293790124,
+            "unit": "median tps",
+            "extra": "avg tps: 18.936203656506763, max tps: 21.707318696303343, count: 55529"
           }
         ]
       }

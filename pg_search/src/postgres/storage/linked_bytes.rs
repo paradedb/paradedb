@@ -15,18 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::min;
+use std::fmt::Debug;
+use std::io::{Cursor, Read, Write};
+use std::ops::Range;
+use std::sync::OnceLock;
+
 use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
 use crate::postgres::storage::fsm::FreeSpaceManager;
+
 use anyhow::Result;
 use pgrx::{check_for_interrupts, pg_sys};
-use std::cmp::min;
-use std::fmt::Debug;
-use std::io::{Cursor, Read, Write};
-use std::ops::{Deref, Range};
-use std::sync::OnceLock;
+use tantivy::directory::OwnedBytes;
+
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -192,46 +196,6 @@ impl LinkedList for LinkedBytesList {
     }
 }
 
-#[derive(Debug)]
-pub enum RangeData {
-    MultiPage(Vec<u8>),
-}
-
-impl Default for RangeData {
-    fn default() -> Self {
-        RangeData::MultiPage(vec![])
-    }
-}
-
-unsafe impl Sync for RangeData {}
-unsafe impl Send for RangeData {}
-
-impl RangeData {
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            RangeData::MultiPage(vec) => vec.len(),
-        }
-    }
-
-    #[inline]
-    pub fn as_ptr(&self) -> *const u8 {
-        match self {
-            RangeData::MultiPage(vec) => vec.as_ptr(),
-        }
-    }
-}
-
-impl Deref for RangeData {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            RangeData::MultiPage(vec) => &vec[..],
-        }
-    }
-}
-
 impl LinkedBytesList {
     pub fn open(rel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
@@ -366,18 +330,37 @@ impl LinkedBytesList {
         self.bman.page_is_empty(self.get_start_blockno().0)
     }
 
-    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> RangeData {
+    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
+        if range.is_empty() {
+            return OwnedBytes::empty();
+        }
+
         const ITEM_SIZE: usize = bm25_max_free_space();
 
-        // find the closest block in the linked list to where `range` begins
         let start_block_ord = range.start / ITEM_SIZE;
+        // range.end is exclusive, so the last byte is at range.end - 1
+        let end_block_ord = (range.end - 1) / ITEM_SIZE;
+
+        if start_block_ord == end_block_ord {
+            // Single page read
+            let blockno = self
+                .block_for_ord(start_block_ord)
+                .expect("block not found");
+            let buffer = self.bman.get_buffer(blockno);
+            let slice_start = range.start % ITEM_SIZE;
+
+            let owned_bytes = OwnedBytes::new(buffer.into_immutable_page());
+            return owned_bytes.slice(slice_start..slice_start + range.len());
+        }
+
+        // Multi-page read, fallback to copying
         let mut blockno = self
             .block_for_ord(start_block_ord)
             .expect("block not found");
 
-        // finally, read in the bytes from the blocks that contain the range -- these are specifically not cached
         let mut data = Vec::with_capacity(range.len());
         let mut remaining = range.len();
+
         while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
@@ -395,7 +378,7 @@ impl LinkedBytesList {
             remaining -= slice_len;
         }
 
-        RangeData::MultiPage(data)
+        OwnedBytes::new(data)
     }
 }
 

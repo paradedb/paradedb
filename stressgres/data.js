@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761177834919,
+  "lastUpdate": 1761240738437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5668,6 +5668,72 @@ window.BENCHMARK_DATA = {
             "value": 241.96750652659108,
             "unit": "median tps",
             "extra": "avg tps: 250.22622032169298, max tps: 907.1356194965216, count: 55333"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "418751ab697d127b86edade6c1ecf380f3429e51",
+          "message": "feat: Introduce `pdb.index_layer_info`, which shows both foreground and background layers (#3397)\n\n# Ticket(s) Closed\n\n- Closes #3393 \n\n## What\n\nIntroduces a new view which shows all layer sizes for all indexes, not\njust the foreground ones.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-10-23T13:15:53-04:00",
+          "tree_id": "312319eab78f688fbb88e30a620430e173860bd3",
+          "url": "https://github.com/paradedb/paradedb/commit/418751ab697d127b86edade6c1ecf380f3429e51"
+        },
+        "date": 1761240736321,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 794.841123042503,
+            "unit": "median tps",
+            "extra": "avg tps: 795.4254843811937, max tps: 847.9056579350539, count: 55339"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3316.777954458306,
+            "unit": "median tps",
+            "extra": "avg tps: 3283.7408233805936, max tps: 3324.0274074588415, count: 55339"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 775.8490104296791,
+            "unit": "median tps",
+            "extra": "avg tps: 777.2294532688891, max tps: 851.3453054636567, count: 55339"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 666.8438668587905,
+            "unit": "median tps",
+            "extra": "avg tps: 664.4767432729966, max tps: 673.7467304034975, count: 55339"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1713.4213623529477,
+            "unit": "median tps",
+            "extra": "avg tps: 1708.9565164084586, max tps: 1739.1902106574487, count: 110678"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1260.0860075261132,
+            "unit": "median tps",
+            "extra": "avg tps: 1251.625684351319, max tps: 1267.028381133266, count: 55339"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 93.60733677539163,
+            "unit": "median tps",
+            "extra": "avg tps: 101.72193276495543, max tps: 976.5014686582088, count: 55339"
           }
         ]
       }

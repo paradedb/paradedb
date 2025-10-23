@@ -15,9 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod aggregate_type;
+pub mod build;
+pub mod exec;
+pub mod filterquery;
+pub mod groupby;
+pub mod limit_offset;
+pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
+pub mod searchquery;
+pub mod targetlist;
 
+<<<<<<< HEAD
 pub use privdat::AggregateType;
 
 use std::ffi::CStr;
@@ -38,43 +48,33 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
 };
+=======
+use crate::nodecast;
+
+use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
+use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
+use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
+use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+>>>>>>> main
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
-};
-use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
-use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
+
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
-use tantivy::Index;
-
-/// Sentinel key for aggregates without FILTER clauses
-/// Used to group non-filtered aggregates together during query optimization
-const NO_FILTER_KEY: &str = "NO_FILTER";
-
-/// Result type for aggregate extraction, containing:
-/// - Vec<AggregateType>: The extracted aggregate types
-/// - Vec<FilterGroup>: Groups of aggregates with the same filter
-/// - bool: Whether any filter uses the @@@ search operator
-type AggregateExtractionResult = (Vec<AggregateType>, Vec<FilterGroup>, bool);
-
-/// A group of aggregate indices that share the same filter condition
-type FilterGroup = (Option<SearchQueryInput>, Vec<usize>);
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -85,229 +85,28 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        let args = builder.args();
-        let parse = args.root().parse;
-
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         // We can only handle single base relations as input
-        if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
         }
 
-        // Check if there are restrictions (WHERE clause)
-        let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
-        if matches!(ri_type, RestrictInfoType::Join) {
-            // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
-            // for us to do anything.
-            return None;
-        }
-        let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
-
-        // Are there any group (/distinct/order-by) or having clauses?
-        if args.root().hasHavingQual {
-            // We can't handle HAVING yet
-            return None;
-        }
-
-        // Check for DISTINCT - we can't handle DISTINCT queries
-        unsafe {
-            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return None;
-            }
-        }
-
-        // Is there a single relation with a bm25 index?
-        let parent_relids = args.input_rel().relids;
+        let parent_relids = builder.args().input_rel().relids;
         let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
         let heap_rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
             range_table::get_rte(
-                args.root().simple_rel_array_size as usize,
-                args.root().simple_rte_array,
+                builder.args().root().simple_rel_array_size as usize,
+                builder.args().root().simple_rte_array,
                 heap_rti,
             )?
         };
-        let (table, bm25_index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
-        let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-        let index =
-            Index::open(directory).expect("aggregate_custom_scan: should be able to open index");
-        let schema = bm25_index
-            .schema()
-            .expect("aggregate_custom_scan: should have a schema");
-
-        // Extract grouping columns and validate they are fast fields
-        let group_pathkeys = if args.root().group_pathkeys.is_null() {
-            PgList::<pg_sys::PathKey>::new()
-        } else {
-            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
-        };
-        let grouping_columns =
-            extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
-
-        // Extract and validate aggregates - must have schema for field validation
-        let (aggregate_types, filter_groups, filter_uses_search_operator) =
-            extract_and_validate_aggregates(
-                args,
-                &schema,
-                &grouping_columns,
-                &bm25_index,
-                heap_rti,
-            )?;
-
-        let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
-        let handle_query_without_op = !gucs::enable_custom_scan_without_operator();
-        // If we don't have a WHERE clause and we don't have FILTER clauses,
-        // we'd only handle the query if the GUC is enabled
-        if handle_query_without_op && !has_where_clause && !has_filters {
-            return None;
-        }
-
-        // Extract ORDER BY pathkeys if present
-        let sort_clause =
-            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
-        let sort_fields = unsafe {
-            sort_clause
-                .iter_ptr()
-                .filter_map(|sort_clause| {
-                    let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
-                    let var_context = VarContext::from_planner(builder.args().root);
-                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
-                        Some(field_name)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<_>>()
-        };
-        let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys())
-            .into_iter()
-            .filter(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
-                    sort_fields.contains(field_name)
-                } else {
-                    false
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
-        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
-
-        let (limit, offset) = unsafe {
-            let limit_count = (*parse).limitCount;
-            let offset_count = (*parse).limitOffset;
-
-            let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
-                let const_node = nodecast!(Const, T_Const, node);
-                if let Some(const_node) = const_node {
-                    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
-                } else {
-                    None
-                }
-            };
-
-            (extract_const(limit_count), extract_const(offset_count))
-        };
-
-        // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
-        // or if it orders by columns that we cannot push down
-        if unsafe { !(*parse).groupClause.is_null() }
-            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
-                || orderby_info.len() != sort_clause.len())
-        {
-            return None;
-        }
-
-        // Extract the WHERE clause query if present and track @@@ operator usage
-        let mut where_qual_state = QualExtractState::default();
-        let query = if has_where_clause {
-            unsafe {
-                let result = extract_quals(
-                    args.root,
-                    heap_rti,
-                    restrict_info.as_ptr().cast(),
-                    anyelement_query_input_opoid(),
-                    ri_type,
-                    &bm25_index,
-                    false, // Base relation quals should not convert external to all
-                    &mut where_qual_state,
-                    true,
-                );
-                SearchQueryInput::from(&result?)
-            }
-        } else {
-            // No WHERE clause - use an "All" query that matches everything
-            SearchQueryInput::All
-        };
-        let where_uses_search_operator = where_qual_state.uses_our_operator;
-        let has_search_operator = where_uses_search_operator || filter_uses_search_operator;
-        if handle_query_without_op && !has_search_operator {
-            return None;
-        }
-
-        // Create a new target list which includes grouping columns and replaces aggregates
-        // with FuncExprs which will be produced by our CustomScan.
-        //
-        // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
-        // them with.
-        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
-        let mut target_list_mapping = Vec::new();
-        let mut agg_idx = 0;
-
-        for (te_idx, input_te) in target_list.iter_ptr().enumerate() {
-            unsafe {
-                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
-
-                if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
-                {
-                    // This is a Var - it should be a grouping column
-                    // Find which grouping column this is
-                    let mut found = false;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno
-                            && gc.field_name == field_name.clone().into_inner()
-                        {
-                            target_list_mapping.push(TargetListEntry::GroupingColumn(i));
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        return None;
-                    }
-                } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
-                    agg_idx += 1;
-                } else {
-                    return None;
-                }
-            };
-        }
-
-        // Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
-        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
-        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
-        // the aggregate_custom_scan/test_count test failure
-        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
-
-        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
-        // To do this, we set pathkeys for ORDER BY if present.
-        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
-            for pathkey_style in pathkeys {
-                builder = builder.add_path_key(pathkey_style);
-            }
-        };
-
-        // A GROUP BY...ORDER BY query could have some results truncated
-        let maybe_truncated = !parse.is_null()
-            && unsafe { !(*parse).groupClause.is_null() }
-            && unsafe { !(*parse).sortClause.is_null() }
-            && limit.is_none();
+        let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
+        let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
 
         Some(builder.build(PrivateData {
+<<<<<<< HEAD
             agg_spec: AggregationSpec {
                 agg_types: aggregate_types,
                 grouping_columns,
@@ -322,6 +121,11 @@ impl CustomScan for AggregateScan {
             offset,
             maybe_truncated,
             filter_groups,
+=======
+            heap_rti,
+            indexrelid: index.oid(),
+            aggregate_clause,
+>>>>>>> main
         }))
     }
 
@@ -330,11 +134,16 @@ impl CustomScan for AggregateScan {
 
         if builder
             .custom_private()
+<<<<<<< HEAD
             .agg_spec
             .grouping_columns
             .is_empty()
             && builder.custom_private().orderby_info.is_empty()
             && !builder.custom_private().has_order_by
+=======
+            .aggregate_clause
+            .planner_should_replace_aggrefs()
+>>>>>>> main
         {
             unsafe {
                 let mut cscan = builder.build();
@@ -355,11 +164,16 @@ impl CustomScan for AggregateScan {
         // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
         if !builder
             .custom_private()
+<<<<<<< HEAD
             .agg_spec
             .grouping_columns
             .is_empty()
             || !builder.custom_private().orderby_info.is_empty()
             || builder.custom_private().has_order_by
+=======
+            .aggregate_clause
+            .planner_should_replace_aggrefs()
+>>>>>>> main
         {
             unsafe {
                 let cscan = builder.args().cscan;
@@ -368,18 +182,17 @@ impl CustomScan for AggregateScan {
             }
         }
 
+<<<<<<< HEAD
         builder.custom_state().agg_spec = builder.custom_private().agg_spec.clone();
         builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
+=======
+>>>>>>> main
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
-        builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
-        builder.custom_state().limit = builder.custom_private().limit;
-        builder.custom_state().offset = builder.custom_private().offset;
-        builder.custom_state().maybe_truncated = builder.custom_private().maybe_truncated;
-        builder.custom_state().filter_groups = builder.custom_private().filter_groups.clone();
+        builder.custom_state().aggregate_clause = builder.custom_private().aggregate_clause.clone();
         builder.build()
     }
 
@@ -389,10 +202,11 @@ impl CustomScan for AggregateScan {
         explainer: &mut Explainer,
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
-
-        // Use pre-computed filter groups from the scan state
-        let filter_groups = &state.custom_state().filter_groups;
-        explain_execution_strategy(state, filter_groups, explainer);
+        explainer.add_query(state.custom_state().aggregate_clause.query());
+        state
+            .custom_state()
+            .aggregate_clause
+            .add_to_explainer(explainer);
     }
 
     fn begin_custom_scan(
@@ -422,10 +236,12 @@ impl CustomScan for AggregateScan {
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         let next = match &mut state.custom_state_mut().state {
-            ExecutionState::Completed => return std::ptr::null_mut(),
+            ExecutionState::Completed => {
+                return std::ptr::null_mut();
+            }
             ExecutionState::NotStarted => {
                 // Execute the aggregate, and change the state to Emitting.
-                let mut row_iter = execute(state);
+                let mut row_iter = aggregation_results_iter(state);
                 let next = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
                 next
@@ -447,52 +263,73 @@ impl CustomScan for AggregateScan {
                 (*state.planstate()).ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-
-            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
-            let target_list_mapping = &state.custom_state().target_list_mapping;
-
-            assert_eq!(
-                natts,
-                target_list_mapping.len(),
-                "Target list mapping length mismatch"
-            );
-
-            // Simple slot setup
             pg_sys::ExecClearTuple(slot);
 
+            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
+            let mut aggregates = row.aggregates.clone().into_iter();
+            let mut natts_processed = 0;
+
             // Fill in values according to the target list mapping
-            for (i, entry) in target_list_mapping.iter().enumerate() {
-                match entry {
-                    &TargetListEntry::GroupingColumn(gc_idx) => {
-                        let group_val = row.group_keys[gc_idx].clone();
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let typoid = attr.type_oid().value();
+            for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
+                let attr = tupdesc.get(i).expect("missing attribute");
+                let expected_typoid = attr.type_oid().value();
 
-                        let (datum, is_null) = convert_group_value_to_datum(group_val, typoid);
-                        datums[i] = datum;
-                        isnull[i] = is_null;
+                let datum = match (entry, row.is_empty()) {
+                    (TargetListEntry::GroupingColumn(gc_idx), false) => row.group_keys[*gc_idx]
+                        .clone()
+                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                        .expect("should be able to convert to datum"),
+                    (TargetListEntry::GroupingColumn(_), true) => None,
+                    (TargetListEntry::Aggregate(agg_type), false) => {
+                        if agg_type.can_use_doc_count()
+                            && !state.custom_state().aggregate_clause.has_filter()
+                            && state.custom_state().aggregate_clause.has_groupby()
+                        {
+                            row.doc_count()
+                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum")
+                        } else {
+                            aggregates
+                                .next()
+                                .and_then(|v| v)
+                                .unwrap_or_else(|| agg_type.nullish())
+                                .value
+                                .and_then(|value| {
+                                    TantivyValue(OwnedValue::F64(value))
+                                        .try_into_datum(expected_typoid.into())
+                                        .unwrap()
+                                })
+                        }
                     }
-                    TargetListEntry::Aggregate(agg_idx) => {
-                        let agg_value = &row.aggregate_values[*agg_idx];
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let expected_typoid = attr.type_oid().value();
+                    (TargetListEntry::Aggregate(agg_type), true) => {
+                        agg_type.nullish().value.and_then(|value| {
+                            TantivyValue(OwnedValue::F64(value))
+                                .try_into_datum(expected_typoid.into())
+                                .unwrap()
+                        })
+                    }
+                };
 
-                        let (datum, is_null) =
-                            convert_aggregate_value_to_datum(agg_value, expected_typoid);
-                        datums[i] = datum;
-                        isnull[i] = is_null;
-                    }
+                if let Some(datum) = datum {
+                    datums[i] = datum;
+                    isnull[i] = false;
+                } else {
+                    datums[i] = pg_sys::Datum::null();
+                    isnull[i] = true;
                 }
+
+                natts_processed += 1;
             }
+
+            assert_eq!(natts, natts_processed, "target list length mismatch",);
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
-
             slot
         }
     }
@@ -502,22 +339,13 @@ impl CustomScan for AggregateScan {
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 }
 
-/// Convert a group value (OwnedValue) to a PostgreSQL Datum
-unsafe fn convert_group_value_to_datum(
-    group_val: OwnedValue,
-    typoid: pg_sys::Oid,
-) -> (pg_sys::Datum, bool) {
-    let oid = pgrx::PgOid::from(typoid);
-    let tantivy_value = TantivyValue(group_val);
-    match tantivy_value.try_into_datum(oid) {
-        Ok(Some(datum)) => (datum, false),
-        Ok(None) => (pg_sys::Datum::from(0), true),
-        Err(e) => {
-            panic!("Failed to convert TantivyValue to datum: {e:?}");
-        }
+impl ExecMethod for AggregateScan {
+    fn exec_methods() -> *const pg_sys::CustomExecMethods {
+        <AggregateScan as PlainExecCapable>::exec_methods()
     }
 }
 
+<<<<<<< HEAD
 /// Convert an AggregateValue to a PostgreSQL Datum using TantivyValue's conversion infrastructure
 fn convert_aggregate_value_to_datum(
     agg_value: &AggregateValue,
@@ -534,35 +362,24 @@ fn convert_aggregate_value_to_datum(
             OwnedValue::Str(json_str)
         }
     };
+=======
+impl PlainExecCapable for AggregateScan {}
+>>>>>>> main
 
-    // Determine the best target type for conversion
-    // For numeric compatibility, prefer wider types when converting floats to integer types
-    let target_oid = match (&owned_value, expected_typoid) {
-        // For null values, use the expected type
-        (OwnedValue::Null, _) => expected_typoid,
+pub trait CustomScanClause<CS: CustomScan> {
+    type Args;
 
-        // For integer values, use the expected type directly
-        (OwnedValue::I64(_), _) => expected_typoid,
+    fn from_pg(args: &CS::Args, heap_rti: pg_sys::Index, index: &PgSearchRelation) -> Option<Self>
+    where
+        Self: Sized;
 
-        // For float values, be more lenient with integer target types
-        (OwnedValue::F64(_), pg_sys::INT2OID) => pg_sys::INT8OID, // Use BIGINT instead of SMALLINT
-        (OwnedValue::F64(_), pg_sys::INT4OID) => pg_sys::INT8OID, // Use BIGINT instead of INTEGER
-        (OwnedValue::F64(_), _) => expected_typoid,               // Keep other types as-is
+    fn add_to_custom_path(&self, builder: CustomPathBuilder<CS>) -> CustomPathBuilder<CS>;
 
-        // Default case
-        _ => expected_typoid,
-    };
-
-    let tantivy_value = TantivyValue(owned_value);
-    unsafe {
-        match tantivy_value.try_into_datum(pgrx::PgOid::from(target_oid)) {
-            Ok(Some(datum)) => (datum, false),
-            Ok(None) => (pg_sys::Datum::null(), true),
-            Err(e) => (pg_sys::Datum::null(), true),
-        }
+    fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
+        Box::new(std::iter::empty())
     }
-}
 
+<<<<<<< HEAD
 fn explain_execution_strategy(
     state: &CustomScanStateWrapper<AggregateScan>,
     filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
@@ -747,196 +564,26 @@ fn extract_grouping_columns(
             if !found_valid_column {
                 return None;
             }
+=======
+    fn add_to_explainer(&self, explainer: &mut Explainer) {
+        for (key, value) in self.explain_output() {
+            explainer.add_text(&format!("  {}", key), &value);
+>>>>>>> main
         }
     }
 
-    Some(grouping_columns)
-}
-
-/// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields
-/// and don't conflict with GROUP BY columns
-fn extract_and_validate_aggregates(
-    args: &CreateUpperPathsHookArgs,
-    schema: &SearchIndexSchema,
-    grouping_columns: &[GroupingColumn],
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Option<AggregateExtractionResult> {
-    let (aggregate_types, filter_groups, filter_uses_search_operator) =
-        extract_aggregates(args, bm25_index, heap_rti)?;
-
-    // Create a set of grouping column field names for quick lookup
-    let grouping_field_names: crate::api::HashSet<&String> =
-        grouping_columns.iter().map(|gc| &gc.field_name).collect();
-
-    // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
-    for aggregate in &aggregate_types {
-        if let Some(field_name) = aggregate.field_name() {
-            // Check if field exists in schema and is a fast field
-            if let Some(search_field) = schema.search_field(&field_name) {
-                if !search_field.is_fast() {
-                    // Aggregate field is not a fast field
-                    return None;
-                }
-            } else {
-                // Aggregate field not found in schema
-                return None;
-            }
-        }
+    fn build(
+        builder: CustomPathBuilder<CS>,
+        heap_rti: pg_sys::Index,
+        index: &PgSearchRelation,
+    ) -> Option<(CustomPathBuilder<CS>, Self)>
+    where
+        Self: Sized,
+    {
+        let clause = Self::from_pg(builder.args(), heap_rti, index)?;
+        let builder = clause.add_to_custom_path(builder);
+        Some((builder, clause))
     }
-
-    Some((aggregate_types, filter_groups, filter_uses_search_operator))
-}
-
-/// If the given args consist only of AggregateTypes that we can handle, return them.
-fn extract_aggregates(
-    args: &CreateUpperPathsHookArgs,
-    bm25_index: &PgSearchRelation,
-    heap_rti: pg_sys::Index,
-) -> Option<AggregateExtractionResult> {
-    // The PathTarget `exprs` are the closest that we have to a target list at this point.
-    let target_list =
-        unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
-    if target_list.is_empty() {
-        return None;
-    }
-
-    // Get the relation OID for field name lookup
-    let parent_relids = args.input_rel().relids;
-    let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
-    let heap_rte = unsafe {
-        let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
-        rt.get_ptr((heap_rti - 1) as usize)?
-    };
-    let relation_oid = unsafe { (*heap_rte).relid };
-
-    // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
-    let mut aggregate_types = Vec::new();
-    let mut filter_uses_search_operator = false;
-    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::default();
-
-    for expr in target_list.iter_ptr() {
-        unsafe {
-            let node_tag = (*expr).type_;
-
-            if let Some(_var) = nodecast!(Var, T_Var, expr) {
-                // This is a Var - it should be a grouping column, skip it
-                continue;
-            } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
-                // This might be a JSON operator expression - verify it's recognized
-                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
-                if let Some((_var, _field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                {
-                    // This is a recognized JSON operator expression used in GROUP BY - skip it
-                    continue;
-                } else {
-                    // This is an unrecognized OpExpr, we can't support it
-                    return None;
-                }
-            } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
-                // Check for DISTINCT in aggregate functions
-                if !(*aggref).aggdistinct.is_null() {
-                    // TODO: Support DISTINCT in aggregate custom scans if Tantivy supports it.
-                    return None;
-                }
-
-                // Extract the aggregate with filter support
-                let agg_idx = aggregate_types.len(); // Current index before adding
-                let (agg_type, uses_search_op) =
-                    AggregateType::try_from(aggref, relation_oid, bm25_index, args.root, heap_rti)?;
-                filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
-
-                // Group aggregates by their filter expression during extraction
-                let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
-                    // This is the most reliable way to get a deterministic filter key
-                    filter_expr.explain_format()
-                } else {
-                    NO_FILTER_KEY.to_string()
-                };
-                filter_groups.entry(filter_key).or_default().push(agg_idx);
-
-                aggregate_types.push(agg_type);
-            } else {
-                // Unsupported expression type
-                return None;
-            }
-        }
-    }
-
-    // Convert filter groups to the expected format and sort for deterministic output
-    let mut grouped_aggregates: Vec<(Option<SearchQueryInput>, Vec<usize>, String)> = filter_groups
-        .into_iter()
-        .map(|(filter_key, mut indices)| {
-            // Sort indices within each group for deterministic ordering
-            indices.sort();
-            let filter_expr = if filter_key == NO_FILTER_KEY {
-                None
-            } else {
-                // Get the actual filter expression from the first aggregate in this group
-                aggregate_types[indices[0]].filter_expr().clone()
-            };
-            (filter_expr, indices, filter_key)
-        })
-        .collect();
-
-    // Sort by filter key to ensure deterministic ordering
-    // NO_FILTER groups come first, then sorted by filter expression string
-    grouped_aggregates.sort_by(|a, b| {
-        match (a.2.as_str(), b.2.as_str()) {
-            (NO_FILTER_KEY, NO_FILTER_KEY) => std::cmp::Ordering::Equal,
-            (NO_FILTER_KEY, _) => std::cmp::Ordering::Less, // NO_FILTER comes first
-            (_, NO_FILTER_KEY) => std::cmp::Ordering::Greater,
-            (a_key, b_key) => a_key.cmp(b_key), // Sort other filters alphabetically
-        }
-    });
-
-    // Remove the filter_key from the result tuple
-    let filter_groups = grouped_aggregates
-        .into_iter()
-        .map(|(filter_expr, indices, _)| (filter_expr, indices))
-        .collect();
-
-    // It's valid to have zero aggregates when the query is only a GROUP BY on fast fields
-    // (e.g., SELECT category FROM .. GROUP BY category). In that case, we can still build
-    // a ParadeDB Aggregate Scan that only returns the grouping keys. Therefore we return
-    // an empty vector instead of rejecting the plan.
-
-    Some((aggregate_types, filter_groups, filter_uses_search_operator))
-}
-
-/// Extract filter expression from a FILTER clause and track @@@ operator usage
-pub unsafe fn extract_filter_clause(
-    filter_expr: *mut pg_sys::Expr,
-    bm25_index: &PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-    qual_state: &mut QualExtractState,
-) -> Option<SearchQueryInput> {
-    // The filter expression is an Expr
-    if filter_expr.is_null() {
-        return None;
-    }
-
-    // Log the node type to understand what we're dealing with
-    let node_type = (*filter_expr).type_;
-
-    // Extract quals from the filter expression
-    let filter_node = filter_expr as *mut pg_sys::Node;
-    let result = extract_quals(
-        root,
-        heap_rti,
-        filter_node,
-        anyelement_query_input_opoid(),
-        RestrictInfoType::BaseRelation,
-        bm25_index,
-        false,
-        qual_state, // Pass the state to track @@@ operator usage
-        true,       // attempt_pushdown
-    );
-
-    // Convert Qual to SearchQueryInput
-    result.map(|qual| SearchQueryInput::from(&qual))
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
@@ -990,6 +637,7 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
     pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
         .expect("the `now()` function should exist")
 }
+<<<<<<< HEAD
 
 fn execute(
     state: &mut CustomScanStateWrapper<AggregateScan>,
@@ -1084,3 +732,5 @@ fn extract_order_by_pathkeys(
         )
     }
 }
+=======
+>>>>>>> main

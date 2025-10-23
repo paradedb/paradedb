@@ -18,6 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
+use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
 
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
@@ -35,6 +36,16 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
             tokenizers.push(tokenizer.clone());
         }
     }
+
+    // In 0.19.0 we changed the default `remove_long` filter for the keyword tokenizer from `usize::MAX` to `None`
+    // As such, the tokenizer name of `keyword` went from `keyword[remove_long=...]` to just `keyword[...]`
+    // so this is necessary to maintain backwards compatibility with existing indexes
+    #[allow(deprecated)]
+    tokenizers.push(SearchTokenizer::KeywordDeprecated);
+    #[allow(deprecated)]
+    tokenizers.push(SearchTokenizer::Raw(
+        SearchTokenizerFilters::keyword_deprecated().clone(),
+    ));
 
     index.set_tokenizers(create_tokenizer_manager(tokenizers));
     index.set_fast_field_tokenizers(create_normalizer_manager());

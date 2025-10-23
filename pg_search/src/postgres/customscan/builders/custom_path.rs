@@ -22,7 +22,7 @@ use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
     Field(*mut pg_sys::PathKey, FieldName),

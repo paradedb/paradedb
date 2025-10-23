@@ -65,14 +65,12 @@ jobs:
             pg_version: 17
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-
-      # We force reinstall icu4c to make sure it is in PATH
+      # We force reinstall icu4c and git to make sure it is in PATH
       - name: Install Dependencies
-        run: brew reinstall icu4c
+        run: brew reinstall icu4c git
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v5
 
       # Used to upload the release to GitHub Releases. We force install gh to make sure it is in PATH.
       - name: Install GitHub CLI
@@ -221,3 +219,10 @@ jobs:
           asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           overwrite: true
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-macos\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

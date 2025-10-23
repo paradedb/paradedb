@@ -1424,6 +1424,7 @@ unsafe fn inject_window_aggregate_placeholders(
     (tlist.into_pg(), const_nodes)
 }
 
+#[derive(Debug, Clone)]
 pub enum PathKeyInfo {
     /// There are no PathKeys at all.
     None,

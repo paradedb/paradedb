@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+<<<<<<< HEAD
 use crate::api::{AsCStr, OrderByInfo};
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -23,16 +24,13 @@ use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+=======
+use crate::api::AsCStr;
+use crate::customscan::aggregatescan::build::AggregateCSClause;
+>>>>>>> main
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::pg_sys::{
-    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
-    F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
-    F_MAX_NUMERIC, F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE,
-    F_MIN_FLOAT4, F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC,
-    F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
-    F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
-};
 use pgrx::prelude::*;
+<<<<<<< HEAD
 use pgrx::{IntoDatum, JsonB, PgList};
 use serde::Deserialize;
 use tantivy::schema::OwnedValue;
@@ -615,6 +613,15 @@ pub struct PrivateData {
     pub offset: Option<u32>,
     pub maybe_truncated: bool,
     pub filter_groups: Vec<super::FilterGroup>,
+=======
+use pgrx::PgList;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrivateData {
+    pub indexrelid: pg_sys::Oid,
+    pub heap_rti: pg_sys::Index,
+    pub aggregate_clause: AggregateCSClause,
+>>>>>>> main
 }
 
 impl From<*mut pg_sys::List> for PrivateData {
@@ -642,6 +649,7 @@ impl From<PrivateData> for *mut pg_sys::List {
         }
     }
 }
+<<<<<<< HEAD
 
 trait F64Lossless {
     fn to_f64_lossless(self) -> Option<f64>;
@@ -746,3 +754,5 @@ pub unsafe fn parse_coalesce_expression(
 
     Some((var, missing))
 }
+=======
+>>>>>>> main

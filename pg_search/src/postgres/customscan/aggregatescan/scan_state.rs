@@ -15,44 +15,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+<<<<<<< HEAD
 use crate::api::OrderByInfo;
 use crate::gucs;
 use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
+=======
+use crate::customscan::aggregatescan::exec::AggregationResultsRow;
+use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+>>>>>>> main
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
-use crate::query::SearchQueryInput;
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
-use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
-use tinyvec::TinyVec;
-
-pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
-
-// For GROUP BY results, we need both the group keys and aggregate values
-#[derive(Debug, Clone)]
-pub struct GroupedAggregateRow {
-    pub group_keys: Vec<OwnedValue>, // The values of the grouping columns
-    pub aggregate_values: AggregateRow,
-}
 
 #[derive(Default)]
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<GroupedAggregateRow>),
+    Emitting(std::vec::IntoIter<AggregationResultsRow>),
     Completed,
 }
 
 #[derive(Default)]
 pub struct AggregateScanState {
-    // The state of this scan.
     pub state: ExecutionState,
+<<<<<<< HEAD
     /// aggregation specification
     pub agg_spec: AggregationSpec,
     /// ORDER BY specification (for GROUP BY queries only)
@@ -62,19 +53,12 @@ pub struct AggregateScanState {
     // The query that will be executed.
     pub query: SearchQueryInput,
     // The index that will be scanned.
+=======
+>>>>>>> main
     pub indexrelid: pg_sys::Oid,
-    // The index relation. Opened during `begin_custom_scan`.
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
-    // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
-    // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub limit: Option<u32>,
-    // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub offset: Option<u32>,
-    // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
-    pub maybe_truncated: bool,
-    // Filter groups for optimization (filter_expr, aggregate_indices)
-    pub filter_groups: Vec<super::FilterGroup>,
+    pub aggregate_clause: AggregateCSClause,
 }
 
 impl AggregateScanState {
@@ -92,6 +76,7 @@ impl AggregateScanState {
             .map(|(_, rel)| rel)
             .expect("PdbScanState: indexrel should be initialized")
     }
+<<<<<<< HEAD
 
     pub fn process_aggregation_results(
         &self,
@@ -538,11 +523,49 @@ impl AggregateScanState {
             .iter()
             .any(|agg| agg.filter_expr().is_some())
     }
+=======
+>>>>>>> main
 }
 
 impl CustomScanState for AggregateScanState {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
         // TODO: Unused currently. See the comment on `trait CustomScanState` regarding making this
         // more useful.
+    }
+}
+
+impl SolvePostgresExpressions for AggregateScanState {
+    fn has_heap_filters(&mut self) -> bool {
+        self.aggregate_clause.query_mut().has_heap_filters()
+            || self
+                .aggregate_clause
+                .aggregates_mut()
+                .any(|agg| agg.has_heap_filters())
+    }
+
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.aggregate_clause.query_mut().has_postgres_expressions()
+            || self
+                .aggregate_clause
+                .aggregates_mut()
+                .any(|agg| agg.has_postgres_expressions())
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.aggregate_clause
+            .query_mut()
+            .init_postgres_expressions(planstate);
+        self.aggregate_clause
+            .aggregates_mut()
+            .for_each(|agg| agg.init_postgres_expressions(planstate));
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.aggregate_clause
+            .query_mut()
+            .solve_postgres_expressions(expr_context);
+        self.aggregate_clause
+            .aggregates_mut()
+            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
     }
 }

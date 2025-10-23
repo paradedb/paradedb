@@ -11,6 +11,31 @@ STRICT VOLATILE PARALLEL SAFE
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'window_func_placeholder_wrapper';
 
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:58
+-- pg_search::api::aggregate::agg_sfunc
+CREATE OR REPLACE FUNCTION "agg_sfunc"(
+    internal,
+    jsonb
+)  RETURNS internal
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_sfunc_placeholder_wrapper';
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:89
+-- pg_search::api::aggregate::agg_finalfunc
+CREATE OR REPLACE FUNCTION "agg_finalfunc"(
+    internal,
+)  RETURNS jsonb
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_finalfunc_placeholder_wrapper';
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/lib.rs:63
+-- pg_search::lib::extension_sql!
 CREATE OR REPLACE AGGREGATE "agg"(JSONB) (
     SFUNC = "agg_sfunc",
     STYPE = internal,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761278964826,
+  "lastUpdate": 1761279697091,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19672,6 +19672,42 @@ window.BENCHMARK_DATA = {
             "value": 5.368326140978586,
             "unit": "median tps",
             "extra": "avg tps: 4.860333727721032, max tps: 5.95641494145894, count: 57499"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "06e9dd8ab625b9bfa247c34435f8ac29d6176300",
+          "message": "chore: Fix compilation errors against latest Tantivy `main` (#3403)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-23T23:52:46-04:00",
+          "tree_id": "b1760485d26238317f888dc9c4ca4397d95b2c93",
+          "url": "https://github.com/paradedb/paradedb/commit/06e9dd8ab625b9bfa247c34435f8ac29d6176300"
+        },
+        "date": 1761279694964,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.345412275008133,
+            "unit": "median tps",
+            "extra": "avg tps: 7.120624244184159, max tps: 11.060794239906864, count: 57329"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.273657639624432,
+            "unit": "median tps",
+            "extra": "avg tps: 4.772509464356845, max tps: 5.867383297125304, count: 57329"
           }
         ]
       }

@@ -69,18 +69,39 @@ mod block_tracker {
     macro_rules! track {
         ($style:ident, $blockno:expr) => {
             use std::collections::hash_map::Entry;
+
             let blockno = block_tracker::TrackedBlock::$style($blockno);
+            assert!(!matches!(blockno, block_tracker::TrackedBlock::Drop(_)), "invalid block style: Drop not allowed");
+
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
             match lock.entry(blockno) {
                 Entry::Occupied(existing) => {
-                    // having an existing block is okay if the existing block is Pinned and we're trying
-                    // to track another Pinned or Read version of the block.
-                    let existing_okay = matches!(existing.key(), block_tracker::TrackedBlock::Pinned(_))
-                            && (
-                                    matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                                    || matches!(blockno, block_tracker::TrackedBlock::Read(_))
-                            );
+                    // having an existing block is okay if the new block follows Postgres' rules for acquiring and releasing buffers
+                    let existing_okay = match existing.key() {
+                        block_tracker::TrackedBlock::Pinned(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Read(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Write(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Conditional(_))
+                        }
+                        block_tracker::TrackedBlock::Read(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Write(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Conditional(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::ConditionalCleanup(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Cleanup(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Drop(_) => panic!("invalid existing block style"),
+                    };
 
                     if !existing_okay {
                         // any other combination is illegal within this process and we'll either WARN or panic
@@ -620,6 +641,7 @@ impl BufferManager {
             .fsm()
             .pop(self)
             .map(|blockno| {
+                block_tracker::track!(Write, blockno);
                 self.rbufacc.get_buffer_extended(
                     blockno,
                     std::ptr::null_mut(),
@@ -627,9 +649,12 @@ impl BufferManager {
                     None,
                 )
             })
-            .unwrap_or_else(|| self.rbufacc.new_buffer());
+            .unwrap_or_else(|| {
+                let pg_buffer = self.rbufacc.new_buffer();
+                block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
+                pg_buffer
+            });
 
-        block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
         BufferMut {
             dirty: false,
             inner: Buffer { pg_buffer },
@@ -649,13 +674,13 @@ impl BufferManager {
         let buffer_access = self.buffer_access().clone();
 
         let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
+            block_tracker::track!(Write, blockno);
             let pg_buffer = buffer_access.get_buffer_extended(
                 blockno,
                 std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
                 None,
             );
-            block_tracker::track!(Write, blockno);
             BufferMut {
                 dirty: false,
                 inner: Buffer { pg_buffer },

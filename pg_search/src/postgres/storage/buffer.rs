@@ -614,7 +614,7 @@ impl BufferManager {
         }
     }
 
-    pub fn fsm(&mut self) -> impl FreeSpaceManager {
+    pub fn fsm(&mut self) -> V2FSM {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());
@@ -627,31 +627,18 @@ impl BufferManager {
 
     #[must_use]
     pub fn new_buffer(&mut self) -> BufferMut {
-        let pg_buffer = self
-            .fsm()
+        self.fsm()
             .pop(self)
-            .and_then(|blockno| {
-                let maybe_buffer = self.rbufacc.get_buffer_conditional(blockno);
-                if let Some(pg_buffer) = maybe_buffer {
-                    let mut buffer = BufferMut {
-                        dirty: false,
-                        inner: Buffer { pg_buffer },
-                    };
-                    buffer.init_page();
-                    Some(buffer)
-                } else {
-                    None
+            .and_then(|blockno| try_recycle_buffer(&self.rbufacc, blockno))
+            .unwrap_or_else(|| {
+                block_tracker::track!(Write, pg_buffer);
+                BufferMut {
+                    dirty: false,
+                    inner: Buffer {
+                        pg_buffer: self.rbufacc.new_buffer(),
+                    },
                 }
             })
-            .unwrap_or_else(|| BufferMut {
-                dirty: false,
-                inner: Buffer {
-                    pg_buffer: self.rbufacc.new_buffer(),
-                },
-            });
-
-        block_tracker::track!(Write, pg_buffer);
-        pg_buffer
     }
 
     /// Like [`new_buffer`], but returns an iterator of buffers instead.
@@ -666,20 +653,10 @@ impl BufferManager {
 
         let buffer_access = self.buffer_access().clone();
 
-        let mut fsm_blocknos = self.fsm().drain(self, npages).filter_map(move |blockno| {
-            let maybe_buffer = buffer_access.get_buffer_conditional(blockno);
-            if let Some(pg_buffer) = maybe_buffer {
-                block_tracker::track!(Write, pg_buffer);
-                let mut buffer = BufferMut {
-                    dirty: false,
-                    inner: Buffer { pg_buffer },
-                };
-                buffer.init_page();
-                Some(buffer)
-            } else {
-                None
-            }
-        });
+        let mut fsm_blocknos = self
+            .fsm()
+            .drain(self, npages)
+            .filter_map(move |blockno| try_recycle_buffer(&buffer_access, blockno));
 
         let bman = self.clone();
         let mut remaining_from_fsm = npages;
@@ -833,4 +810,21 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     special.next_blockno = pg_sys::InvalidBlockNumber;
     special.xmax = pg_sys::InvalidTransactionId;
     buffer
+}
+
+/// Given a blockno from the FSM, try and get a conditional lock on it
+/// If we cannot, then this block cannot yet be recycled
+/// todo(@rebasedming): if a buffer cannot be recycled, it should be added back to the FSM
+fn try_recycle_buffer(
+    buffer_access: &RelationBufferAccess,
+    blockno: pg_sys::BlockNumber,
+) -> Option<BufferMut> {
+    let maybe_buffer = buffer_access.get_buffer_conditional(blockno);
+    maybe_buffer.map(|pg_buffer| {
+        block_tracker::track!(Write, pg_buffer);
+        BufferMut {
+            dirty: false,
+            inner: Buffer { pg_buffer },
+        }
+    })
 }

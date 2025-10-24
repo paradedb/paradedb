@@ -356,11 +356,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         // Acquire and hold a shared lock on the header for the entire operation, preventing the
         // list from being swapped out from under us by atomically between our read locks and
         // our write locks.
-        let _header_lock = self.bman.get_buffer(self.header_blockno);
+        let header_lock = self.bman.get_buffer(self.header_blockno);
+        let start_blockno = header_lock
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
 
         loop {
             // Search while holding read locks.
-            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp, Some(start_blockno))?;
 
             // Acquire a write lock (a cleanup lock in particular, because we're shortening the
             // page), and double check that we're still looking at the correct item.
@@ -394,11 +398,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         // Acquire and hold a shared lock on the header for the entire operation, preventing the
         // list from being swapped out from under us by atomically between our read locks and
         // our write locks.
-        let _header_lock = self.bman.get_buffer(self.header_blockno);
+        let header_lock = self.bman.get_buffer(self.header_blockno);
+        let start_blockno = header_lock
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
 
         loop {
             // Search while holding read locks.
-            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp, Some(start_blockno))?;
 
             // Acquire a write lock, and double check that we're still looking at the correct item.
             let mut buffer = self.bman.get_buffer_mut(blockno);
@@ -426,7 +434,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
-        self.lookup_ex(cmp).map(|(t, _, _)| t)
+        self.lookup_ex(cmp, None).map(|(t, _, _)| t)
     }
 
     /// NOTE: It is not safe to make a mutation based on the result of this method without
@@ -434,10 +442,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub unsafe fn lookup_ex<Cmp: Fn(&T) -> bool>(
         &self,
         cmp: Cmp,
+        blockno: Option<pg_sys::BlockNumber>,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        let mut blockno = blockno.unwrap_or_else(|| self.get_start_blockno().0);
         while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman.get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -743,7 +752,7 @@ mod tests {
                         .is_ok());
                 } else {
                     assert!(list
-                        .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                        .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                         .is_err());
                 }
             }
@@ -806,11 +815,11 @@ mod tests {
                 for entry in entries {
                     if entry.xmax() == not_deleted_xid {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                             .is_ok());
                     } else {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                             .is_err());
                     }
                 }

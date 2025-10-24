@@ -38,3 +38,46 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/window_function.rs:28
+-- pg_search::api::window_function::window_func
+CREATE OR REPLACE FUNCTION "window_func"(
+	"window_aggregate_json" TEXT /* &str */
+) RETURNS bigint /* i64 */
+STRICT VOLATILE PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'window_func_placeholder_wrapper';
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:58
+-- pg_search::api::aggregate::agg_sfunc
+CREATE OR REPLACE FUNCTION "agg_sfunc"(
+    internal,
+    jsonb
+)  RETURNS internal
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_sfunc_wrapper';
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:89
+-- pg_search::api::aggregate::agg_finalfunc
+CREATE OR REPLACE FUNCTION "agg_finalfunc"(
+    internal
+)  RETURNS jsonb
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_finalfunc_wrapper';
+
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/lib.rs:63
+-- pg_search::lib::extension_sql!
+CREATE OR REPLACE AGGREGATE "agg"(JSONB) (
+    SFUNC = "agg_sfunc",
+    STYPE = internal,
+    FINALFUNC = "agg_finalfunc",
+    PARALLEL = SAFE
+);

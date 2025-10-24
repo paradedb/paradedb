@@ -25,6 +25,7 @@ pub mod config;
 pub mod operator;
 pub mod tokenize;
 pub mod tokenizers;
+pub mod window_function;
 
 use pgrx::{
     direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
@@ -309,5 +310,16 @@ pub struct OrderByInfo {
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score)
+    }
+}
+
+/// Get the OID of the agg() function
+pub fn agg_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.agg(jsonb)".into_datum()],
+        )
+        .expect("the `paradedb.agg(jsonb)` function should exist")
     }
 }

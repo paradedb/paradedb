@@ -15,13 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
+use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+use crate::api::window_function::window_func_oid;
 use crate::gucs;
+use crate::nodecast;
+use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::pdbscan::projections::window_agg;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
+use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
-use std::collections::hash_map::Entry;
+use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
+use std::collections::{hash_map::Entry, HashMap};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -210,4 +215,236 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 
         add_path(output_rel, path)
     }
+}
+
+/// Register a global planner hook to intercept and modify queries before planning.
+/// This is called once during extension initialization and affects all queries.
+pub unsafe fn register_window_function_hook() {
+    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+
+    PREV_PLANNER_HOOK = pg_sys::planner_hook;
+    pg_sys::planner_hook = Some(paradedb_planner_hook);
+}
+
+/// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them
+/// Only replaces window functions if the query will be handled by our custom scans
+#[pg_guard]
+unsafe extern "C-unwind" fn paradedb_planner_hook(
+    parse: *mut pg_sys::Query,
+    query_string: *const ::core::ffi::c_char,
+    cursor_options: ::core::ffi::c_int,
+    bound_params: pg_sys::ParamListInfo,
+) -> *mut pg_sys::PlannedStmt {
+    // Check if this is a SELECT query with window functions that we can handle
+    if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
+        // Note: it's important to check for window functions first, then search operator,
+        // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
+        // would cause a panic.
+        if query_has_window_functions(parse) && query_has_search_operator(parse) {
+            // Extract and replace window functions recursively (including subqueries)
+            replace_windowfuncs_recursively(parse);
+        }
+    }
+
+    // Call the previous planner hook or standard planner
+    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+    if let Some(prev_hook) = PREV_PLANNER_HOOK {
+        prev_hook(parse, query_string, cursor_options, bound_params)
+    } else {
+        pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+    }
+}
+
+/// Check if the target list contains any window functions
+unsafe fn has_window_functions(target_list: *mut pg_sys::List) -> bool {
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
+    for te in tlist.iter_ptr() {
+        if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if the query (or any subquery) contains window functions
+unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+
+    // Check the current query's target list
+    if !(*parse).targetList.is_null() && has_window_functions((*parse).targetList) {
+        return true;
+    }
+
+    // Check subqueries in RTEs (only if SUBQUERY_SUPPORT is enabled)
+    if window_agg::window_functions::SUBQUERY_SUPPORT && !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_has_window_functions((*rte).subquery)
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if the query contains the @@@ search operator
+/// This indicates that our custom scans will likely handle this query
+unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
+    let searchqueryinput_opno = anyelement_query_input_opoid();
+    let text_opno = anyelement_text_opoid();
+
+    // Check WHERE clause (jointree->quals)
+    if !(*parse).jointree.is_null() {
+        let jointree = (*parse).jointree;
+        if !(*jointree).quals.is_null()
+            && expr_contains_any_operator((*jointree).quals, &[searchqueryinput_opno, text_opno])
+        {
+            return true;
+        }
+    }
+
+    // Check HAVING clause
+    if !(*parse).havingQual.is_null()
+        && expr_contains_any_operator((*parse).havingQual, &[searchqueryinput_opno, text_opno])
+    {
+        return true;
+    }
+
+    // Check target list (for search operators in SELECT expressions, aggregates, window functions)
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null()
+                && expr_contains_any_operator(
+                    (*te).expr as *mut pg_sys::Node,
+                    &[searchqueryinput_opno, text_opno],
+                )
+            {
+                return true;
+            }
+        }
+    }
+
+    // Check if any RTEs contain subqueries with @@@ operators
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_has_search_operator((*rte).subquery)
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Recursively replace window functions in the query and all subqueries
+unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
+    if parse.is_null() {
+        return;
+    }
+
+    // Extract window functions from current query
+    let window_specs = window_agg::extract_window_specifications(parse);
+    if !window_specs.is_empty() {
+        // Replace window functions in current query
+        replace_windowfuncs_in_query(parse, &window_specs);
+    }
+
+    // Recursively process subqueries in RTEs
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for (idx, rte) in rtable.iter_ptr().enumerate() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+                // Check if subquery support is enabled
+                if window_agg::window_functions::SUBQUERY_SUPPORT {
+                    replace_windowfuncs_recursively((*rte).subquery);
+                }
+                // If SUBQUERY_SUPPORT is false, we skip processing subqueries,
+                // leaving their window functions for PostgreSQL to handle
+            }
+        }
+    }
+}
+
+/// Replace WindowFunc nodes in the Query's target list with placeholder functions
+///
+/// Takes a map of target_entry_index -> AggregationSpec and replaces each WindowFunc
+/// with a paradedb.window_func(json) call containing the serialized AggregationSpec.
+unsafe fn replace_windowfuncs_in_query(
+    parse: *mut pg_sys::Query,
+    window_specs: &HashMap<usize, AggregationSpec>,
+) {
+    if (*parse).targetList.is_null() {
+        return;
+    }
+
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
+    let window_func_procid = window_func_oid();
+    let mut replaced_count = 0;
+
+    for (idx, te) in original_tlist.iter_ptr().enumerate() {
+        if let Some(_window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+
+            // Get the window specification for this target entry
+            if let Some(window_spec) = window_specs.get(&idx) {
+                let json = serde_json::to_string(window_spec)
+                    .expect("Failed to serialize WindowSpecification");
+
+                // Create a Const node for the JSON string
+                let json_cstring = std::ffi::CString::new(json).expect("Invalid JSON string");
+                let json_text = pg_sys::cstring_to_text(json_cstring.as_ptr());
+                let json_datum = pg_sys::Datum::from(json_text as usize);
+
+                // Create an argument list with the JSON string
+                let mut args = PgList::<pg_sys::Node>::new();
+                let json_const = pg_sys::makeConst(
+                    pg_sys::TEXTOID,
+                    -1,
+                    pg_sys::DEFAULT_COLLATION_OID,
+                    -1,
+                    json_datum,
+                    false, // not null
+                    false, // not passed by value (text is varlena)
+                );
+                args.push(json_const.cast());
+
+                // Create a FuncExpr that calls paradedb.window_func(json)
+                let funcexpr = pg_sys::makeFuncExpr(
+                    window_func_procid,
+                    window_spec.result_type_oid(),
+                    args.into_pg(),
+                    pg_sys::InvalidOid,
+                    pg_sys::InvalidOid,
+                    pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                );
+
+                // Replace the WindowFunc with our placeholder FuncExpr
+                (*new_te).expr = funcexpr.cast();
+                new_targetlist.push(new_te);
+                replaced_count += 1;
+            } else {
+                // Still copy the entry but don't replace it
+                new_targetlist.push(te);
+            }
+        } else {
+            // For non-WindowFunc entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
+        }
+    }
+
+    (*parse).targetList = new_targetlist.into_pg();
 }

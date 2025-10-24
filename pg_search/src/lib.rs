@@ -58,6 +58,19 @@ extension_sql!(
     finalize
 );
 
+extension_sql!(
+    r#"
+        CREATE OR REPLACE AGGREGATE "agg"(JSONB) (
+            SFUNC = "agg_sfunc",
+            STYPE = internal,
+            FINALFUNC = "agg_finalfunc",
+            PARALLEL = SAFE
+        );
+    "#,
+    name = "create_agg_aggregate",
+    requires = [agg_sfunc, agg_finalfunc]
+);
+
 pub fn available_parallelism() -> usize {
     use once_cell::sync::Lazy;
 
@@ -95,6 +108,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
+
+    // Register global planner hook for window function support
+    customscan::register_window_function_hook();
 }
 
 #[pg_extern]

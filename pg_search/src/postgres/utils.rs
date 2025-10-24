@@ -602,3 +602,50 @@ impl<T> ToPalloc for T {
         unsafe { mcxt.copy_ptr_into((&mut self as *mut T).cast(), size_of::<T>()) }
     }
 }
+
+/// Recursively check if an expression tree contains any of the specified operators
+/// Uses PostgreSQL's expression_tree_walker for robust traversal
+pub unsafe fn expr_contains_any_operator(
+    node: *mut pg_sys::Node,
+    target_opnos: &[pg_sys::Oid],
+) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &*(data as *const Context);
+        let node_type = (*node).type_;
+
+        // Check if this node is an OpExpr with one of our target operators
+        if node_type == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = node as *mut pg_sys::OpExpr;
+            if context.target_opnos.contains(&(*opexpr).opno) {
+                // Found a match! Set the flag and stop walking
+                (*(data as *mut Context)).found = true;
+                return true; // Stop walking
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Context {
+        target_opnos: Vec<pg_sys::Oid>,
+        found: bool,
+    }
+
+    let mut context = Context {
+        target_opnos: target_opnos.to_vec(),
+        found: false,
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.found
+}

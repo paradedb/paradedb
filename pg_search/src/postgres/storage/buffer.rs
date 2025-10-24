@@ -630,21 +630,28 @@ impl BufferManager {
         let pg_buffer = self
             .fsm()
             .pop(self)
-            .map(|blockno| {
-                self.rbufacc.get_buffer_extended(
-                    blockno,
-                    std::ptr::null_mut(),
-                    pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
-                    None,
-                )
+            .and_then(|blockno| {
+                let maybe_buffer = self.rbufacc.get_buffer_conditional(blockno);
+                if let Some(pg_buffer) = maybe_buffer {
+                    let mut buffer = BufferMut {
+                        dirty: false,
+                        inner: Buffer { pg_buffer },
+                    };
+                    buffer.init_page();
+                    Some(buffer)
+                } else {
+                    None
+                }
             })
-            .unwrap_or_else(|| self.rbufacc.new_buffer());
+            .unwrap_or_else(|| BufferMut {
+                dirty: false,
+                inner: Buffer {
+                    pg_buffer: self.rbufacc.new_buffer(),
+                },
+            });
 
         block_tracker::track!(Write, pg_buffer);
-        BufferMut {
-            dirty: false,
-            inner: Buffer { pg_buffer },
-        }
+        pg_buffer
     }
 
     /// Like [`new_buffer`], but returns an iterator of buffers instead.
@@ -659,17 +666,18 @@ impl BufferManager {
 
         let buffer_access = self.buffer_access().clone();
 
-        let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
-            let pg_buffer = buffer_access.get_buffer_extended(
-                blockno,
-                std::ptr::null_mut(),
-                pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
-                None,
-            );
-            block_tracker::track!(Write, pg_buffer);
-            BufferMut {
-                dirty: false,
-                inner: Buffer { pg_buffer },
+        let mut fsm_blocknos = self.fsm().drain(self, npages).filter_map(move |blockno| {
+            let maybe_buffer = buffer_access.get_buffer_conditional(blockno);
+            if let Some(pg_buffer) = maybe_buffer {
+                block_tracker::track!(Write, pg_buffer);
+                let mut buffer = BufferMut {
+                    dirty: false,
+                    inner: Buffer { pg_buffer },
+                };
+                buffer.init_page();
+                Some(buffer)
+            } else {
+                None
             }
         });
 

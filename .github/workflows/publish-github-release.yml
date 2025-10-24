@@ -48,7 +48,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`, and that the
+      # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
       # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
       # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
       - name: Validate Cargo.toml Version Matches Release Type
@@ -61,15 +61,15 @@ jobs:
           echo "Release check passed!"
 
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            echo "Validating that the version in Cargo.toml contains `-rc.X`..."
+            echo "Validating that the version in Cargo.toml contains "-rc.X"..."
             if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) does not contain `-rc.X` but is marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) does not contain "-rc.X" but is marked as a beta release."
               exit 1
             fi
           else
-            echo "Validating that the version in Cargo.toml does not contain `-rc.X`..."
+            echo "Validating that the version in Cargo.toml does not contain "-rc.X"..."
             if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
-              echo "Version (${{ github.event.inputs.version }}) contains `-rc.X` but is not marked as a beta release."
+              echo "Version (${{ github.event.inputs.version }}) contains "-rc.X" but is not marked as a beta release."
               exit 1
             fi
           fi
@@ -96,20 +96,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
           # Get the upcoming and current latest release tag (without the "v")
-          current="${{ github.event.inputs.version }}"
-          latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag"
-          echo "Current version to be released is $current"
+          current_tag_version="${{ github.event.inputs.version }}"
+          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
+          echo "Current latest release is $latest_tag_version"
+          echo "Current version to be released is $current_tag_version"
 
           # Install semver CLI and compare versions according to semVer rules
           npm install semver
-          if npx semver -r ">$latest_tag" "$current"; then
+          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
             echo "is_latest=true" >> $GITHUB_OUTPUT
           else
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
+      # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -67,14 +67,9 @@ mod block_tracker {
     > = OnceLock::new();
 
     macro_rules! track {
-        ($style:ident, $pg_buffer:expr) => {
+        ($style:ident, $blockno:expr) => {
             use std::collections::hash_map::Entry;
-            let blockno = block_tracker::TrackedBlock::$style(
-                #[allow(unused_unsafe)]
-                unsafe {
-                    pg_sys::BufferGetBlockNumber($pg_buffer)
-                },
-            );
+            let blockno = block_tracker::TrackedBlock::$style($blockno);
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
             match lock.entry(blockno) {
@@ -116,16 +111,10 @@ mod block_tracker {
     }
 
     macro_rules! forget {
-        ($pg_buffer:expr) => {
-            let blockno = {
-                #[allow(unused_unsafe)]
-                unsafe {
-                    pg_sys::BufferGetBlockNumber($pg_buffer)
-                }
-            };
+        ($blockno:expr) => {
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
-            lock.remove(&block_tracker::TrackedBlock::Drop(blockno));
+            lock.remove(&block_tracker::TrackedBlock::Drop($blockno));
         };
     }
 
@@ -139,11 +128,11 @@ mod block_tracker {
 #[cfg(not(feature = "block_tracker"))]
 mod block_tracker {
     macro_rules! track {
-        ($style:ident, $pg_buffer:expr) => {};
+        ($style:ident, $blockno:expr) => {};
     }
 
     macro_rules! forget {
-        ($pg_buffer:expr) => {};
+        ($blockno:expr) => {};
     }
 
     pub(super) use forget;
@@ -158,7 +147,7 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
-            block_tracker::forget!(self.pg_buffer);
+            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
                 && pg_sys::InterruptHoldoffCount > 0    // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
                 && crate::postgres::utils::IsTransactionState()
@@ -202,7 +191,7 @@ impl Buffer {
         let pg_buffer = bman
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
             inner: Buffer::new(pg_buffer),
@@ -214,7 +203,7 @@ impl Buffer {
         drop(self);
 
         let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         Some(BufferMut {
             dirty: false,
             inner: Buffer::new(pg_buffer),
@@ -313,7 +302,7 @@ pub struct PinnedBuffer {
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
-            block_tracker::forget!(self.pg_buffer);
+            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
             if crate::postgres::utils::IsTransactionState() {
                 pg_sys::ReleaseBuffer(self.pg_buffer);
             }
@@ -640,7 +629,7 @@ impl BufferManager {
             })
             .unwrap_or_else(|| self.rbufacc.new_buffer());
 
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
         BufferMut {
             dirty: false,
             inner: Buffer { pg_buffer },
@@ -666,7 +655,7 @@ impl BufferManager {
                 pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
                 None,
             );
-            block_tracker::track!(Write, pg_buffer);
+            block_tracker::track!(Write, blockno);
             BufferMut {
                 dirty: false,
                 inner: Buffer { pg_buffer },
@@ -692,7 +681,9 @@ impl BufferManager {
                 // by extending the relation with brand new buffers
                 new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
                     move |pg_buffer| {
-                        block_tracker::track!(Write, pg_buffer);
+                        block_tracker::track!(Write, unsafe {
+                            pg_sys::BufferGetBlockNumber(pg_buffer)
+                        });
                         BufferMut {
                             dirty: false,
                             inner: Buffer { pg_buffer },
@@ -708,7 +699,7 @@ impl BufferManager {
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
-        block_tracker::track!(Pinned, pg_buffer);
+        block_tracker::track!(Pinned, blockno);
         PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
     }
 
@@ -717,7 +708,7 @@ impl BufferManager {
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
 
-        block_tracker::track!(Read, pg_buffer);
+        block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
     }
 
@@ -734,7 +725,7 @@ impl BufferManager {
     }
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
             inner: Buffer::new(
@@ -762,7 +753,7 @@ impl BufferManager {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
-                block_tracker::track!(Conditional, pg_buffer);
+                block_tracker::track!(Conditional, blockno);
                 Some(BufferMut {
                     dirty: false,
                     inner: Buffer::new(pg_buffer),
@@ -777,7 +768,7 @@ impl BufferManager {
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
-            block_tracker::track!(Cleanup, pg_buffer);
+            block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
             BufferMut {
                 dirty: false,
@@ -793,7 +784,7 @@ impl BufferManager {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
-                block_tracker::track!(ConditionalCleanup, pg_buffer);
+                block_tracker::track!(ConditionalCleanup, blockno);
                 Some(BufferMut {
                     dirty: false,
                     inner: Buffer::new(pg_buffer),

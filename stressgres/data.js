@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761326389365,
+  "lastUpdate": 1761326392574,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16858,6 +16858,126 @@ window.BENCHMARK_DATA = {
             "value": 149.17578125,
             "unit": "median mem",
             "extra": "avg mem: 131.54828999283856, max mem: 153.09765625, count: 55331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16a2b995844a5dad91f2fcb0196843ad24a26966",
+          "message": "chore: Use smaller merge buffers. (#3401)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-24T10:03:16-07:00",
+          "tree_id": "692145b733bdf99290feb675eaa6d0586c4db285",
+          "url": "https://github.com/paradedb/paradedb/commit/16a2b995844a5dad91f2fcb0196843ad24a26966"
+        },
+        "date": 1761326390653,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8544348187937985, max cpu: 14.45783, count: 55278"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.45748075353214, max mem: 156.4453125, count: 55278"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.571961813115729, max cpu: 9.421001, count: 55278"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.875719304583196, max mem: 30.6328125, count: 55278"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.917339475731523, max cpu: 14.215202, count: 55278"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.84868408035294, max mem: 156.765625, count: 55278"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.416486713843708, max cpu: 4.738401, count: 55278"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.91761542227468, max mem: 157.0703125, count: 55278"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.674426678827975, max cpu: 9.628887, count: 110556"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 153.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.3066247959179, max mem: 155.4453125, count: 110556"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 29116,
+            "unit": "median block_count",
+            "extra": "avg block_count: 29143.31406707913, max block_count: 57084.0, count: 55278"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.67542241036217, max segment_count: 58.0, count: 55278"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.559312647678963, max cpu: 9.448819, count: 55278"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 157.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.57241593061434, max mem: 160.23046875, count: 55278"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.752932,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8053362147597745, max cpu: 4.7477746, count: 55278"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 150.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 130.91869194118817, max mem: 153.80078125, count: 55278"
           }
         ]
       }

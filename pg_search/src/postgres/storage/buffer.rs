@@ -77,31 +77,13 @@ mod block_tracker {
             let mut lock = map.lock();
             match lock.entry(blockno) {
                 Entry::Occupied(existing) => {
-                    // having an existing block is okay if the new block follows Postgres' rules for acquiring and releasing buffers
-                    let existing_okay = match existing.key() {
-                        block_tracker::TrackedBlock::Pinned(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                                || matches!(blockno, block_tracker::TrackedBlock::Read(_))
-                                || matches!(blockno, block_tracker::TrackedBlock::Write(_))
-                                || matches!(blockno, block_tracker::TrackedBlock::Conditional(_))
-                        }
-                        block_tracker::TrackedBlock::Read(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                        }
-                        block_tracker::TrackedBlock::Write(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                        }
-                        block_tracker::TrackedBlock::Conditional(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                        }
-                        block_tracker::TrackedBlock::ConditionalCleanup(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                        }
-                        block_tracker::TrackedBlock::Cleanup(_) => {
-                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                        }
-                        block_tracker::TrackedBlock::Drop(_) => panic!("invalid existing block style"),
-                    };
+                    // having an existing block is okay if the existing block is Pinned and we're trying
+                    // to track another Pinned or Read version of the block.
+                    let existing_okay = matches!(existing.key(), block_tracker::TrackedBlock::Pinned(_))
+                            && (
+                                    matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                                    || matches!(blockno, block_tracker::TrackedBlock::Read(_))
+                            );
 
                     if !existing_okay {
                         // any other combination is illegal within this process and we'll either WARN or panic

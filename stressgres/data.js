@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761280456041,
+  "lastUpdate": 1761281165802,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41002,6 +41002,60 @@ window.BENCHMARK_DATA = {
             "value": 18.645581505245474,
             "unit": "median tps",
             "extra": "avg tps: 18.705562164959932, max tps: 21.16940558553073, count: 55580"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "06e9dd8ab625b9bfa247c34435f8ac29d6176300",
+          "message": "chore: Fix compilation errors against latest Tantivy `main` (#3403)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-23T23:52:46-04:00",
+          "tree_id": "b1760485d26238317f888dc9c4ca4397d95b2c93",
+          "url": "https://github.com/paradedb/paradedb/commit/06e9dd8ab625b9bfa247c34435f8ac29d6176300"
+        },
+        "date": 1761281163693,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.9848615102324,
+            "unit": "median tps",
+            "extra": "avg tps: 38.00544417954083, max tps: 38.815585192622024, count: 55534"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.1387080231425,
+            "unit": "median tps",
+            "extra": "avg tps: 273.1402150267563, max tps: 2982.996719830518, count: 55534"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.3965985705881,
+            "unit": "median tps",
+            "extra": "avg tps: 1028.9685501658737, max tps: 1044.8974691840538, count: 55534"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.81020082623715,
+            "unit": "median tps",
+            "extra": "avg tps: 157.9943307945045, max tps: 879.711173227606, count: 111068"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.306316621767845,
+            "unit": "median tps",
+            "extra": "avg tps: 19.23027700238741, max tps: 19.61642607015772, count: 55534"
           }
         ]
       }

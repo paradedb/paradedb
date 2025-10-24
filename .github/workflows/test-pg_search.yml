@@ -46,12 +46,13 @@ jobs:
 
   test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+    runs-on: ${{ matrix.runner }}
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+        runner: [ubicloud-standard-8, ubicloud-standard-8-arm] # Test on both amd64 and arm64
 
     steps:
       - name: Checkout Git Repository

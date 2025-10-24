@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761326396339,
+  "lastUpdate": 1761327131487,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20080,6 +20080,42 @@ window.BENCHMARK_DATA = {
             "value": 5.273657639624432,
             "unit": "median tps",
             "extra": "avg tps: 4.772509464356845, max tps: 5.867383297125304, count: 57329"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16a2b995844a5dad91f2fcb0196843ad24a26966",
+          "message": "chore: Use smaller merge buffers. (#3401)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-24T10:03:16-07:00",
+          "tree_id": "692145b733bdf99290feb675eaa6d0586c4db285",
+          "url": "https://github.com/paradedb/paradedb/commit/16a2b995844a5dad91f2fcb0196843ad24a26966"
+        },
+        "date": 1761327129527,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.868839168825786,
+            "unit": "median tps",
+            "extra": "avg tps: 6.713891710419651, max tps: 10.433507509584354, count: 57308"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.436832505984676,
+            "unit": "median tps",
+            "extra": "avg tps: 4.896869925628069, max tps: 6.039080570931897, count: 57308"
           }
         ]
       }

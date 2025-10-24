@@ -650,6 +650,7 @@ impl BufferManager {
                 )
             })
             .unwrap_or_else(|| {
+                #[allow(clippy::let_and_return)]
                 let pg_buffer = self.rbufacc.new_buffer();
                 block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
                 pg_buffer

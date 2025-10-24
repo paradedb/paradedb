@@ -15,24 +15,46 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Internal window function placeholder.
+//!
+//! This module provides `window_func()`, which is used internally to replace
+//! window aggregate calls (like `COUNT(*) OVER ()` or `paradedb.agg(...) OVER ()`)
+//! during query planning.
+//!
+//! ## How It Works
+//!
+//! 1. During planning, the planner hook detects window functions in queries with the `@@@` operator
+//! 2. These window functions are replaced with calls to `window_func(json)` where the JSON
+//!    contains the serialized aggregation specification
+//! 3. The custom scan intercepts these placeholder calls and executes the actual aggregations
+//!    using Tantivy collectors
+//! 4. This function should never actually execute - if it does, it indicates a bug
+//!
+//! ## User-Facing API
+//!
+//! Users should never call `window_func()` directly. Instead, they should use:
+//! - Standard SQL window functions: `COUNT(*) OVER ()`, `SUM(field) OVER ()`, etc.
+//! - Custom aggregations: `paradedb.agg('{"avg": {"field": "price"}}'::jsonb) OVER ()`
+//!
+//! Both of these get automatically converted to `window_func()` calls during planning.
+
 use pgrx::prelude::*;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
 
-/// Internal placeholder function for window aggregates
+/// Internal placeholder function for window aggregates.
 ///
-/// This function is used as a replacement for WindowFunc nodes during planning.
-/// The JSON parameter contains the serialized WindowSpecification that will be
-/// deserialized during custom scan planning.
+/// This function should never actually execute - it exists only as a placeholder
+/// that the custom scan replaces during execution. The JSON parameter contains
+/// the serialized aggregation specification.
 ///
-/// Users should never call this directly - it's injected by the planner hook.
+/// If this function executes, it means the custom scan failed to intercept it,
+/// which indicates a bug in the planning logic.
 #[pg_extern(volatile, parallel_safe, name = "window_func")]
 pub fn window_func_placeholder(window_aggregate_json: &str) -> i64 {
-    // This is just a placeholder that should never actually execute
-    // If it does execute, it means our custom scan didn't intercept it
-    panic!(
-        "window_func placeholder executed - custom scan should have intercepted this. JSON: {}",
+    pgrx::error!(
+        "window_func placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
         window_aggregate_json
-    );
+    )
 }
 
 /// Get the OID of the window_func placeholder function

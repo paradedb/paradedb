@@ -15,10 +15,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Aggregate functions for ParadeDB search.
+//!
+//! ## User-Facing Function: `paradedb.agg(jsonb)`
+//!
+//! This is the public API for users to specify custom Tantivy aggregations.
+//! When used in window function context (`OVER ()`), it gets intercepted at planning
+//! time and replaced with `window_func()` placeholder. The actual execution happens
+//! in the custom scan using Tantivy's aggregation collectors.
+//!
+//! Example: `SELECT *, paradedb.agg('{"avg": {"field": "price"}}'::jsonb) OVER () FROM products`
+//!
+//! When used with GROUP BY, the aggregate currently returns an error indicating it's not supported.
+//! The window function variant is the primary use case.
+//!
+//! ## Internal Function: `window_func(text)`
+//!
+//! This is an internal placeholder function (in `window_function.rs`) that replaces
+//! `paradedb.agg()` calls when they appear in window function context during planning.
+//! It should never be called by users directly.
+//!
+//! ## Placeholder Functions: `agg_sfunc` and `agg_finalfunc`
+//!
+//! These are PostgreSQL aggregate state transition and finalization functions that
+//! should never actually execute. They exist only to satisfy PostgreSQL's aggregate
+//! function requirements. If they do execute, it means the custom scan failed to
+//! intercept the aggregate, and they will error immediately.
+
 use std::error::Error;
 
-use pgrx::{default, pg_extern, FromDatum, Internal, Json, JsonB, PgRelation};
-use tantivy::aggregation::agg_req::Aggregation;
+use pgrx::{default, pg_extern, Internal, Json, JsonB, PgRelation};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::postgres::rel::PgSearchRelation;
@@ -52,40 +78,24 @@ pub fn aggregate(
     }
 }
 
-/// State transition function for agg aggregate
-/// This accumulates the agg definition (which should be the same across all rows)
+/// Placeholder state transition function for `paradedb.agg` aggregate.
+///
+/// This function should never actually execute - it exists only to satisfy PostgreSQL's
+/// aggregate function requirements. The custom scan intercepts `paradedb.agg()` calls
+/// during planning and handles them directly using Tantivy collectors.
+///
+/// If this function executes, it means the custom scan failed to intercept the aggregate,
+/// which indicates a bug in the planning logic.
 #[pg_extern(stable, parallel_safe)]
-pub fn agg_sfunc(state: Option<Internal>, agg_definition: JsonB) -> Option<Internal> {
-    // On first call, validate and store the agg definition
-    if state.is_none() {
-        let agg_value: serde_json::Value = agg_definition.0;
-
-        // Validate it's a valid Tantivy aggregation by attempting to deserialize
-        if let Err(e) = serde_json::from_value::<Aggregation>(agg_value.clone()) {
-            pgrx::error!("Invalid Tantivy aggregation definition: {}", e);
-        }
-
-        // Store the validated JSON in an Internal datum
-        // We use a Box<serde_json::Value> to store it
-        unsafe {
-            let boxed = Box::new(agg_value);
-            Some(
-                pgrx::Internal::from_datum(
-                    pgrx::pg_sys::Datum::from(Box::into_raw(boxed) as *mut std::ffi::c_void),
-                    false,
-                )
-                .unwrap(),
-            )
-        }
-    } else {
-        // Just return the existing state
-        state
-    }
+pub fn agg_sfunc(_state: Option<Internal>, _agg_definition: JsonB) -> Option<Internal> {
+    pgrx::error!("paradedb.agg() placeholder function should not be executed.")
 }
 
-/// Final function for agg aggregate
-/// Returns a not supported error
+/// Placeholder final function for `paradedb.agg` aggregate.
+///
+/// This function should never actually execute - it exists only to satisfy PostgreSQL's
+/// aggregate function requirements. See `agg_sfunc` documentation for details.
 #[pg_extern(stable, parallel_safe)]
 pub fn agg_finalfunc(_state: Option<Internal>) -> JsonB {
-    JsonB(serde_json::json!({"error": "not supported"}))
+    pgrx::error!("paradedb.agg() placeholder function should not be executed.")
 }

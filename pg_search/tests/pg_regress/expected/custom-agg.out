@@ -52,11 +52,7 @@ SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category |            agg             
-----------+----------------------------
- database | {"error": "not supported"}
-(1 row)
-
+ERROR:  paradedb.agg() placeholder function should not be executed.
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
@@ -120,11 +116,7 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | count |            agg             
-----------+-------+----------------------------
- database |     2 | {"error": "not supported"}
-(1 row)
-
+ERROR:  paradedb.agg() placeholder function should not be executed.
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
@@ -149,11 +141,7 @@ SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-            agg             
-----------------------------
- {"error": "not supported"}
-(1 row)
-
+ERROR:  paradedb.agg() placeholder function should not be executed.
 -- Test 5: Custom agg with FILTER and OVER (window function)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
@@ -184,12 +172,7 @@ SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |            agg             
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+----------------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"error": "not supported"}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"error": "not supported"}
-(2 rows)
-
+ERROR:  paradedb.agg() placeholder function should not be executed.
 -- Test 6: EXPLAIN query to show custom agg is recognized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 
@@ -222,10 +205,6 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | count |            agg             
-----------+-------+----------------------------
- database |     2 | {"error": "not supported"}
-(1 row)
-
+ERROR:  paradedb.agg() placeholder function should not be executed.
 -- Cleanup
 DROP TABLE logs CASCADE;

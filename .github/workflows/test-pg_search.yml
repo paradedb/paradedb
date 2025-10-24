@@ -41,7 +41,7 @@ jobs:
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
+            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search-postgres:
@@ -88,7 +88,7 @@ jobs:
       # Needed for hybrid search unit tests
       - name: Install pgvector
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
@@ -184,7 +184,7 @@ jobs:
       # Needed for hybrid search unit tests
       - name: Install pgvector
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j

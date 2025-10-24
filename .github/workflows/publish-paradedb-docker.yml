@@ -18,9 +18,9 @@ on:
         required: true
         default: ""
       pg_version:
-        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [14] or [14, 15, 16, 17])."
+        description: "The Postgres major version(s) to build ParadeDB for. This needs to be a comma-separated list of integers (e.g. [14] or [14, 15, 16, 17, 18])."
         required: true
-        default: "[14, 15, 16, 17]"
+        default: "[14, 15, 16, 17, 18]"
 
 concurrency:
   group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
@@ -47,7 +47,7 @@ jobs:
             echo "matrix=[17]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
-            echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17]' }}" >> $GITHUB_OUTPUT
+            echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
           fi
 
   publish-paradedb-docker-image:

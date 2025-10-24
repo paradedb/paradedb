@@ -275,7 +275,7 @@ pub unsafe fn inject_placeholders(
             return replacement;
         }
 
-        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
             let fnptr = walker as usize as *const ();
             let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
@@ -283,7 +283,7 @@ pub unsafe fn inject_placeholders(
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
         }

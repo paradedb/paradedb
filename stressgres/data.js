@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761327895742,
+  "lastUpdate": 1761328606160,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41674,6 +41674,60 @@ window.BENCHMARK_DATA = {
             "value": 19.306316621767845,
             "unit": "median tps",
             "extra": "avg tps: 19.23027700238741, max tps: 19.61642607015772, count: 55534"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16a2b995844a5dad91f2fcb0196843ad24a26966",
+          "message": "chore: Use smaller merge buffers. (#3401)\n\n## What\n\nReduce the per-segment buffer sizes from 4MB to 512KB.\n\n## Why\n\nFor merges with very large segment counts, we need to be using more\nconservative buffer sizes.\n\n## Tests\n\nRunning the `CREATE INDEX` for our benchmarks locally (`cargo run -p\nbenchmarks -- --url=postgres://localhost:28817 --dataset=logs\n--rows=100000000 --runs=0`), I see no appreciable difference:\n| Rev | Duration (min) | Index Size (MB) | Segment Count |\n|------------|----------------|-----------------|---------------|\n| `bd7b92399-full-file-buffers` | 3.58 | 6495 | 8 |\n| `6a7429f15-4MB-buffers` | 3.77 | 6322 | 8 |\n| `#3399-512KB-buffers` | 3.77 | 6509 | 8 |\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-24T10:03:16-07:00",
+          "tree_id": "692145b733bdf99290feb675eaa6d0586c4db285",
+          "url": "https://github.com/paradedb/paradedb/commit/16a2b995844a5dad91f2fcb0196843ad24a26966"
+        },
+        "date": 1761328604170,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.258080989201886,
+            "unit": "median tps",
+            "extra": "avg tps: 37.26734214239395, max tps: 38.01676533097193, count: 55424"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.85358847640538,
+            "unit": "median tps",
+            "extra": "avg tps: 278.33160048582477, max tps: 2901.246957838719, count: 55424"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1034.8551303362271,
+            "unit": "median tps",
+            "extra": "avg tps: 1026.1170551026376, max tps: 1049.2298998816125, count: 55424"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.51433450010819,
+            "unit": "median tps",
+            "extra": "avg tps: 156.0131586695191, max tps: 844.9731792134177, count: 110848"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.07164762541142,
+            "unit": "median tps",
+            "extra": "avg tps: 18.174910537218842, max tps: 20.62531117149148, count: 55424"
           }
         ]
       }

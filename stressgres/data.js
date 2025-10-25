@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761416487795,
+  "lastUpdate": 1761416491211,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17164,6 +17164,126 @@ window.BENCHMARK_DATA = {
             "value": 148.22265625,
             "unit": "median mem",
             "extra": "avg mem: 130.29117390442252, max mem: 151.8125, count: 55319"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761416489196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.908520532338528, max cpu: 14.443329, count: 55277"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.38787591923403, max mem: 156.4921875, count: 55277"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.568376509369329, max cpu: 9.275363, count: 55277"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.55139258868969, max mem: 31.29296875, count: 55277"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.868161955232383, max cpu: 14.738997, count: 55277"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.5,
+            "unit": "median mem",
+            "extra": "avg mem: 140.82663753403315, max mem: 156.5, count: 55277"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.614604510179262, max cpu: 4.738401, count: 55277"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.07291812711435, max mem: 154.703125, count: 55277"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6639654902548955, max cpu: 9.825998, count: 110554"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 153.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.65263228264016, max mem: 157.3203125, count: 110554"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26052,
+            "unit": "median block_count",
+            "extra": "avg block_count: 26671.077410134414, max block_count: 51759.0, count: 55277"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.727336867051395, max segment_count: 58.0, count: 55277"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.55459622553992, max cpu: 9.284333, count: 55277"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.7805130156982, max mem: 158.84765625, count: 55277"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.198555328170982, max cpu: 4.692082, count: 55277"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 129.95799132946343, max mem: 152.41796875, count: 55277"
           }
         ]
       }

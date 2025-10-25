@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761418709731,
+  "lastUpdate": 1761419425389,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51834,6 +51834,54 @@ window.BENCHMARK_DATA = {
             "value": 115.85202321386839,
             "unit": "median tps",
             "extra": "avg tps: 114.91578661797672, max tps: 127.40662420271126, count: 107350"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761419423386,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 683.3773712837607,
+            "unit": "median tps",
+            "extra": "avg tps: 684.3753365673015, max tps: 1033.1012225983638, count: 53561"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 721.8600150557631,
+            "unit": "median tps",
+            "extra": "avg tps: 722.1906678718492, max tps: 1234.3535402493887, count: 53561"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 111.85635276632961,
+            "unit": "median tps",
+            "extra": "avg tps: 111.88054329249877, max tps: 124.00365785238395, count: 53561"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 112.95095961598301,
+            "unit": "median tps",
+            "extra": "avg tps: 112.20370713425507, max tps: 123.13233073140866, count: 107122"
           }
         ]
       }

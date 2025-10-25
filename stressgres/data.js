@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761417992935,
+  "lastUpdate": 1761418706116,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42160,6 +42160,60 @@ window.BENCHMARK_DATA = {
             "value": 18.07164762541142,
             "unit": "median tps",
             "extra": "avg tps: 18.174910537218842, max tps: 20.62531117149148, count: 55424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761418704181,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.83441291889085,
+            "unit": "median tps",
+            "extra": "avg tps: 37.98892105942729, max tps: 41.49476470172999, count: 55386"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 134.46151927966253,
+            "unit": "median tps",
+            "extra": "avg tps: 185.57121008949284, max tps: 2969.8845708671, count: 55386"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1031.8486030486438,
+            "unit": "median tps",
+            "extra": "avg tps: 1029.1833580050413, max tps: 1056.2794051988308, count: 55386"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.32486149287695,
+            "unit": "median tps",
+            "extra": "avg tps: 124.88122266069769, max tps: 874.5526177497644, count: 110772"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.578053336005986,
+            "unit": "median tps",
+            "extra": "avg tps: 18.95054808627857, max tps: 23.39681469400822, count: 55386"
           }
         ]
       }

@@ -143,12 +143,12 @@ jobs:
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features "icu,block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},icu,block_tracker"
 
       # ---------- Start Postgres ----------
       - name: Start Postgres (system)

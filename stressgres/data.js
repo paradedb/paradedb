@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761416491211,
+  "lastUpdate": 1761417228356,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20302,6 +20302,42 @@ window.BENCHMARK_DATA = {
             "value": 5.436832505984676,
             "unit": "median tps",
             "extra": "avg tps: 4.896869925628069, max tps: 6.039080570931897, count: 57308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761417226465,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.460314685111321,
+            "unit": "median tps",
+            "extra": "avg tps: 7.225206499880731, max tps: 11.2167485892129, count: 57300"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.389791435276829,
+            "unit": "median tps",
+            "extra": "avg tps: 4.874013358489165, max tps: 5.9674798663384285, count: 57300"
           }
         ]
       }

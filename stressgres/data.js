@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761417231577,
+  "lastUpdate": 1761417989591,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29410,6 +29410,54 @@ window.BENCHMARK_DATA = {
             "value": 5.871194484778459,
             "unit": "median tps",
             "extra": "avg tps: 5.867604497531997, max tps: 7.3015608977523225, count: 56047"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761417987569,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1185.5806453094126,
+            "unit": "median tps",
+            "extra": "avg tps: 1188.1314940418981, max tps: 1248.127734364724, count: 55308"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1226.1967263400352,
+            "unit": "median tps",
+            "extra": "avg tps: 1186.6624018489956, max tps: 1252.6904502326468, count: 55308"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1856.1140907186925,
+            "unit": "median tps",
+            "extra": "avg tps: 1767.0433049949163, max tps: 2101.2092910871334, count: 55308"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.169131685862716,
+            "unit": "median tps",
+            "extra": "avg tps: 6.1130694611984655, max tps: 7.236025205622872, count: 55308"
           }
         ]
       }

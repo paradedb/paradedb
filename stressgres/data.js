@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761422358511,
+  "lastUpdate": 1761422361873,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51928,6 +51928,114 @@ window.BENCHMARK_DATA = {
             "value": 157.234375,
             "unit": "median mem",
             "extra": "avg mem: 155.65659325856262, max mem: 158.11328125, count: 55386"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2049e4916493431535e38293ae9515af7bda471f",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411) (#3414)\n\n- Closes #\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T15:05:52-04:00",
+          "tree_id": "8b02fad5e74042131dc3c7fcca5810d11912e2ff",
+          "url": "https://github.com/paradedb/paradedb/commit/2049e4916493431535e38293ae9515af7bda471f"
+        },
+        "date": 1761422359786,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.661725746402514, max cpu: 42.519684, count: 55584"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 159.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 150.27990097195237, max mem: 159.15234375, count: 55584"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6296248824562625, max cpu: 46.966736, count: 55584"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 110.87117224887108, max mem: 112.2890625, count: 55584"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.992802205940119, max cpu: 14.04878, count: 55584"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 143.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 123.2027137418142, max mem: 144.265625, count: 55584"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30910,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31267.3171236327, max block_count: 63448.0, count: 55584"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.052744998598406, max cpu: 4.6966734, count: 55584"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 105.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 93.18569515845387, max mem: 131.19921875, count: 55584"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.92906232009211, max segment_count: 53.0, count: 55584"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.855549398371613, max cpu: 41.73913, count: 111168"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.61949369422857, max mem: 158.71875, count: 111168"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.063437050852697, max cpu: 27.799229, count: 55584"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 155.72038533458368, max mem: 158.1015625, count: 55584"
           }
         ]
       }

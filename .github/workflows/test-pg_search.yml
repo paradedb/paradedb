@@ -109,7 +109,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features "icu,block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -200,7 +200,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},icu,block_tracker"
 
       - name: Start Postgres and create database
         working-directory: tests/

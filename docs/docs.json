@@ -466,7 +466,7 @@
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg",
-    "href": "https://paradedb.com"
+    "href": "https://www.paradedb.com"
   },
   "appearance": {
     "strict": false
@@ -482,7 +482,7 @@
       },
       {
         "label": "Blog",
-        "href": "https://paradedb.com/blog"
+        "href": "https://www.paradedb.com/blog"
       }
     ],
     "primary": {
@@ -557,23 +557,23 @@
   "redirects": [
     {
       "source": "/blog",
-      "destination": "https://paradedb.com/blog"
+      "destination": "https://www.paradedb.com/blog"
     },
     {
       "source": "/blog/introducing_analytics",
-      "destination": "https://paradedb.com/blog/introducing_lakehouse"
+      "destination": "https://www.paradedb.com/blog/introducing_lakehouse"
     },
     {
       "source": "/blog/introducing_sparse",
-      "destination": "https://paradedb.com/blog/introducing_sparse"
+      "destination": "https://www.paradedb.com/blog/introducing_sparse"
     },
     {
       "source": "/blog/introducing_bm25",
-      "destination": "https://paradedb.com/blog/introducing_search"
+      "destination": "https://www.paradedb.com/blog/introducing_search"
     },
     {
       "source": "/blog/introducing_paradedb",
-      "destination": "https://paradedb.com/blog/introducing_paradedb"
+      "destination": "https://www.paradedb.com/blog/introducing_paradedb"
     }
   ]
 }

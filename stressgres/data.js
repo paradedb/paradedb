@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761421636791,
+  "lastUpdate": 1761421640390,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38014,6 +38014,108 @@ window.BENCHMARK_DATA = {
             "value": 156.51171875,
             "unit": "median mem",
             "extra": "avg mem: 176.19773663789596, max mem: 216.3671875, count: 55308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2049e4916493431535e38293ae9515af7bda471f",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411) (#3414)\n\n- Closes #\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T15:05:52-04:00",
+          "tree_id": "8b02fad5e74042131dc3c7fcca5810d11912e2ff",
+          "url": "https://github.com/paradedb/paradedb/commit/2049e4916493431535e38293ae9515af7bda471f"
+        },
+        "date": 1761421638355,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.048634979431196906, max background_merging: 1.0, count: 56153"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.789667084330964, max cpu: 9.696969, count: 56153"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 16.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 16.531039289419088, max mem: 19.14453125, count: 56153"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963413723972495, max cpu: 18.934912, count: 56153"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 163.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.59313192026696, max mem: 164.0078125, count: 56153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 55421,
+            "unit": "median block_count",
+            "extra": "avg block_count: 55249.81856712909, max block_count: 55421.0, count: 56153"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.79399141630901, max segment_count: 58.0, count: 56153"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.009169407538648, max cpu: 32.941177, count: 56153"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 180.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 179.28292518042224, max mem: 214.41015625, count: 56153"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819075378745461, max cpu: 28.070175, count: 56153"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 172.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.04833738290918, max mem: 173.21484375, count: 56153"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.919224192036832, max cpu: 33.633633, count: 56153"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.65620234838298, max mem: 216.53515625, count: 56153"
           }
         ]
       }

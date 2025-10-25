@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761417228356,
+  "lastUpdate": 1761417231577,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25372,6 +25372,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 71.75139596565924, max segment_count: 105.0, count: 57308"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91878e559acf42287f80feb49bef5663d209f457",
+          "message": "fix: compiles and tests pass with `block_tracker` enabled (#3411)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- The extension now compiles with `block_tracker` turned on\n- Instead of taking a buffer and getting the block number,\n`block_tracker` just takes a block number\n- `block_tracker` caught a reentrant share lock in `LinkedItemsList`,\nwhich has been fixed\n- Moved the `block_tracker` call in `fsm().drain()` to before the\n`RBM_ZERO_AND_LOCK`, since blocks drained from the FSM *must* not have\nany other locks\n- Enables `block_tracker` in CI\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-25T14:05:02-04:00",
+          "tree_id": "dfb524d472f43e25fc68c09a4d6affc50c9d6dae",
+          "url": "https://github.com/paradedb/paradedb/commit/91878e559acf42287f80feb49bef5663d209f457"
+        },
+        "date": 1761417229580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.75,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.46529444909746, max cpu: 42.899704, count: 57300"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.84850894415356, max mem: 229.1171875, count: 57300"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.342661445768027, max cpu: 33.20158, count: 57300"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.3128539485166, max mem: 164.00390625, count: 57300"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24657,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23436.883211169283, max block_count: 26310.0, count: 57300"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.94935427574171, max segment_count: 107.0, count: 57300"
           }
         ]
       }

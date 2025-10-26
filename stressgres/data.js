@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761495662972,
+  "lastUpdate": 1761495666438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -56054,6 +56054,186 @@ window.BENCHMARK_DATA = {
             "value": 22.93359375,
             "unit": "median mem",
             "extra": "avg mem: 22.856052561565317, max mem: 22.93359375, count: 53561"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "795e50564ec8c21a87e8a51d4def3fe4676cef4a",
+          "message": "perf: Optimize `TermSet` for very large sets of terms. (#3412)\n\n## What\n\nFurther optimizes `pdb.term_set` and `paradedb.term_set`, and deprecates\nusing `pdb.term_set` in aggregate position.\n\n## Why\n\n#3351 optimized `term_set` queries for very large input term sets by\nswitching to using fast fields when more than `1024` terms were used in\nthe set. But there was more that could be done.\n\nFor a `paradedb.aggregate` query using a `pdb.term_set` constructed from\nan `array_agg` containing 10mm distinct inputs and 8 segments, this PR\nfurther optimizes the fast field execution path:\n\n| version | runtime |\n| ------- | -------- |\n| pre-#3351 - 0 workers | 35.851 s |\n| pre-#3351 - 8 workers | swapping - did not complete |\n| #3351 - 0 workers | 12.573 s |\n| #3351 - 8 workers | 13.708 s |\n| #3412 - 0 workers | 5.532 s |\n| #3412 - 8 workers | 8.538 s |\n\nBefore #3351, the posting-list based execution mode for term sets was\nnot able to complete on my machine with multiple workers, because it\nrequired enough memory to trigger swapping.\n\nCritical to note: in the case of a massive `pdb.term_set` like this,\nadditional workers might be a pessimization. That's because the cost of\npropagating and creating the query is expensive enough that it can dwarf\nthe actual aggregate time. For larger segment counts or larger\naggregates, the results might be different.\n\nAdditionally, this change deprecates using `pdb.term_set` in aggregate\nposition (as added in #3336): using `pdb.term_set` in function position\nwith an `array_agg` is equivalent, and sometimes slightly faster.\n\n## How\n\n* Incorporates https://github.com/paradedb/tantivy/pull/75\n* Removes some allocation from `pdb.term_set` and `paradedb.term_set`\ncreation.\n* Skips allocation `FieldName::path` arrays if they contain a single\ncomponent.",
+          "timestamp": "2025-10-26T08:14:05-07:00",
+          "tree_id": "42481cba325538099b6628b9caa20f8bb0d2a7c3",
+          "url": "https://github.com/paradedb/paradedb/commit/795e50564ec8c21a87e8a51d4def3fe4676cef4a"
+        },
+        "date": 1761495664367,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.712938356091359, max cpu: 13.662238, count: 53637"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 138.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.6674378373371, max mem: 148.7890625, count: 53637"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1427076984991045, max cpu: 4.5714283, count: 53637"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 22.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.487554067155134, max mem: 22.65625, count: 53637"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.082309,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.4989727409956695, max cpu: 18.408438, count: 53637"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 140.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.70184527471707, max mem: 152.61328125, count: 53637"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.69810902921435, max cpu: 9.239654, count: 53637"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 137.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 116.13316046991815, max mem: 148.6015625, count: 53637"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.703136015872574, max cpu: 9.221902, count: 53637"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 121.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 103.8911287479958, max mem: 140.66015625, count: 53637"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 14950,
+            "unit": "median pages",
+            "extra": "avg pages: 14984.504651639727, max pages: 28440.0, count: 53637"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 116.796875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 117.06644404748587, max relation_size:MB: 222.1875, count: 53637"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 59,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 56.96485634916196, max segment_count: 99.0, count: 53637"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.667708236460638, max cpu: 4.5801525, count: 53637"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.029535785698304, max mem: 21.41015625, count: 53637"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.046406097898209, max cpu: 4.5933013, count: 53637"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 20.75,
+            "unit": "median mem",
+            "extra": "avg mem: 20.505172793500755, max mem: 20.75, count: 53637"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.944688922254125, max cpu: 13.899614, count: 53637"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 144.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 121.95952355358708, max mem: 157.015625, count: 53637"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000028347972166703372, max replication_lag:MB: 0.0937347412109375, count: 53637"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.866974994524314, max cpu: 9.248554, count: 107274"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 147.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 124.12362257659126, max mem: 158.66015625, count: 107274"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.088630930841658, max cpu: 4.58891, count: 53637"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 24.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 23.973380665398885, max mem: 24.16015625, count: 53637"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.353427553110018, max cpu: 4.5933013, count: 53637"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 23.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.35676194837519, max mem: 23.359375, count: 53637"
           }
         ]
       }

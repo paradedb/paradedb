@@ -219,6 +219,10 @@ impl FieldName {
     }
 
     pub fn path(&self) -> Option<String> {
+        if !self.0.as_str().contains('.') {
+            return None;
+        }
+
         let json_path = split_json_path(self.0.as_str());
         if json_path.len() == 1 {
             None

@@ -515,7 +515,6 @@
       "robots": "index, follow",
       "charset": "UTF-8",
       "viewport": "width=device-width, initial-scale=1.0",
-      "description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
       "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
       "author": "ParadeDB",
       "googlebot": "index, follow",

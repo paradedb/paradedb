@@ -483,6 +483,10 @@
       {
         "label": "Blog",
         "href": "https://www.paradedb.com/blog"
+      },
+      {
+        "label": "Learn",
+        "href": "https://www.paradedb.com/learn"
       }
     ],
     "primary": {
@@ -519,9 +523,7 @@
       "generator": "Mintlify",
       "theme-color": "#000000",
       "color-scheme": "light dark",
-      "canonical": "https://docs.paradedb.com",
       "referrer": "origin",
-      "refresh": "30",
       "rating": "general",
       "revisit-after": "7 days",
       "language": "en",
@@ -536,13 +538,7 @@
       "apple-mobile-web-app-capable": "yes",
       "apple-mobile-web-app-status-bar-style": "black",
       "apple-mobile-web-app-title": "ParadeDB Docs",
-      "application-name": "ParadeDB Docs",
-      "og:title": "ParadeDB Docs",
       "og:type": "website",
-      "og:url": "https://docs.paradedb.com",
-      "og:image": "https://www.paradedb.com/opengraph-image.png",
-      "og:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
-      "og:site_name": "ParadeDB Docs",
       "og:locale": "en_US",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",

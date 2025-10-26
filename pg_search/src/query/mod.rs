@@ -719,28 +719,28 @@ impl SearchQueryInput {
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                let mut terms = vec![];
-                for TermInput {
-                    field,
-                    value,
-                    is_datetime,
-                } in fields
-                {
-                    let search_field = schema
-                        .search_field(field.root())
-                        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                    let field_type = search_field.field_entry().field_type();
-                    let is_datetime = search_field.is_datetime() || is_datetime;
-                    terms.push(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?);
-                }
-
-                Ok(Box::new(TermSetQuery::new(terms)))
+                Ok(Box::new(TermSetQuery::new(fields.into_iter().map(
+                    |TermInput {
+                         field,
+                         value,
+                         is_datetime,
+                     }| {
+                        let search_field = schema
+                            .search_field(field.root())
+                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
+                            .expect("could not find search field");
+                        let field_type = search_field.field_entry().field_type();
+                        let is_datetime = search_field.is_datetime() || is_datetime;
+                        value_to_term(
+                            search_field.field(),
+                            &value,
+                            field_type,
+                            field.path().as_deref(),
+                            is_datetime,
+                        )
+                        .expect("could not convert argument to search term")
+                    },
+                ))))
             }
             SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
                 schema,

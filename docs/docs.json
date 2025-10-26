@@ -483,6 +483,10 @@
       {
         "label": "Blog",
         "href": "https://www.paradedb.com/blog"
+      },
+      {
+        "label": "Learn",
+        "href": "https://www.paradedb.com/learn"
       }
     ],
     "primary": {
@@ -521,7 +525,6 @@
       "color-scheme": "light dark",
       "canonical": "https://docs.paradedb.com",
       "referrer": "origin",
-      "refresh": "30",
       "rating": "general",
       "revisit-after": "7 days",
       "language": "en",

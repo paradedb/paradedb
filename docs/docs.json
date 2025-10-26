@@ -361,8 +361,7 @@
                       {
                         "group": "High Availability",
                         "pages": [
-                          "deploy/self-hosted/high-availability/getting-started",
-                          "deploy/self-hosted/high-availability/configuration"
+                          "deploy/self-hosted/high-availability/getting-started"
                         ]
                       }
                     ]
@@ -374,7 +373,6 @@
                   {
                     "group": "Continuous Integration",
                     "pages": [
-                      "deploy/ci/overview",
                       "deploy/ci/github-actions",
                       "deploy/ci/gitlab-ci"
                     ]

@@ -361,7 +361,7 @@
                       {
                         "group": "High Availability",
                         "pages": [
-                          "deploy/self-hosted/high-availability/getting-started"
+                          "deploy/self-hosted/high-availability/configuration"
                         ]
                       }
                     ]

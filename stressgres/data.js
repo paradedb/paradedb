@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761494223395,
+  "lastUpdate": 1761494226786,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38878,6 +38878,108 @@ window.BENCHMARK_DATA = {
             "value": 155.734375,
             "unit": "median mem",
             "extra": "avg mem: 174.16517267106337, max mem: 215.19921875, count: 56273"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "795e50564ec8c21a87e8a51d4def3fe4676cef4a",
+          "message": "perf: Optimize `TermSet` for very large sets of terms. (#3412)\n\n## What\n\nFurther optimizes `pdb.term_set` and `paradedb.term_set`, and deprecates\nusing `pdb.term_set` in aggregate position.\n\n## Why\n\n#3351 optimized `term_set` queries for very large input term sets by\nswitching to using fast fields when more than `1024` terms were used in\nthe set. But there was more that could be done.\n\nFor a `paradedb.aggregate` query using a `pdb.term_set` constructed from\nan `array_agg` containing 10mm distinct inputs and 8 segments, this PR\nfurther optimizes the fast field execution path:\n\n| version | runtime |\n| ------- | -------- |\n| pre-#3351 - 0 workers | 35.851 s |\n| pre-#3351 - 8 workers | swapping - did not complete |\n| #3351 - 0 workers | 12.573 s |\n| #3351 - 8 workers | 13.708 s |\n| #3412 - 0 workers | 5.532 s |\n| #3412 - 8 workers | 8.538 s |\n\nBefore #3351, the posting-list based execution mode for term sets was\nnot able to complete on my machine with multiple workers, because it\nrequired enough memory to trigger swapping.\n\nCritical to note: in the case of a massive `pdb.term_set` like this,\nadditional workers might be a pessimization. That's because the cost of\npropagating and creating the query is expensive enough that it can dwarf\nthe actual aggregate time. For larger segment counts or larger\naggregates, the results might be different.\n\nAdditionally, this change deprecates using `pdb.term_set` in aggregate\nposition (as added in #3336): using `pdb.term_set` in function position\nwith an `array_agg` is equivalent, and sometimes slightly faster.\n\n## How\n\n* Incorporates https://github.com/paradedb/tantivy/pull/75\n* Removes some allocation from `pdb.term_set` and `paradedb.term_set`\ncreation.\n* Skips allocation `FieldName::path` arrays if they contain a single\ncomponent.",
+          "timestamp": "2025-10-26T08:14:05-07:00",
+          "tree_id": "42481cba325538099b6628b9caa20f8bb0d2a7c3",
+          "url": "https://github.com/paradedb/paradedb/commit/795e50564ec8c21a87e8a51d4def3fe4676cef4a"
+        },
+        "date": 1761494224825,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06962465865890878, max background_merging: 1.0, count: 56029"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.770101696271215, max cpu: 9.599999, count: 56029"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.438353771038212, max mem: 20.2890625, count: 56029"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.028578600413093, max cpu: 13.9265, count: 56029"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 153.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 151.99845406508237, max mem: 153.46484375, count: 56029"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51479,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51338.484641881885, max block_count: 51479.0, count: 56029"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.84474111620768, max segment_count: 56.0, count: 56029"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6287688343088895, max cpu: 27.906979, count: 56029"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 134.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 123.9941654795954, max mem: 145.60546875, count: 56029"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.864534893057695, max cpu: 27.906979, count: 56029"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.4386850726856, max mem: 170.04296875, count: 56029"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.997428525967997, max cpu: 33.768845, count: 56029"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 173.86077473551643, max mem: 215.44140625, count: 56029"
           }
         ]
       }

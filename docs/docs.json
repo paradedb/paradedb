@@ -46,29 +46,29 @@
                         "group": "Indexing",
                         "pages": [
                           "documentation/indexing/create-index",
-                          "documentation/indexing/inspect_index",
+                          "documentation/indexing/inspect-index",
                           {
                             "group": "Index Tuning",
                             "pages": [
                               "documentation/configuration/overview",
-                              "documentation/configuration/index_build",
-                              "documentation/configuration/write_throughput",
-                              "documentation/configuration/read_throughput"
+                              "documentation/configuration/index-build",
+                              "documentation/configuration/write-throughput",
+                              "documentation/configuration/read-throughput"
                             ]
                           },
                           {
                             "group": "Feature Flags",
-                            "pages": ["documentation/configuration/custom_scan"]
+                            "pages": ["documentation/configuration/custom-scan"]
                           }
                         ]
                       },
                       {
                         "group": "Field Configuration",
                         "pages": [
-                          "documentation/indexing/field_options",
+                          "documentation/indexing/field-options",
                           "documentation/indexing/tokenizers",
                           "documentation/indexing/token-filters",
-                          "documentation/indexing/fast_fields",
+                          "documentation/indexing/fast-fields",
                           "documentation/indexing/record"
                         ]
                       },
@@ -129,7 +129,7 @@
                               "documentation/advanced/compound/boolean",
                               "documentation/advanced/compound/boost",
                               "documentation/advanced/compound/const",
-                              "documentation/advanced/compound/disjunction_max",
+                              "documentation/advanced/compound/disjunction-max",
                               "documentation/advanced/compound/empty",
                               "documentation/advanced/compound/parse"
                             ]

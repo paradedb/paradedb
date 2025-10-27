@@ -8,7 +8,7 @@ noindex: true
 <Note>
   For large indexes, tuning Postgres' default memory and parallel worker
   settings prior to running `CREATE INDEX` is strongly recommended. Please see
-  [index tuning](/documentation/configuration/index_build) for details.
+  [index tuning](/documentation/configuration/index-build) for details.
 </Note>
 
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
@@ -20,7 +20,7 @@ USING bm25 (id, description, category, rating, in_stock, created_at, metadata, w
 WITH (key_field='id');
 ```
 
-Note that the index's column list contains fields of type text, JSON, numeric, timestamp, and boolean. See the [Field Configuration](/documentation/indexing/field_options) section for how to configure these fields.
+Note that the index's column list contains fields of type text, JSON, numeric, timestamp, and boolean. See the [Field Configuration](/documentation/indexing/field-options) section for how to configure these fields.
 
 ## Syntax
 

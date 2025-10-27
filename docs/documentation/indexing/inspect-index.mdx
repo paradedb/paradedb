@@ -46,7 +46,7 @@ SELECT * FROM paradedb.index_info('search_idx');
 Generally speaking, the segment count should match the server's CPU count. In practice, it may be lower if the table is very small, or higher if there are so many rows
 that a single segment is split into multiple segments.
 
-In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index_build) and [writing](/documentation/configuration/write_throughput) to the index.
+In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index-build) and [writing](/documentation/configuration/write-throughput) to the index.
 
 ## Index Debugging
 

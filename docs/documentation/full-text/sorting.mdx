@@ -45,7 +45,7 @@ LIMIT 5;
 
 An `ORDER BY...LIMIT` over a single [text](/documentation/indexing/create-index#text-fields), [numeric](/documentation/indexing/create-index#numeric-fields),
 [datetime](/documentation/indexing/create-index#datetime-fields), or [boolean](/documentation/indexing/create-index#boolean-fields) field is automatically "pushed down"
-to the BM25 index if the `ORDER BY` field is indexed as [fast](/documentation/indexing/fast_fields). This makes these queries significantly faster.
+to the BM25 index if the `ORDER BY` field is indexed as [fast](/documentation/indexing/fast-fields). This makes these queries significantly faster.
 
 You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on the query. If pushdown occurred, a `Custom Scan` with a
 `Sort Field` will appear in the query plan.
@@ -81,9 +81,9 @@ LIMIT 5;
 
 ### Ordering by Text Field
 
-If a fast text field is indexed with the `raw` [normalizer](/documentation/indexing/fast_fields#normalizers), `ORDER BY <text_field> LIMIT` can be pushed down.
+If a fast text field is indexed with the `raw` [normalizer](/documentation/indexing/fast-fields#normalizers), `ORDER BY <text_field> LIMIT` can be pushed down.
 
-If the `lowercase` [normalizer](/documentation/indexing/fast_fields#normalizers) is used, then `ORDER BY lower(<text_field>) LIMIT` (but not `ORDER BY <text_field> LIMIT`)
+If the `lowercase` [normalizer](/documentation/indexing/fast-fields#normalizers) is used, then `ORDER BY lower(<text_field>) LIMIT` (but not `ORDER BY <text_field> LIMIT`)
 can be pushed down.
 
 ```sql

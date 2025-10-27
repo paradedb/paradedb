@@ -65,7 +65,7 @@ jobs:
           fi
 
           echo "Checking for missing alt texts in images..."
-          if grep -R '!\[\s*\]\(.*\)' ./**/*.mdx --include \*.mdx --exclude-dir=node_modules; then
+          if grep -R '!\[\s*\]\(.*\)' ./**/*.mdx --include \*.mdx; then
             echo "❌ Found images missing alt text."
             exit 1
           else

@@ -9,7 +9,7 @@ Phrase prefix identifies documents containing a [phrase](/documentation/concepts
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ pdb.phrase-prefix(ARRAY['running', 'sh']);
+WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
 
 <div className="mt-8" />

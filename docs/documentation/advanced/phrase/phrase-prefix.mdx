@@ -12,14 +12,14 @@ Identifies documents containing a [phrase](/documentation/concepts/phrase) follo
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.phrase-prefix('description', ARRAY['running', 'sh']);
+WHERE id @@@ paradedb.phrase_prefix('description', ARRAY['running', 'sh']);
 ```
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
 '{
-    "phrase-prefix": {
+    "phrase_prefix": {
         "field": "description",
         "phrases": ["running", "sh"]
     }

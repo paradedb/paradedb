@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   test-docs:
-    name: Test Docs for Broken Links
+    name: Test Docs for Broken Links & SEO Issues
     runs-on: ubuntu-latest
 
     steps:
@@ -39,6 +39,7 @@ jobs:
           if [[ "$output" == *"success no broken links found"* ]]; then
             echo "No broken links found."
           else
+            echo "Broken links found:"
             echo "$output"
             exit 1
           fi

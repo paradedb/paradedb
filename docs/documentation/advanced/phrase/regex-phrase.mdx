@@ -5,20 +5,20 @@ noindex: true
 
 ## Basic Usage
 
-`regex-phrase` matches a specific sequence of regex queries. It is similar to `phrase` but allows for more flexibility in the query.
+`regex_phrase` matches a specific sequence of regex queries. It is similar to `phrase` but allows for more flexibility in the query.
 
 <CodeGroup>
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.regex-phrase('description', ARRAY['.*nning', '.*oes']);
+WHERE id @@@ paradedb.regex_phrase('description', ARRAY['.*nning', '.*oes']);
 ```
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
 '{
-    "regex-phrase": {
+    "regex_phrase": {
         "field": "description",
         "regexes": [".*nning", ".*oes"]
     }
@@ -51,14 +51,14 @@ Setting slop equal to `n` allows `n` terms to come in between the terms in the p
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.regex-phrase('description', ARRAY['.*eek', 'shoes'], slop => 1, max_expansion => 10);
+WHERE id @@@ paradedb.regex_phrase('description', ARRAY['.*eek', 'shoes'], slop => 1, max_expansion => 10);
 ```
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
 '{
-    "regex-phrase": {
+    "regex_phrase": {
         "field": "description",
         "regexes": [".*eek", "shoes"],
         "slop": 1,

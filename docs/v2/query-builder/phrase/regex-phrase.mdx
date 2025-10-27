@@ -12,7 +12,7 @@ For example, the regex phrase query for `ru.* shoes` will match `running shoes`,
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ pdb.regex-phrase(ARRAY['ru.*', 'shoes']);
+WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
 ```
 
 <div className="mt-8" />

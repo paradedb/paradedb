@@ -1,7 +1,7 @@
 ---
 title: Token Length
 description: TODO
-canonical: https://docs.paradedb.com/v2/token_filters/token_length
+canonical: https://docs.paradedb.com/v2/token-filters/token_length
 ---
 
 The token length filter automatically removes tokens that are above or below a certain length in bytes.
@@ -21,7 +21,7 @@ USING bm25 (id, (description::pdb.simple('remove_short=3')))
 WITH (key_field='id');
 ```
 
-All tokenizers besides the [literal](/v2/tokenizers/available_tokenizers/exact) tokenizer accept these configurations.
+All tokenizers besides the [literal](/v2/tokenizers/available-tokenizers/exact) tokenizer accept these configurations.
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 

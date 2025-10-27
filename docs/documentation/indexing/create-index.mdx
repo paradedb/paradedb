@@ -6,8 +6,9 @@ noindex: true
 ## Basic Usage
 
 <Note>
-For large indexes, tuning Postgres' default memory and parallel worker settings prior to running `CREATE INDEX` is strongly recommended.
-Please see [index tuning](/documentation/configuration/index_build) for details.
+  For large indexes, tuning Postgres' default memory and parallel worker
+  settings prior to running `CREATE INDEX` is strongly recommended. Please see
+  [index tuning](/documentation/configuration/index_build) for details.
 </Note>
 
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
@@ -30,16 +31,20 @@ WITH (key_field='<key_field>');
 ```
 
 <ParamField body="index_name">
-  The name of the index being created. If unspecified, Postgres will automatically choose a name.
+  The name of the index being created. If unspecified, Postgres will
+  automatically choose a name.
 </ParamField>
 <ParamField body="schema_name">
-  The name of the schema that the table belongs to. If unspecified, `CURRENT SCHEMA` is used.
+  The name of the schema that the table belongs to. If unspecified, `CURRENT
+  SCHEMA` is used.
 </ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
 <ParamField body="columns_or_expressions" required>
-  A comma-separated list of columns or [expressions](#indexes-on-expressions) to index, starting with the `key_field`. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
+  A comma-separated list of columns or [expressions](#indexes-on-expressions) to
+  index, starting with the `key_field`. Text, numeric, datetime, boolean, range,
+  enum, and JSON types can be indexed.
 </ParamField>
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each
@@ -74,9 +79,11 @@ In Postgres, a partitioned index is an index created over a [partitioned table](
 A BM25 index can be created over a partitioned table in the same way as a normal table.
 
 <Note>
-  If the partition key of your partitioned table is only indexed as a fast field by the BM25 index
-  (and not additionally indexed via a B-Tree index), note that the `@@@` operator [must be used](/documentation/aggregates/limitations#filtering)
-  in order for filtering to be optimized by the index.
+  If the partition key of your partitioned table is only indexed as a fast field
+  by the BM25 index (and not additionally indexed via a B-Tree index), note that
+  the `@@@` operator [must be
+  used](/documentation/aggregates/limitations#filtering) in order for filtering
+  to be optimized by the index.
 </Note>
 
 ## Partial Index
@@ -126,6 +133,7 @@ WITH (
 ```
 
 This rule holds for querying the field as well:
+
 ```sql
 SELECT * FROM mock_items
 WHERE mock_items @@@ paradedb.term('_pg_search_2', 'television');
@@ -142,6 +150,7 @@ WITH (key_field='id');
 ```
 
 This is particularly useful when you need to:
+
 - Reindex with different settings
 - Update an existing index without downtime
 - Change the indexed columns

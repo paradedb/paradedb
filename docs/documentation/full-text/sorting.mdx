@@ -43,8 +43,8 @@ LIMIT 5;
 
 ## Fast Ordering
 
-An `ORDER BY...LIMIT` over a single [text](/documentation/indexing/create_index#text-fields), [numeric](/documentation/indexing/create_index#numeric-fields),
-[datetime](/documentation/indexing/create_index#datetime-fields), or [boolean](/documentation/indexing/create_index#boolean-fields) field is automatically "pushed down"
+An `ORDER BY...LIMIT` over a single [text](/documentation/indexing/create-index#text-fields), [numeric](/documentation/indexing/create-index#numeric-fields),
+[datetime](/documentation/indexing/create-index#datetime-fields), or [boolean](/documentation/indexing/create-index#boolean-fields) field is automatically "pushed down"
 to the BM25 index if the `ORDER BY` field is indexed as [fast](/documentation/indexing/fast_fields). This makes these queries significantly faster.
 
 You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on the query. If pushdown occurred, a `Custom Scan` with a

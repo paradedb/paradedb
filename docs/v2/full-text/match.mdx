@@ -35,7 +35,7 @@ This query returns:
 Let's look at what the `|||` operator does:
 
 1. Retrieves the tokenizer configuration of the `description` column. In this example,
-   let's assume `description` uses the [simple](/v2/tokenizers/available_tokenizers/simple) tokenizer.
+   let's assume `description` uses the [simple](/v2/tokenizers/available-tokenizers/simple) tokenizer.
 2. Tokenizes the query string with the same tokenizer. This means `running shoes` becomes two tokens: `running` and `shoes`.
 3. Finds all rows where `description` contains **any one** of the tokens, `running` or `shoes`.
 
@@ -51,8 +51,8 @@ These examples assume that the index uses the default tokenizer and token filter
 | ------------------- | ------------------------- | ----- | --------------------------------------- | ---------------------------------------------------------- |
 | Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    |
 | Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Phrase](/v2/full-text/phrase)                             |
-| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/v2/indexing/create_index)                   |
-| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](/v2/indexing/create_index)                      |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/v2/indexing/create-index)                   |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](/v2/indexing/create-index)                      |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy](/v2/full-text/fuzzy)                               |
 | White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/v2/full-text/match#match-conjunction) |
 

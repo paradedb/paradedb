@@ -45,7 +45,7 @@ Note that `running sleek shoes` and `shoes running` did not match the phrase `ru
 Let's look at what happens under the hood for the above phrase query:
 
 1. Retrieves the tokenizer configuration of the `description` column. In this example,
-   let's assume `description` uses the [simple](/v2/tokenizers/available_tokenizers/simple) tokenizer.
+   let's assume `description` uses the [simple](/v2/tokenizers/available-tokenizers/simple) tokenizer.
 2. Tokenizes the query string with the same tokenizer. This means `running shoes` becomes two tokens: `running` and `shoes`.
 3. Finds all rows where `description` contains `running` immediately followed by `shoes`.
 

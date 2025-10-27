@@ -1,7 +1,7 @@
 ---
 title: Create an Index
 description: TODO
-canonical: https://docs.paradedb.com/v2/indexing/create_index
+canonical: https://docs.paradedb.com/v2/indexing/create-index
 ---
 
 The following code block creates a BM25 index over several columns in the `mock_items` table.
@@ -43,7 +43,7 @@ The `key_field` must:
   overview](/v2/full-text/overview).
 </Note>
 
-By default, text columns are tokenized using the [simple](/v2/tokenizers/available_tokenizers/simple) tokenizer, which lowercases and splits on both punctuation and
+By default, text columns are tokenized using the [simple](/v2/tokenizers/available-tokenizers/simple) tokenizer, which lowercases and splits on both punctuation and
 whitespace. This tokenization strategy is configurable.
 For example, the following code block uses the `ngrams` tokenizer for `description`.
 
@@ -53,11 +53,11 @@ USING bm25 (id, (description::pdb.ngram(2,3)), category)
 WITH (key_field='id');
 ```
 
-There are many [available tokenizers](/v2/tokenizers/available_tokenizers) to choose from.
+There are many [available tokenizers](/v2/tokenizers/available-tokenizers) to choose from.
 
 ## Token Filters
 
-After tokens are created, [token filters](/v2/token_filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
+After tokens are created, [token filters](/v2/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
 ```sql

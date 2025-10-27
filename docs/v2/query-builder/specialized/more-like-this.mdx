@@ -1,11 +1,11 @@
 ---
 title: More Like This
 description: TODO
-canonical: https://docs.paradedb.com/v2/query-builder/specialized/more_like_this
+canonical: https://docs.paradedb.com/v2/query-builder/specialized/more-like-this
 ---
 
 The more like this (MLT) query finds documents that are "like" another document.
-To use this query, pass the [key field](/v2/indexing/create_index#choosing-a-key-field) value of the input document
+To use this query, pass the [key field](/v2/indexing/create-index#choosing-a-key-field) value of the input document
 to `pdb.more_like_this`.
 
 For instance, the following query finds documents that are "like" a document with an `id` of `3`:
@@ -65,7 +65,7 @@ ORDER BY id;
 Let's look at how the MLT query works under the hood:
 
 1. Stored values for the input document's fields are retrieved. If they are text fields, they are tokenized and filtered in the same way
-   as the field was during [index creation](/v2/indexing/create_index).
+   as the field was during [index creation](/v2/indexing/create-index).
 2. A set of representative terms is created from the input document. For example, in the statement above, these terms would be
    `sleek`, `running`, and `shoes` for the `description` field; `5` for the `rating` field; `footwear` for the `category` field.
 3. Documents with at least one term match across any of the fields are considered a match.

@@ -1,7 +1,7 @@
 ---
 title: Phrase Prefix
 description: TODO
-canonical: https://docs.paradedb.com/v2/query-builder/phrase/phrase_prefix
+canonical: https://docs.paradedb.com/v2/query-builder/phrase/phrase-prefix
 ---
 
 Phrase prefix identifies documents containing a [phrase](/documentation/concepts/phrase) followed by a term prefix.
@@ -9,7 +9,7 @@ Phrase prefix identifies documents containing a [phrase](/documentation/concepts
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
+WHERE description @@@ pdb.phrase-prefix(ARRAY['running', 'sh']);
 ```
 
 <div className="mt-8" />

@@ -1,7 +1,7 @@
 ---
 title: Literal
 description: TODO
-canonical: https://docs.paradedb.com/v2/tokenizers/available_tokenizers/exact
+canonical: https://docs.paradedb.com/v2/tokenizers/available-tokenizers/exact
 ---
 
 The literal tokenizer applies no tokenization to the text, preserving it as-is. It is the default for `uuid` fields (since
@@ -28,5 +28,5 @@ SELECT 'Tokenize me!'::pdb.literal::text[];
 
 <Note>
   Because the literal tokenizer preserves the source text exactly, [token
-  filters](/v2/token_filters/overview) cannot be configured for this tokenizer.
+  filters](/v2/token-filters/overview) cannot be configured for this tokenizer.
 </Note>

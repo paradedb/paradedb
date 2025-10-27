@@ -1,14 +1,14 @@
 ---
 title: Literal Normalized
 description: TODO
-canonical: https://docs.paradedb.com/v2/tokenizers/available_tokenizers/literal_normalized
+canonical: https://docs.paradedb.com/v2/tokenizers/available-tokenizers/literal_normalized
 ---
 
-The literal normalized tokenizer is similar to the [literal](/v2/tokenizers/available_tokenizers/exact) tokenizer in that it does not split the source text.
+The literal normalized tokenizer is similar to the [literal](/v2/tokenizers/available-tokenizers/exact) tokenizer in that it does not split the source text.
 All text is treated as a single token, regardless of how many words are contained.
 
-However, unlike the literal tokenizer, this tokenizer allows [token filters](/v2/token_filters/overview) to be applied. By default, the literal normalized tokenizer
-also [lowercases](/v2/token_filters/lowercase) the text.
+However, unlike the literal tokenizer, this tokenizer allows [token filters](/v2/token-filters/overview) to be applied. By default, the literal normalized tokenizer
+also [lowercases](/v2/token-filters/lowercase) the text.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

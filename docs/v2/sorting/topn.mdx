@@ -70,11 +70,11 @@ LIMIT 5;
 
 ## Sorting by Text
 
-If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/v2/tokenizers/available_tokenizers/exact) tokenizer.
+If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/v2/tokenizers/available-tokenizers/exact) tokenizer.
 The reason is that the literal tokenizer preserves the original text, which is necessary for accurate sorting.
 
 Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, first ensure that `lower(<text_field>)` is indexed with the literal tokenizer.
-See [indexing expressions](/v2/indexing/indexing_expressions) for more information.
+See [indexing expressions](/v2/indexing/indexing-expressions) for more information.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

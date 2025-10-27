@@ -45,7 +45,7 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "documentation/indexing/create_index",
+                          "documentation/indexing/create-index",
                           "documentation/indexing/inspect_index",
                           {
                             "group": "Index Tuning",
@@ -69,7 +69,7 @@
                         "pages": [
                           "documentation/indexing/field_options",
                           "documentation/indexing/tokenizers",
-                          "documentation/indexing/token_filters",
+                          "documentation/indexing/token-filters",
                           "documentation/indexing/fast_fields",
                           "documentation/indexing/record"
                         ]
@@ -114,7 +114,7 @@
                             "group": "Phrase-Level Queries",
                             "pages": [
                               "documentation/advanced/phrase/phrase",
-                              "documentation/advanced/phrase/phrase_prefix"
+                              "documentation/advanced/phrase/phrase-prefix"
                             ]
                           },
                           {
@@ -141,7 +141,7 @@
                           {
                             "group": "Specialized Queries",
                             "pages": [
-                              "documentation/advanced/specialized/more_like_this"
+                              "documentation/advanced/specialized/more-like-this"
                             ]
                           }
                         ]
@@ -227,9 +227,9 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "v2/indexing/create_index",
-                          "v2/indexing/indexing_expressions",
-                          "v2/indexing/indexing_json",
+                          "v2/indexing/create-index",
+                          "v2/indexing/indexing-expressions",
+                          "v2/indexing/indexing-json",
                           "v2/indexing/reindexing"
 
                         ]
@@ -241,32 +241,32 @@
                           {
                             "group": "Available Tokenizers",
                             "pages": [
-                              "v2/tokenizers/available_tokenizers/simple",
-                              "v2/tokenizers/available_tokenizers/exact",
-                              "v2/tokenizers/available_tokenizers/literal_normalized",
-                              "v2/tokenizers/available_tokenizers/whitespace",
-                              "v2/tokenizers/available_tokenizers/ngrams",
-                              "v2/tokenizers/available_tokenizers/regex",
-                              "v2/tokenizers/available_tokenizers/chinese_compatible",
-                              "v2/tokenizers/available_tokenizers/lindera",
-                              "v2/tokenizers/available_tokenizers/icu",
-                              "v2/tokenizers/available_tokenizers/jieba",
-                              "v2/tokenizers/available_tokenizers/source_code"
+                              "v2/tokenizers/available-tokenizers/simple",
+                              "v2/tokenizers/available-tokenizers/exact",
+                              "v2/tokenizers/available-tokenizers/literal_normalized",
+                              "v2/tokenizers/available-tokenizers/whitespace",
+                              "v2/tokenizers/available-tokenizers/ngrams",
+                              "v2/tokenizers/available-tokenizers/regex",
+                              "v2/tokenizers/available-tokenizers/chinese_compatible",
+                              "v2/tokenizers/available-tokenizers/lindera",
+                              "v2/tokenizers/available-tokenizers/icu",
+                              "v2/tokenizers/available-tokenizers/jieba",
+                              "v2/tokenizers/available-tokenizers/source_code"
                             ]
                           },
-                          "v2/tokenizers/multiple_per_field"
+                          "v2/tokenizers/multiple-per-field"
                         ]
                       },
                       {
                         "group": "Token Filters",
                         "pages": [
-                          "v2/token_filters/overview",
-                          "v2/token_filters/alpha_numeric",
-                          "v2/token_filters/ascii_folding",
-                          "v2/token_filters/lowercase",
-                          "v2/token_filters/stopwords",
-                          "v2/token_filters/stemming",
-                          "v2/token_filters/token_length"
+                          "v2/token-filters/overview",
+                          "v2/token-filters/alpha_numeric",
+                          "v2/token-filters/ascii_folding",
+                          "v2/token-filters/lowercase",
+                          "v2/token-filters/stopwords",
+                          "v2/token-filters/stemming",
+                          "v2/token-filters/token_length"
                         ]
                       },
                       {
@@ -299,8 +299,8 @@
                             "group": "Phrase",
                             "pages": [
                               "v2/query-builder/phrase/phrase",
-                              "v2/query-builder/phrase/phrase_prefix",
-                              "v2/query-builder/phrase/regex_phrase"
+                              "v2/query-builder/phrase/phrase-prefix",
+                              "v2/query-builder/phrase/regex-phrase"
                             ]
                           },
                           {
@@ -318,7 +318,7 @@
                           {
                             "group": "Specialized",
                             "pages": [
-                              "v2/query-builder/specialized/more_like_this"
+                              "v2/query-builder/specialized/more-like-this"
                             ]
                           },
                           "v2/query-builder/json"

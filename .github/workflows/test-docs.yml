@@ -55,7 +55,7 @@ jobs:
           echo "Running SEO validation..."
 
           echo "Checking for underscores in URLs..."
-          files=$(find docs -type f -name "*_*" ! -path "images/*")
+          files=$(find . -type f -name "*_*" ! -path "images/*")
           if [ -n "$files" ]; then
             echo "❌ Found files with underscores:"
             echo "$files" | sed 's/^/  - /'

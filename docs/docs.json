@@ -98,12 +98,12 @@
                             "group": "Term-Level Queries",
                             "pages": [
                               "documentation/advanced/term/exists",
-                              "documentation/advanced/term/fuzzy_term",
+                              "documentation/advanced/term/fuzzy-term",
                               "documentation/advanced/term/range",
-                              "documentation/advanced/term/range_term",
+                              "documentation/advanced/term/range-term",
                               "documentation/advanced/term/regex",
                               "documentation/advanced/term/term",
-                              "documentation/advanced/term/term_set"
+                              "documentation/advanced/term/term-set"
                             ]
                           },
                           {
@@ -236,15 +236,15 @@
                             "pages": [
                               "v2/tokenizers/available-tokenizers/simple",
                               "v2/tokenizers/available-tokenizers/exact",
-                              "v2/tokenizers/available-tokenizers/literal_normalized",
+                              "v2/tokenizers/available-tokenizers/literal-normalized",
                               "v2/tokenizers/available-tokenizers/whitespace",
                               "v2/tokenizers/available-tokenizers/ngrams",
                               "v2/tokenizers/available-tokenizers/regex",
-                              "v2/tokenizers/available-tokenizers/chinese_compatible",
+                              "v2/tokenizers/available-tokenizers/chinese-compatible",
                               "v2/tokenizers/available-tokenizers/lindera",
                               "v2/tokenizers/available-tokenizers/icu",
                               "v2/tokenizers/available-tokenizers/jieba",
-                              "v2/tokenizers/available-tokenizers/source_code"
+                              "v2/tokenizers/available-tokenizers/source-code"
                             ]
                           },
                           "v2/tokenizers/multiple-per-field"
@@ -254,12 +254,12 @@
                         "group": "Token Filters",
                         "pages": [
                           "v2/token-filters/overview",
-                          "v2/token-filters/alpha_numeric",
-                          "v2/token-filters/ascii_folding",
+                          "v2/token-filters/alpha-numeric",
+                          "v2/token-filters/ascii-folding",
                           "v2/token-filters/lowercase",
                           "v2/token-filters/stopwords",
                           "v2/token-filters/stemming",
-                          "v2/token-filters/token_length"
+                          "v2/token-filters/token-length"
                         ]
                       },
                       {
@@ -269,7 +269,7 @@
                           "v2/full-text/match",
                           "v2/full-text/phrase",
                           "v2/full-text/term",
-                          "v2/full-text/term_set",
+                          "v2/full-text/term-set",
                           "v2/full-text/fuzzy",
                           "v2/full-text/highlight",
                           "v2/full-text/proximity"
@@ -300,12 +300,12 @@
                             "group": "Term",
                             "pages": [
                               "v2/query-builder/term/exists",
-                              "v2/query-builder/term/fuzzy_term",
+                              "v2/query-builder/term/fuzzy-term",
                               "v2/query-builder/term/range",
-                              "v2/query-builder/term/range_term",
+                              "v2/query-builder/term/range-term",
                               "v2/query-builder/term/regex",
                               "v2/query-builder/term/term",
-                              "v2/query-builder/term/term_set"
+                              "v2/query-builder/term/term-set"
                             ]
                           },
                           {

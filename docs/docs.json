@@ -550,10 +550,6 @@
   },
   "redirects": [
     {
-      "source": "/blog",
-      "destination": "https://www.paradedb.com/blog"
-    },
-    {
       "source": "/blog/introducing_analytics",
       "destination": "https://www.paradedb.com/blog/introducing_lakehouse"
     },

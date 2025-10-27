@@ -1,5 +1,5 @@
 ---
-title: Configuration
+title: Schema Changes
 ---
 
 <Note>
@@ -39,7 +39,3 @@ ALTER PUBLICATION mock_items_pub ADD TABLE newly_added_table;
 -- On Subscriber
 ALTER SUBSCRIPTION mock_items_sub REFRESH PUBLICATION;
 ```
-
-## Granular Replication
-
-Logical replication can be configured to replicate specific tables, column lists, or rows. Please see the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html).

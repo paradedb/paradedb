@@ -1,10 +1,16 @@
 ---
-title: Getting Started
+title: Configuring Logical Replication
 ---
 
 <Note>
   In order for ParadeDB to run as a logical replica, ParadeDB must be using
   Postgres 17+.
+</Note>
+
+<Note>
+  Logical replication can be configured to replicate specific tables, column
+  lists, or rows. Please see the [Postgres
+  documentation](https://www.postgresql.org/docs/current/logical-replication.html).
 </Note>
 
 In production, ParadeDB is designed to be deployed as a logical replica of your primary Postgres. This

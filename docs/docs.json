@@ -361,7 +361,6 @@
                       {
                         "group": "High Availability",
                         "pages": [
-                          "deploy/self-hosted/high-availability/getting-started",
                           "deploy/self-hosted/high-availability/configuration"
                         ]
                       }
@@ -374,7 +373,6 @@
                   {
                     "group": "Continuous Integration",
                     "pages": [
-                      "deploy/ci/overview",
                       "deploy/ci/github-actions",
                       "deploy/ci/gitlab-ci"
                     ]
@@ -515,7 +513,6 @@
       "robots": "index, follow",
       "charset": "UTF-8",
       "viewport": "width=device-width, initial-scale=1.0",
-      "description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
       "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
       "author": "ParadeDB",
       "googlebot": "index, follow",

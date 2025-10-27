@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761587444451,
+  "lastUpdate": 1761587890848,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21598,6 +21598,42 @@ window.BENCHMARK_DATA = {
             "value": 5.37419537811976,
             "unit": "median tps",
             "extra": "avg tps: 4.8538283965089075, max tps: 5.959376998297523, count: 57818"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "548be62f0752d0199602e4c04fcc27f786d76251",
+          "message": "chore: Cherry-pick missing SQL upgrade scripts. (#3418)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSee:\nhttps://github.com/paradedb/paradedb/issues/3341#issuecomment-3426095808\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-27T10:29:13-07:00",
+          "tree_id": "ee1d4cd6cb911696f72b8e23373f410c1f1db1d3",
+          "url": "https://github.com/paradedb/paradedb/commit/548be62f0752d0199602e4c04fcc27f786d76251"
+        },
+        "date": 1761587888827,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.316561148579943,
+            "unit": "median tps",
+            "extra": "avg tps: 7.103019269685698, max tps: 11.085398374139936, count: 57383"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.304300641568231,
+            "unit": "median tps",
+            "extra": "avg tps: 4.786959494172492, max tps: 5.872860997464938, count: 57383"
           }
         ]
       }

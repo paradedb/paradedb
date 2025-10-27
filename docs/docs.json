@@ -254,7 +254,7 @@
                         "group": "Token Filters",
                         "pages": [
                           "v2/token-filters/overview",
-                          "v2/token-filters/alpha-numeric",
+                          "v2/token-filters/alphanumeric",
                           "v2/token-filters/ascii-folding",
                           "v2/token-filters/lowercase",
                           "v2/token-filters/stopwords",

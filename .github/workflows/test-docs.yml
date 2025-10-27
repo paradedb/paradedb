@@ -55,11 +55,13 @@ jobs:
           echo "Running SEO validation..."
 
           echo "Checking for underscores in URLs..."
-          if grep -R "_[A-Za-z0-9]" ./**/*.mdx --include \*.mdx; then
-            echo "❌ Found underscores in URLs."
+          files=$(find docs -type f -name "*_*" ! -path "images/*")
+          if [ -n "$files" ]; then
+            echo "❌ Found files with underscores:"
+            echo "$files" | sed 's/^/  - /'
             exit 1
           else
-            echo "✅ No underscores in URLs."
+            echo "✅ No filenames with underscores (excluding images/)."
           fi
 
           echo "Checking for missing alt texts in images..."

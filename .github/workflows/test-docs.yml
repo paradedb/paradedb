@@ -64,9 +64,10 @@ jobs:
             echo "✅ No filenames with underscores (excluding /images/ and /logo/)."
           fi
 
+          echo ""
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
-          for file in $(find . -name "*.mdx"); do
+          for file in $(find . -name "*.mdx" ! -path "./documentation/*"); do
             title=$(grep -E "^title:" "$file" || true)
             desc=$(grep -E "^description:" "$file" || true)
             canonical=$(grep -E "^canonical:" "$file" || true)

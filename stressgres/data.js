@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761583177597,
+  "lastUpdate": 1761587146780,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6394,6 +6394,72 @@ window.BENCHMARK_DATA = {
             "value": 334.12296405782075,
             "unit": "median tps",
             "extra": "avg tps: 292.8354536502545, max tps: 1077.7127916964384, count: 55323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "548be62f0752d0199602e4c04fcc27f786d76251",
+          "message": "chore: Cherry-pick missing SQL upgrade scripts. (#3418)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSee:\nhttps://github.com/paradedb/paradedb/issues/3341#issuecomment-3426095808\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-27T10:29:13-07:00",
+          "tree_id": "ee1d4cd6cb911696f72b8e23373f410c1f1db1d3",
+          "url": "https://github.com/paradedb/paradedb/commit/548be62f0752d0199602e4c04fcc27f786d76251"
+        },
+        "date": 1761587144826,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 777.5546221961749,
+            "unit": "median tps",
+            "extra": "avg tps: 776.2678554855534, max tps: 891.2529927915065, count: 54756"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3123.154569707764,
+            "unit": "median tps",
+            "extra": "avg tps: 3123.5762733522356, max tps: 3391.811153231736, count: 54756"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 777.8243864944236,
+            "unit": "median tps",
+            "extra": "avg tps: 779.2972486551078, max tps: 889.9975994571995, count: 54756"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 649.3496290062063,
+            "unit": "median tps",
+            "extra": "avg tps: 646.0046581770072, max tps: 653.934020255317, count: 54756"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1675.8575388975016,
+            "unit": "median tps",
+            "extra": "avg tps: 1689.9250685926363, max tps: 1728.1218711587946, count: 109512"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1262.8816252391812,
+            "unit": "median tps",
+            "extra": "avg tps: 1254.571475741311, max tps: 1269.5690738915318, count: 54756"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 125.54572053275159,
+            "unit": "median tps",
+            "extra": "avg tps: 137.04086029305805, max tps: 497.52976471817425, count: 54756"
           }
         ]
       }

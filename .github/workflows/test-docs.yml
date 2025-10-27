@@ -46,7 +46,6 @@ jobs:
 
       # Check that:
       # - There are no underscores in URLs
-      # - There are no missing alt texts for images
       # - Each .mdx file has a title, description, and canonical URL
       # - Each canonical URL matches the file path
       - name: Test for SEO Issues

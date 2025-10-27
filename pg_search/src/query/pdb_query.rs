@@ -591,19 +591,16 @@ fn term_set(
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
 
-    let terms = terms
-        .into_iter()
-        .map(|term| {
-            value_to_term(
-                tantivy_field,
-                &term,
-                field_type,
-                field.path().as_deref(),
-                is_date_time,
-            )
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(Box::new(TermSetQuery::new(terms)))
+    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
+        value_to_term(
+            tantivy_field,
+            &term,
+            field_type,
+            field.path().as_deref(),
+            is_date_time,
+        )
+        .expect("could not convert argument to search term")
+    }))))
 }
 
 fn term(

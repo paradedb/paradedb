@@ -66,6 +66,7 @@ FROM paradedb.aggregate(
   ),
   '{"count":{"value_count":{"field":"genus_id"}}}'
 );
+WARNING:  using `pdb.term_set` in aggregate position is deprecated
          aggregate         
 ---------------------------
  {"count": {"value": 3.0}}

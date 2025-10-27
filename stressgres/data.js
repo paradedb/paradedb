@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761587890848,
+  "lastUpdate": 1761587894207,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26968,6 +26968,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.86891625445364, max segment_count: 106.0, count: 57818"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "548be62f0752d0199602e4c04fcc27f786d76251",
+          "message": "chore: Cherry-pick missing SQL upgrade scripts. (#3418)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSee:\nhttps://github.com/paradedb/paradedb/issues/3341#issuecomment-3426095808\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-27T10:29:13-07:00",
+          "tree_id": "ee1d4cd6cb911696f72b8e23373f410c1f1db1d3",
+          "url": "https://github.com/paradedb/paradedb/commit/548be62f0752d0199602e4c04fcc27f786d76251"
+        },
+        "date": 1761587892184,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.62184032354843, max cpu: 42.899704, count: 57383"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.2945209573175, max mem: 230.109375, count: 57383"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43762512369241, max cpu: 33.300297, count: 57383"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.13317083783525, max mem: 164.56640625, count: 57383"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24623,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23445.699004931776, max block_count: 26295.0, count: 57383"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.74691110607671, max segment_count: 106.0, count: 57383"
           }
         ]
       }

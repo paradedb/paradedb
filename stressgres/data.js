@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761588186301,
+  "lastUpdate": 1761588430182,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6526,6 +6526,72 @@ window.BENCHMARK_DATA = {
             "value": 138.43573362566391,
             "unit": "median tps",
             "extra": "avg tps: 162.53025897455927, max tps: 940.5497325076561, count: 54603"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7512ced1181501aa509826cbc60a0b3a31bf4106",
+          "message": "perf: Optimize `TermSet` for very large sets of terms. (#3412) (#3420)\n\n## What\n\nFurther optimizes `pdb.term_set` and `paradedb.term_set`, and deprecates\nusing `pdb.term_set` in aggregate position.\n\n## Why\n\n#3351 optimized `term_set` queries for very large input term sets by\nswitching to using fast fields when more than `1024` terms were used in\nthe set. But there was more that could be done.\n\nFor a `paradedb.aggregate` query using a `pdb.term_set` constructed from\nan `array_agg` containing 10mm distinct inputs and 8 segments, this PR\nfurther optimizes the fast field execution path:\n\n| version | runtime |\n| ------- | -------- |\n| pre-#3351 - 0 workers | 35.851 s |\n| pre-#3351 - 8 workers | swapping - did not complete |\n| #3351 - 0 workers | 12.573 s |\n| #3351 - 8 workers | 13.708 s |\n| #3412 - 0 workers | 5.532 s |\n| #3412 - 8 workers | 8.538 s |\n\nBefore #3351, the posting-list based execution mode for term sets was\nnot able to complete on my machine with multiple workers, because it\nrequired enough memory to trigger swapping.\n\nCritical to note: in the case of a massive `pdb.term_set` like this,\nadditional workers might be a pessimization. That's because the cost of\npropagating and creating the query is expensive enough that it can dwarf\nthe actual aggregate time. For larger segment counts or larger\naggregates, the results might be different.\n\nAdditionally, this change deprecates using `pdb.term_set` in aggregate\nposition (as added in #3336): using `pdb.term_set` in function position\nwith an `array_agg` is equivalent, and sometimes slightly faster.\n\n## How\n\n* Incorporates https://github.com/paradedb/tantivy/pull/75\n* Removes some allocation from `pdb.term_set` and `paradedb.term_set`\ncreation.\n* Skips allocation `FieldName::path` arrays if they contain a single\ncomponent.",
+          "timestamp": "2025-10-27T10:50:47-07:00",
+          "tree_id": "c3c5f4691be94b4dece834894f0093f0427bb64e",
+          "url": "https://github.com/paradedb/paradedb/commit/7512ced1181501aa509826cbc60a0b3a31bf4106"
+        },
+        "date": 1761588428092,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 793.7600047412016,
+            "unit": "median tps",
+            "extra": "avg tps: 792.2086962229665, max tps: 830.8806699296916, count: 54944"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3355.788927948775,
+            "unit": "median tps",
+            "extra": "avg tps: 3330.7007375417234, max tps: 3380.0896787991137, count: 54944"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 794.0118862861011,
+            "unit": "median tps",
+            "extra": "avg tps: 792.6881399518938, max tps: 804.8951525687705, count: 54944"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 700.9304787818336,
+            "unit": "median tps",
+            "extra": "avg tps: 696.8521589423187, max tps: 704.2604326923496, count: 54944"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1712.9261626882108,
+            "unit": "median tps",
+            "extra": "avg tps: 1702.115281906729, max tps: 1719.978311433317, count: 109888"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1290.0949988707048,
+            "unit": "median tps",
+            "extra": "avg tps: 1277.6220614045067, max tps: 1299.5477417576103, count: 54944"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 115.38648327567115,
+            "unit": "median tps",
+            "extra": "avg tps: 117.17187851063916, max tps: 1033.2852166850764, count: 54944"
           }
         ]
       }

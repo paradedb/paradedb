@@ -1006,66 +1006,15 @@ impl CustomScan for PdbScan {
                                 (*const_score_node).constisnull = false;
                             }
 
-                            // TODO: We go _back_ to the heap to get snippet information here
-                            // inside of `make_snippet` and `get_snippet_positions`. It's possible
-                            // that we could use a wider tuple slot to fetch the extra columns that
-                            // we need during our initial lookup above (but then we'd need to copy
-                            // into the correctly shaped slot for this scan).
-                            if state.custom_state().need_snippets() {
-                                per_tuple_context.switch_to(|_| {
-                                    for (snippet_type, const_snippet_nodes) in
-                                        &state.custom_state().const_snippet_nodes
-                                    {
-                                        match snippet_type {
-                                            SnippetType::SingleText(_, _, config, _) => {
-                                                let snippet = state
-                                                    .custom_state()
-                                                    .make_snippet(ctid, snippet_type);
-
-                                                for const_ in const_snippet_nodes {
-                                                    match &snippet {
-                                                        Some(text) => {
-                                                            (**const_).constvalue =
-                                                                text.into_datum().unwrap();
-                                                            (**const_).constisnull = false;
-                                                        }
-                                                        None => {
-                                                            (**const_).constvalue =
-                                                                pg_sys::Datum::null();
-                                                            (**const_).constisnull = true;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            SnippetType::Positions(..) => {
-                                                let positions = state
-                                                    .custom_state()
-                                                    .get_snippet_positions(ctid, snippet_type);
-
-                                                for const_ in const_snippet_nodes {
-                                                    match &positions {
-                                                        Some(positions) => {
-                                                            (**const_).constvalue = positions
-                                                                .clone()
-                                                                .into_datum()
-                                                                .unwrap();
-                                                            (**const_).constisnull = false;
-                                                        }
-                                                        None => {
-                                                            (**const_).constvalue =
-                                                                pg_sys::Datum::null();
-                                                            (**const_).constisnull = true;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-
                             // finally, do the projection
                             return per_tuple_context.switch_to(|_| {
+                                // TODO: We go _back_ to the heap to get snippet information here
+                                // inside of `make_snippet` and `get_snippet_positions`. It's possible
+                                // that we could use a wider tuple slot to fetch the extra columns that
+                                // we need during our initial lookup above (but then we'd need to copy
+                                // into the correctly shaped slot for this scan).
+                                maybe_project_snippets(state.custom_state(), ctid);
+
                                 let planstate = state.planstate();
 
                                 (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
@@ -1679,4 +1628,50 @@ fn is_range_query_string(query_string: &str) -> bool {
         || query_string.trim_start().starts_with("<=")
         || query_string.contains("..")  // Range syntax like "1..10"
         || query_string.contains(" TO ") // Range syntax like "1 TO 10"
+}
+
+/// Project configured snippets (if any).
+///
+/// Must be called inside the per-tuple `MemoryContext`.
+unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
+    if !state.need_snippets() {
+        return;
+    }
+
+    for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
+        match snippet_type {
+            SnippetType::SingleText(_, _, config, _) => {
+                let snippet = state.make_snippet(ctid, snippet_type);
+
+                for const_ in const_snippet_nodes {
+                    match &snippet {
+                        Some(text) => {
+                            (**const_).constvalue = text.into_datum().unwrap();
+                            (**const_).constisnull = false;
+                        }
+                        None => {
+                            (**const_).constvalue = pg_sys::Datum::null();
+                            (**const_).constisnull = true;
+                        }
+                    }
+                }
+            }
+            SnippetType::Positions(..) => {
+                let positions = state.get_snippet_positions(ctid, snippet_type);
+
+                for const_ in const_snippet_nodes {
+                    match &positions {
+                        Some(positions) => {
+                            (**const_).constvalue = positions.clone().into_datum().unwrap();
+                            (**const_).constisnull = false;
+                        }
+                        None => {
+                            (**const_).constvalue = pg_sys::Datum::null();
+                            (**const_).constisnull = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

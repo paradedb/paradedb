@@ -43,7 +43,7 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    Text(
+    SingleText(
         FieldName,
         pg_sys::Oid,
         SnippetConfig,
@@ -55,28 +55,28 @@ pub enum SnippetType {
 impl SnippetType {
     pub fn field(&self) -> &FieldName {
         match self {
-            SnippetType::Text(field, _, _, _) => field,
+            SnippetType::SingleText(field, _, _, _) => field,
             SnippetType::Positions(field, _, _) => field,
         }
     }
 
     pub fn funcoid(&self) -> pg_sys::Oid {
         match self {
-            SnippetType::Text(_, funcoid, _, _) => *funcoid,
+            SnippetType::SingleText(_, funcoid, _, _) => *funcoid,
             SnippetType::Positions(_, funcoid, _) => *funcoid,
         }
     }
 
     pub fn nodeoid(&self) -> pg_sys::Oid {
         match self {
-            SnippetType::Text(_, _, _, _) => pg_sys::TEXTOID,
+            SnippetType::SingleText(_, _, _, _) => pg_sys::TEXTOID,
             SnippetType::Positions(_, _, _) => pg_sys::INT4ARRAYOID,
         }
     }
 
     pub fn limit(&self) -> Option<i32> {
         let limit = match self {
-            SnippetType::Text(_, _, _, positions_config) => positions_config.limit,
+            SnippetType::SingleText(_, _, _, positions_config) => positions_config.limit,
             SnippetType::Positions(_, _, positions_config) => positions_config.limit,
         };
 
@@ -86,7 +86,7 @@ impl SnippetType {
 
     pub fn offset(&self) -> Option<i32> {
         let offset = match self {
-            SnippetType::Text(_, _, _, positions_config) => positions_config.offset,
+            SnippetType::SingleText(_, _, _, positions_config) => positions_config.offset,
             SnippetType::Positions(_, _, positions_config) => positions_config.offset,
         };
 
@@ -272,7 +272,7 @@ pub unsafe fn extract_snippet_text(
         let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
         let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
 
-        Some(SnippetType::Text(
+        Some(SnippetType::SingleText(
             attname,
             snippet_funcoid,
             SnippetConfig {

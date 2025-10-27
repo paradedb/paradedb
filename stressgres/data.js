@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761588434065,
+  "lastUpdate": 1761588662313,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31528,6 +31528,54 @@ window.BENCHMARK_DATA = {
             "value": 5.949284011852434,
             "unit": "median tps",
             "extra": "avg tps: 5.9483482700095305, max tps: 7.254499748559039, count: 56245"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "548be62f0752d0199602e4c04fcc27f786d76251",
+          "message": "chore: Cherry-pick missing SQL upgrade scripts. (#3418)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSee:\nhttps://github.com/paradedb/paradedb/issues/3341#issuecomment-3426095808\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-27T10:29:13-07:00",
+          "tree_id": "ee1d4cd6cb911696f72b8e23373f410c1f1db1d3",
+          "url": "https://github.com/paradedb/paradedb/commit/548be62f0752d0199602e4c04fcc27f786d76251"
+        },
+        "date": 1761588660215,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1134.6804747585225,
+            "unit": "median tps",
+            "extra": "avg tps: 1120.25940273485, max tps: 1213.9467672124927, count: 56374"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1312.6986780073207,
+            "unit": "median tps",
+            "extra": "avg tps: 1287.1937403371503, max tps: 1327.7389314297982, count: 56374"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1824.2877057952,
+            "unit": "median tps",
+            "extra": "avg tps: 1753.8087985531763, max tps: 2069.6141848703737, count: 56374"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.010818007617435,
+            "unit": "median tps",
+            "extra": "avg tps: 5.986108249803472, max tps: 7.211170986505426, count: 56374"
           }
         ]
       }

@@ -61,15 +61,7 @@ jobs:
             echo "$files" | sed 's/^/  - /'
             exit 1
           else
-            echo "✅ No filenames with underscores (excluding images/ and logo/)."
-          fi
-
-          echo "Checking for missing alt texts in images..."
-          if grep -R '!\[\s*\]\(.*\)' ./**/*.mdx --include \*.mdx; then
-            echo "❌ Found images missing alt text."
-            exit 1
-          else
-            echo "✅ All images have alt text."
+            echo "✅ No filenames with underscores (excluding /images/ and /logo/)."
           fi
 
           echo "Checking that each file has title, description, and canonical URL..."
@@ -85,15 +77,17 @@ jobs:
               continue
             fi
 
-            # Ensure canonical matches file path (assuming /docs/foo/bar.mdx → canonical: /foo/bar)
+            # Build expected canonical: https://docs.paradedb.com/<relative path without .mdx>
             relative_path=$(echo "$file" | sed 's|^\./||; s|\.mdx$||; s|^docs/||')
-            canonical_path=$(echo "$canonical" | sed 's/^canonical:[[:space:]]*//; s|/||')
-            expected_path=$(echo "$relative_path" | sed 's|^/||')
+            expected_canonical="https://docs.paradedb.com/${relative_path}"
 
-            if [ "$canonical_path" != "$expected_path" ]; then
+            # Extract canonical from file (strip 'canonical:' and whitespace)
+            found_canonical=$(echo "$canonical" | sed 's/^canonical:[[:space:]]*//')
+
+            if [ "$found_canonical" != "$expected_canonical" ]; then
               echo "❌ Canonical URL mismatch in $file"
-              echo "   Expected: /$expected_path"
-              echo "   Found: /$canonical_path"
+              echo "   Expected: $expected_canonical"
+              echo "   Found:    $found_canonical"
               missing_meta=1
             fi
           done

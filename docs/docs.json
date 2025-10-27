@@ -58,9 +58,7 @@
                           },
                           {
                             "group": "Feature Flags",
-                            "pages": [
-                              "documentation/configuration/custom_scan"
-                            ]
+                            "pages": ["documentation/configuration/custom_scan"]
                           }
                         ]
                       },
@@ -94,9 +92,7 @@
                           "documentation/advanced/overview",
                           {
                             "group": "Full Text Queries",
-                            "pages": [
-                              "documentation/advanced/full-text/match"
-                            ]
+                            "pages": ["documentation/advanced/full-text/match"]
                           },
                           {
                             "group": "Term-Level Queries",
@@ -152,9 +148,7 @@
                           "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
-                            "pages": [
-                              "documentation/aggregates/bucket/terms"
-                            ]
+                            "pages": ["documentation/aggregates/bucket/terms"]
                           },
                           {
                             "group": "Metrics",
@@ -231,7 +225,6 @@
                           "v2/indexing/indexing-expressions",
                           "v2/indexing/indexing-json",
                           "v2/indexing/reindexing"
-
                         ]
                       },
                       {
@@ -326,9 +319,7 @@
                       },
                       {
                         "group": "Aggregates",
-                        "pages": [
-                          "v2/aggregates/overview"
-                        ]
+                        "pages": ["v2/aggregates/overview"]
                       }
                     ]
                   },
@@ -372,10 +363,7 @@
                   "deploy/third-party-extensions",
                   {
                     "group": "Continuous Integration",
-                    "pages": [
-                      "deploy/ci/github-actions",
-                      "deploy/ci/gitlab-ci"
-                    ]
+                    "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
                   }
                 ]
               }

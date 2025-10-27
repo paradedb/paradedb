@@ -7,7 +7,8 @@ In user-facing search, autocomplete refers to the process of suggesting relevant
 Several of ParadeDB's search APIs can be mixed and matched to build a full-fledged autocomplete experience.
 
 <Note>
-  This guide uses the [`mock_items` table](/documentation/getting-started/quickstart).
+  This guide uses the [`mock_items`
+  table](/documentation/getting-started/quickstart).
 </Note>
 
 ## Fuzzy Term
@@ -23,14 +24,9 @@ WHERE id @@@ paradedb.fuzzy_term(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- Generic shoes       |      4 | Footwear
- White jogging shoes |      3 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  Generic shoes | 4 | Footwear White jogging shoes | 3 | Footwear (3 rows) ```
 </Accordion>
 
 ## Fuzzy Matching
@@ -49,14 +45,9 @@ WHERE id @@@ paradedb.match(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- Generic shoes       |      4 | Footwear
- White jogging shoes |      3 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  Generic shoes | 4 | Footwear White jogging shoes | 3 | Footwear (3 rows) ```
 </Accordion>
 
 For a stricter result set, `match` can be configured to match documents if **all** query tokens match.
@@ -72,12 +63,9 @@ WHERE id @@@ paradedb.match(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
-(1 row)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  (1 row) ```
 </Accordion>
 
 ## Multiple Fuzzy Fields
@@ -95,14 +83,9 @@ WHERE id @@@ paradedb.boolean(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- Generic shoes       |      4 | Footwear
- White jogging shoes |      3 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  Generic shoes | 4 | Footwear White jogging shoes | 3 | Footwear (3 rows) ```
 </Accordion>
 
 ## Ngram Term
@@ -130,14 +113,9 @@ ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- Generic shoes       |      4 | Footwear
- White jogging shoes |      3 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  Generic shoes | 4 | Footwear White jogging shoes | 3 | Footwear (3 rows) ```
 </Accordion>
 
 ## Ngram Term Set
@@ -158,14 +136,9 @@ WHERE id @@@ paradedb.match(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- Generic shoes       |      4 | Footwear
- White jogging shoes |      3 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  Generic shoes | 4 | Footwear White jogging shoes | 3 | Footwear (3 rows) ```
 </Accordion>
 
 ## Further Customization

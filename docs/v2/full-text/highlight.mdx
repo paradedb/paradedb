@@ -5,14 +5,12 @@ canonical: https://docs.paradedb.com/v2/full-text/highlight
 ---
 
 <Note>
-Highlighting is an expensive process and can slow down query times.
-We recommend passing a `LIMIT` to any query where `pdb.snippet` is called to restrict the
-number of snippets that need to be generated.
+  Highlighting is an expensive process and can slow down query times. We
+  recommend passing a `LIMIT` to any query where `pdb.snippet` is called to
+  restrict the number of snippets that need to be generated.
 </Note>
 
-<Note>
-Highlighting is not supported for fuzzy search.
-</Note>
+<Note>Highlighting is not supported for fuzzy search.</Note>
 
 Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
 search query.
@@ -61,12 +59,9 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-```csv
- id |          snippet           | snippet_positions
-----+----------------------------+-------------------
-  3 | Sleek running <b>shoes</b> | {"{14,19}"}
-  4 | White jogging <b>shoes</b> | {"{14,19}"}
-  5 | Generic <b>shoes</b>       | {"{8,13}"}
-(3 rows)
-```
+  ```csv id | snippet | snippet_positions
+  ----+----------------------------+------------------- 3 | Sleek running{" "}
+  <b>shoes</b> | {"{14,19}"}4 | White jogging <b>shoes</b> | {"{14,19}"}5 |
+  Generic <b>shoes</b> | {"{8,13}"}
+  (3 rows) ```
 </Accordion>

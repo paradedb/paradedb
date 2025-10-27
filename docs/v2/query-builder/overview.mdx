@@ -19,13 +19,9 @@ WHERE description @@@ pdb.regex('key.*rd');
 ```
 
 <Accordion title="Expected Output">
-```csv
-       description        | rating |  category
---------------------------+--------+-------------
- Ergonomic metal keyboard |      4 | Electronics
- Plastic Keyboard         |      4 | Electronics
-(2 rows)
-```
+  ```csv description | rating | category
+  --------------------------+--------+------------- Ergonomic metal keyboard | 4
+  | Electronics Plastic Keyboard | 4 | Electronics (2 rows) ```
 </Accordion>
 
 This uses the [regex](/v2/query-builder/term/regex) query builder function to match all rows where `description` matches the regex expression `key.*rd`.
@@ -40,7 +36,7 @@ functions. However, there are three situations where query builder functions are
 2. If you want to leverage ParadeDB's support for [JSON query syntax](/v2/query-builder/json).
 
 3. If you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). There are some cases where queries that don't contain a ParadeDB
-operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an `AND ... pdb.all()` `WHERE` clause is semantically equivalent and forces ParadeDB to execute the query.
+   operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an `AND ... pdb.all()` `WHERE` clause is semantically equivalent and forces ParadeDB to execute the query.
 
 ```sql
 -- Top N executed by standard Postgres

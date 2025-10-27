@@ -4,13 +4,14 @@ noindex: true
 ---
 
 <Note>
-Highlighting is an expensive process and can slow down query times.
-We recommend passing a `LIMIT` to any query where `pdb.snippet` is called to restrict the
-number of snippets that need to be generated.
+  Highlighting is an expensive process and can slow down query times. We
+  recommend passing a `LIMIT` to any query where `pdb.snippet` is called to
+  restrict the number of snippets that need to be generated.
 </Note>
 
 <Note>
-Highlighting is not supported for queries that use fuzziness, like `paradedb.fuzzy_term`.
+  Highlighting is not supported for queries that use fuzziness, like
+  `paradedb.fuzzy_term`.
 </Note>
 
 Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
@@ -67,14 +68,11 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-```csv
- id |          snippet           | snippet_positions
-----+----------------------------+-------------------
-  3 | Sleek running <b>shoes</b> | {"{14,19}"}
-  4 | White jogging <b>shoes</b> | {"{14,19}"}
-  5 | Generic <b>shoes</b>       | {"{8,13}"}
-(3 rows)
-```
+  ```csv id | snippet | snippet_positions
+  ----+----------------------------+------------------- 3 | Sleek running{" "}
+  <b>shoes</b> | {"{14,19}"}4 | White jogging <b>shoes</b> | {"{14,19}"}5 |
+  Generic <b>shoes</b> | {"{8,13}"}
+  (3 rows) ```
 </Accordion>
 
 ## Snippet Limit and Offset
@@ -97,7 +95,8 @@ WHERE description @@@ 'shoes' AND description @@@ 'sleek' AND description @@@ 'r
 ```
 
 <Note>
-The `limit` and `offset` arguments must be wrapped in double quotes because they are reserved keywords in Postgres.
+  The `limit` and `offset` arguments must be wrapped in double quotes because
+  they are reserved keywords in Postgres.
 </Note>
 
 In the output above, notice that `sleek` is not highlighted because an offset of `1` skips the first highlighted term.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761589176499,
+  "lastUpdate": 1761589385060,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45304,6 +45304,60 @@ window.BENCHMARK_DATA = {
             "value": 19.319568795821684,
             "unit": "median tps",
             "extra": "avg tps: 19.429224184768383, max tps: 21.84026784860809, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "548be62f0752d0199602e4c04fcc27f786d76251",
+          "message": "chore: Cherry-pick missing SQL upgrade scripts. (#3418)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSee:\nhttps://github.com/paradedb/paradedb/issues/3341#issuecomment-3426095808\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-27T10:29:13-07:00",
+          "tree_id": "ee1d4cd6cb911696f72b8e23373f410c1f1db1d3",
+          "url": "https://github.com/paradedb/paradedb/commit/548be62f0752d0199602e4c04fcc27f786d76251"
+        },
+        "date": 1761589382924,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.48416173100571,
+            "unit": "median tps",
+            "extra": "avg tps: 37.48092763657946, max tps: 41.7810269697291, count: 55478"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.59135073481994,
+            "unit": "median tps",
+            "extra": "avg tps: 279.4464158895936, max tps: 2926.590632815152, count: 55478"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1046.1756432440302,
+            "unit": "median tps",
+            "extra": "avg tps: 1045.367671831673, max tps: 1058.3215538793236, count: 55478"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.13090204536483,
+            "unit": "median tps",
+            "extra": "avg tps: 156.055419943427, max tps: 861.6943294876626, count: 110956"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.631565550723188,
+            "unit": "median tps",
+            "extra": "avg tps: 17.63568117878332, max tps: 19.342220593693213, count: 55478"
           }
         ]
       }

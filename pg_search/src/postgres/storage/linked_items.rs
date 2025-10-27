@@ -251,10 +251,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
                 if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
                     match f(self.bman_mut(), entry) {
                         RetainItem::Remove(entry) => {
-                            page.mark_item_dead(offsetno);
-
-                            recycled_entries.push(entry);
-                            delete_offsets.push(offsetno);
+                            if !page.item_is_dead(offsetno) {
+                                page.mark_item_dead(offsetno);
+                                recycled_entries.push(entry);
+                                delete_offsets.push(offsetno);
+                            }
                         }
                         RetainItem::Retain => {}
                     }

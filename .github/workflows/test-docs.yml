@@ -54,6 +54,7 @@ jobs:
         run: |
           echo "Running SEO validation..."
 
+          echo ""
           echo "Checking for underscores in URLs..."
           files=$(find . -type f -name "*_*" ! -path "./images/*" ! -path "./logo/*")
           if [ -n "$files" ]; then

@@ -42,3 +42,63 @@ jobs:
             echo "$output"
             exit 1
           fi
+
+      # Check that:
+      # - There are no underscores in URLs
+      # - There are no missing alt texts for images
+      # - Each .mdx file has a title, description, and canonical URL
+      # - Each canonical URL matches the file path
+      - name: Test for SEO Issues
+        working-directory: docs/
+        run: |
+          echo "Running SEO validation..."
+
+          echo "Checking for underscores in URLs..."
+          if grep -R "_[A-Za-z0-9]" ./**/*.mdx --include \*.mdx; then
+            echo "❌ Found underscores in URLs."
+            exit 1
+          else
+            echo "✅ No underscores in URLs."
+          fi
+
+          echo "Checking for missing alt texts in images..."
+          if grep -R '!\[\s*\]\(.*\)' ./**/*.mdx --include \*.mdx --exclude-dir=node_modules; then
+            echo "❌ Found images missing alt text."
+            exit 1
+          else
+            echo "✅ All images have alt text."
+          fi
+
+          echo "Checking that each file has title, description, and canonical URL..."
+          missing_meta=0
+          for file in $(find . -name "*.mdx"); do
+            title=$(grep -E "^title:" "$file" || true)
+            desc=$(grep -E "^description:" "$file" || true)
+            canonical=$(grep -E "^canonical:" "$file" || true)
+
+            if [ -z "$title" ] || [ -z "$desc" ] || [ -z "$canonical" ]; then
+              echo "❌ Missing metadata in $file"
+              missing_meta=1
+              continue
+            fi
+
+            # Ensure canonical matches file path (assuming /docs/foo/bar.mdx → canonical: /foo/bar)
+            relative_path=$(echo "$file" | sed 's|^\./||; s|\.mdx$||; s|^docs/||')
+            canonical_path=$(echo "$canonical" | sed 's/^canonical:[[:space:]]*//; s|/||')
+            expected_path=$(echo "$relative_path" | sed 's|^/||')
+
+            if [ "$canonical_path" != "$expected_path" ]; then
+              echo "❌ Canonical URL mismatch in $file"
+              echo "   Expected: /$expected_path"
+              echo "   Found: /$canonical_path"
+              missing_meta=1
+            fi
+          done
+
+          if [ "$missing_meta" -eq 1 ]; then
+            exit 1
+          else
+            echo "✅ All files have proper metadata and canonical URLs."
+          fi
+
+          echo "🎉 All SEO checks passed!"

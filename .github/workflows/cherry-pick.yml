@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          persist-credentials: false # To avoid using the default GITHUB_TOKEN in the cherry-pick action
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
       - name: Cherry Pick to ${{ matrix.branch }}
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:

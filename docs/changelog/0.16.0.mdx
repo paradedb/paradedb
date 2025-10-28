@@ -1,6 +1,7 @@
 ---
 title: 0.16.0
 description: Changelog for ParadeDB v0.16.0
+canonical: https://docs.paradedb.com/changelog/0.16.0
 ---
 
 `0.16.0` does **not** contain breaking changes to existing indexes. However, several settings around index creation have been changed.
@@ -9,7 +10,7 @@ Please read the changelog carefully.
 ## New Features 🎉
 
 - `CREATE INDEX`/`REINDEX` can now leverage Postgres parallel workers, which significantly improves index build times. To fully take advantage
-  of parallel index builds, some [Postgres settings](/documentation/configuration/index_build) may require tuning. Additionally, the old `paradedb.create_index_*` and `paradedb.statement_*` settings have been removed in favor of the built-in
+  of parallel index builds, some [Postgres settings](/documentation/configuration/index-build) may require tuning. Additionally, the old `paradedb.create_index_*` and `paradedb.statement_*` settings have been removed in favor of the built-in
   `postgresql.conf` settings.
 - Indexing expressions is a new beta feature for advanced users.
 - `paradedb.snippet` now works for JSON.

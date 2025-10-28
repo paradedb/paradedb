@@ -1,16 +1,17 @@
 ---
 title: Highlighting
-canonical: https://docs.paradedb.com/v2/full-text/highlighting
+description: Highlight matching terms/snippets in the source text.
+canonical: https://docs.paradedb.com/v2/full-text/highlight
 ---
 
 <Note>
-Highlighting is an expensive process and can slow down query times.
-We recommend passing a `LIMIT` to any query where `pdb.snippet` is called to restrict the
-number of snippets that need to be generated.
+  Highlighting is an expensive process and can slow down query times. We
+  recommend passing a `LIMIT` to any query where `pdb.snippet` is called to
+  restrict the number of snippets that need to be generated.
 </Note>
 
 <Note>
-Highlighting is not supported for fuzzy search.
+  Highlighting is not supported for fuzzy search.
 </Note>
 
 Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's

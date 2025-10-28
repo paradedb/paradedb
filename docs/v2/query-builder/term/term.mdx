@@ -1,6 +1,7 @@
 ---
 title: Term
-canonical: https://docs.paradedb.com/v2/advanced/term/term
+description: The query builder equivalent of the term query.
+canonical: https://docs.paradedb.com/v2/query-builder/term/term
 ---
 
 A term query treats the query as a single token. Because it does not apply any additional tokenization or processing
@@ -30,7 +31,7 @@ WHERE rating @@@ pdb.term(4);
 
 ## Enumerated Types
 
-`term` can be used to filter over custom Postgres [enums](/documentation/indexing/create_index#enumerated-types)
+`term` can be used to filter over custom Postgres [enums](/documentation/indexing/create-index#enumerated-types)
 if the query term is explicitly cast to the enum type.
 
 In this example, `color` is a custom enum:

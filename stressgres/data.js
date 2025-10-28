@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761619924510,
+  "lastUpdate": 1761620653109,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46534,6 +46534,60 @@ window.BENCHMARK_DATA = {
             "value": 17.93955885162329,
             "unit": "median tps",
             "extra": "avg tps: 18.07393305208396, max tps: 21.603179512754327, count: 55694"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "686c945bcc44f67a83bbde96ecb0842426bb15d9",
+          "message": "fix: FSM double-add/undefined behavior issues (#3427)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nI have identified two places where we add the same blocks to the FSM,\nwhich leads to undefined behavior.\n\n1. In `garbage_collect_index`, we go through the segment meta entries\nlist and return all blocks belonging to files of recyclable meta entries\nto the FSM. However, there's nothing guarding against two transactions\nfrom seeing the same recyclable entries twice.\n\n2. Inside `drain` of the V2FSM, when the \"head\" block of an AVL leaf is\ndrained, we unlink it and send it to the FSM. However, it is possible\nfor two concurrent transactions to both think they've drained the head,\nand send the same head block back to the FSM.\n\nThe problem arises here:\n\n```rust\nif !modified {\n    // we didn't change anything\n    buffer.set_dirty(false);\n}\n\n// drop the leaf buffer -- we're done with it and it's possible we'll need to\n// unlink it from the list and that requires an exclusive lock on the tree\n// and we can't have both at the same time\ndrop(buffer);\n\nif should_unlink_head {\n    let old_head = head_blockno;\n\n    // get mutable tree without holding any other locks\n    let mut root = bman.get_buffer_mut(self.start_blockno);\n```\n\nSuppose transaction A drains the \"head\" block. Before unlinking the\nhead, it must drop it (see `drop(buffer)`). When the buffer is dropped,\na concurrent transaction B can lock onto the same \"head\" block, see that\nit's empty, and think that it is the one that drained the head block.\nNow both transactions go to unlink the same block and return it to the\nFSM.\n\n## Why\n\n## How\n\nTo fix #1, when recycling meta entries we check to see if the entry has\nalready been deleted using Postgres' `LP_DEAD` flag.\n\nTo fix #2, before sending the \"head\" block to the FSM we re-check the\nroot to see if the head block is still what we think it is. If another\ntransaction has already unlinked the head then the values won't match.\n\n## Tests\n\nRan stressgres `single-server.toml` for a long time with `block_tracker`\nenabled.\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-27T22:08:19-04:00",
+          "tree_id": "bc4bfe6913c5bd6c8ab1cb55b7204dd3684d9f6a",
+          "url": "https://github.com/paradedb/paradedb/commit/686c945bcc44f67a83bbde96ecb0842426bb15d9"
+        },
+        "date": 1761620650885,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.74728144820965,
+            "unit": "median tps",
+            "extra": "avg tps: 38.65101676840393, max tps: 41.60950015458241, count: 55535"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.70685504134246,
+            "unit": "median tps",
+            "extra": "avg tps: 274.55358729870835, max tps: 2887.165365945694, count: 55535"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1060.2422073065734,
+            "unit": "median tps",
+            "extra": "avg tps: 1055.8173090302957, max tps: 1067.0497076312613, count: 55535"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 117.40796714236092,
+            "unit": "median tps",
+            "extra": "avg tps: 154.57462593003123, max tps: 889.9902479512057, count: 111070"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.15571891051893,
+            "unit": "median tps",
+            "extra": "avg tps: 19.036403256329695, max tps: 21.178364631673613, count: 55535"
           }
         ]
       }

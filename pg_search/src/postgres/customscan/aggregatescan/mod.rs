@@ -63,10 +63,135 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+        let stage = builder.args().stage;
+        pgrx::warning!(
+            "AggregateScan::create_custom_path called at stage {:?}",
+            stage
+        );
+
+        // At UPPERREL_WINDOW, we have an input_rel with a subplan
+        // At UPPERREL_GROUP_AGG, input_rel should be a base relation
+        unsafe {
+            let input_rel = builder.args().input_rel();
+            pgrx::warning!("  input_rel.reloptkind = {:?}", (*input_rel).reloptkind);
+
+            if stage == pg_sys::UpperRelationKind::UPPERREL_WINDOW {
+                // At UPPERREL_WINDOW, check what's available
+                pgrx::warning!("  UPPERREL_WINDOW: checking available target lists");
+
+                // Check input_rel.reltarget (base columns from subplan)
+                if !(*input_rel).reltarget.is_null() {
+                    let input_exprs =
+                        PgList::<pg_sys::Expr>::from_pg((*(*input_rel).reltarget).exprs);
+                    pgrx::warning!("  input_rel.reltarget has {} exprs", input_exprs.len());
+                }
+
+                // Check output_rel.reltarget (should have window functions)
+                let output_rel = builder.args().output_rel();
+                if !(*output_rel).reltarget.is_null() {
+                    let output_exprs =
+                        PgList::<pg_sys::Expr>::from_pg((*(*output_rel).reltarget).exprs);
+                    pgrx::warning!("  output_rel.reltarget has {} exprs", output_exprs.len());
+                    for (i, expr) in output_exprs.iter_ptr().enumerate() {
+                        pgrx::warning!("    output_rel expr {}: type={:?}", i, (*expr).type_);
+                    }
+                }
+
+                // Check if output_rel has existing paths we can inspect
+                if !(*output_rel).pathlist.is_null() {
+                    let pathlist = PgList::<pg_sys::Path>::from_pg((*output_rel).pathlist);
+                    pgrx::warning!("  output_rel.pathlist has {} paths", pathlist.len());
+                }
+
+                // Check input_rel paths - these are the subplans we'll be wrapping
+                if !(*input_rel).pathlist.is_null() {
+                    let input_pathlist = PgList::<pg_sys::Path>::from_pg((*input_rel).pathlist);
+                    pgrx::warning!("  input_rel.pathlist has {} paths", input_pathlist.len());
+
+                    // Check the cheapest path's target
+                    if !(*input_rel).cheapest_total_path.is_null() {
+                        let cheapest_path = (*input_rel).cheapest_total_path;
+                        if !(*cheapest_path).pathtarget.is_null() {
+                            let target_exprs = PgList::<pg_sys::Expr>::from_pg(
+                                (*(*cheapest_path).pathtarget).exprs,
+                            );
+                            pgrx::warning!(
+                                "  input_rel.cheapest_total_path.pathtarget has {} exprs",
+                                target_exprs.len()
+                            );
+                            for (i, expr) in target_exprs.iter_ptr().enumerate() {
+                                pgrx::warning!(
+                                    "    input path expr {}: type={:?}",
+                                    i,
+                                    (*expr).type_
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Check parse tree for window functions
+                let root = builder.args().root();
+                let parse = (*root).parse;
+                if !parse.is_null() {
+                    if !(*parse).windowClause.is_null() {
+                        let window_clause =
+                            PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause);
+                        pgrx::warning!("  parse.windowClause has {} entries", window_clause.len());
+                    }
+
+                    // Check targetList for WindowFunc nodes
+                    if !(*parse).targetList.is_null() {
+                        let target_entries =
+                            PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                        let mut window_func_count = 0;
+                        for te in target_entries.iter_ptr() {
+                            if !(*te).expr.is_null()
+                                && (*(*te).expr).type_ == pg_sys::NodeTag::T_WindowFunc
+                            {
+                                window_func_count += 1;
+                            }
+                        }
+                        pgrx::warning!(
+                            "  parse.targetList has {} WindowFunc nodes",
+                            window_func_count
+                        );
+                    }
+
+                    // Check root->processed_tlist (this is what PostgreSQL uses for window functions)
+                    if !(*root).processed_tlist.is_null() {
+                        let processed_tlist =
+                            PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+                        pgrx::warning!(
+                            "  root.processed_tlist has {} entries",
+                            processed_tlist.len()
+                        );
+                        let mut window_func_count = 0;
+                        for te in processed_tlist.iter_ptr() {
+                            if !(*te).expr.is_null()
+                                && (*(*te).expr).type_ == pg_sys::NodeTag::T_WindowFunc
+                            {
+                                window_func_count += 1;
+                            }
+                        }
+                        pgrx::warning!(
+                            "  root.processed_tlist has {} WindowFunc nodes",
+                            window_func_count
+                        );
+                    }
+                }
+            }
+        }
+
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+            pgrx::warning!("  input_rel is not a base relation, returning None");
             return None;
         }
+
+        // At UPPERREL_WINDOW stage, handle window functions
+        // At UPPERREL_GROUP_AGG stage, handle regular aggregates
+        // Both use the same infrastructure (TargetList, AggregateType, etc.)
 
         let parent_relids = builder.args().input_rel().relids;
         let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
@@ -90,20 +215,197 @@ impl CustomScan for AggregateScan {
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
-        builder.set_scanrelid(builder.custom_private().heap_rti);
+        pgrx::warning!("AggregateScan::plan_custom_path called");
 
-        if builder
+        // Both UPPERREL_WINDOW and UPPERREL_GROUP_AGG scan the base relation directly
+        // The difference is only in what they compute (window aggregates vs regular aggregates)
+        let heap_rti = builder.custom_private().heap_rti;
+        pgrx::warning!("  Setting scanrelid = {} (base scan)", heap_rti);
+
+        // Build target list if needed (at UPPERREL_WINDOW, PostgreSQL doesn't provide one)
+        let new_tlist_opt = unsafe {
+            let rel = builder.args().rel;
+            pgrx::warning!("  rel.relid = {}", (*rel).relid);
+
+            // Check what's in the tlist parameter passed by PostgreSQL
+            let tlist = &builder.args().tlist;
+            pgrx::warning!("  tlist has {} entries", tlist.len());
+
+            // At UPPERREL_WINDOW, PostgreSQL doesn't build a target list for us (tlist is empty)
+            // We need to build it ourselves from input_rel.reltarget + window functions
+            let has_window_aggs = builder
+                .custom_private()
+                .aggregate_clause
+                .targetlist()
+                .has_window_aggregates();
+            if tlist.is_empty() && has_window_aggs {
+                pgrx::warning!("  tlist is empty at UPPERREL_WINDOW, building our own");
+
+                // Build target list from input_rel.reltarget (base columns) + window functions
+                let input_rel = (*builder.args().best_path).path.parent;
+                let root = builder.args().root;
+
+                if !(*root).processed_tlist.is_null() {
+                    let processed_tlist =
+                        PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+
+                    pgrx::warning!("    processed_tlist has {} entries", processed_tlist.len());
+
+                    // Build target list with placeholders for WindowFunc nodes from the start
+                    // Don't include WindowFunc nodes at all - PostgreSQL validates immediately
+                    let mut new_tlist = PgList::<pg_sys::TargetEntry>::new();
+                    let mut resno = 1;
+
+                    for te in processed_tlist.iter_ptr() {
+                        if !(*te).expr.is_null() {
+                            let expr = (*te).expr;
+
+                            // Replace WindowFunc with placeholder immediately
+                            let final_expr = if (*expr).type_ == pg_sys::NodeTag::T_WindowFunc {
+                                pgrx::warning!(
+                                    "      Replacing WindowFunc at resno={} with placeholder",
+                                    resno
+                                );
+                                let funcexpr =
+                                    make_window_func_placeholder_without_accessing_windowfunc();
+                                funcexpr as *mut pg_sys::Expr
+                            } else {
+                                expr
+                            };
+
+                            let new_te = pg_sys::makeTargetEntry(
+                                final_expr,
+                                resno,
+                                (*te).resname,
+                                (*te).resjunk,
+                            );
+                            new_tlist.push(new_te);
+                            resno += 1;
+                        }
+                    }
+
+                    pgrx::warning!(
+                        "  Built new tlist with {} entries (WindowFunc replaced with placeholders)",
+                        new_tlist.len()
+                    );
+                    pgrx::warning!("  About to call new_tlist.into_pg()");
+                    let result = new_tlist.into_pg();
+                    pgrx::warning!("  Called new_tlist.into_pg() successfully");
+
+                    // CRITICAL: Also replace WindowFunc nodes in root.processed_tlist
+                    // PostgreSQL validates the plan and checks root.processed_tlist
+                    pgrx::warning!("  Replacing WindowFunc in root.processed_tlist");
+                    let mut new_processed_tlist = PgList::<pg_sys::TargetEntry>::new();
+                    for te in processed_tlist.iter_ptr() {
+                        if !(*te).expr.is_null() {
+                            let expr = (*te).expr;
+                            if (*expr).type_ == pg_sys::NodeTag::T_WindowFunc {
+                                let funcexpr =
+                                    make_window_func_placeholder_without_accessing_windowfunc();
+                                let new_te = pg_sys::makeTargetEntry(
+                                    funcexpr as *mut pg_sys::Expr,
+                                    (*te).resno,
+                                    (*te).resname,
+                                    (*te).resjunk,
+                                );
+                                new_processed_tlist.push(new_te);
+                            } else {
+                                new_processed_tlist.push(pg_sys::flatCopyTargetEntry(te));
+                            }
+                        }
+                    }
+                    (*root).processed_tlist = new_processed_tlist.into_pg();
+                    pgrx::warning!("  Replaced WindowFunc in root.processed_tlist");
+
+                    // Also check if there are WindowFunc nodes in windowClause
+                    let parse = (*root).parse;
+                    if !parse.is_null() && !(*parse).windowClause.is_null() {
+                        pgrx::warning!("  WARNING: parse.windowClause is not null - this might contain WindowFunc references");
+                        // Clear the windowClause since we're handling window functions ourselves
+                        (*parse).windowClause = std::ptr::null_mut();
+                        pgrx::warning!("  Cleared parse.windowClause");
+                    }
+
+                    // Also replace in parse.targetList
+                    if !parse.is_null() && !(*parse).targetList.is_null() {
+                        pgrx::warning!("  Replacing WindowFunc in parse.targetList");
+                        let parse_tlist =
+                            PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                        let mut new_parse_tlist = PgList::<pg_sys::TargetEntry>::new();
+                        for te in parse_tlist.iter_ptr() {
+                            if !(*te).expr.is_null() {
+                                let expr = (*te).expr;
+                                if (*expr).type_ == pg_sys::NodeTag::T_WindowFunc {
+                                    let funcexpr =
+                                        make_window_func_placeholder_without_accessing_windowfunc();
+                                    let new_te = pg_sys::makeTargetEntry(
+                                        funcexpr as *mut pg_sys::Expr,
+                                        (*te).resno,
+                                        (*te).resname,
+                                        (*te).resjunk,
+                                    );
+                                    new_parse_tlist.push(new_te);
+                                } else {
+                                    new_parse_tlist.push(pg_sys::flatCopyTargetEntry(te));
+                                }
+                            }
+                        }
+                        (*parse).targetList = new_parse_tlist.into_pg();
+                        pgrx::warning!("  Replaced WindowFunc in parse.targetList");
+                    }
+
+                    Some(result)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        builder.set_scanrelid(heap_rti);
+
+        let should_replace_aggrefs = builder
             .custom_private()
             .aggregate_clause
-            .planner_should_replace_aggrefs()
-        {
+            .planner_should_replace_aggrefs();
+
+        let has_window_aggregates = builder
+            .custom_private()
+            .aggregate_clause
+            .targetlist()
+            .has_window_aggregates();
+
+        if should_replace_aggrefs || has_window_aggregates || new_tlist_opt.is_some() {
             unsafe {
                 let mut cscan = builder.build();
                 let plan = &mut cscan.scan.plan;
-                replace_aggrefs_in_target_list(plan);
+
+                // Set the new target list if we built one
+                // Note: WindowFunc nodes are already replaced with placeholders at this point
+                if let Some(new_tlist) = new_tlist_opt {
+                    pgrx::warning!(
+                        "  Setting new target list on plan (WindowFunc already replaced)"
+                    );
+                    plan.targetlist = new_tlist;
+                }
+
+                if should_replace_aggrefs {
+                    replace_aggrefs_in_target_list(plan);
+                }
+
+                // WindowFunc replacement already done above if we built a new target list
+                if has_window_aggregates && new_tlist_opt.is_none() {
+                    replace_windowfuncs_in_target_list(plan);
+                }
+
+                pgrx::warning!("AggregateScan::plan_custom_path returning CustomScan");
                 cscan
             }
         } else {
+            pgrx::warning!(
+                "AggregateScan::plan_custom_path returning CustomScan (no replacements)"
+            );
             builder.build()
         }
     }
@@ -151,7 +453,9 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
+        pgrx::warning!("AggregateScan::begin_custom_scan called - THIS IS A BUG if query has window functions!");
         unsafe {
+            pgrx::warning!("  execution_rti = {}", state.custom_state().execution_rti);
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
@@ -220,6 +524,13 @@ impl CustomScan for AggregateScan {
                         .try_into_datum(pgrx::PgOid::from(expected_typoid))
                         .expect("should be able to convert to datum"),
                     (TargetListEntry::GroupingColumn(_), true) => None,
+                    (TargetListEntry::PassThrough { .. }, _) => {
+                        // PassThrough columns should be handled by PdbScan-style execution
+                        // For now, return NULL as a placeholder
+                        pgrx::error!(
+                            "PassThrough columns not yet implemented in AggregateScan execution"
+                        )
+                    }
                     (TargetListEntry::Aggregate(agg_type), false) => {
                         if agg_type.can_use_doc_count()
                             && !state.custom_state().aggregate_clause.has_filter()
@@ -247,6 +558,11 @@ impl CustomScan for AggregateScan {
                                 .try_into_datum(expected_typoid.into())
                                 .unwrap()
                         })
+                    }
+                    // Window aggregates are not handled by AggregateScan execution
+                    // They should be handled by PdbScan when window functions are present
+                    (TargetListEntry::WindowAggregate(_), _) => {
+                        pgrx::error!("WindowAggregate should not be present in AggregateScan execution - this is a planning bug")
                     }
                 };
 
@@ -361,6 +677,81 @@ unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys
     (*paradedb_funcexpr).args = PgList::<pg_sys::Node>::new().into_pg();
 
     paradedb_funcexpr
+}
+
+/// Replace WindowFunc nodes in the target list with window_func() placeholders.
+/// This is similar to replace_aggrefs_in_target_list but for window functions.
+unsafe fn replace_windowfuncs_in_target_list(plan: *mut pg_sys::Plan) {
+    pgrx::warning!("replace_windowfuncs_in_target_list called");
+    if (*plan).targetlist.is_null() {
+        pgrx::warning!("  targetlist is NULL, returning");
+        return;
+    }
+
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
+    pgrx::warning!("  original_tlist has {} entries", original_tlist.len());
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
+
+    for (i, te) in original_tlist.iter_ptr().enumerate() {
+        pgrx::warning!("    Processing entry {}: type={:?}", i, (*(*te).expr).type_);
+
+        // Check if it's a WindowFunc without using nodecast (which might trigger validation)
+        let expr = (*te).expr;
+        if !expr.is_null() && (*expr).type_ == pg_sys::NodeTag::T_WindowFunc {
+            pgrx::warning!("    Found WindowFunc at entry {}, replacing", i);
+            // Don't cast to WindowFunc - just create a placeholder with dummy type
+            pgrx::warning!(
+                "      About to call make_window_func_placeholder_without_accessing_windowfunc"
+            );
+            let funcexpr = make_window_func_placeholder_without_accessing_windowfunc();
+            pgrx::warning!("      Got funcexpr, about to call makeTargetEntry");
+            // Create a new TargetEntry with the placeholder
+            let new_te = pg_sys::makeTargetEntry(
+                funcexpr as *mut pg_sys::Expr,
+                (*te).resno,
+                (*te).resname,
+                (*te).resjunk,
+            );
+            pgrx::warning!("      Created new_te, about to push");
+            new_targetlist.push(new_te);
+            pgrx::warning!("      Pushed new_te");
+        } else {
+            // For non-WindowFunc entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
+        }
+    }
+
+    pgrx::warning!("  Finished processing all entries, about to set plan.targetlist");
+    (*plan).targetlist = new_targetlist.into_pg();
+    pgrx::warning!("  Set plan.targetlist successfully");
+}
+
+unsafe fn make_window_func_placeholder_without_accessing_windowfunc() -> *mut pg_sys::FuncExpr {
+    pgrx::warning!("      make_window_func_placeholder_without_accessing_windowfunc called");
+    let funcexpr: *mut pg_sys::FuncExpr = pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
+    (*funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
+    (*funcexpr).funcid = crate::api::window_function::window_func_oid();
+    // Don't access window_func fields - they cause "WindowFunc found in non-WindowAgg plan node" error
+    // Just use a dummy type for now (INT8) - the actual type will be determined at execution
+    (*funcexpr).funcresulttype = pg_sys::INT8OID;
+    (*funcexpr).funcretset = false;
+    (*funcexpr).funcvariadic = false;
+    (*funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+    (*funcexpr).funccollid = pg_sys::InvalidOid;
+    (*funcexpr).inputcollid = pg_sys::InvalidOid;
+    (*funcexpr).location = -1;
+    (*funcexpr).args = PgList::<pg_sys::Node>::new().into_pg();
+
+    funcexpr
+}
+
+unsafe fn make_window_func_placeholder(
+    window_func: *mut pg_sys::WindowFunc,
+) -> *mut pg_sys::FuncExpr {
+    // This function is kept for compatibility but shouldn't be used
+    // because accessing window_func fields causes errors
+    make_window_func_placeholder_without_accessing_windowfunc()
 }
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.

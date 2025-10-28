@@ -118,6 +118,8 @@ impl AggregateType {
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
     ) -> Option<Self> {
+        use pgrx::{FromDatum, JsonB};
+
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
@@ -137,6 +139,35 @@ impl AggregateType {
             )
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
+
+        // Handle custom agg function (paradedb.agg)
+        let custom_agg_oid = crate::api::agg_funcoid().to_u32();
+        if aggfnoid == custom_agg_oid {
+            if args.is_empty() {
+                return None;
+            }
+
+            // Extract the jsonb argument from the first TargetEntry
+            let first_te = args.get_ptr(0)?;
+            let expr = (*first_te).expr;
+
+            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
+                if (*const_node).constisnull {
+                    return None;
+                }
+                let datum = (*const_node).constvalue;
+                let jsonb = JsonB::from_datum(datum, false)?;
+                jsonb.0
+            } else {
+                return None;
+            };
+
+            return Some(AggregateType::Custom {
+                agg_json: json_value,
+                filter: filter_query,
+                indexrelid: bm25_index.oid(),
+            });
+        }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Some(AggregateType::CountAny {

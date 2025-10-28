@@ -16,11 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
-mod exec_methods;
+pub mod exec_methods;
 pub mod parallel;
-mod privdat;
+pub mod privdat;
 pub mod projections;
-mod scan_state;
+pub mod scan_state;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_function::window_func_oid;
@@ -1328,13 +1328,25 @@ fn compute_exec_which_fast_fields(
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
-fn check_visibility(
+pub fn check_visibility(
     state: &mut CustomScanStateWrapper<PdbScan>,
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
     state
         .custom_state_mut()
+        .visibility_checker()
+        .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
+}
+
+/// Check visibility using a PdbScanState directly (for use by WindowScan)
+#[inline(always)]
+pub fn check_visibility_with_state(
+    pdbscan_state: &mut scan_state::PdbScanState,
+    ctid: u64,
+    bslot: *mut pg_sys::BufferHeapTupleTableSlot,
+) -> Option<*mut pg_sys::TupleTableSlot> {
+    pdbscan_state
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
 }
@@ -1380,7 +1392,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 
 /// Inject placeholder Const nodes for window aggregates at execution time
 /// At this point, the WindowFunc has been replaced with paradedb.window_func(json) calls
-unsafe fn inject_window_aggregate_placeholders(
+pub unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
 ) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {

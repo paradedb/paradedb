@@ -251,6 +251,10 @@ impl AggregateCSClause {
         self.targetlist.grouping_columns()
     }
 
+    pub fn targetlist(&self) -> &TargetList {
+        &self.targetlist
+    }
+
     pub fn has_filter(&self) -> bool {
         self.targetlist
             .aggregates()
@@ -335,17 +339,33 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
+        pgrx::warning!("  AggregateCSClause::build starting");
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
+        pgrx::warning!("  targetlist extracted");
         let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
+        pgrx::warning!("  orderby extracted");
         let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
+        pgrx::warning!("  limit_offset extracted");
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
+        pgrx::warning!("  quals extracted");
 
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
         {
+            pgrx::warning!(
+                "  Returning None: no @@@ operator found (quals={}, targetlist={})",
+                quals.uses_our_operator(),
+                targetlist.uses_our_operator()
+            );
             return None;
         }
+
+        pgrx::warning!(
+            "  Creating AggregateCSClause (quals={}, targetlist={})",
+            quals.uses_our_operator(),
+            targetlist.uses_our_operator()
+        );
 
         Some(Self {
             targetlist,

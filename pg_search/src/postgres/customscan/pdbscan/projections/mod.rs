@@ -19,6 +19,9 @@ pub mod score;
 pub mod snippet;
 pub mod window_agg;
 
+// Re-export commonly used types
+pub use snippet::SnippetType;
+
 use crate::api::operator::ReturnedNodePointer;
 use crate::api::FieldName;
 use crate::api::HashMap;
@@ -26,7 +29,6 @@ use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     extract_snippet_positions, extract_snippet_text, snippet_funcoid, snippet_positions_funcoid,
-    SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoid;

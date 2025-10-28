@@ -26,7 +26,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,

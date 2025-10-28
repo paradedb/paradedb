@@ -183,6 +183,48 @@ pub unsafe fn extract_window_specifications(
     window_aggs
 }
 
+/// Extract a complete WindowAggregateInfo from a WindowFunc node.
+///
+/// This is used by AggregateScan when it encounters WindowFunc nodes in the target list
+/// at UPPERREL_WINDOW stage.
+///
+/// Returns None if the window function is not supported or extraction fails.
+pub unsafe fn extract_window_aggregate_from_windowfunc(
+    window_func: *mut pg_sys::WindowFunc,
+    _heap_oid: pg_sys::Oid,
+    indexrelid: pg_sys::Oid,
+    root: *mut pg_sys::PlannerInfo,
+    _heap_rti: pg_sys::Index,
+) -> Option<WindowAggregateInfo> {
+    let parse = (*root).parse;
+
+    // Extract the aggregate type (filter conversion happens inside extract_standard_aggregate)
+    let mut agg_type = extract_standard_aggregate(parse, window_func)?;
+
+    // Set the indexrelid for Custom aggregates
+    if let AggregateType::Custom {
+        indexrelid: ref mut idx,
+        ..
+    } = agg_type
+    {
+        *idx = indexrelid;
+    }
+
+    // Extract complete aggregation specification
+    let agg_spec = extract_aggregation_spec(parse, agg_type, window_func)?;
+
+    // Check if supported
+    if !WindowAggregateInfo::is_supported(&Some(agg_spec.clone())) {
+        return None;
+    }
+
+    // Create WindowAggregateInfo with a placeholder target_entry_index (will be set later)
+    Some(WindowAggregateInfo {
+        agg_spec,
+        target_entry_index: 0, // Will be updated during planning
+    })
+}
+
 /// Extract window aggregate function using OID-based approach (same as aggregatescan)
 ///
 /// Returns: AggregateType
@@ -203,7 +245,11 @@ unsafe fn extract_standard_aggregate(
         None
     };
 
-    // Handle custom agg function
+    // Handle custom agg function (paradedb.agg)
+    // Note: paradedb.agg() requires a custom scan to execute. If this function is called
+    // but the query has no @@@ operator, the window function won't be replaced and will
+    // fall through to PostgreSQL's standard execution, which will call the placeholder
+    // function that errors with a clear message.
     let custom_agg_oid = agg_funcoid().to_u32();
     if aggfnoid == custom_agg_oid {
         if args.is_empty() {

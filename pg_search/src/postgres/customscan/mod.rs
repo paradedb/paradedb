@@ -42,6 +42,7 @@ pub mod qual_inspect;
 mod range_table;
 mod scan;
 pub mod solve_expr;
+pub mod windowscan;
 
 use crate::api::HashMap;
 use crate::postgres::customscan::exec::{

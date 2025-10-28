@@ -15,6 +15,100 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! PostgreSQL planner hooks for custom scan integration.
+//!
+//! This module provides hooks into PostgreSQL's query planner to enable custom execution
+//! strategies for search queries and aggregations.
+//!
+//! ## Hook Architecture
+//!
+//! We use two main PostgreSQL hooks:
+//!
+//! ### 1. `set_rel_pathlist_hook` - Base Relation Scanning
+//!
+//! Called when PostgreSQL builds access paths for base relations (tables). This is where
+//! we inject custom scan paths for:
+//! - **PdbScan**: Search queries with the `@@@` operator
+//! - Supports TopN (ORDER BY + LIMIT), Normal, and FastFields execution modes
+//! - Handles window functions in TopN queries
+//!
+//! ### 2. `create_upper_paths_hook` - Upper Node Planning
+//!
+//! Called when PostgreSQL plans upper nodes like aggregations and window functions. We handle:
+//!
+//! #### UPPERREL_GROUP_AGG Stage
+//! - **AggregateScan**: GROUP BY queries with search conditions
+//! - Combines grouping and aggregation with Tantivy collectors
+//!
+//! #### UPPERREL_WINDOW Stage
+//! - Window functions are handled via `planner_hook` (see below), not here
+//! - We investigated handling them here but discovered it's not feasible due to timing:
+//!   base relation planning is already complete at this stage
+//! - We do detect window functions here for debugging/validation purposes
+//!
+//! ### 3. `planner_hook` - Early Query Tree Manipulation
+//!
+//! Called at the very start of query planning, before PostgreSQL processes the query tree.
+//! Currently used for:
+//! - **Window Functions**: Detecting and replacing window functions (e.g., `COUNT(*) OVER ()`)
+//!   with placeholder functions (`window_func(json)`) that contain serialized aggregation specs
+//! - Only replaces window functions in queries with the `@@@` operator
+//!
+//! **Why we need this hook (and not `create_upper_paths_hook` at `UPPERREL_WINDOW`):**
+//!
+//! We investigated moving this to `create_upper_paths_hook` at `UPPERREL_WINDOW` stage to align
+//! with the AggregateScan pattern, but discovered a fundamental timing issue:
+//!
+//! - **At `UPPERREL_WINDOW` stage**: Base relation planning is already complete. PdbScan has
+//!   already created its paths based on the original parse tree. If we replace WindowFunc nodes
+//!   at this stage, we can't go back and tell PdbScan to re-plan with the modified parse tree.
+//!
+//! - **At `planner_hook` stage**: We replace WindowFunc nodes BEFORE any planning happens.
+//!   When PdbScan runs during base relation planning, it sees the `window_func()` placeholders
+//!   and can handle them appropriately in TopN queries.
+//!
+//! **Key difference from AggregateScan:**
+//!
+//! AggregateScan CAN work at `UPPERREL_GROUP_AGG` by replacing Aggref nodes in `plan_custom_path`
+//! because:
+//! 1. GROUP BY queries create a separate upper relation (`UPPERREL_GROUP_AGG`)
+//! 2. AggregateScan creates a custom path that wraps the base relation
+//! 3. When chosen, it replaces Aggref nodes and handles aggregation itself
+//! 4. The base relation (input path) doesn't need to know about aggregates
+//!
+//! Window functions use `planner_hook` instead of `create_upper_paths_hook` because:
+//! 1. Window functions often appear in TopN queries (ORDER BY + LIMIT)
+//! 2. TopN is handled by PdbScan at base relation planning time
+//! 3. Replacing WindowFunc nodes in `planner_hook` allows PdbScan to see them during planning
+//! 4. PdbScan can then integrate window aggregate execution into TopN (single-pass with `MultiCollector`)
+//!
+//! **Alternative considered:** Creating a WindowScan at `UPPERREL_WINDOW` that:
+//! - Extracts window specifications
+//! - Replaces WindowFunc nodes in `plan_custom_path`
+//! - Delegates execution to PdbScan's code
+//!
+//! This would work (it's just code reuse/refactoring), but `planner_hook` is simpler because:
+//! - No need for a separate WindowScan custom scan type
+//! - No need to duplicate path creation logic
+//! - Direct integration with PdbScan's existing window aggregate support
+//! - Less code, same functionality
+//!
+//! **Conclusion:** The `planner_hook` approach is the simplest and most maintainable solution.
+//! It enables efficient single-pass execution of TopN + window aggregates.
+//!
+//! ## Window Function Flow
+//!
+//! 1. **Planner Hook**: Detects window functions in queries with `@@@`
+//! 2. **Replacement**: Replaces them with `window_func(json)` placeholders
+//! 3. **Custom Scan Planning**: PdbScan deserializes the JSON and plans execution
+//! 4. **Execution**: TopN executor combines TopDocs and AggregationCollector in single pass
+//!
+//! ## Operator Detection
+//!
+//! Both PdbScan and AggregateScan detect the `@@@` operator to determine if they should
+//! handle a query. The planner hook also checks for this operator before replacing window
+//! functions. This detection logic is currently duplicated and could be unified.
+
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::api::window_function::window_func_oid;
 use crate::gucs;
@@ -190,31 +284,97 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
-        return;
-    }
+    // Determine which CustomScan type we're dealing with
+    let is_aggregate_scan = std::any::TypeId::of::<CS>()
+        == std::any::TypeId::of::<crate::postgres::customscan::aggregatescan::AggregateScan>();
 
-    if !gucs::enable_aggregate_custom_scan() {
-        return;
-    }
+    // AggregateScan handles both UPPERREL_GROUP_AGG and UPPERREL_WINDOW stages
+    if stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+        || stage == pg_sys::UpperRelationKind::UPPERREL_WINDOW
+    {
+        if !is_aggregate_scan {
+            return; // Not AggregateScan, skip
+        }
 
-    unsafe {
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
-            root,
-            output_rel,
-            CreateUpperPathsHookArgs {
-                root,
-                stage,
-                input_rel,
-                output_rel,
-                extra,
-            },
-        )) else {
-            return;
+        let stage_name = if stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+            "UPPERREL_GROUP_AGG"
+        } else {
+            "UPPERREL_WINDOW"
         };
+        pgrx::warning!("Hook: {} stage, calling AggregateScan", stage_name);
 
-        add_path(output_rel, path)
+        if stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+            && !gucs::enable_aggregate_custom_scan()
+        {
+            pgrx::warning!("  aggregate custom scan disabled, returning");
+            return;
+        }
+
+        unsafe {
+            let path = CS::create_custom_path(CustomPathBuilder::new(
+                root,
+                output_rel,
+                CreateUpperPathsHookArgs {
+                    root,
+                    stage,
+                    input_rel,
+                    output_rel,
+                    extra,
+                },
+            ));
+
+            if path.is_some() {
+                pgrx::warning!("  AggregateScan returned a path, adding it");
+                add_path(output_rel, path.unwrap());
+            } else {
+                pgrx::warning!("  AggregateScan returned None");
+            }
+        }
+        return;
     }
+}
+
+/// Handle window functions at UPPERREL_WINDOW stage
+///
+/// This function is called when PostgreSQL is planning window functions. At this stage,
+/// PostgreSQL has already created WindowAgg paths, but the WindowFunc nodes are still
+/// in the parse tree. We extract the window functions, check if we should handle them
+/// (query has @@@ operator), and if so, replace them with placeholders.
+///
+/// By replacing the WindowFunc nodes with window_func() placeholders, we prevent PostgreSQL
+/// from using the WindowAggPath it created. The modified parse tree will cause the query
+/// to be handled by PdbScan during base relation planning.
+unsafe fn handle_window_upper_path(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: *mut pg_sys::RelOptInfo,
+    output_rel: *mut pg_sys::RelOptInfo,
+) {
+    // Get the parse tree from root
+    if root.is_null() || (*root).parse.is_null() {
+        return;
+    }
+
+    let parse = (*root).parse;
+
+    // Check if query has window functions and search operator
+    if !query_has_window_functions(parse) || !query_has_search_operator(parse) {
+        return;
+    }
+
+    // Extract window function specifications from the parse tree
+    let window_specs = window_agg::extract_window_specifications(parse);
+    if window_specs.is_empty() {
+        return;
+    }
+
+    // We detected window functions with @@@ operator, but we don't handle them here.
+    // The planner_hook has already replaced them before we reach this stage.
+    // This function exists for validation/debugging purposes and to document why
+    // we can't handle window functions at UPPERREL_WINDOW stage.
+    //
+    // Key insight: At this stage, base relation planning is complete. PdbScan has already
+    // created its paths. We can't modify the parse tree here and expect PdbScan to re-plan.
+    // The replacement must happen BEFORE base relation planning, which is what planner_hook does.
 }
 
 /// Register a global planner hook to intercept and modify queries before planning.

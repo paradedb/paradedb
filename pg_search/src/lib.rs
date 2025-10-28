@@ -107,10 +107,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    // AggregateScan handles UPPERREL_GROUP_AGG (GROUP BY queries)
+    // AggregateScan handles both UPPERREL_GROUP_AGG (aggregates) and UPPERREL_WINDOW (window functions)
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
-
-    // Register global planner hook for window function support
-    customscan::register_window_function_hook();
 }
 
 #[pg_extern]

@@ -34,6 +34,15 @@ pub enum TargetListEntry {
     // so we store the index of the grouping column in the GROUP BY list
     GroupingColumn(usize),
     Aggregate(AggregateType),
+    WindowAggregate(
+        crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo,
+    ),
+    // For window functions without PARTITION BY: pass-through columns from base relation
+    // Stores the field name and attribute number
+    PassThrough {
+        field_name: String,
+        attno: i16,
+    },
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,15 +56,38 @@ impl TargetList {
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.entries.iter().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_)
+            | TargetListEntry::WindowAggregate(_)
+            | TargetListEntry::PassThrough { .. } => None,
         })
     }
 
     pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
         self.entries.iter_mut().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_)
+            | TargetListEntry::WindowAggregate(_)
+            | TargetListEntry::PassThrough { .. } => None,
         })
+    }
+
+    pub fn window_aggregates(
+        &self,
+    ) -> impl Iterator<
+        Item = &crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo,
+    > {
+        self.entries.iter().filter_map(|entry| match entry {
+            TargetListEntry::WindowAggregate(window_agg) => Some(window_agg),
+            TargetListEntry::Aggregate(_)
+            | TargetListEntry::GroupingColumn(_)
+            | TargetListEntry::PassThrough { .. } => None,
+        })
+    }
+
+    pub fn has_window_aggregates(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| matches!(entry, TargetListEntry::WindowAggregate(_)))
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
@@ -90,18 +122,117 @@ impl CustomScanClause<AggregateScan> for TargetList {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
+        pgrx::warning!("  TargetList::from_pg starting");
+
+        let is_window_stage = args.stage == pg_sys::UpperRelationKind::UPPERREL_WINDOW;
+        pgrx::warning!("  TargetList: is_window_stage = {}", is_window_stage);
+
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
+                pgrx::warning!("  TargetList: returning None (DISTINCT query)");
                 return None;
             }
         }
 
-        let schema = index.schema().ok()?;
-        let target_list =
-            unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
+        let schema = match index.schema() {
+            Ok(s) => {
+                pgrx::warning!("  TargetList: got schema");
+                s
+            }
+            Err(e) => {
+                pgrx::warning!("  TargetList: schema() failed: {:?}", e);
+                return None;
+            }
+        };
+
+        let target_list = unsafe {
+            if is_window_stage {
+                // At UPPERREL_WINDOW stage, we scan the base relation directly (like UPPERREL_GROUP_AGG)
+                // We need to combine:
+                // 1. Base columns from input_rel.reltarget (Var nodes referencing the base relation)
+                // 2. Window functions from root.processed_tlist (computed by us)
+                let input_rel = args.input_rel();
+                let root = args.root();
+
+                // Get base columns from input_rel.reltarget
+                if (*input_rel).reltarget.is_null() {
+                    pgrx::warning!("  TargetList: UPPERREL_WINDOW but input_rel.reltarget is null");
+                    return None;
+                }
+
+                let input_target_exprs =
+                    PgList::<pg_sys::Expr>::from_pg((*(*input_rel).reltarget).exprs);
+                pgrx::warning!(
+                    "  TargetList: UPPERREL_WINDOW using input_rel.reltarget ({} base columns)",
+                    input_target_exprs.len()
+                );
+
+                // Get window functions from processed_tlist
+                if (*root).processed_tlist.is_null() {
+                    pgrx::warning!(
+                        "  TargetList: UPPERREL_WINDOW but root.processed_tlist is null"
+                    );
+                    return None;
+                }
+
+                let processed_tlist =
+                    PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+                let mut exprs = PgList::<pg_sys::Expr>::new();
+
+                // Add base columns from input_rel.reltarget
+                for (i, expr) in input_target_exprs.iter_ptr().enumerate() {
+                    // Check if it's a Var and print its varno
+                    if (*expr).type_ == pg_sys::NodeTag::T_Var {
+                        let var = expr as *mut pg_sys::Var;
+                        pgrx::warning!(
+                            "    base column {}: Var with varno={}, varattno={}",
+                            i,
+                            (*var).varno,
+                            (*var).varattno
+                        );
+                    }
+                    exprs.push(expr);
+                }
+
+                // Add window functions from processed_tlist
+                let mut window_func_count = 0;
+                for te in processed_tlist.iter_ptr() {
+                    if !(*te).expr.is_null() && (*(*te).expr).type_ == pg_sys::NodeTag::T_WindowFunc
+                    {
+                        exprs.push((*te).expr);
+                        window_func_count += 1;
+                    }
+                }
+
+                pgrx::warning!(
+                    "  TargetList: combined {} total exprs ({} base + {} window funcs)",
+                    exprs.len(),
+                    input_target_exprs.len(),
+                    window_func_count
+                );
+                exprs
+            } else {
+                // At UPPERREL_GROUP_AGG stage, use output_rel().reltarget
+                let reltarget_exprs =
+                    PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs);
+
+                if reltarget_exprs.is_empty() {
+                    pgrx::warning!("  TargetList: output_rel reltarget is empty, returning None");
+                    return None;
+                } else {
+                    pgrx::warning!(
+                        "  TargetList: using output_rel reltarget ({} exprs)",
+                        reltarget_exprs.len()
+                    );
+                    reltarget_exprs
+                }
+            }
+        };
+
         if target_list.is_empty() {
+            pgrx::warning!("  TargetList: final target_list is empty, returning None");
             return None;
         }
 
@@ -116,28 +247,46 @@ impl CustomScanClause<AggregateScan> for TargetList {
         let mut entries = Vec::new();
         let mut uses_our_operator = false;
 
-        for expr in target_list.iter_ptr() {
+        pgrx::warning!(
+            "  TargetList: starting to process {} expressions",
+            target_list.len()
+        );
+
+        for (idx, expr) in target_list.iter_ptr().enumerate() {
             unsafe {
                 let node_tag = (*expr).type_;
+                pgrx::warning!(
+                    "  TargetList: processing expr {} with node_tag={:?}",
+                    idx,
+                    node_tag
+                );
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
                 if let Some((var, field_name)) =
                     find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                 {
-                    // This is a Var - it should be a grouping column
-                    // Find which grouping column this is
-                    let mut found = false;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno
-                            && gc.field_name == field_name.clone().into_inner()
-                        {
-                            entries.push(TargetListEntry::GroupingColumn(i));
-                            found = true;
-                            break;
+                    if is_window_stage {
+                        // At UPPERREL_WINDOW stage, Var nodes are pass-through columns from base relation
+                        entries.push(TargetListEntry::PassThrough {
+                            field_name: field_name.into_inner(),
+                            attno: (*var).varattno,
+                        });
+                    } else {
+                        // At UPPERREL_GROUP_AGG stage, Var nodes should be grouping columns
+                        // Find which grouping column this is
+                        let mut found = false;
+                        for (i, gc) in grouping_columns.iter().enumerate() {
+                            if (*var).varattno == gc.attno
+                                && gc.field_name == field_name.clone().into_inner()
+                            {
+                                entries.push(TargetListEntry::GroupingColumn(i));
+                                found = true;
+                                break;
+                            }
                         }
-                    }
-                    if !found {
-                        return None;
+                        if !found {
+                            return None;
+                        }
                     }
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                     // TODO: Support DISTINCT
@@ -167,6 +316,25 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     }
 
                     entries.push(TargetListEntry::Aggregate(aggregate));
+                } else if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, expr) {
+                    // Extract window function specification
+                    let window_agg_info = crate::postgres::customscan::pdbscan::projections::window_agg::extract_window_aggregate_from_windowfunc(
+                        window_func,
+                        heap_oid,
+                        index.oid(),
+                        args.root,
+                        heap_rti,
+                    )?;
+
+                    // Mark that we're using our operator if the window function uses it
+                    uses_our_operator = uses_our_operator
+                        || window_agg_info
+                            .agg_spec
+                            .agg_types
+                            .iter()
+                            .any(|agg| agg.filter_expr().is_some());
+
+                    entries.push(TargetListEntry::WindowAggregate(window_agg_info));
                 } else {
                     return None;
                 }

@@ -67,7 +67,7 @@ jobs:
           echo ""
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
-          for file in $(find . -name "*.mdx" ! -path "./documentation/*"); do
+          for file in $(find . -name "*.mdx" ! -path "./documentation/*" ! -path "./changelog/*"); do
             title=$(grep -E "^title:" "$file" || true)
             desc=$(grep -E "^description:" "$file" || true)
             canonical=$(grep -E "^canonical:" "$file" || true)

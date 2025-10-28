@@ -198,7 +198,7 @@ jobs:
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu,block_tracker --no-default-features
 
       - name: Checkout Stressgres Repo
         uses: actions/checkout@v5
@@ -213,45 +213,38 @@ jobs:
       - name: Remove stressgres repo
         run: rm -rf stressgres
 
-      - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: bulk-updates.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
+      - name: Sanitize Test File Name
+        id: sanitize-inputs
+        run: |
+          # Strip .toml from the test file name
+          echo "jobname=$(basename single-server.toml .toml)" >> $GITHUB_OUTPUT
 
-      - name: Benchmark wide-table.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: wide-table.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
+          # Strip slashes from the ref
+          ref="${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}"
+          safe_ref="${ref//\//-}"
+          echo "safe_ref=$safe_ref" >> $GITHUB_OUTPUT
 
-      - name: Benchmark background-merge.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: background-merge.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
+      - name: Resolving ref into SHA
+        id: resolve_ref
+        env:
+          REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+        run: |
+          echo "Resolving ref: $REF" >&2
+          # Try local resolution only
+          SHA=$(git rev-parse --verify --quiet "$REF")
+          if [ -z "$SHA" ]; then
+            echo "Could not resolve ref '$REF'" >&2
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Benchmark logical-replication.toml
-        uses: ./.github/actions/benchmark-stressgres
-        with:
-          test_file: logical-replication.toml
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
+      - name: Run Stressgres Job
+        run: |
+          sudo chmod a+rwx /var/run/postgresql/
+          stressgres headless \
+            .github/stressgres/single-server.toml \
+            --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
+            --runtime 1200000
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

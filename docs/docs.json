@@ -535,23 +535,5 @@
       "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
     },
     "indexing": "navigable"
-  },
-  "redirects": [
-    {
-      "source": "/blog/introducing_analytics",
-      "destination": "https://www.paradedb.com/blog/introducing_lakehouse"
-    },
-    {
-      "source": "/blog/introducing_sparse",
-      "destination": "https://www.paradedb.com/blog/introducing_sparse"
-    },
-    {
-      "source": "/blog/introducing_bm25",
-      "destination": "https://www.paradedb.com/blog/introducing_search"
-    },
-    {
-      "source": "/blog/introducing_paradedb",
-      "destination": "https://www.paradedb.com/blog/introducing_paradedb"
-    }
-  ]
+  }
 }

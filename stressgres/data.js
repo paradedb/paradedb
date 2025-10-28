@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761616804633,
+  "lastUpdate": 1761616807992,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18652,6 +18652,126 @@ window.BENCHMARK_DATA = {
             "value": 148.80859375,
             "unit": "median mem",
             "extra": "avg mem: 130.3927455539959, max mem: 153.58984375, count: 54944"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d662164180928bf9d9723a1a1f919455cce18ac1",
+          "message": "fix: FSM double-add/undefined behavior issues (#3426)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nI have identified two places where we add the same blocks to the FSM,\nwhich leads to undefined behavior.\n\n1. In `garbage_collect_index`, we go through the segment meta entries\nlist and return all blocks belonging to files of recyclable meta entries\nto the FSM. However, there's nothing guarding against two transactions\nfrom seeing the same recyclable entries twice.\n\n2. Inside `drain` of the V2FSM, when the \"head\" block of an AVL leaf is\ndrained, we unlink it and send it to the FSM. However, it is possible\nfor two concurrent transactions to both think they've drained the head,\nand send the same head block back to the FSM.\n\nThe problem arises here:\n\n```rust\nif !modified {\n    // we didn't change anything\n    buffer.set_dirty(false);\n}\n\n// drop the leaf buffer -- we're done with it and it's possible we'll need to\n// unlink it from the list and that requires an exclusive lock on the tree\n// and we can't have both at the same time\ndrop(buffer);\n\nif should_unlink_head {\n    let old_head = head_blockno;\n\n    // get mutable tree without holding any other locks\n    let mut root = bman.get_buffer_mut(self.start_blockno);\n```\n\nSuppose transaction A drains the \"head\" block. Before unlinking the\nhead, it must drop it (see `drop(buffer)`). When the buffer is dropped,\na concurrent transaction B can lock onto the same \"head\" block, see that\nit's empty, and think that it is the one that drained the head block.\nNow both transactions go to unlink the same block and return it to the\nFSM.\n\n## Why\n\n## How\n\nTo fix #1, when recycling meta entries we check to see if the entry has\nalready been deleted using Postgres' `LP_DEAD` flag.\n\nTo fix #2, before sending the \"head\" block to the FSM we re-check the\nroot to see if the head block is still what we think it is. If another\ntransaction has already unlinked the head then the values won't match.\n\n## Tests\n\nRan stressgres `single-server.toml` for a long time with `block_tracker`\nenabled.",
+          "timestamp": "2025-10-27T21:41:32-04:00",
+          "tree_id": "03f38a9199c2eaa0eed6b8d434827281a8f419fd",
+          "url": "https://github.com/paradedb/paradedb/commit/d662164180928bf9d9723a1a1f919455cce18ac1"
+        },
+        "date": 1761616806036,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.905024323921438, max cpu: 14.414414, count: 55328"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.19596598919173, max mem: 154.75390625, count: 55328"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607601299572354, max cpu: 9.421001, count: 55328"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.720356964940898, max mem: 25.78515625, count: 55328"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9041818251122855, max cpu: 14.4723625, count: 55328"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.37494380105915, max mem: 156.82421875, count: 55328"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.56613283860948, max cpu: 9.230769, count: 55328"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 156.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.1367934465822, max mem: 156.71484375, count: 55328"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628037772246082, max cpu: 9.590409, count: 110656"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.18542875838185, max mem: 155.6796875, count: 110656"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27899,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28155.963851937537, max block_count: 54036.0, count: 55328"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.6764025448236, max segment_count: 58.0, count: 55328"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580316388445422, max cpu: 9.590409, count: 55328"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.74505583463616, max mem: 158.703125, count: 55328"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.09580808911401184, max cpu: 4.6376815, count: 55328"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.51503356968894, max mem: 151.3515625, count: 55328"
           }
         ]
       }

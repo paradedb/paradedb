@@ -453,7 +453,6 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        pgrx::warning!("AggregateScan::begin_custom_scan called - THIS IS A BUG if query has window functions!");
         unsafe {
             pgrx::warning!("  execution_rti = {}", state.custom_state().execution_rti);
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);

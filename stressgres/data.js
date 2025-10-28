@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761619778143,
+  "lastUpdate": 1761619781743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -59534,6 +59534,186 @@ window.BENCHMARK_DATA = {
             "value": 23.359375,
             "unit": "median mem",
             "extra": "avg mem: 23.35676194837519, max mem: 23.359375, count: 53637"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d662164180928bf9d9723a1a1f919455cce18ac1",
+          "message": "fix: FSM double-add/undefined behavior issues (#3426)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nI have identified two places where we add the same blocks to the FSM,\nwhich leads to undefined behavior.\n\n1. In `garbage_collect_index`, we go through the segment meta entries\nlist and return all blocks belonging to files of recyclable meta entries\nto the FSM. However, there's nothing guarding against two transactions\nfrom seeing the same recyclable entries twice.\n\n2. Inside `drain` of the V2FSM, when the \"head\" block of an AVL leaf is\ndrained, we unlink it and send it to the FSM. However, it is possible\nfor two concurrent transactions to both think they've drained the head,\nand send the same head block back to the FSM.\n\nThe problem arises here:\n\n```rust\nif !modified {\n    // we didn't change anything\n    buffer.set_dirty(false);\n}\n\n// drop the leaf buffer -- we're done with it and it's possible we'll need to\n// unlink it from the list and that requires an exclusive lock on the tree\n// and we can't have both at the same time\ndrop(buffer);\n\nif should_unlink_head {\n    let old_head = head_blockno;\n\n    // get mutable tree without holding any other locks\n    let mut root = bman.get_buffer_mut(self.start_blockno);\n```\n\nSuppose transaction A drains the \"head\" block. Before unlinking the\nhead, it must drop it (see `drop(buffer)`). When the buffer is dropped,\na concurrent transaction B can lock onto the same \"head\" block, see that\nit's empty, and think that it is the one that drained the head block.\nNow both transactions go to unlink the same block and return it to the\nFSM.\n\n## Why\n\n## How\n\nTo fix #1, when recycling meta entries we check to see if the entry has\nalready been deleted using Postgres' `LP_DEAD` flag.\n\nTo fix #2, before sending the \"head\" block to the FSM we re-check the\nroot to see if the head block is still what we think it is. If another\ntransaction has already unlinked the head then the values won't match.\n\n## Tests\n\nRan stressgres `single-server.toml` for a long time with `block_tracker`\nenabled.",
+          "timestamp": "2025-10-27T21:41:32-04:00",
+          "tree_id": "03f38a9199c2eaa0eed6b8d434827281a8f419fd",
+          "url": "https://github.com/paradedb/paradedb/commit/d662164180928bf9d9723a1a1f919455cce18ac1"
+        },
+        "date": 1761619779550,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7168288379046475, max cpu: 9.221902, count: 53668"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 139.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 117.71266731921257, max mem: 148.26953125, count: 53668"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.37777562036986, max cpu: 4.5845275, count: 53668"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 22.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.352969442917566, max mem: 22.35546875, count: 53668"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.073725,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.736136899599443, max cpu: 18.373205, count: 53668"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 143.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 121.39577588134456, max mem: 152.21875, count: 53668"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.66731044449145, max cpu: 9.195402, count: 53668"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 139.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 117.49343708075575, max mem: 148.41796875, count: 53668"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.620928739732878, max cpu: 9.204219, count: 53668"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 126.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.77026805719889, max mem: 141.30859375, count: 53668"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 15203,
+            "unit": "median pages",
+            "extra": "avg pages: 15171.389953044645, max pages: 28439.0, count: 53668"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 118.7734375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 118.52648742907785, max relation_size:MB: 222.1796875, count: 53668"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 62,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 59.99133561899083, max segment_count: 99.0, count: 53668"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.327663643401708, max cpu: 4.562738, count: 53668"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.240646777409257, max mem: 21.87109375, count: 53668"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.519774,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.162589801854432, max cpu: 4.562738, count: 53668"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 20.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 20.20137683885183, max mem: 21.05078125, count: 53668"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 9.022557,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.007223402627032, max cpu: 13.806328, count: 53668"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 145.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 122.57840202145599, max mem: 154.86328125, count: 53668"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003157865364078688, max replication_lag:MB: 0.2741241455078125, count: 53668"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8719055828504745, max cpu: 9.221902, count: 107336"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 149.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 126.77811422047355, max mem: 160.87890625, count: 107336"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.15084653917019, max cpu: 4.6021094, count: 53668"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 23.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.091998199578892, max mem: 23.109375, count: 53668"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.284930054186941, max cpu: 4.5584044, count: 53668"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 23.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.06694457125289, max mem: 23.078125, count: 53668"
           }
         ]
       }

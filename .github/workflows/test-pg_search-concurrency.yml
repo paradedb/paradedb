@@ -244,7 +244,7 @@ jobs:
           stressgres headless \
             .github/stressgres/single-server.toml \
             --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
-            --runtime 1200000
+            --runtime 600000
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

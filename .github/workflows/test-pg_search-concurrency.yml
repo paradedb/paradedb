@@ -4,7 +4,7 @@
 # Run our Stressgres stress testing tool against pg_search on the
 # testing suites specificed in .github/stressgres.
 
-name: Benchmark pg_search - Stressgres
+name: Test pg_search - Stressgres Concurrency
 
 # We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:
@@ -13,6 +13,7 @@ on:
       - main
       - 0.*.x # Release branches
     paths:
+      - ".github/workflows/test-pg_search-concurrency.yml"
       - ".github/stressgres/**"
       - "**/*.rs"
       - "**/*.toml"

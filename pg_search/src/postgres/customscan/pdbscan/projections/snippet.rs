@@ -131,6 +131,16 @@ impl SnippetType {
     pub fn configure_generator(&self, generator: &mut SnippetGenerator) {
         match self {
             SnippetType::SingleText(_, _, config, positions_config) => {
+                if positions_config.limit().is_some() || positions_config.offset().is_some() {
+                    pg_sys::panic::ErrorReport::new(
+                        pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                        "using `limit` or `offset` with `pdb.snippet` is deprecated",
+                        pgrx::function_name!(),
+                    )
+                        .set_detail("rather than using `pdb.snippet` with a `limit` and `offset`, please use the `pdb.snippets` function")
+                        .set_hint("use `pdb.snippets` instead")
+                        .report(pgrx::PgLogLevel::WARNING);
+                }
                 // Do not use a limit or offset unless they have been specified: otherwise we might
                 // not highlight all matches in the configured `max_num_chars`.
                 if let Some(limit) = positions_config.limit() {

@@ -248,11 +248,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
+                if page.item_is_dead(offsetno) {
+                    offsetno += 1;
+                    continue;
+                }
+
                 if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
                     match f(self.bman_mut(), entry) {
                         RetainItem::Remove(entry) => {
                             page.mark_item_dead(offsetno);
-
                             recycled_entries.push(entry);
                             delete_offsets.push(offsetno);
                         }

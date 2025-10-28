@@ -420,9 +420,20 @@ impl<'a> PageMut<'a> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
+    pub fn item_is_dead(&self, offno: pg_sys::OffsetNumber) -> bool {
+        unsafe {
+            let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            (*item_id).lp_flags() == pg_sys::LP_DEAD
+        }
+    }
+
     pub fn mark_item_dead(&mut self, offno: pg_sys::OffsetNumber) {
         unsafe {
             let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            debug_assert!(
+                (*item_id).lp_flags() != pg_sys::LP_DEAD,
+                "item is already dead"
+            );
             (*item_id).set_lp_flags(pg_sys::LP_DEAD);
             self.buffer.dirty = true;
         }

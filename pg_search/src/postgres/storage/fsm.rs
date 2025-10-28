@@ -851,21 +851,27 @@ pub mod v2 {
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
 
+                        let mut did_update_head = false;
                         if let Some(slot) = tree.get_slot_mut(&found_xid) {
-                            // change the head to the next block
-                            slot.tag = next_blockno;
+                            if slot.tag as pg_sys::BlockNumber == head_blockno {
+                                // we are the process that actually unlinked the head
+                                did_update_head = true;
+                                slot.tag = next_blockno;
 
-                            // and keep local state in sync
-                            head_blockno = next_blockno;
+                                // and keep local state in sync
+                                head_blockno = next_blockno;
+                            }
+                            // else: someone else already moved the head, we do nothing
                         }
                         drop(root);
 
-                        // recycle the old head -- we’re not holding any other buffers here.
-                        self.extend_with_when_recyclable(
-                            bman,
-                            unsafe { pg_sys::ReadNextFullTransactionId() },
-                            std::iter::once(old_head),
-                        );
+                        if did_update_head {
+                            self.extend_with_when_recyclable(
+                                bman,
+                                unsafe { pg_sys::ReadNextFullTransactionId() },
+                                std::iter::once(old_head),
+                            );
+                        }
 
                         // Continue with the new head
                         blockno = next_blockno;

@@ -91,5 +91,24 @@ SELECT id, pdb.snippets(content, max_num_chars => 20, "limit" => 2, "offset" => 
 -- With offset
 SELECT id, pdb.snippets(content, max_num_chars => 20, "offset" => 3) FROM snippets_test WHERE content @@@ 'fox OR dog OR lazy OR quick' ORDER BY id;
 
+-- =====================================================================
+-- Tests for pdb.snippets with sort_by
+-- =====================================================================
+
+\echo '--- pdb.snippets with sort_by ---'
+
+INSERT INTO snippets_test (id, content) VALUES (8, 'term1 term2. some other text. term1 term1 term2.');
+
+-- Test with sort_by => 'score' (default)
+-- The second snippet has more matches, so it should be first
+SELECT id, pdb.snippets(content, max_num_chars => 20, sort_by => 'score') FROM snippets_test WHERE content @@@ 'term1 OR term2' AND id = 8;
+
+-- Test with sort_by => 'position'
+-- Snippets should be in order of appearance
+SELECT id, pdb.snippets(content, max_num_chars => 20, sort_by => 'position') FROM snippets_test WHERE content @@@ 'term1 OR term2' AND id = 8;
+
+-- Test with an invalid sort_by value
+SELECT id, pdb.snippets(content, sort_by => 'invalid') FROM snippets_test WHERE content @@@ 'lazy' AND id = 1;
+
 -- Cleanup
 DROP TABLE snippets_test;

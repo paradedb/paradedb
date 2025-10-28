@@ -1653,7 +1653,7 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
                     }
                 }
             }
-            SnippetType::MultipleText(_, _, config, _) => {
+            SnippetType::MultipleText(_, _, config, _, _) => {
                 let snippets = state.make_snippets(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {

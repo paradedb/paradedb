@@ -25,7 +25,7 @@ use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{direct_function_call, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
-use tantivy::snippet::SnippetGenerator;
+use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
@@ -98,6 +98,7 @@ pub enum SnippetType {
         pg_sys::Oid,
         SnippetConfig,
         SnippetPositionsConfig,
+        SnippetSortOrder,
     ),
     Positions(FieldName, pg_sys::Oid, FragmentPositionsConfig),
 }
@@ -106,7 +107,7 @@ impl SnippetType {
     pub fn field(&self) -> &FieldName {
         match self {
             SnippetType::SingleText(field, _, _, _) => field,
-            SnippetType::MultipleText(field, _, _, _) => field,
+            SnippetType::MultipleText(field, _, _, _, _) => field,
             SnippetType::Positions(field, _, _) => field,
         }
     }
@@ -114,7 +115,7 @@ impl SnippetType {
     pub fn funcoid(&self) -> pg_sys::Oid {
         match self {
             SnippetType::SingleText(_, funcoid, _, _) => *funcoid,
-            SnippetType::MultipleText(_, funcoid, _, _) => *funcoid,
+            SnippetType::MultipleText(_, funcoid, _, _, _) => *funcoid,
             SnippetType::Positions(_, funcoid, _) => *funcoid,
         }
     }
@@ -122,7 +123,7 @@ impl SnippetType {
     pub fn nodeoid(&self) -> pg_sys::Oid {
         match self {
             SnippetType::SingleText(_, _, _, _) => pg_sys::TEXTOID,
-            SnippetType::MultipleText(_, _, _, _) => pg_sys::TEXTARRAYOID,
+            SnippetType::MultipleText(_, _, _, _, _) => pg_sys::TEXTARRAYOID,
             SnippetType::Positions(_, _, _) => pg_sys::INT4ARRAYOID,
         }
     }
@@ -140,12 +141,13 @@ impl SnippetType {
                 }
                 generator.set_max_num_chars(config.max_num_chars);
             }
-            SnippetType::MultipleText(_, _, config, positions_config) => {
+            SnippetType::MultipleText(_, _, config, positions_config, sort_order) => {
                 // We always use a (default) limit and offset for positions, as we might
                 // potentially produce a huge array otherwise.
                 generator.set_snippets_limit(positions_config.limit_or_default());
                 generator.set_snippets_offset(positions_config.offset_or_default());
                 generator.set_max_num_chars(config.max_num_chars);
+                generator.set_sort_order(*sort_order);
             }
             SnippetType::Positions(_, _, positions_config) => {
                 // Positions are expected to be fairly small, so we always render all of them by
@@ -197,6 +199,7 @@ mod pdb {
         max_num_chars: default!(i32, "150"),
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
+        sort_by: default!(String, "'score'"),
     ) -> Option<Vec<String>> {
         None
     }
@@ -241,9 +244,9 @@ pub fn snippets_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"pdb.snippets(anyelement, text, text, int, int, int)".into_datum()],
+            &[c"pdb.snippets(anyelement, text, text, int, int, int, text)".into_datum()],
         )
-        .expect("the `pdb.snippets(anyelement, text, text, int, int, int) type should exist")
+        .expect("the `pdb.snippets(anyelement, text, text, int, int, int, text) type should exist")
     }
 }
 
@@ -395,7 +398,7 @@ pub unsafe fn extract_snippets(
         return None;
     }
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-    assert!(args.len() == 6);
+    assert!(args.len() == 7);
 
     let field_arg = find_one_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
@@ -403,6 +406,7 @@ pub unsafe fn extract_snippets(
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
     let limit_arg = nodecast!(Const, T_Const, args.get_ptr(4).unwrap());
     let offset_arg = nodecast!(Const, T_Const, args.get_ptr(5).unwrap());
+    let sort_by_arg = nodecast!(Const, T_Const, args.get_ptr(6).unwrap());
 
     if let (
         Some(field_arg),
@@ -411,6 +415,7 @@ pub unsafe fn extract_snippets(
         Some(max_num_chars_arg),
         Some(limit_arg),
         Some(offset_arg),
+        Some(sort_by_arg),
     ) = (
         field_arg,
         start_arg,
@@ -418,6 +423,7 @@ pub unsafe fn extract_snippets(
         max_num_chars_arg,
         limit_arg,
         offset_arg,
+        sort_by_arg,
     ) {
         let attname = attname_lookup
             .get(&(planning_rti as _, (*field_arg).varattno as _))
@@ -431,6 +437,14 @@ pub unsafe fn extract_snippets(
         );
         let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
         let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
+        let sort_by = String::from_datum((*sort_by_arg).constvalue, (*sort_by_arg).constisnull)
+            .unwrap_or_else(|| "score".to_string());
+
+        let sort_order = match sort_by.as_str() {
+            "score" => SnippetSortOrder::Score,
+            "position" => SnippetSortOrder::Position,
+            _ => panic!("invalid sort_by value for pdb.snippets: must be 'score' or 'position'"),
+        };
 
         Some(SnippetType::MultipleText(
             attname,
@@ -441,6 +455,7 @@ pub unsafe fn extract_snippets(
                 max_num_chars: max_num_chars.unwrap_or(DEFAULT_SNIPPET_MAX_NUM_CHARS) as usize,
             },
             SnippetPositionsConfig { limit, offset },
+            sort_order,
         ))
     } else {
         panic!("`pdb.snippets()`'s arguments must be literals")

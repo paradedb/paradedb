@@ -269,7 +269,7 @@ impl PdbScanState {
             .snippets(&text)
             .into_iter()
             .flat_map(|mut snippet| {
-                if let SnippetType::MultipleText(_, _, config, _) = snippet_type {
+                if let SnippetType::MultipleText(_, _, config, _, _) = snippet_type {
                     snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
                 }
 

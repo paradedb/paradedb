@@ -279,34 +279,6 @@ impl AggregateType {
         }
     }
 
-    /// Convert an aggregate result with document count context
-    pub fn result_from_aggregate_with_doc_count(
-        &self,
-        result: &serde_json::Value,
-        doc_count: Option<i64>,
-    ) -> SingleMetricResult {
-        // Handle empty result sets (doc_count = 0)
-        if doc_count == Some(0) {
-            return self.nullish();
-        }
-
-        // Try to extract the value from the result
-        // The result can be:
-        // 1. {"value": N} - standard metric result
-        // 2. N - direct number
-        // 3. null - no result
-
-        let value_opt = if let Some(obj) = result.as_object() {
-            // Try to get "value" field
-            obj.get("value").and_then(|v| v.as_f64())
-        } else {
-            // Try direct number
-            result.as_f64()
-        };
-
-        SingleMetricResult { value: value_opt }
-    }
-
     /// Create an AggregateType from a function OID
     pub fn create_aggregate_from_oid(
         aggfnoid: u32,

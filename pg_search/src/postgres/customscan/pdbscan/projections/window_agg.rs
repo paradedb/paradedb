@@ -21,7 +21,7 @@ use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    parse_coalesce_expression, AggregateType,
+    create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -247,7 +247,7 @@ unsafe fn extract_standard_aggregate(
     // Extract field name and missing value using the same logic as aggregatescan
     let (field, missing) = parse_aggregate_field_from_node(parse, first_arg)?;
 
-    let agg_type = AggregateType::create_aggregate_from_oid(
+    let agg_type = create_aggregate_from_oid(
         aggfnoid,
         field.into_inner(),
         missing,
@@ -415,7 +415,7 @@ pub unsafe fn convert_window_aggregate_filters(
             }
 
             // Try to get the filter
-            let filter_opt = agg_type.get_filter_mut();
+            let filter_opt = agg_type.filter_expr_mut();
             if let Some(filter) = filter_opt {
                 // Check if it's a PostgresExpression that needs conversion
                 if let SearchQueryInput::PostgresExpression { expr } = filter {

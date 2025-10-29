@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761704789265,
+  "lastUpdate": 1761704792883,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28474,6 +28474,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.12550213024954, max segment_count: 105.0, count: 57505"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1bba673712ea22445d17940ed2a8a7191c27a40e",
+          "message": "feat: Add `pdb.snippets` to support rendering the top-n snippets for a document. (#3436)\n\n## What\n\nAdds the `pdb.snippets` function, and deprecates passing an `offset` and\n`limit` to `pdb.snippet`.\n\n## Why\n\nAs explained in the new docs, `pdb.snippets` allows for rendering the\ntop-n snippets (by score or position), regardless of their distance from\none another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-28T18:57:31-07:00",
+          "tree_id": "c7c74f7b1035f5f7f9c2046075f60cb5efb560cc",
+          "url": "https://github.com/paradedb/paradedb/commit/1bba673712ea22445d17940ed2a8a7191c27a40e"
+        },
+        "date": 1761704790651,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.953604,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.757909219367555, max cpu: 42.772278, count: 57890"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 226.3782850557091, max mem: 228.48828125, count: 57890"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.477809896674746, max cpu: 33.23442, count: 57890"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.80200407021937, max mem: 163.75, count: 57890"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24506,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23328.83525652099, max block_count: 26046.0, count: 57890"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.3741751597858, max segment_count: 107.0, count: 57890"
           }
         ]
       }

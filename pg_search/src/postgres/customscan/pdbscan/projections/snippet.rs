@@ -24,7 +24,10 @@ use crate::nodecast;
 use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{
+    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
+    FromDatum, IntoDatum, PgList,
+};
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -134,11 +137,11 @@ impl SnippetType {
                 if positions_config.limit().is_some() || positions_config.offset().is_some() {
                     pg_sys::panic::ErrorReport::new(
                         pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                        "using `limit` or `offset` with `pdb.snippet` is deprecated",
+                        "using `limit` or `offset` with `paradedb.snippet` is deprecated",
                         pgrx::function_name!(),
                     )
-                        .set_detail("rather than using `pdb.snippet` with a `limit` and `offset`, please use the `pdb.snippets` function")
-                        .set_hint("use `pdb.snippets` instead")
+                        .set_detail("rather than using `paradedb.snippet` with a `limit` and `offset`, please use the `paradedb.snippets` function")
+                        .set_hint("use `paradedb.snippets` instead")
                         .report(pgrx::PgLogLevel::WARNING);
                 }
                 // Do not use a limit or offset unless they have been specified: otherwise we might
@@ -185,59 +188,29 @@ struct Context<'a> {
     snippet_type: Vec<SnippetType>,
 }
 
-#[pgrx::pg_schema]
-mod pdb {
-    use pgrx::{default, extension_sql, pg_extern, AnyElement};
+#[pg_extern(name = "snippet", stable, parallel_safe)]
+fn snippet_from_relation(
+    field: AnyElement,
+    start_tag: default!(String, "'<b>'"),
+    end_tag: default!(String, "'</b>'"),
+    max_num_chars: default!(i32, "150"),
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+) -> Option<String> {
+    None
+}
 
-    #[pg_extern(name = "snippet", stable, parallel_safe)]
-    fn snippet_from_relation(
-        field: AnyElement,
-        start_tag: default!(String, "'<b>'"),
-        end_tag: default!(String, "'</b>'"),
-        max_num_chars: default!(i32, "150"),
-        limit: default!(Option<i32>, "NULL"),
-        offset: default!(Option<i32>, "NULL"),
-    ) -> Option<String> {
-        None
-    }
-
-    #[pg_extern(name = "snippets", stable, parallel_safe)]
-    fn snippets_from_relation(
-        field: AnyElement,
-        start_tag: default!(String, "'<b>'"),
-        end_tag: default!(String, "'</b>'"),
-        max_num_chars: default!(i32, "150"),
-        limit: default!(Option<i32>, "NULL"),
-        offset: default!(Option<i32>, "NULL"),
-        sort_by: default!(String, "'score'"),
-    ) -> Option<Vec<String>> {
-        None
-    }
-
-    #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
-    fn snippet_positions_from_relation(
-        field: AnyElement,
-        limit: default!(Option<i32>, "NULL"),
-        offset: default!(Option<i32>, "NULL"),
-    ) -> Option<Vec<Vec<i32>>> {
-        None
-    }
-
-    extension_sql!(
-        r#"
-    ALTER FUNCTION pdb.snippet SUPPORT paradedb.placeholder_support;
-    "#,
-        name = "snippet_placeholder",
-        requires = [snippet_from_relation, placeholder_support]
-    );
-
-    extension_sql!(
-        r#"
-    ALTER FUNCTION pdb.snippet_positions SUPPORT paradedb.placeholder_support;
-    "#,
-        name = "snippet_positions_placeholder",
-        requires = [snippet_positions_from_relation, placeholder_support]
-    );
+#[pg_extern(name = "snippets", stable, parallel_safe)]
+fn snippets_from_relation(
+    field: AnyElement,
+    start_tag: default!(String, "'<b>'"),
+    end_tag: default!(String, "'</b>'"),
+    max_num_chars: default!(i32, "150"),
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+    sort_by: default!(String, "'score'"),
+) -> Option<Vec<String>> {
+    None
 }
 
 #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
@@ -279,9 +252,11 @@ pub fn snippets_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"pdb.snippets(anyelement, text, text, int, int, int, text)".into_datum()],
+            &[c"paradedb.snippets(anyelement, text, text, int, int, int, text)".into_datum()],
         )
-        .expect("the `pdb.snippets(anyelement, text, text, int, int, int, text) type should exist")
+        .expect(
+            "the `paradedb.snippets(anyelement, text, text, int, int, int, text) type should exist",
+        )
     }
 }
 
@@ -418,7 +393,7 @@ pub unsafe fn extract_snippet(
             FragmentPositionsConfig { limit, offset },
         ))
     } else {
-        panic!("`pdb.snippets()`'s arguments must be literals")
+        panic!("`paradedb.snippets()`'s arguments must be literals")
     }
 }
 
@@ -478,7 +453,9 @@ pub unsafe fn extract_snippets(
         let sort_order = match sort_by.as_str() {
             "score" => SnippetSortOrder::Score,
             "position" => SnippetSortOrder::Position,
-            _ => panic!("invalid sort_by value for pdb.snippets: must be 'score' or 'position'"),
+            _ => {
+                panic!("invalid sort_by value for paradedb.snippets: must be 'score' or 'position'")
+            }
         };
 
         Some(SnippetType::MultipleText(
@@ -493,7 +470,7 @@ pub unsafe fn extract_snippets(
             sort_order,
         ))
     } else {
-        panic!("`pdb.snippets()`'s arguments must be literals")
+        panic!("`paradedb.snippets()`'s arguments must be literals")
     }
 }
 

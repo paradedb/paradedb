@@ -29,27 +29,3 @@ WHERE description @@@ pdb.regex('key.*rd');
 </Accordion>
 
 This uses the [regex](/v2/query-builder/term/regex) query builder function to match all rows where `description` matches the regex expression `key.*rd`.
-
-## When to Use Query Builder Functions
-
-For most use cases, we recommend using the [full text search](/v2/full-text) operators instead of query builder
-functions. However, there are two situations where query builder functions are useful.
-
-1. If you need an advanced query type, like [regex](/v2/query-builder/term/regex).
-2. If you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). There are some cases where queries that don't contain a ParadeDB
-   operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an [all query](/v2/query-builder/compound/all) to the `WHERE` clause
-   is equivalent and forces ParadeDB to execute the query.
-
-```sql
--- Top N executed by standard Postgres
-SELECT * FROM mock_items
-WHERE rating IS NOT NULL
-ORDER BY rating
-LIMIT 5;
-
--- Top N executed by ParadeDB
-SELECT * FROM mock_items
-WHERE rating IS NOT NULL AND id @@@ pdb.all()
-ORDER BY rating
-LIMIT 5;
-```

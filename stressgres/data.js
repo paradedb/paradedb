@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761698589017,
+  "lastUpdate": 1761699319737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -57918,6 +57918,54 @@ window.BENCHMARK_DATA = {
             "value": 114.84059005526652,
             "unit": "median tps",
             "extra": "avg tps: 113.65003605510933, max tps: 152.16109843271025, count: 107336"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a5f7c1d4618c7972dee96f0ebf9e34fd985906b",
+          "message": "feat: Add `pdb.snippets` to support rendering the top-n snippets for a document. (#3434)\n\n## What\n\nAdds the `pdb.snippets` function, and deprecates passing an `offset` and\n`limit` to `pdb.snippet`.\n\n## Why\n\nAs explained in the new docs, `pdb.snippets` allows for rendering the\ntop-n snippets (by score or position), regardless of their distance from\none another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.",
+          "timestamp": "2025-10-28T16:47:22-07:00",
+          "tree_id": "76bd8f73aae2702f0df686bb24a655a964e6be6f",
+          "url": "https://github.com/paradedb/paradedb/commit/0a5f7c1d4618c7972dee96f0ebf9e34fd985906b"
+        },
+        "date": 1761699317567,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 643.0244597756848,
+            "unit": "median tps",
+            "extra": "avg tps: 644.7224423022684, max tps: 1012.85934217078, count: 53687"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 689.4636808595128,
+            "unit": "median tps",
+            "extra": "avg tps: 691.1825266968842, max tps: 1153.5881674029781, count: 53687"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 115.80421368770266,
+            "unit": "median tps",
+            "extra": "avg tps: 115.98649104569004, max tps: 132.43153461821234, count: 53687"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 118.24720066413565,
+            "unit": "median tps",
+            "extra": "avg tps: 117.87004534865856, max tps: 142.19097112599593, count: 107374"
           }
         ]
       }

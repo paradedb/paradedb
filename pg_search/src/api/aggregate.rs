@@ -35,15 +35,16 @@
 //! `paradedb.agg()` calls when they appear in window function context during planning.
 //! It should never be called by users directly.
 //!
-//! ## Placeholder Functions: `agg_sfunc` and `agg_finalfunc`
+//! ## Placeholder Aggregate: `AggPlaceholder`
 //!
-//! These are PostgreSQL aggregate state transition and finalization functions that
-//! should never actually execute. They exist only to satisfy PostgreSQL's aggregate
-//! function requirements. If they do execute, it means the custom scan failed to
-//! intercept the aggregate, and they will error immediately.
+//! This implements the `paradedb.agg()` aggregate using pgrx's native aggregate API.
+//! It should never actually execute - if it does, it will error immediately with a
+//! clear message. This is similar to how `paradedb.score()` works as a placeholder
+//! that the custom scan intercepts and handles.
 
 use std::error::Error;
 
+use pgrx::aggregate::Aggregate;
 use pgrx::{default, pg_extern, Internal, Json, JsonB, PgRelation};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
@@ -78,24 +79,37 @@ pub fn aggregate(
     }
 }
 
-/// Placeholder state transition function for `paradedb.agg` aggregate.
+/// Placeholder aggregate for `paradedb.agg()`.
 ///
-/// This function should never actually execute - it exists only to satisfy PostgreSQL's
-/// aggregate function requirements. The custom scan intercepts `paradedb.agg()` calls
-/// during planning and handles them directly using Tantivy collectors.
+/// This aggregate should never actually execute - it's intercepted at planning time
+/// for window functions. If it does execute (e.g., in GROUP BY), it will error immediately.
 ///
-/// If this function executes, it means the custom scan failed to intercept the aggregate,
-/// which indicates a bug in the planning logic.
-#[pg_extern(stable, parallel_safe)]
-pub fn agg_sfunc(_state: Option<Internal>, _agg_definition: JsonB) -> Option<Internal> {
-    pgrx::error!("paradedb.agg() placeholder function should not be executed.")
-}
+/// This is similar to `paradedb.score()` - a placeholder that the custom scan handles.
+#[derive(pgrx::AggregateName, Default)]
+#[aggregate_name = "agg"]
+pub struct AggPlaceholder;
 
-/// Placeholder final function for `paradedb.agg` aggregate.
-///
-/// This function should never actually execute - it exists only to satisfy PostgreSQL's
-/// aggregate function requirements. See `agg_sfunc` documentation for details.
-#[pg_extern(stable, parallel_safe)]
-pub fn agg_finalfunc(_state: Option<Internal>) -> JsonB {
-    pgrx::error!("paradedb.agg() placeholder function should not be executed.")
+#[pgrx::pg_aggregate(parallel_safe)]
+impl Aggregate<AggPlaceholder> for AggPlaceholder {
+    type Args = JsonB;
+    type State = Internal;
+    type Finalize = JsonB;
+
+    fn state(
+        _current: Self::State,
+        _arg: Self::Args,
+        _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+    ) -> Self::State {
+        // This should never execute - fail eagerly with a clear message
+        pgrx::error!("paradedb.agg() placeholder function should not be executed.")
+    }
+
+    fn finalize(
+        _current: Self::State,
+        _direct_arg: Self::OrderedSetArgs,
+        _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+    ) -> Self::Finalize {
+        // This should never execute - fail eagerly with a clear message
+        pgrx::error!("paradedb.agg() placeholder function should not be executed.")
+    }
 }

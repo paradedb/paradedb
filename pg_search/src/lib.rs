@@ -58,19 +58,6 @@ extension_sql!(
     finalize
 );
 
-extension_sql!(
-    r#"
-        CREATE OR REPLACE AGGREGATE "agg"(JSONB) (
-            SFUNC = "agg_sfunc",
-            STYPE = internal,
-            FINALFUNC = "agg_finalfunc",
-            PARALLEL = SAFE
-        );
-    "#,
-    name = "create_agg_aggregate",
-    requires = [agg_sfunc, agg_finalfunc]
-);
-
 pub fn available_parallelism() -> usize {
     use once_cell::sync::Lazy;
 

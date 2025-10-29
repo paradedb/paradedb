@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761699323128,
+  "lastUpdate": 1761704035466,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6790,6 +6790,72 @@ window.BENCHMARK_DATA = {
             "value": 93.02030874177869,
             "unit": "median tps",
             "extra": "avg tps: 97.85862532130415, max tps: 889.3893186121613, count: 55242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1bba673712ea22445d17940ed2a8a7191c27a40e",
+          "message": "feat: Add `pdb.snippets` to support rendering the top-n snippets for a document. (#3436)\n\n## What\n\nAdds the `pdb.snippets` function, and deprecates passing an `offset` and\n`limit` to `pdb.snippet`.\n\n## Why\n\nAs explained in the new docs, `pdb.snippets` allows for rendering the\ntop-n snippets (by score or position), regardless of their distance from\none another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-10-28T18:57:31-07:00",
+          "tree_id": "c7c74f7b1035f5f7f9c2046075f60cb5efb560cc",
+          "url": "https://github.com/paradedb/paradedb/commit/1bba673712ea22445d17940ed2a8a7191c27a40e"
+        },
+        "date": 1761704033241,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 761.2810939541642,
+            "unit": "median tps",
+            "extra": "avg tps: 762.7024516866957, max tps: 861.0668498831748, count: 55308"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3148.9622719490226,
+            "unit": "median tps",
+            "extra": "avg tps: 3137.423001321469, max tps: 3184.548932527824, count: 55308"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 757.7315473077513,
+            "unit": "median tps",
+            "extra": "avg tps: 756.9200907227741, max tps: 841.5784195996187, count: 55308"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 664.7369210957999,
+            "unit": "median tps",
+            "extra": "avg tps: 663.4089303988587, max tps: 670.1286082039554, count: 55308"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1678.7349309420852,
+            "unit": "median tps",
+            "extra": "avg tps: 1669.9968849923541, max tps: 1686.3814756481568, count: 110616"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1262.8467860907206,
+            "unit": "median tps",
+            "extra": "avg tps: 1254.6788739177193, max tps: 1267.9585196899948, count: 55308"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 154.6235228354534,
+            "unit": "median tps",
+            "extra": "avg tps: 168.72241638419098, max tps: 585.2148967622401, count: 55308"
           }
         ]
       }

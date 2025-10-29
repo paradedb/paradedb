@@ -9,6 +9,10 @@ canonical: https://docs.paradedb.com/v2/query-builder/match
   zero.
 </Note>
 
+<Note>
+  For most use cases, we recommend using the [match](/v2/full-text/match) query instead.
+</Note>
+
 Under the hood, the [match](/v2/full-text/match) conjunction and disjunction operators get rewritten to this query builder function.
 This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
@@ -23,11 +27,6 @@ WHERE description @@@ pdb.match('running shoes');
 <ParamField body="value" required>
   The query to match against. This query is automatically tokenized in the same
   way as the field on the left-hand side of `@@@`.
-</ParamField>
-<ParamField body="tokenizer">
-  By default, the query string is tokenized in the same way as the field was at
-  index time. This can be configured by setting a [custom
-  tokenizer](#custom-tokenizer).
 </ParamField>
 <ParamField body="distance" default={0}>
   If greater than zero, fuzzy matching is applied. Configures the maximum
@@ -50,37 +49,6 @@ WHERE description @@@ pdb.match('running shoes');
   by default executed as `running OR shoes`, but setting `conjunction_mode` to
   `true` executes it as `running AND shoes`.
 </ParamField>
-
-## Custom Tokenizer
-
-[`paradedb.tokenizer`](/documentation/indexing/tokenizers#tokenizing-a-query) can be passed to `tokenizer` to control how the query string is tokenized.
-
-```sql Function Syntax
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ pdb.match(
-    'running shoes',
-    tokenizer => paradedb.tokenizer('whitespace')
-);
-```
-
-<Note>
-For JSON syntax, `paradedb.tokenizer` prints the configuration object to pass into `tokenizer`.
-
-```sql
-SELECT paradedb.tokenizer('whitespace');
-```
-
-<Accordion title="Expected Response">
-```csv
-                           tokenizer
----------------------------------------------------------------
- {"type": "whitespace", "lowercase": true, "remove_long": 255}
-(1 row)
-```
-</Accordion>
-
-</Note>
 
 ## Fuzzy Matching
 

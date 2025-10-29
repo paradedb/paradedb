@@ -48,20 +48,21 @@ is actually a collection of many inverted/columnar indexes, each of which allows
 
 ## Query Execution
 
-### Custom Operator
+### Custom Operators
 
-ParadeDB introduces a new operator, `@@@`, to Postgres. `@@@` means "find me all rows that match the following full-text query."
+ParadeDB introduces several new text search operators to Postgres. For example, `|||` is used for [match disjunction](/v2/full-text/match) queries, whereas `###`
+is for [phrase](/v2/full-text/phrase) queries.
 
 ```sql
 SELECT * FROM mock_items
-WHERE description @@@ 'running shoes';
+WHERE description ||| 'running shoes';
 ```
 
-ParadeDB’s custom query execution paths are only triggered when `@@@` is present _at least once_ in the query. If the query does not include `@@@`, it is executed entirely by native Postgres.
+ParadeDB’s custom query execution paths are only triggered when at least one of ParadeDB's operators is present in the query. Otherwise, it is executed entirely by native Postgres.
 
 ### Custom Scan
 
-Whenever `@@@` is present in a query, ParadeDB will execute the query using a [custom scan](https://www.postgresql.org/docs/current/custom-scan.html).
+Whenever a ParadeDB operator is present in a query, ParadeDB will execute the query using a [custom scan](https://www.postgresql.org/docs/current/custom-scan.html).
 
 Custom scans are execution nodes set aside by Postgres that allow extensions to run custom logic during a query. They are more powerful and versatile than typical Postgres index scans because they
 allow the extension to "take over" large parts of the query, including aggregates, `WHERE`, and even [`GROUP BY` clauses](/welcome/roadmap#analytics).
@@ -71,26 +72,26 @@ From a performance perspective, custom scans significantly speed up queries by p
 To understand what kind of scan is used, run `EXPLAIN`:
 
 ```sql
--- Native Postgres scan, no @@@
+-- Native Postgres scan, no ParadeDB operator
 EXPLAIN SELECT * FROM mock_items
 WHERE description = 'running shoes' AND rating <= 5;
 
--- Custom scan, @@@ used
+-- Custom scan, ParadeDB operator used
 EXPLAIN SELECT * FROM mock_items
-WHERE description @@@ 'running shoes' AND rating <= 5;
+WHERE description ||| 'running shoes' AND rating <= 5;
 ```
 
 As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a BM25 index scan), then that part of query is going through ParadeDB. Otherwise, the query passes through standard Postgres.
 
 ### Parallelization
 
-For queries that need to read large amounts of data like "top N" or aggregate queries, the custom scan automatically spawns additional workers to execute the query
+For queries that need to read large amounts of data like [Top N](/v2/sorting/topn) or aggregate queries, the custom scan automatically spawns additional workers to execute the query
 in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
 
 ```sql
 -- "Top N" queries may be parallelized
 EXPLAIN ANALYZE SELECT * FROM mock_items
-WHERE description @@@ 'rating'
+WHERE description ||| 'running shoes'
 ORDER BY rating LIMIT 5;
 ```
 

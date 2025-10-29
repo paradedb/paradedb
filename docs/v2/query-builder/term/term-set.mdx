@@ -6,8 +6,11 @@ canonical: https://docs.paradedb.com/v2/query-builder/term/term-set
 
 <Note>
   BM25 scoring is not enabled for term set queries. As a result, the scores
-  returned may not be accurate. This behavior reflects the underlying
-  implementation in Tantivy.
+  returned may not be accurate.
+</Note>
+
+<Note>
+  For most use cases, we recommend using the [term set](/v2/full-text/term_set) query instead.
 </Note>
 
 Matches documents containing any [term](/documentation/concepts/term) from a specified set.

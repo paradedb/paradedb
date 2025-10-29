@@ -12,12 +12,17 @@ use std::sync::OnceLock;
 
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),
+    Query(*mut pg_sys::Query),
     Exec(pg_sys::Oid),
 }
 
 impl VarContext {
     pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
         Self::Planner(root)
+    }
+
+    pub fn from_query(parse: *mut pg_sys::Query) -> Self {
+        Self::Query(parse)
     }
 
     pub fn from_exec(heaprelid: pg_sys::Oid) -> Self {
@@ -30,6 +35,40 @@ impl VarContext {
                 let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
                 (heaprelid, varattno)
             }
+            Self::Query(parse) => unsafe {
+                // Inline simplified version of get_var_relation_oid
+                let heaprelid = if !var.is_null() && !parse.is_null() {
+                    let query_ptr = *parse; // Dereference to get *mut Query
+                    let varno = (*var).varno;
+                    let rtable = (*query_ptr).rtable;
+
+                    if !rtable.is_null() && varno > 0 {
+                        let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+                        let rte_index = (varno - 1) as usize;
+
+                        if rte_index < rtable_list.len() {
+                            if let Some(rte) = rtable_list.get_ptr(rte_index) {
+                                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                                    (*rte).relid
+                                } else {
+                                    pg_sys::InvalidOid
+                                }
+                            } else {
+                                pg_sys::InvalidOid
+                            }
+                        } else {
+                            pg_sys::InvalidOid
+                        }
+                    } else {
+                        pg_sys::InvalidOid
+                    }
+                } else {
+                    pg_sys::InvalidOid
+                };
+
+                let varattno = (*var).varattno;
+                (heaprelid, varattno)
+            },
             Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
     }
@@ -149,46 +188,6 @@ pub unsafe fn find_var_relation(
             pgrx::debug1!("Unsupported RTEKind in `find_var_relation`: {rtekind}");
             (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
         }
-    }
-}
-
-/// Given a [`pg_sys::Query`] and a [`pg_sys::Var`], extract the relation Oid from the rtable.
-///
-/// This is a simpler version of `find_var_relation` for cases where we only have a Query
-/// (not a full PlannerInfo) and only need the base relation Oid.
-///
-/// Returns `None` if:
-/// - The Var's varno is out of bounds
-/// - The RTE is not a base relation (e.g., subquery, CTE, etc.)
-pub unsafe fn get_var_relation_oid(
-    parse: *mut pg_sys::Query,
-    var: *mut pg_sys::Var,
-) -> Option<pg_sys::Oid> {
-    if var.is_null() || parse.is_null() {
-        return None;
-    }
-
-    let varno = (*var).varno;
-    let rtable = (*parse).rtable;
-
-    if rtable.is_null() || varno <= 0 {
-        return None;
-    }
-
-    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-    let rte_index = (varno - 1) as usize;
-
-    if rte_index >= rtable_list.len() {
-        return None;
-    }
-
-    let rte = rtable_list.get_ptr(rte_index)?;
-
-    // Only return Oid for base relations (not subqueries, CTEs, etc.)
-    if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-        Some((*rte).relid)
-    } else {
-        None
     }
 }
 

@@ -26,8 +26,7 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::{
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
-use crate::postgres::var::fieldname_from_var;
-use crate::postgres::var::get_var_relation_oid;
+use crate::postgres::var::{fieldname_from_var, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
@@ -273,9 +272,15 @@ unsafe fn parse_aggregate_field_from_node(
             return None;
         };
 
-    // Get heaprelid from the rtable using the helper function
-    let heaprelid = get_var_relation_oid(parse, var)?;
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno as pg_sys::AttrNumber)?;
+    // Get heaprelid from the rtable using VarContext
+    let var_context = VarContext::from_query(parse);
+    let (heaprelid, varattno) = var_context.var_relation(var);
+
+    if heaprelid == pg_sys::InvalidOid {
+        return None;
+    }
+
+    let field = fieldname_from_var(heaprelid, var, varattno)?;
     Some((field, missing))
 }
 

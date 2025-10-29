@@ -219,6 +219,28 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 
 /// Register a global planner hook to intercept and modify queries before planning.
 /// This is called once during extension initialization and affects all queries.
+///
+/// # Window Function Replacement Strategy
+///
+/// ## Current Approach: Early Replacement via `planner_hook`
+///
+/// We replace `WindowFunc` nodes with `paradedb.window_agg(json)` placeholder calls
+/// **before** PostgreSQL's standard planning begins. This happens at the very start
+/// of the planning process, before any path generation or optimization.
+///
+/// ### Why Replace Early?
+///
+/// 1. **Prevents WindowAgg Node Creation**: By replacing window functions before
+///    `grouping_planner()` runs, we prevent PostgreSQL from creating `WindowAgg`
+///    plan nodes that would try to execute our placeholder functions.
+///
+/// 2. **Enables TopN Integration**: Our custom scan can detect the placeholder
+///    functions in the target list and handle them during `TopN` execution,
+///    combining window aggregates with top-N result collection in a single pass.
+///
+/// 3. **Simpler Integration**: The replacement happens once, early, and the rest
+///    of the planning process sees our placeholder functions as regular function
+///    calls that get projected through the plan tree.
 pub unsafe fn register_window_aggregate_hook() {
     static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 
@@ -226,8 +248,22 @@ pub unsafe fn register_window_aggregate_hook() {
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
 
-/// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them
-/// Only replaces window functions if the query will be handled by our custom scans
+/// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
+///
+/// This hook runs at the very start of query planning, before `grouping_planner()`
+/// and before any path generation. It performs a one-time replacement of window
+/// functions with placeholder function calls that our custom scans can detect
+/// and handle during execution.
+///
+/// ## Replacement Logic
+///
+/// Only replaces window functions if:
+/// 1. The query contains window functions, AND
+/// 2. Either:
+///    - The query uses `paradedb.agg()` (which MUST be handled by us), OR
+///    - The query uses the `@@@` search operator (indicating custom scan usage)
+///
+/// This ensures we don't interfere with queries that PostgreSQL should handle normally.
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,

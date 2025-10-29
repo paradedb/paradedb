@@ -14,3 +14,6 @@ CREATE  FUNCTION pdb."snippets"(
 STABLE PARALLEL SAFE 
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'snippets_from_relation_wrapper';
+
+-- Grant permissions on index_layer_info view to allow users to query index statistics
+GRANT SELECT ON pdb.index_layer_info TO PUBLIC;

@@ -112,6 +112,35 @@ FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
+-- Test 7: paradedb.agg() without @@@ operator (no WHERE clause)
+-- This tests that paradedb.agg() is intercepted even without search operator
+-- The custom scan is now used because we detect window aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Execute the query - should work now with custom scan
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Test 8: paradedb.agg() with simple WHERE condition (not @@@)
+-- This tests that paradedb.agg() works with regular WHERE conditions
+-- The custom scan should be used because we have window aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+WHERE status_code >= 500
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Execute the query - should work with custom scan
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+WHERE status_code >= 500
+ORDER BY timestamp DESC LIMIT 10;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
+
 

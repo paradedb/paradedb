@@ -240,7 +240,11 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         // Note: it's important to check for window functions first, then search operator,
         // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
         // would cause a panic.
-        if query_has_window_aggregates(parse) && query_has_search_operator(parse) {
+        // If paradedb.agg() is used, we MUST handle it (regardless of @@@ operator)
+        // If only standard aggregates are used, we only handle them if @@@ is present
+        if query_has_window_aggregates(parse)
+            && (query_has_paradedb_agg(parse) || query_has_search_operator(parse))
+        {
             // Extract and replace window functions recursively (including subqueries)
             replace_windowfuncs_recursively(parse);
         }
@@ -338,6 +342,43 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
                 && !(*rte).subquery.is_null()
                 && query_has_search_operator((*rte).subquery)
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if the query contains paradedb.agg() window function
+/// If it does, we MUST handle it (even without @@@ operator)
+unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
+    use crate::api::agg_funcoid;
+
+    let paradedb_agg_oid = agg_funcoid().to_u32();
+
+    // Check target list for WindowFunc nodes with paradedb.agg
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null() {
+                if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+                    if (*window_func).winfnoid.to_u32() == paradedb_agg_oid {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Check subqueries
+    if !(*parse).rtable.is_null() {
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+        for rte in rtable.iter_ptr() {
+            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !(*rte).subquery.is_null()
+                && query_has_paradedb_agg((*rte).subquery)
             {
                 return true;
             }

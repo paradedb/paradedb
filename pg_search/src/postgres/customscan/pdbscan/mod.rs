@@ -249,7 +249,13 @@ impl PdbScan {
         };
 
         // Finally, decide whether we can actually use the extracted quals.
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() {
+        // We allow custom scan if:
+        // 1. The query uses @@@ operator, OR
+        // 2. enable_custom_scan_without_operator is true, OR
+        // 3. The query has window aggregates (paradedb.agg()) that we must handle
+        let has_window_aggs = query_has_window_agg_in_targetlist(root);
+        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
+        {
             (quals, ri_type, restrict_info)
         } else {
             (None, ri_type, restrict_info)
@@ -295,6 +301,38 @@ impl customscan::ExecMethod for PdbScan {
     }
 }
 
+/// Check if the query's target list contains paradedb.agg() calls (after replacement with window_agg)
+/// This is used to determine if we should create a custom path even without @@@ operator
+unsafe fn query_has_window_agg_in_targetlist(root: *mut pg_sys::PlannerInfo) -> bool {
+    use crate::api::agg_funcoid;
+
+    if root.is_null() || (*root).parse.is_null() {
+        return false;
+    }
+
+    let parse = (*root).parse;
+    let window_agg_func_oid = window_agg_oid().to_u32();
+    let paradedb_agg_oid = agg_funcoid().to_u32();
+
+    // Check target list for window_agg() or paradedb.agg() function calls
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null() {
+                // Check if this is a FuncExpr with window_agg or paradedb.agg OID
+                if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                    let func_oid = (*func_expr).funcid.to_u32();
+                    if func_oid == window_agg_func_oid || func_oid == paradedb_agg_oid {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -305,9 +343,13 @@ impl CustomScan for PdbScan {
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
-            if matches!(ri_type, RestrictInfoType::None) {
-                // this relation has no restrictions (WHERE clause predicates), so there's no need
-                // for us to do anything
+
+            // Check if the query has window aggregates (paradedb.agg() or window_agg())
+            let has_window_aggs = query_has_window_agg_in_targetlist(builder.args().root);
+
+            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
+                // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
+                // so there's no need for us to do anything
                 return None;
             }
 
@@ -361,10 +403,15 @@ impl CustomScan for PdbScan {
                 is_select,
             );
 
-            let Some(quals) = quals else {
-                // if we are not able to push down all of the quals, then do not propose the custom
-                // scan, as that would mean executing filtering against heap tuples (which amounts
-                // to a join, and would require more planning).
+            // If we have window aggregates but no quals, we must still create the custom path
+            // because paradedb.agg() can only be executed by our custom scan
+            let quals = if let Some(q) = quals {
+                q
+            } else if has_window_aggs {
+                // No WHERE clause, but we have window aggregates - use All query
+                Qual::All
+            } else {
+                // No quals and no window aggregates - we can't help
                 return None;
             };
 

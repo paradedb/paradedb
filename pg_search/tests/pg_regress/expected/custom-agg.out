@@ -206,5 +206,74 @@ FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 ERROR:  paradedb.agg() placeholder function should not be executed.
+-- Test 7: paradedb.agg() without @@@ operator (no WHERE clause)
+-- This tests that paradedb.agg() is intercepted even without search operator
+-- The custom scan is now used because we detect window aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
+         Table: logs
+         Index: logs_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 10
+         Full Index Scan: true
+         Tantivy Query: "all"
+(12 rows)
+
+-- Execute the query - should work now with custom scan
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC LIMIT 10;
+ id |          description          | severity | category | response_time | status_code |        timestamp         |        agg        
+----+-------------------------------+----------+----------+---------------+-------------+--------------------------+-------------------
+  4 | Invalid query syntax error    | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 1350.0}
+  3 | Timeout connecting to service | error    | network  |          5000 |         503 | Mon Jan 01 10:02:00 2024 | {"value": 1350.0}
+  2 | Failed to fetch data          | error    | api      |           200 |         404 | Mon Jan 01 10:01:00 2024 | {"value": 1350.0}
+  1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 1350.0}
+(4 rows)
+
+-- Test 8: paradedb.agg() with simple WHERE condition (not @@@)
+-- This tests that paradedb.agg() works with regular WHERE conditions
+-- The custom scan should be used because we have window aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+WHERE status_code >= 500
+ORDER BY timestamp DESC LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
+         Table: logs
+         Index: logs_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 10
+         Tantivy Query: {"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}
+(11 rows)
+
+-- Execute the query - should work with custom scan
+SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+FROM logs
+WHERE status_code >= 500
+ORDER BY timestamp DESC LIMIT 10;
+ id |          description          | severity | category | response_time | status_code |        timestamp         |        agg        
+----+-------------------------------+----------+----------+---------------+-------------+--------------------------+-------------------
+  3 | Timeout connecting to service | error    | network  |          5000 |         503 | Mon Jan 01 10:02:00 2024 | {"value": 2575.0}
+  1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2575.0}
+(2 rows)
+
 -- Cleanup
 DROP TABLE logs CASCADE;

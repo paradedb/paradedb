@@ -38,3 +38,6 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+
+GRANT SELECT ON pdb.index_layer_info TO PUBLIC;
+GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;

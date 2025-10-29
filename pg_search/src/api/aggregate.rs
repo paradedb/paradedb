@@ -83,8 +83,6 @@ pub fn aggregate(
 ///
 /// This aggregate should never actually execute - it's intercepted at planning time
 /// for window functions. If it does execute (e.g., in GROUP BY), it will error immediately.
-///
-/// This is similar to `paradedb.score()` - a placeholder that the custom scan handles.
 #[derive(pgrx::AggregateName, Default)]
 #[aggregate_name = "agg"]
 pub struct AggPlaceholder;

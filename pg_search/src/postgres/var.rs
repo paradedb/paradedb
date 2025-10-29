@@ -36,7 +36,6 @@ impl VarContext {
                 (heaprelid, varattno)
             }
             Self::Query(parse) => unsafe {
-                // Inline simplified version of get_var_relation_oid
                 let heaprelid = if !var.is_null() && !parse.is_null() {
                     let query_ptr = *parse; // Dereference to get *mut Query
                     let varno = (*var).varno;

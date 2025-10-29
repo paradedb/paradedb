@@ -233,16 +233,31 @@ impl CustomScan for AggregateScan {
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
-                            aggregates
-                                .next()
-                                .and_then(|v| v)
-                                .unwrap_or_else(|| agg_type.nullish())
-                                .value
-                                .and_then(|value| {
-                                    TantivyValue(OwnedValue::F64(value))
-                                        .try_into_datum(expected_typoid.into())
-                                        .unwrap()
-                                })
+                            use crate::postgres::customscan::aggregatescan::exec::AggregateResult;
+                            use pgrx::JsonB;
+
+                            match aggregates.next().and_then(|v| v) {
+                                Some(AggregateResult::Json(json_value)) => {
+                                    // Custom aggregate - return as JSONB
+                                    JsonB(json_value).into_datum()
+                                }
+                                Some(AggregateResult::Metric(metric)) => {
+                                    // Standard metric - convert f64 to appropriate type
+                                    metric.value.and_then(|value| {
+                                        TantivyValue(OwnedValue::F64(value))
+                                            .try_into_datum(expected_typoid.into())
+                                            .unwrap()
+                                    })
+                                }
+                                None => {
+                                    // No result - use nullish value
+                                    agg_type.nullish().value.and_then(|value| {
+                                        TantivyValue(OwnedValue::F64(value))
+                                            .try_into_datum(expected_typoid.into())
+                                            .unwrap()
+                                    })
+                                }
+                            }
                         }
                     }
                     (TargetListEntry::Aggregate(agg_type), true) => {

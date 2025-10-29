@@ -661,12 +661,13 @@ pub fn lookup_paradedb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> p
         }
 
         // Build the qualified function name list: paradedb.<func_name>
-        let mut func_name_list = pgrx::PgList::<pg_sys::Node>::new();
-        func_name_list.push(pg_sys::makeString(c"paradedb".as_ptr() as *mut i8) as *mut _);
-
+        let mut func_name_list = PgList::<pg_sys::Node>::new();
+        func_name_list
+            .push(pg_sys::makeString(c"paradedb".as_ptr() as *mut std::ffi::c_char) as *mut _);
         // Convert func_name to CString for makeString
         let func_name_cstr = std::ffi::CString::new(func_name).unwrap();
-        func_name_list.push(pg_sys::makeString(func_name_cstr.as_ptr() as *mut i8) as *mut _);
+        func_name_list
+            .push(pg_sys::makeString(func_name_cstr.as_ptr() as *mut std::ffi::c_char) as *mut _);
 
         // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
         pg_sys::LookupFuncName(

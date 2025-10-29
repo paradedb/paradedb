@@ -55,13 +55,6 @@ impl AggregateScanState {
             .map(|(_, rel)| rel)
             .expect("PdbScanState: indexrel should be initialized")
     }
-
-    /// Extract aggregate value from JSON - placeholder for window function compatibility
-    /// The actual extraction logic is now in the exec module
-    pub fn extract_aggregate_value_from_json(_agg_obj: &serde_json::Value) -> serde_json::Value {
-        // Simplified stub - actual logic is in exec module
-        _agg_obj.clone()
-    }
 }
 
 impl CustomScanState for AggregateScanState {

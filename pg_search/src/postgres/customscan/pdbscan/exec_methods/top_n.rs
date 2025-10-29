@@ -22,7 +22,6 @@ use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -261,20 +260,16 @@ impl TopNScanExecState {
                         if matches!(agg_type, AggregateType::Custom { .. }) {
                             JsonB(agg_value_json.clone()).into_datum().unwrap()
                         } else {
-                            // Extract the aggregate value using the same method as AggregateScanState
-                            let agg_result_value =
-                                AggregateScanState::extract_aggregate_value_from_json(
-                                    agg_value_json,
-                                );
+                            // Parse the aggregate result directly
                             let agg_value = agg_type
-                                .result_from_aggregate_with_doc_count(agg_result_value, doc_count);
+                                .result_from_aggregate_with_doc_count(agg_value_json, doc_count);
 
                             // Convert SingleMetricResult to Datum with correct type
                             Self::convert_aggregate_value_to_datum(agg_type, agg_value.value)
                         }
                     } else {
-                        // No aggregate result found, return empty value
-                        let empty = agg_type.empty_value();
+                        // No aggregate result found, return null value
+                        let empty = agg_type.nullish();
                         Self::convert_aggregate_value_to_datum(agg_type, empty.value)
                     };
 

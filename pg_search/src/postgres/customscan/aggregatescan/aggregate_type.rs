@@ -282,12 +282,12 @@ impl AggregateType {
     /// Convert an aggregate result with document count context
     pub fn result_from_aggregate_with_doc_count(
         &self,
-        result: serde_json::Value,
+        result: &serde_json::Value,
         doc_count: Option<i64>,
     ) -> SingleMetricResult {
         // Handle empty result sets (doc_count = 0)
         if doc_count == Some(0) {
-            return self.empty_value();
+            return self.nullish();
         }
 
         // Try to extract the value from the result

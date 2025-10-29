@@ -21,7 +21,7 @@ use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
-use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::aggregate_type::{AggregateType, AggregateValue};
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -160,28 +160,6 @@ impl TopNScanExecState {
         }
     }
 
-    /// Convert an aggregate value to the correct Datum type based on the aggregate type
-    fn convert_aggregate_value_to_datum(
-        agg_type: &AggregateType,
-        value: Option<f64>,
-    ) -> pg_sys::Datum {
-        match value {
-            Some(val) => {
-                // For COUNT aggregates, convert to i64
-                if matches!(
-                    agg_type,
-                    AggregateType::CountAny { .. } | AggregateType::Count { .. }
-                ) {
-                    (val as i64).into_datum().unwrap_or(pg_sys::Datum::null())
-                } else {
-                    // For other aggregates (SUM, AVG, MIN, MAX), keep as f64
-                    val.into_datum().unwrap_or(pg_sys::Datum::null())
-                }
-            }
-            None => pg_sys::Datum::null(),
-        }
-    }
-
     /// Compute window aggregates based on the search results
     fn compute_window_aggregates(&mut self, state: &mut PdbScanState) {
         if self.window_aggregates.is_empty() {
@@ -227,50 +205,90 @@ impl TopNScanExecState {
             // Use ExprContextGuard for standalone execution
             let standalone_context = crate::postgres::utils::ExprContextGuard::new();
 
-            let agg_result = execute_aggregate(
-                indexrel,
-                base_query,
-                AggregateRequest::Json(aggregations),
-                true,                                              // solve_mvcc
-                gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-                tantivy::aggregation::DEFAULT_BUCKET_LIMIT,        // bucket_limit
-                standalone_context.as_ptr(),
-            )
-            .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
+            let agg_results: tantivy::aggregation::agg_result::AggregationResults =
+                execute_aggregate(
+                    indexrel,
+                    base_query,
+                    AggregateRequest::Json(aggregations),
+                    true,                                              // solve_mvcc
+                    gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+                    tantivy::aggregation::DEFAULT_BUCKET_LIMIT,        // bucket_limit
+                    standalone_context.as_ptr(),
+                )
+                .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
 
-            let agg_result = serde_json::to_value(&agg_result)
-                .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregation result: {}", e));
+            // For window functions (no GROUP BY), we expect a single ungrouped result
+            // Extract the metric results directly from the AggregationResults
 
-            // Extract results for each aggregate
-            // Format: {"0": {...}, "1": {...}, "_doc_count": {"value": N}}
-            if let Some(result_obj) = agg_result.as_object() {
-                let doc_count = result_obj
+            // Check if results are empty (no documents matched)
+            let is_empty = agg_results.0.is_empty() || {
+                // Check if _doc_count is 0
+                agg_results
+                    .0
                     .get("_doc_count")
-                    .and_then(|v| v.get("value"))
-                    .and_then(|v| v.as_f64())
-                    .map(|f| f as i64);
+                    .and_then(|result| match result {
+                        tantivy::aggregation::agg_result::AggregationResult::MetricResult(
+                            tantivy::aggregation::agg_result::MetricResult::Count(v),
+                        ) => v.value,
+                        _ => None,
+                    })
+                    .map(|count| count == 0.0)
+                    .unwrap_or(false)
+            };
 
+            if is_empty {
+                // No results - return nullish for all aggregates
+                for (agg_type, te_idx) in
+                    combined_agg_types.iter().zip(agg_index_to_te_index.iter())
+                {
+                    let empty = agg_type.nullish();
+                    let datum = AggregateValue::new(agg_type, empty.value)
+                        .into_datum()
+                        .unwrap_or(pg_sys::Datum::null());
+                    results.insert(*te_idx, datum);
+                }
+            } else {
+                // Extract metric results from the aggregation results
                 for (agg_idx, (agg_type, te_idx)) in combined_agg_types
                     .iter()
                     .zip(agg_index_to_te_index.iter())
                     .enumerate()
                 {
-                    let datum = if let Some(agg_value_json) = result_obj.get(&agg_idx.to_string()) {
+                    let datum = if let Some(agg_result) = agg_results.0.get(&agg_idx.to_string()) {
                         // For Custom aggregates, return the raw JSON result
                         if matches!(agg_type, AggregateType::Custom { .. }) {
-                            JsonB(agg_value_json.clone()).into_datum().unwrap()
+                            let json_value = serde_json::to_value(agg_result).unwrap_or_else(|e| {
+                                pgrx::error!("Failed to serialize custom aggregate: {}", e)
+                            });
+                            JsonB(json_value).into_datum().unwrap()
                         } else {
-                            // Parse the aggregate result directly
-                            let agg_value = agg_type
-                                .result_from_aggregate_with_doc_count(agg_value_json, doc_count);
+                            // Extract the metric value from the AggregationResult
+                            use tantivy::aggregation::agg_result::AggregationResult;
+                            let metric_value = match agg_result {
+                                AggregationResult::MetricResult(metric) => {
+                                    use tantivy::aggregation::agg_result::MetricResult;
+                                    match metric {
+                                        MetricResult::Average(v)
+                                        | MetricResult::Count(v)
+                                        | MetricResult::Sum(v)
+                                        | MetricResult::Min(v)
+                                        | MetricResult::Max(v) => v.value,
+                                        _ => None,
+                                    }
+                                }
+                                _ => None,
+                            };
 
-                            // Convert SingleMetricResult to Datum with correct type
-                            Self::convert_aggregate_value_to_datum(agg_type, agg_value.value)
+                            AggregateValue::new(agg_type, metric_value)
+                                .into_datum()
+                                .unwrap_or(pg_sys::Datum::null())
                         }
                     } else {
                         // No aggregate result found, return null value
                         let empty = agg_type.nullish();
-                        Self::convert_aggregate_value_to_datum(agg_type, empty.value)
+                        AggregateValue::new(agg_type, empty.value)
+                            .into_datum()
+                            .unwrap_or(pg_sys::Datum::null())
                     };
 
                     results.insert(*te_idx, datum);

@@ -529,3 +529,40 @@ fn create_aggregate_from_oid(
         }
     }
 }
+
+/// Wrapper for aggregate results that implements IntoDatum with proper type conversion
+pub struct AggregateValue<'a> {
+    agg_type: &'a AggregateType,
+    value: Option<f64>,
+}
+
+impl<'a> AggregateValue<'a> {
+    pub fn new(agg_type: &'a AggregateType, value: Option<f64>) -> Self {
+        Self { agg_type, value }
+    }
+}
+
+impl IntoDatum for AggregateValue<'_> {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        match self.value {
+            Some(val) => {
+                // For COUNT aggregates, convert to i64
+                if matches!(
+                    self.agg_type,
+                    AggregateType::CountAny { .. } | AggregateType::Count { .. }
+                ) {
+                    (val as i64).into_datum()
+                } else {
+                    // For other aggregates (SUM, AVG, MIN, MAX), keep as f64
+                    val.into_datum()
+                }
+            }
+            None => None,
+        }
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        // This is not used in our case, but required by the trait
+        pg_sys::FLOAT8OID
+    }
+}

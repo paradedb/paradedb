@@ -1860,3 +1860,31 @@ from (select relname,
       where low < high
       group by relname, low, high
       order by relname, low desc) x;
+
+ALTER FUNCTION paradedb.search_with_phrase SUPPORT paradedb.search_with_phrase_support;
+ALTER FUNCTION paradedb.search_with_phrase_array SUPPORT paradedb.search_with_phrase_support;
+ALTER FUNCTION paradedb.search_with_phrase_pdb_query SUPPORT paradedb.search_with_phrase_support;
+ALTER FUNCTION paradedb.search_with_phrase_boost SUPPORT paradedb.search_with_phrase_support;
+ALTER FUNCTION paradedb.search_with_phrase_slop SUPPORT paradedb.search_with_phrase_support;
+
+ALTER FUNCTION paradedb.search_with_match_conjunction SUPPORT paradedb.search_with_match_conjunction_support;
+ALTER FUNCTION paradedb.search_with_match_conjunction_array SUPPORT paradedb.search_with_match_conjunction_support;
+ALTER FUNCTION paradedb.search_with_match_conjunction_pdb_query SUPPORT paradedb.search_with_match_conjunction_support;
+ALTER FUNCTION paradedb.search_with_match_conjunction_boost SUPPORT paradedb.search_with_match_conjunction_support;
+ALTER FUNCTION paradedb.search_with_match_conjunction_fuzzy SUPPORT paradedb.search_with_match_conjunction_support;
+
+ALTER FUNCTION paradedb.search_with_match_disjunction SUPPORT paradedb.search_with_match_disjunction_support;
+ALTER FUNCTION paradedb.search_with_match_disjunction_array SUPPORT paradedb.search_with_match_disjunction_support;
+ALTER FUNCTION paradedb.search_with_match_disjunction_pdb_query SUPPORT paradedb.search_with_match_disjunction_support;
+ALTER FUNCTION paradedb.search_with_match_disjunction_boost SUPPORT paradedb.search_with_match_disjunction_support;
+ALTER FUNCTION paradedb.search_with_match_disjunction_fuzzy SUPPORT paradedb.search_with_match_disjunction_support;
+
+ALTER FUNCTION paradedb.search_with_term SUPPORT paradedb.search_with_term_support;
+ALTER FUNCTION paradedb.search_with_term_array SUPPORT paradedb.search_with_term_support;
+ALTER FUNCTION paradedb.search_with_term_pdb_query SUPPORT paradedb.search_with_term_support;
+ALTER FUNCTION paradedb.search_with_term_boost SUPPORT paradedb.search_with_term_support;
+ALTER FUNCTION paradedb.search_with_term_fuzzy SUPPORT paradedb.search_with_term_support;
+
+ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
+ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
+ALTER FUNCTION paradedb.search_with_proximity_clause SUPPORT paradedb.atatat_support;

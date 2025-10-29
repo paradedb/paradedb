@@ -112,42 +112,20 @@
                       },
                       "v2/filtering",
                       {
-                        "group": "Query Builder",
-                        "pages": [
-                          "v2/query-builder/overview",
-                          "v2/query-builder/match",
-                          {
-                            "group": "Phrase",
-                            "pages": [
-                              "v2/query-builder/phrase/phrase",
-                              "v2/query-builder/phrase/phrase-prefix",
-                              "v2/query-builder/phrase/regex-phrase"
-                            ]
-                          },
-                          {
-                            "group": "Term",
-                            "pages": [
-                              "v2/query-builder/term/exists",
-                              "v2/query-builder/term/fuzzy-term",
-                              "v2/query-builder/term/range",
-                              "v2/query-builder/term/range-term",
-                              "v2/query-builder/term/regex",
-                              "v2/query-builder/term/term",
-                              "v2/query-builder/term/term-set"
-                            ]
-                          },
-                          {
-                            "group": "Specialized",
-                            "pages": [
-                              "v2/query-builder/specialized/more-like-this"
-                            ]
-                          },
-                          "v2/query-builder/json"
-                        ]
-                      },
-                      {
                         "group": "Aggregates",
                         "pages": ["v2/aggregates/overview"]
+                      },
+                      {
+                        "group": "Advanced Query Functions",
+                        "pages": [
+                          "v2/query-builder/overview",
+                          "v2/query-builder/compound/all",
+                          "v2/query-builder/specialized/more-like-this",
+                          "v2/query-builder/phrase/phrase-prefix",
+                          "v2/query-builder/compound/query-parser",
+                          "v2/query-builder/term/range-term",
+                          "v2/query-builder/term/regex"
+                        ]
                       },
                       {
                         "group": "Performance Tuning",

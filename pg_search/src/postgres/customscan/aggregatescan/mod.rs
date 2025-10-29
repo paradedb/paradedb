@@ -28,6 +28,7 @@ pub mod searchquery;
 pub mod targetlist;
 
 // Re-export commonly used types for easier access
+pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 

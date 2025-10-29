@@ -22,10 +22,11 @@ use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
-use crate::postgres::customscan::aggregatescan::AggregateScan;
+use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::types::TantivyValue;
+use pgrx::pg_sys;
 
 use tantivy::aggregation::agg_result::{
     AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult,
@@ -77,7 +78,7 @@ pub fn aggregation_results_iter(
 }
 
 #[derive(Debug)]
-struct AggregationResults(HashMap<String, AggregationResult>);
+pub struct AggregationResults(HashMap<String, AggregationResult>);
 impl From<TantivyAggregationResults> for AggregationResults {
     fn from(results: TantivyAggregationResults) -> Self {
         Self(results.0)
@@ -143,7 +144,7 @@ impl From<MetricResult> for TantivySingleMetricResult {
 }
 
 impl AggregationResults {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         // we should return an empty result set if either the Aggregations JSON is empty,
         // or if the top-level `_doc_count` is `0.0` (i.e. zero documents were matched)
         if self.0.is_empty() {
@@ -274,7 +275,7 @@ impl AggregationResults {
         }
     }
 
-    fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
+    pub fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
         if self.is_empty() {
             return;
         }
@@ -306,6 +307,66 @@ impl AggregationResults {
             aggregates,
             doc_count: None,
         });
+    }
+
+    /// Flatten ungrouped results and convert directly to Datums
+    /// This is useful for window aggregates where we need Datums immediately
+    /// Returns a Vec where the index corresponds to the aggregate index
+    pub fn flatten_ungrouped_to_datums(
+        self,
+        agg_types: &[AggregateType],
+    ) -> Vec<Option<pg_sys::Datum>> {
+        use crate::postgres::types::TantivyValue;
+        use pgrx::{IntoDatum, JsonB, PgOid};
+        use tantivy::schema::OwnedValue;
+
+        let mut results = vec![None; agg_types.len()];
+
+        if self.is_empty() {
+            return results;
+        }
+
+        // Extract Custom aggregates first (need raw results)
+        for (agg_idx, agg_type) in agg_types.iter().enumerate() {
+            if matches!(agg_type, AggregateType::Custom { .. }) {
+                if let Some(agg_result) = self.0.get(&agg_idx.to_string()) {
+                    let json_value = serde_json::to_value(agg_result).unwrap_or_else(|e| {
+                        pgrx::error!("Failed to serialize custom aggregate: {}", e)
+                    });
+                    results[agg_idx] = JsonB(json_value).into_datum();
+                }
+            }
+        }
+
+        // Flatten standard aggregates
+        let mut rows = Vec::new();
+        self.flatten_ungrouped(&mut rows);
+
+        if let Some(row) = rows.into_iter().next() {
+            let mut metric_iter = row.aggregates.into_iter();
+
+            for (agg_idx, agg_type) in agg_types.iter().enumerate() {
+                // Skip Custom aggregates (already processed)
+                if matches!(agg_type, AggregateType::Custom { .. }) {
+                    continue;
+                }
+
+                let expected_typoid = agg_type.result_type_oid();
+
+                results[agg_idx] = metric_iter
+                    .next()
+                    .and_then(|v| v)
+                    .unwrap_or_else(|| agg_type.nullish())
+                    .value
+                    .and_then(|value| unsafe {
+                        TantivyValue(OwnedValue::F64(value))
+                            .try_into_datum(PgOid::from(expected_typoid))
+                            .unwrap()
+                    });
+            }
+        }
+
+        results
     }
 
     fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {

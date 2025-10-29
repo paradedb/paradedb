@@ -21,7 +21,7 @@ use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
-use crate::postgres::customscan::aggregatescan::aggregate_type::{AggregateType, AggregateValue};
+use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggrega
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum, JsonB};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
 pub struct TopNScanExecState {
@@ -218,81 +218,17 @@ impl TopNScanExecState {
                 .unwrap_or_else(|e| pgrx::error!("Failed to execute window aggregation: {}", e));
 
             // For window functions (no GROUP BY), we expect a single ungrouped result
-            // Extract the metric results directly from the AggregationResults
+            // Convert to AggregationResults and extract Datums
+            let agg_results_wrapper: AggregationResults = agg_results.into();
+            let datum_vec = agg_results_wrapper.flatten_ungrouped_to_datums(&combined_agg_types);
 
-            // Check if results are empty (no documents matched)
-            let is_empty = agg_results.0.is_empty() || {
-                // Check if _doc_count is 0
-                agg_results
-                    .0
-                    .get("_doc_count")
-                    .and_then(|result| match result {
-                        tantivy::aggregation::agg_result::AggregationResult::MetricResult(
-                            tantivy::aggregation::agg_result::MetricResult::Count(v),
-                        ) => v.value,
-                        _ => None,
-                    })
-                    .map(|count| count == 0.0)
-                    .unwrap_or(false)
-            };
-
-            if is_empty {
-                // No results - return nullish for all aggregates
-                for (agg_type, te_idx) in
-                    combined_agg_types.iter().zip(agg_index_to_te_index.iter())
-                {
-                    let empty = agg_type.nullish();
-                    let datum = AggregateValue::new(agg_type, empty.value)
-                        .into_datum()
-                        .unwrap_or(pg_sys::Datum::null());
-                    results.insert(*te_idx, datum);
-                }
-            } else {
-                // Extract metric results from the aggregation results
-                for (agg_idx, (agg_type, te_idx)) in combined_agg_types
-                    .iter()
-                    .zip(agg_index_to_te_index.iter())
-                    .enumerate()
-                {
-                    let datum = if let Some(agg_result) = agg_results.0.get(&agg_idx.to_string()) {
-                        // For Custom aggregates, return the raw JSON result
-                        if matches!(agg_type, AggregateType::Custom { .. }) {
-                            let json_value = serde_json::to_value(agg_result).unwrap_or_else(|e| {
-                                pgrx::error!("Failed to serialize custom aggregate: {}", e)
-                            });
-                            JsonB(json_value).into_datum().unwrap()
-                        } else {
-                            // Extract the metric value from the AggregationResult
-                            use tantivy::aggregation::agg_result::AggregationResult;
-                            let metric_value = match agg_result {
-                                AggregationResult::MetricResult(metric) => {
-                                    use tantivy::aggregation::agg_result::MetricResult;
-                                    match metric {
-                                        MetricResult::Average(v)
-                                        | MetricResult::Count(v)
-                                        | MetricResult::Sum(v)
-                                        | MetricResult::Min(v)
-                                        | MetricResult::Max(v) => v.value,
-                                        _ => None,
-                                    }
-                                }
-                                _ => None,
-                            };
-
-                            AggregateValue::new(agg_type, metric_value)
-                                .into_datum()
-                                .unwrap_or(pg_sys::Datum::null())
-                        }
-                    } else {
-                        // No aggregate result found, return null value
-                        let empty = agg_type.nullish();
-                        AggregateValue::new(agg_type, empty.value)
-                            .into_datum()
-                            .unwrap_or(pg_sys::Datum::null())
-                    };
-
-                    results.insert(*te_idx, datum);
-                }
+            // Map aggregate results to target entry indices
+            for (agg_idx, te_idx) in agg_index_to_te_index.iter().enumerate() {
+                let datum = datum_vec
+                    .get(agg_idx)
+                    .and_then(|d| *d)
+                    .unwrap_or(pg_sys::Datum::null());
+                results.insert(*te_idx, datum);
             }
         }
 

@@ -58,12 +58,13 @@ pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
 }
 
 /// Get the OID of the window_agg placeholder function
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn window_agg_oid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             &[c"paradedb.window_agg(text)".into_datum()],
         )
-        .expect("the `paradedb.window_agg` function should exist")
+        .unwrap_or(pg_sys::InvalidOid)
     }
 }

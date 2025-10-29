@@ -311,8 +311,16 @@ unsafe fn query_has_window_agg_in_targetlist(root: *mut pg_sys::PlannerInfo) -> 
     }
 
     let parse = (*root).parse;
-    let window_agg_func_oid = window_agg_oid().to_u32();
-    let paradedb_agg_oid = agg_funcoid().to_u32();
+    let window_agg_func_oid = window_agg_oid();
+    let paradedb_agg_oid = agg_funcoid();
+
+    // If functions don't exist yet (e.g., during extension creation), skip check
+    if window_agg_func_oid == pg_sys::InvalidOid || paradedb_agg_oid == pg_sys::InvalidOid {
+        return false;
+    }
+
+    let window_agg_func_oid = window_agg_func_oid.to_u32();
+    let paradedb_agg_oid = paradedb_agg_oid.to_u32();
 
     // Check target list for window_agg() or paradedb.agg() function calls
     if !(*parse).targetList.is_null() {
@@ -1380,6 +1388,12 @@ unsafe fn inject_window_aggregate_placeholders(
     let mut const_nodes = HashMap::default();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     let window_agg_procid = window_agg_oid();
+
+    // If window_agg function doesn't exist yet, return original targetlist
+    if window_agg_procid == pg_sys::InvalidOid {
+        return (targetlist, const_nodes);
+    }
+
     for agg_info in window_aggs {
         let te_idx = agg_info.target_entry_index;
 

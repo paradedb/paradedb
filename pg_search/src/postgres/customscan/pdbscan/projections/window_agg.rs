@@ -508,8 +508,15 @@ pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAg
         current_te_index: usize,
     }
 
+    let window_agg_procid = window_agg_oid();
+
+    // If window_agg function doesn't exist yet (e.g., during extension creation), return empty list
+    if window_agg_procid == pg_sys::InvalidOid {
+        return Vec::new();
+    }
+
     let mut context = Context {
-        window_agg_procid: window_agg_oid(),
+        window_agg_procid,
         window_aggs: Vec::new(),
         current_te_index: 0,
     };

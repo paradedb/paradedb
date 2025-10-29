@@ -468,6 +468,12 @@ unsafe fn replace_windowfuncs_in_query(
     let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
     let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
     let window_agg_procid = window_agg_oid();
+
+    // If window_agg function doesn't exist yet (e.g., during extension creation), skip replacement
+    if window_agg_procid == pg_sys::InvalidOid {
+        return;
+    }
+
     let mut replaced_count = 0;
 
     for (idx, te) in original_tlist.iter_ptr().enumerate() {

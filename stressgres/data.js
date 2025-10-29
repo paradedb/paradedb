@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761709403318,
+  "lastUpdate": 1761710173504,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33370,6 +33370,54 @@ window.BENCHMARK_DATA = {
             "value": 5.844960624877724,
             "unit": "median tps",
             "extra": "avg tps: 5.85220928677686, max tps: 7.583245599921272, count: 56038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57a4340e4213e9d2a3c1dfdfb33baac3c37c87df",
+          "message": "feat: Add `paradedb.snippets` to support rendering the top-n snippets for a document. (#3435)\n\n## What\n\nAdds the `paradedb.snippets` function, and deprecates passing an\n`offset` and `limit` to `paradedb.snippet`.\n\n## Why\n\nAs explained in the new docs, `paradedb.snippets` allows for rendering\nthe top-n snippets (by score or position), regardless of their distance\nfrom one another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-28T20:14:22-07:00",
+          "tree_id": "6305fc100e2ae240448bb5226fabdb6adcf7d00b",
+          "url": "https://github.com/paradedb/paradedb/commit/57a4340e4213e9d2a3c1dfdfb33baac3c37c87df"
+        },
+        "date": 1761710171390,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1145.770696820715,
+            "unit": "median tps",
+            "extra": "avg tps: 1144.2843641740865, max tps: 1220.1844189799647, count: 56493"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1291.801690796503,
+            "unit": "median tps",
+            "extra": "avg tps: 1265.5878000509074, max tps: 1302.89142644332, count: 56493"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1927.4499910015422,
+            "unit": "median tps",
+            "extra": "avg tps: 1833.3772366843702, max tps: 2149.9266442092485, count: 56493"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.969825639459656,
+            "unit": "median tps",
+            "extra": "avg tps: 5.944740824907565, max tps: 7.199400981040773, count: 56493"
           }
         ]
       }

@@ -1,5 +1,6 @@
 ---
 title: Filtering
+noindex: true
 ---
 
 Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
@@ -15,7 +16,7 @@ WHERE description @@@ 'shoes' AND rating > 2;
 
 ### Non-Text Fields
 
-While not required, filtering performance over non-text columns can be improved by including them in the BM25 index, and making sure they are configured as [fast](/documentation/indexing/fast_fields)
+While not required, filtering performance over non-text columns can be improved by including them in the BM25 index, and making sure they are configured as [fast](/documentation/indexing/fast-fields)
 (which is already the default for non-text fields). When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself. This can result in faster query execution over large datasets.
 
 For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:

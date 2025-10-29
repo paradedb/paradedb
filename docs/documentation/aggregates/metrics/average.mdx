@@ -1,5 +1,6 @@
 ---
 title: Average
+noindex: true
 ---
 
 `AVG` computes the average value over a specific column:
@@ -11,7 +12,7 @@ WHERE id @@@ paradedb.all();
 
 <Note>
   The field being averaged, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
+  [fast](/documentation/indexing/fast-fields).
 </Note>
 
 By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:

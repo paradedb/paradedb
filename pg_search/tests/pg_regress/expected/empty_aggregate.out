@@ -219,7 +219,7 @@ ORDER BY category;
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"sum":{"field":"value","missing":null}},"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null}},"1":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value) 

@@ -1,10 +1,11 @@
 ---
 title: Overview
+noindex: true
 ---
 
 <Note>
   **Prerequisite** Before performing full text search over a table, ensure that
-  it has been [indexed](/documentation/indexing/create_index) and properly
+  it has been [indexed](/documentation/indexing/create-index) and properly
   [tuned](/documentation/configuration).
 </Note>
 
@@ -33,7 +34,7 @@ be escaped by a `\` inside the query term.
 
 ## Query Builder Syntax
 
-The left-hand side of `@@@` is the **[key field](/documentation/indexing/create_index#choosing-a-key-field)** and the right-hand side is
+The left-hand side of `@@@` is the **[key field](/documentation/indexing/create-index#choosing-a-key-field)** and the right-hand side is
 a **[query builder function or JSON object](/documentation/advanced/overview)**. This syntax is necessary for capturing more complex query types
 like fuzzy matching or term-level search that cannot be expressed by query strings.
 

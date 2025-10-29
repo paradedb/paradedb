@@ -190,6 +190,8 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         }
 
         SearchTokenizer::Keyword => {}
+        #[allow(deprecated)]
+        SearchTokenizer::KeywordDeprecated => {}
     }
 }
 

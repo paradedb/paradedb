@@ -70,6 +70,20 @@ impl SearchTokenizerFilters {
         }
     }
 
+    pub const fn keyword_deprecated() -> &'static Self {
+        &SearchTokenizerFilters {
+            remove_short: None,
+            remove_long: Some(usize::MAX),
+            lowercase: Some(false),
+            stemmer: None,
+            stopwords_language: None,
+            stopwords: None,
+            ascii_folding: None,
+            alpha_num_only: None,
+            normalizer: Some(SearchNormalizer::Raw),
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 
@@ -265,6 +279,11 @@ macro_rules! add_filters {
 pub enum SearchTokenizer {
     Default(SearchTokenizerFilters),
     Keyword,
+    #[deprecated(
+        since = "0.19.0",
+        note = "use the `SearchTokenizer::Keyword` variant instead"
+    )]
+    KeywordDeprecated,
 
     #[deprecated(
         since = "0.15.17",
@@ -396,6 +415,10 @@ impl SearchTokenizer {
             }
             // the keyword tokenizer is a special case that does not have filters
             SearchTokenizer::Keyword => TextAnalyzer::builder(RawTokenizer::default()).build(),
+            #[allow(deprecated)]
+            SearchTokenizer::KeywordDeprecated => {
+                TextAnalyzer::builder(RawTokenizer::default()).build()
+            }
             SearchTokenizer::LiteralNormalized(filters) => {
                 add_filters!(RawTokenizer::default(), filters)
             }
@@ -474,6 +497,8 @@ impl SearchTokenizer {
             SearchTokenizer::Default(filters) => filters,
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
+            SearchTokenizer::KeywordDeprecated => SearchTokenizerFilters::keyword_deprecated(),
+            #[allow(deprecated)]
             SearchTokenizer::Raw(filters) => filters,
             SearchTokenizer::LiteralNormalized(filters) => filters,
             SearchTokenizer::WhiteSpace(filters) => filters,
@@ -526,6 +551,8 @@ impl SearchTokenizer {
         match self {
             SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
+            #[allow(deprecated)]
+            SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
             SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),

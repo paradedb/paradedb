@@ -1,5 +1,6 @@
 ---
 title: Terms
+noindex: true
 ---
 
 A terms aggregation counts the number of occurrences for every unique value in a field. For example, the following query
@@ -29,7 +30,7 @@ LIMIT 10;
 
 <Note>
   All fields in the `GROUP BY` and `ORDER BY` clauses, in this case `rating`,
-  must be indexed as [fast](/documentation/indexing/fast_fields).
+  must be indexed as [fast](/documentation/indexing/fast-fields).
 </Note>
 
 For performance reasons, we strongly recommend adding a `LIMIT` to the `GROUP BY`. Terms aggregations without a `LIMIT` consume more memory and

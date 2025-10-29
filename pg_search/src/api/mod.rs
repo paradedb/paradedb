@@ -219,6 +219,10 @@ impl FieldName {
     }
 
     pub fn path(&self) -> Option<String> {
+        if !self.0.as_str().contains('.') {
+            return None;
+        }
+
         let json_path = split_json_path(self.0.as_str());
         if json_path.len() == 1 {
             None
@@ -280,6 +284,15 @@ impl From<SortDirection> for tantivy::Order {
         match value {
             SortDirection::Asc => tantivy::Order::Asc,
             SortDirection::Desc => tantivy::Order::Desc,
+        }
+    }
+}
+
+impl From<SortDirection> for tantivy::aggregation::bucket::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => tantivy::aggregation::bucket::Order::Asc,
+            SortDirection::Desc => tantivy::aggregation::bucket::Order::Desc,
         }
     }
 }

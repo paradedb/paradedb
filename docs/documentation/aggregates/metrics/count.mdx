@@ -1,5 +1,6 @@
 ---
 title: Count
+noindex: true
 ---
 
 Use `COUNT(*)` to count the number of matches for a query:
@@ -18,7 +19,7 @@ WHERE id @@@ paradedb.all();
 
 <Note>
   The field being counted, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
+  [fast](/documentation/indexing/fast-fields).
 </Note>
 
 To verify that `COUNT` was pushed down, look for a `ParadeDB Aggregate Scan` with `value_count` in the `EXPLAIN` output:

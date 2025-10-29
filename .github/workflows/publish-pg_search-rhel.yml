@@ -124,18 +124,13 @@ jobs:
             arch: aarch64
 
     steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-
       - name: Install Dependencies
         run: |
           # Extract RHEL version from the image name
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
           # Install dependencies
-          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
+          dnf install -y sudo wget git ca-certificates gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -168,6 +163,9 @@ jobs:
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v5
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -322,3 +320,10 @@ jobs:
           asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           overwrite: true
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-rhel\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

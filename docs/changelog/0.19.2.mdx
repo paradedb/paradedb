@@ -1,0 +1,13 @@
+---
+title: 0.19.2
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed a backwards compatibility issue with the `keyword` tokenizer, where indexes created before `0.19.0` with
+  this tokenizer would fail to accept writes after the upgrade because the internal name of the tokenizer was changed
+- Fixed an issue where blocks could get added to the free space map twice, leading to undefined behavior like page corruption
+  or hangs
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.19.2).

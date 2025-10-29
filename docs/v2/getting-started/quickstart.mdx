@@ -1,7 +1,7 @@
 ---
 title: Quickstart
-noindex: true
-canonical: https://docs.paradedb.com/documentation/getting-started/quickstart
+description: Get started with ParadeDB in five minutes
+canonical: https://docs.paradedb.com/v2/getting-started/quickstart
 ---
 
 This guide will walk you through a few queries to give you a feel for ParadeDB.
@@ -43,12 +43,14 @@ WITH (key_field='id');
 ```
 
 <Note>
-As a general rule of thumb, any columns that you want to filter, `GROUP BY`, `ORDER BY`, or aggregate as part of a full text query should be added to the index for faster
-performance.
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
 </Note>
 
 <Note>
-  Note the mandatory `key_field` option. See [choosing a key field](/v2/indexing/create_index#choosing-a-key-field) for more details.
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/v2/indexing/create-index#choosing-a-key-field) for more details.
 </Note>
 
 ## Match Query
@@ -123,7 +125,6 @@ LIMIT 5;
 
 Finally, let's also [highlight](/v2/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `pdb.snippet`.
-
 
 ```sql
 SELECT description, pdb.snippet(description), pdb.score(id)

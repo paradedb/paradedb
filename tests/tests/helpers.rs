@@ -93,6 +93,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             vec![
                 ("default".into(),),
                 ("keyword".into(),),
+                ("keyword_deprecated".into(),),
                 ("raw".into(),),
                 ("literal_normalized".into(),),
                 ("white_space".into(),),
@@ -115,6 +116,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             vec![
                 ("default".into(),),
                 ("keyword".into(),),
+                ("keyword_deprecated".into(),),
                 ("raw".into(),),
                 ("literal_normalized".into(),),
                 ("white_space".into(),),

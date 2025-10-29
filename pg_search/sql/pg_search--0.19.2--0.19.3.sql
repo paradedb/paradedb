@@ -19,7 +19,7 @@ AS 'MODULE_PATHNAME', 'snippets_from_relation_wrapper';
 /* <begin connected objects> */
 -- pg_search/src/api/window_aggregate.rs:28
 -- pg_search::api::window_aggregate::window_agg
-CREATE OR REPLACE FUNCTION "window_agg"(
+CREATE OR REPLACE FUNCTION pdb."window_agg"(
 	"window_aggregate_json" TEXT /* &str */
 ) RETURNS bigint /* i64 */
 STRICT VOLATILE PARALLEL SAFE 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761697080517,
+  "lastUpdate": 1761697853791,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32710,6 +32710,54 @@ window.BENCHMARK_DATA = {
             "value": 6.071509647310578,
             "unit": "median tps",
             "extra": "avg tps: 6.0344159277444325, max tps: 7.502350598977919, count: 56488"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a5f7c1d4618c7972dee96f0ebf9e34fd985906b",
+          "message": "feat: Add `pdb.snippets` to support rendering the top-n snippets for a document. (#3434)\n\n## What\n\nAdds the `pdb.snippets` function, and deprecates passing an `offset` and\n`limit` to `pdb.snippet`.\n\n## Why\n\nAs explained in the new docs, `pdb.snippets` allows for rendering the\ntop-n snippets (by score or position), regardless of their distance from\none another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.",
+          "timestamp": "2025-10-28T16:47:22-07:00",
+          "tree_id": "76bd8f73aae2702f0df686bb24a655a964e6be6f",
+          "url": "https://github.com/paradedb/paradedb/commit/0a5f7c1d4618c7972dee96f0ebf9e34fd985906b"
+        },
+        "date": 1761697851702,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1180.415390769548,
+            "unit": "median tps",
+            "extra": "avg tps: 1180.6340037060622, max tps: 1219.8080561245445, count: 56225"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1157.513189979992,
+            "unit": "median tps",
+            "extra": "avg tps: 1131.8769496749062, max tps: 1266.9097832820753, count: 56225"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1120.825811312061,
+            "unit": "median tps",
+            "extra": "avg tps: 1033.52519077603, max tps: 1519.1876264724988, count: 56225"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.8722396959078935,
+            "unit": "median tps",
+            "extra": "avg tps: 5.865516060706382, max tps: 7.200171485044224, count: 56225"
           }
         ]
       }

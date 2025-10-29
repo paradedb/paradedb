@@ -415,7 +415,6 @@ CREATE OPERATOR pg_catalog.||| (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     );
-ALTER FUNCTION paradedb.search_with_match_disjunction_array SUPPORT paradedb.search_with_match_disjunction_support;
 DROP FUNCTION IF EXISTS search_with_phrase_pdb_query(_field text, terms_to_tokenize pdb.query);
 CREATE OR REPLACE FUNCTION search_with_phrase_pdb_query(_field anyelement, terms_to_tokenize pdb.query) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_phrase_pdb_query_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/hashhashhash.rs:44
@@ -425,7 +424,6 @@ CREATE OPERATOR pg_catalog.### (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     );
-ALTER FUNCTION paradedb.search_with_phrase_array SUPPORT paradedb.search_with_phrase_support;
 DROP FUNCTION IF EXISTS search_with_match_conjunction_pdb_query(_field text, terms_to_tokenize pdb.query);
 CREATE OR REPLACE FUNCTION search_with_match_conjunction_pdb_query(_field anyelement, terms_to_tokenize pdb.query) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_match_conjunction_pdb_query_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 -- pg_search/src/api/operator/andandand.rs:46
@@ -435,7 +433,6 @@ CREATE OPERATOR pg_catalog.&&& (
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     );
-ALTER FUNCTION paradedb.search_with_match_conjunction_array SUPPORT paradedb.search_with_match_conjunction_support;
 /* </end connected objects> */
 
 /* <begin connected objects> */

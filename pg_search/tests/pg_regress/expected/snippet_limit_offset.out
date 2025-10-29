@@ -25,6 +25,7 @@ SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snipp
 (4 rows)
 
 SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
                                      snippet                                     | snippet_positions 
 ---------------------------------------------------------------------------------+-------------------
  This is a <b>test</b> test of the snippet function with multiple test words     | {"{10,14}"}
@@ -34,6 +35,7 @@ SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(conte
 (4 rows)
 
 SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
  This is a test <b>test</b> of the snippet function with multiple test words | {"{15,19}"}
@@ -43,6 +45,7 @@ SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_
 (4 rows)
 
 SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
  This is a test test of the snippet function with multiple <b>test</b> words | {"{58,62}"}
@@ -53,6 +56,7 @@ SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_
 
 -- Edge cases
 SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
  snippet | snippet_positions 
 ---------+-------------------
          | 
@@ -64,6 +68,7 @@ SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(conte
 SELECT paradedb.snippet(content, "limit" => -1), paradedb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
 ERROR:  limit must not be negative
 SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
  snippet | snippet_positions 
 ---------+-------------------
          | 
@@ -83,6 +88,7 @@ SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(co
 
 -- With max num chars
 SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
           snippet           
 ----------------------------
  multiple <b>test</b> words
@@ -92,6 +98,7 @@ SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippe
 (4 rows)
 
 SELECT paradedb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+WARNING:  using `limit` or `offset` with `paradedb.snippet` is deprecated
    snippet   
 -------------
  <b>test</b>

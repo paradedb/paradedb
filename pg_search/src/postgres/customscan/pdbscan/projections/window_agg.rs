@@ -15,6 +15,49 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Window Function Support for TopN Queries (Faceting)
+//!
+//! This module implements window function support for TopN queries, enabling
+//! Elasticsearch-style faceting patterns where result sets and aggregates are
+//! computed in a single pass.
+//!
+//! # Architecture
+//!
+//! The implementation uses an early replacement strategy at the `planner_hook` stage:
+//!
+//! 1. **Detection**: Identify queries with window functions and `@@@` operator or `paradedb.agg()`
+//! 2. **Extraction**: Parse `WindowFunc` AST nodes and extract aggregate definitions into `TargetList`
+//! 3. **Replacement**: Replace `WindowFunc` nodes with `paradedb.window_agg(json)` placeholders
+//! 4. **Execution**: Execute aggregations via Tantivy's `MultiCollector` in TopN scan
+//! 5. **Injection**: Inject aggregate results as constant values in each output row
+//!
+//! # Why Early Replacement?
+//!
+//! We replace window functions at `planner_hook` (before path generation) rather than at
+//! `create_upper_paths_hook` with `UPPERREL_WINDOW` because:
+//!
+//! - **Consistency**: Our `AggregateCustomScan` uses the same pattern for `Aggref` nodes
+//! - **Simpler Integration**: Reuses existing `PdbScan` infrastructure without nested scans
+//! - **Avoids Complexity**: No need for `WindowCustomScan` wrapping `PdbScan`
+//!
+//! # Example Usage
+//!
+//! ```sql
+//! -- Simple count facet
+//! SELECT *, COUNT(*) OVER () AS total_count
+//! FROM products
+//! WHERE description @@@ 'laptop'
+//! ORDER BY rating DESC
+//! LIMIT 10;
+//!
+//! -- Custom Tantivy aggregation
+//! SELECT *, paradedb.agg('{"terms": {"field": "brand"}}') OVER () AS brand_facets
+//! FROM products
+//! WHERE description @@@ 'smartphone'
+//! ORDER BY rating DESC
+//! LIMIT 10;
+//! ```
+
 use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;

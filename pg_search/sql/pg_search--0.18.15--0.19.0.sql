@@ -91,6 +91,12 @@ ALTER FUNCTION paradedb.snippet(anyelement, text, text, int, int, int) SET SCHEM
 ALTER FUNCTION paradedb.snippet_positions(anyelement, int, int) SET SCHEMA pdb;
 
 --
+-- drop the paradedb.snippets function, which comes into existence again as `pdb.snippets` in
+-- `0.19.3`.
+--
+DROP FUNCTION IF EXISTS paradedb.snippets;
+
+--
 -- this begins the schema changes introduced by the new tokenizers-as-types SQL UX work
 --
 

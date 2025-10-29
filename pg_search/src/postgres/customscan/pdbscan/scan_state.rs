@@ -78,6 +78,7 @@ pub struct PdbScanState {
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoid: pg_sys::Oid,
+    pub snippets_funcoid: pg_sys::Oid,
     pub snippet_positions_funcoid: pg_sys::Oid,
 
     pub snippet_generators:
@@ -255,7 +256,7 @@ impl PdbScanState {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-        if let SnippetType::Text(_, _, config, _) = snippet_type {
+        if let SnippetType::SingleText(_, _, config, _) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 
@@ -265,6 +266,28 @@ impl PdbScanState {
         } else {
             Some(html)
         }
+    }
+
+    pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let snippets: Vec<_> = generator
+            .snippets(&text)
+            .into_iter()
+            .flat_map(|mut snippet| {
+                if let SnippetType::MultipleText(_, _, config, _, _) = snippet_type {
+                    snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+                }
+
+                let html = snippet.to_html();
+                if html.trim().is_empty() {
+                    None
+                } else {
+                    Some(html)
+                }
+            })
+            .collect();
+        Some(snippets)
     }
 
     pub fn get_snippet_positions(

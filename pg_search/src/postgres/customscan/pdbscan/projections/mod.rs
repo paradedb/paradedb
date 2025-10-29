@@ -25,12 +25,12 @@ use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    extract_snippet_positions, extract_snippet_text, snippet_funcoid, snippet_positions_funcoid,
-    SnippetType,
+    extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoid,
+    snippet_positions_funcoid, SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoid;
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::ptr::{addr_of_mut, NonNull};
@@ -201,6 +201,7 @@ pub unsafe fn inject_placeholders(
     rti: pg_sys::Index,
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
+    snippets_funcoid: pg_sys::Oid,
     snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
@@ -227,43 +228,54 @@ pub unsafe fn inject_placeholders(
                 return Some(data.const_score_node.cast());
             }
 
-            if (*funcexpr).funcid == data.snippet_funcoid
-                || (*funcexpr).funcid == data.snippet_positions_funcoid
-            {
-                let var = find_one_var(args.get_ptr(0)?)?;
-                let key = (data.rti as Varno, (*var).varattno);
+            let mut this_snippet_type = None;
 
-                let this_snippet_type = if (*funcexpr).funcid == data.snippet_funcoid {
-                    extract_snippet_text(args, data.rti, data.snippet_funcoid, data.attname_lookup)
-                } else {
-                    extract_snippet_positions(
-                        args,
-                        data.rti,
-                        data.snippet_positions_funcoid,
-                        data.attname_lookup,
-                    )
-                };
+            if let Some(snippet_type) = extract_snippet(
+                funcexpr,
+                data.rti,
+                data.snippet_funcoid,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                if let Some(this_snippet_type) = this_snippet_type {
-                    for snippet_type in data.snippet_generators.keys() {
-                        if this_snippet_type == *snippet_type {
-                            let const_ = pg_sys::makeConst(
-                                snippet_type.nodeoid(),
-                                -1,
-                                pg_sys::DEFAULT_COLLATION_OID,
-                                -1,
-                                pg_sys::Datum::null(),
-                                true,
-                                false,
-                            );
+            if let Some(snippet_type) = extract_snippets(
+                funcexpr,
+                data.rti,
+                data.snippets_funcoid,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                            data.const_snippet_nodes
-                                .entry(snippet_type.clone())
-                                .or_default()
-                                .push(const_);
+            if let Some(snippet_type) = extract_snippet_positions(
+                funcexpr,
+                data.rti,
+                data.snippet_positions_funcoid,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                            return Some(const_.cast());
-                        }
+            if let Some(this_snippet_type) = this_snippet_type {
+                for snippet_type in data.snippet_generators.keys() {
+                    if this_snippet_type == *snippet_type {
+                        let const_ = pg_sys::makeConst(
+                            snippet_type.nodeoid(),
+                            -1,
+                            pg_sys::DEFAULT_COLLATION_OID,
+                            -1,
+                            pg_sys::Datum::null(),
+                            true,
+                            false,
+                        );
+
+                        data.const_snippet_nodes
+                            .entry(snippet_type.clone())
+                            .or_default()
+                            .push(const_);
+
+                        return Some(const_.cast());
                     }
                 }
             }
@@ -297,6 +309,7 @@ pub unsafe fn inject_placeholders(
         const_score_node: *mut pg_sys::Const,
 
         snippet_funcoid: pg_sys::Oid,
+        snippets_funcoid: pg_sys::Oid,
         snippet_positions_funcoid: pg_sys::Oid,
         attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
@@ -320,6 +333,7 @@ pub unsafe fn inject_placeholders(
         ),
 
         snippet_funcoid,
+        snippets_funcoid,
         snippet_positions_funcoid,
         attname_lookup,
         snippet_generators,

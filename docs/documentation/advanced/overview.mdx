@@ -1,5 +1,6 @@
 ---
 title: Overview
+noindex: true
 ---
 
 In addition to query strings, [`JSONB` query objects](#query-objects) and [query builder functions](#query-builder-functions)
@@ -10,7 +11,7 @@ Elastic's query DSL. This is intentional — ParadeDB uses the same terminology 
 
 ## Basic Usage
 
-The left-hand side of `@@@` must be the [key field](/documentation/indexing/create_index#choosing-a-key-field)
+The left-hand side of `@@@` must be the [key field](/documentation/indexing/create-index#choosing-a-key-field)
 and the right-hand side should be either a JSON object or query builder function. For instance, the following code block
 executes a [match query](/documentation/advanced/full-text/match).
 

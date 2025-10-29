@@ -1,10 +1,18 @@
 ---
-title: Getting Started
+title: Configuring Logical Replication
+description: Set up ParadeDB as a logical replica of an existing Postgres like Amazon RDS
+canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/getting-started
 ---
 
 <Note>
   In order for ParadeDB to run as a logical replica, ParadeDB must be using
   Postgres 17+.
+</Note>
+
+<Note>
+  Logical replication can be configured to replicate specific tables, column
+  lists, or rows. Please see the [Postgres
+  documentation](https://www.postgresql.org/docs/current/logical-replication.html).
 </Note>
 
 In production, ParadeDB is designed to be deployed as a logical replica of your primary Postgres. This

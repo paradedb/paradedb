@@ -1,7 +1,7 @@
 ---
 title: How Query Builders Work
-noindex: true
-canonical: https://docs.paradedb.com/documentation/advanced/overview
+description: ParadeDB's query builder functions provide advanced query types
+canonical: https://docs.paradedb.com/v2/query-builder/overview
 ---
 
 In addition to basic [match](/v2/full-text/match), [phrase](/v2/full-text/phrase), and
@@ -40,7 +40,7 @@ functions. However, there are three situations where query builder functions are
 2. If you want to leverage ParadeDB's support for [JSON query syntax](/v2/query-builder/json).
 
 3. If you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). There are some cases where queries that don't contain a ParadeDB
-operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an `AND ... pdb.all()` `WHERE` clause is semantically equivalent and forces ParadeDB to execute the query.
+   operator can be more efficiently executed by ParadeDB vs. standard Postgres, like [TopN]() or [aggregate]() queries. In this situation, adding an `AND ... pdb.all()` `WHERE` clause is semantically equivalent and forces ParadeDB to execute the query.
 
 ```sql
 -- Top N executed by standard Postgres

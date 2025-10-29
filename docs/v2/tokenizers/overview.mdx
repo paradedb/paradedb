@@ -1,12 +1,13 @@
 ---
 title: How Tokenizers Work
+description: Tokenizers split large chunks of text into small, searchable units called tokens
+canonical: https://docs.paradedb.com/v2/tokenizers/overview
 ---
 
-Tokenizers split large chunks of text into small, searchable units called tokens. Different tokenizers have different strategies for
-how to split text.
+Before text is indexed, it is first split into searchable units called tokens.
 
-The default tokenizer in ParadeDB is the [simple tokenizer](/v2/tokenizers/available_tokenizers/simple). It splits
-text on whitespace, punctuation, and also [lowercases](/v2/token_filters/lowercase). To visualize how this tokenizer works,
+The default tokenizer in ParadeDB is the [simple tokenizer](/v2/tokenizers/available-tokenizers/simple). It splits
+text on whitespace, punctuation, and also [lowercases](/v2/token-filters/lowercase). To visualize how this tokenizer works,
 you can cast a text string to the tokenizer type, and then to `text[]`:
 
 ```sql
@@ -20,7 +21,7 @@ SELECT 'Hello world!'::pdb.simple::text[];
 (1 row)
 ```
 
-On the other hand, the [ngrams](/v2/tokenizers/available_tokenizers/ngrams) tokenizer splits text into "grams" of size `n`. In this example, `n = 3`:
+On the other hand, the [ngrams](/v2/tokenizers/available-tokenizers/ngrams) tokenizer splits text into "grams" of size `n`. In this example, `n = 3`:
 
 ```sql
 SELECT 'Hello world!'::pdb.ngram(3,3)::text[];

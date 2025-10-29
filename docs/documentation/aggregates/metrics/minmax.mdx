@@ -1,5 +1,6 @@
 ---
 title: Min/Max
+noindex: true
 ---
 
 `MIN` and `MAX` return the smallest and largest values of a column, respectively.
@@ -11,7 +12,7 @@ WHERE id @@@ paradedb.all();
 
 <Note>
   The field being min/maxed, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
+  [fast](/documentation/indexing/fast-fields).
 </Note>
 
 By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:

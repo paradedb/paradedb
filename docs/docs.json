@@ -45,32 +45,30 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "documentation/indexing/create_index",
-                          "documentation/indexing/inspect_index",
+                          "documentation/indexing/create-index",
+                          "documentation/indexing/inspect-index",
                           {
                             "group": "Index Tuning",
                             "pages": [
                               "documentation/configuration/overview",
-                              "documentation/configuration/index_build",
-                              "documentation/configuration/write_throughput",
-                              "documentation/configuration/read_throughput"
+                              "documentation/configuration/index-build",
+                              "documentation/configuration/write-throughput",
+                              "documentation/configuration/read-throughput"
                             ]
                           },
                           {
                             "group": "Feature Flags",
-                            "pages": [
-                              "documentation/configuration/custom_scan"
-                            ]
+                            "pages": ["documentation/configuration/custom-scan"]
                           }
                         ]
                       },
                       {
                         "group": "Field Configuration",
                         "pages": [
-                          "documentation/indexing/field_options",
+                          "documentation/indexing/field-options",
                           "documentation/indexing/tokenizers",
-                          "documentation/indexing/token_filters",
-                          "documentation/indexing/fast_fields",
+                          "documentation/indexing/token-filters",
+                          "documentation/indexing/fast-fields",
                           "documentation/indexing/record"
                         ]
                       },
@@ -94,27 +92,25 @@
                           "documentation/advanced/overview",
                           {
                             "group": "Full Text Queries",
-                            "pages": [
-                              "documentation/advanced/full-text/match"
-                            ]
+                            "pages": ["documentation/advanced/full-text/match"]
                           },
                           {
                             "group": "Term-Level Queries",
                             "pages": [
                               "documentation/advanced/term/exists",
-                              "documentation/advanced/term/fuzzy_term",
+                              "documentation/advanced/term/fuzzy-term",
                               "documentation/advanced/term/range",
-                              "documentation/advanced/term/range_term",
+                              "documentation/advanced/term/range-term",
                               "documentation/advanced/term/regex",
                               "documentation/advanced/term/term",
-                              "documentation/advanced/term/term_set"
+                              "documentation/advanced/term/term-set"
                             ]
                           },
                           {
                             "group": "Phrase-Level Queries",
                             "pages": [
                               "documentation/advanced/phrase/phrase",
-                              "documentation/advanced/phrase/phrase_prefix"
+                              "documentation/advanced/phrase/phrase-prefix"
                             ]
                           },
                           {
@@ -133,7 +129,7 @@
                               "documentation/advanced/compound/boolean",
                               "documentation/advanced/compound/boost",
                               "documentation/advanced/compound/const",
-                              "documentation/advanced/compound/disjunction_max",
+                              "documentation/advanced/compound/disjunction-max",
                               "documentation/advanced/compound/empty",
                               "documentation/advanced/compound/parse"
                             ]
@@ -141,7 +137,7 @@
                           {
                             "group": "Specialized Queries",
                             "pages": [
-                              "documentation/advanced/specialized/more_like_this"
+                              "documentation/advanced/specialized/more-like-this"
                             ]
                           }
                         ]
@@ -152,9 +148,7 @@
                           "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
-                            "pages": [
-                              "documentation/aggregates/bucket/terms"
-                            ]
+                            "pages": ["documentation/aggregates/bucket/terms"]
                           },
                           {
                             "group": "Metrics",
@@ -227,11 +221,10 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "v2/indexing/create_index",
-                          "v2/indexing/indexing_expressions",
-                          "v2/indexing/indexing_json",
+                          "v2/indexing/create-index",
+                          "v2/indexing/indexing-expressions",
+                          "v2/indexing/indexing-json",
                           "v2/indexing/reindexing"
-
                         ]
                       },
                       {
@@ -241,32 +234,32 @@
                           {
                             "group": "Available Tokenizers",
                             "pages": [
-                              "v2/tokenizers/available_tokenizers/simple",
-                              "v2/tokenizers/available_tokenizers/exact",
-                              "v2/tokenizers/available_tokenizers/literal_normalized",
-                              "v2/tokenizers/available_tokenizers/whitespace",
-                              "v2/tokenizers/available_tokenizers/ngrams",
-                              "v2/tokenizers/available_tokenizers/regex",
-                              "v2/tokenizers/available_tokenizers/chinese_compatible",
-                              "v2/tokenizers/available_tokenizers/lindera",
-                              "v2/tokenizers/available_tokenizers/icu",
-                              "v2/tokenizers/available_tokenizers/jieba",
-                              "v2/tokenizers/available_tokenizers/source_code"
+                              "v2/tokenizers/available-tokenizers/simple",
+                              "v2/tokenizers/available-tokenizers/exact",
+                              "v2/tokenizers/available-tokenizers/literal-normalized",
+                              "v2/tokenizers/available-tokenizers/whitespace",
+                              "v2/tokenizers/available-tokenizers/ngrams",
+                              "v2/tokenizers/available-tokenizers/regex",
+                              "v2/tokenizers/available-tokenizers/chinese-compatible",
+                              "v2/tokenizers/available-tokenizers/lindera",
+                              "v2/tokenizers/available-tokenizers/icu",
+                              "v2/tokenizers/available-tokenizers/jieba",
+                              "v2/tokenizers/available-tokenizers/source-code"
                             ]
                           },
-                          "v2/tokenizers/multiple_per_field"
+                          "v2/tokenizers/multiple-per-field"
                         ]
                       },
                       {
                         "group": "Token Filters",
                         "pages": [
-                          "v2/token_filters/overview",
-                          "v2/token_filters/alpha_numeric",
-                          "v2/token_filters/ascii_folding",
-                          "v2/token_filters/lowercase",
-                          "v2/token_filters/stopwords",
-                          "v2/token_filters/stemming",
-                          "v2/token_filters/token_length"
+                          "v2/token-filters/overview",
+                          "v2/token-filters/alphanumeric",
+                          "v2/token-filters/ascii-folding",
+                          "v2/token-filters/lowercase",
+                          "v2/token-filters/stopwords",
+                          "v2/token-filters/stemming",
+                          "v2/token-filters/token-length"
                         ]
                       },
                       {
@@ -276,7 +269,7 @@
                           "v2/full-text/match",
                           "v2/full-text/phrase",
                           "v2/full-text/term",
-                          "v2/full-text/term_set",
+                          "v2/full-text/term-set",
                           "v2/full-text/fuzzy",
                           "v2/full-text/highlight",
                           "v2/full-text/proximity"
@@ -299,26 +292,26 @@
                             "group": "Phrase",
                             "pages": [
                               "v2/query-builder/phrase/phrase",
-                              "v2/query-builder/phrase/phrase_prefix",
-                              "v2/query-builder/phrase/regex_phrase"
+                              "v2/query-builder/phrase/phrase-prefix",
+                              "v2/query-builder/phrase/regex-phrase"
                             ]
                           },
                           {
                             "group": "Term",
                             "pages": [
                               "v2/query-builder/term/exists",
-                              "v2/query-builder/term/fuzzy_term",
+                              "v2/query-builder/term/fuzzy-term",
                               "v2/query-builder/term/range",
-                              "v2/query-builder/term/range_term",
+                              "v2/query-builder/term/range-term",
                               "v2/query-builder/term/regex",
                               "v2/query-builder/term/term",
-                              "v2/query-builder/term/term_set"
+                              "v2/query-builder/term/term-set"
                             ]
                           },
                           {
                             "group": "Specialized",
                             "pages": [
-                              "v2/query-builder/specialized/more_like_this"
+                              "v2/query-builder/specialized/more-like-this"
                             ]
                           },
                           "v2/query-builder/json"
@@ -326,9 +319,7 @@
                       },
                       {
                         "group": "Aggregates",
-                        "pages": [
-                          "v2/aggregates/overview"
-                        ]
+                        "pages": ["v2/aggregates/overview"]
                       }
                     ]
                   },
@@ -361,7 +352,6 @@
                       {
                         "group": "High Availability",
                         "pages": [
-                          "deploy/self-hosted/high-availability/getting-started",
                           "deploy/self-hosted/high-availability/configuration"
                         ]
                       }
@@ -373,11 +363,7 @@
                   "deploy/third-party-extensions",
                   {
                     "group": "Continuous Integration",
-                    "pages": [
-                      "deploy/ci/overview",
-                      "deploy/ci/github-actions",
-                      "deploy/ci/gitlab-ci"
-                    ]
+                    "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
                   }
                 ]
               }
@@ -393,6 +379,8 @@
                   "changelog/0.19.2",
                   "changelog/0.19.1",
                   "changelog/0.19.0",
+                  "changelog/0.18.15",
+                  "changelog/0.18.14",
                   "changelog/0.18.13",
                   "changelog/0.18.12",
                   "changelog/0.18.11",
@@ -466,7 +454,7 @@
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg",
-    "href": "https://paradedb.com"
+    "href": "https://www.paradedb.com"
   },
   "appearance": {
     "strict": false
@@ -482,7 +470,11 @@
       },
       {
         "label": "Blog",
-        "href": "https://paradedb.com/blog"
+        "href": "https://www.paradedb.com/blog"
+      },
+      {
+        "label": "Learn",
+        "href": "https://www.paradedb.com/learn"
       }
     ],
     "primary": {
@@ -511,7 +503,6 @@
       "robots": "index, follow",
       "charset": "UTF-8",
       "viewport": "width=device-width, initial-scale=1.0",
-      "description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
       "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
       "author": "ParadeDB",
       "googlebot": "index, follow",
@@ -519,9 +510,7 @@
       "generator": "Mintlify",
       "theme-color": "#000000",
       "color-scheme": "light dark",
-      "canonical": "https://docs.paradedb.com",
       "referrer": "origin",
-      "refresh": "30",
       "rating": "general",
       "revisit-after": "7 days",
       "language": "en",
@@ -536,13 +525,7 @@
       "apple-mobile-web-app-capable": "yes",
       "apple-mobile-web-app-status-bar-style": "black",
       "apple-mobile-web-app-title": "ParadeDB Docs",
-      "application-name": "ParadeDB Docs",
-      "og:title": "ParadeDB Docs",
       "og:type": "website",
-      "og:url": "https://docs.paradedb.com",
-      "og:image": "https://www.paradedb.com/opengraph-image.png",
-      "og:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
-      "og:site_name": "ParadeDB Docs",
       "og:locale": "en_US",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",
@@ -553,27 +536,5 @@
       "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
     },
     "indexing": "navigable"
-  },
-  "redirects": [
-    {
-      "source": "/blog",
-      "destination": "https://paradedb.com/blog"
-    },
-    {
-      "source": "/blog/introducing_analytics",
-      "destination": "https://paradedb.com/blog/introducing_lakehouse"
-    },
-    {
-      "source": "/blog/introducing_sparse",
-      "destination": "https://paradedb.com/blog/introducing_sparse"
-    },
-    {
-      "source": "/blog/introducing_bm25",
-      "destination": "https://paradedb.com/blog/introducing_search"
-    },
-    {
-      "source": "/blog/introducing_paradedb",
-      "destination": "https://paradedb.com/blog/introducing_paradedb"
-    }
-  ]
+  }
 }

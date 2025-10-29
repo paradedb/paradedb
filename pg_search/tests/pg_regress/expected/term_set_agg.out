@@ -48,6 +48,7 @@ SELECT plants.id, plants.name
 FROM plants, genus_terms
 WHERE plants.genus_id @@@ genus_terms.terms
 ORDER BY plants.id;
+WARNING:  using `pdb.term_set` in aggregate position is deprecated
  id |    name     
 ----+-------------
   1 | English Oak
@@ -72,6 +73,7 @@ FROM paradedb.aggregate(
   ),
   '{"count":{"value_count":{"field":"genus_id"}}}'
 );
+WARNING:  using `pdb.term_set` in aggregate position is deprecated
          aggregate         
 ---------------------------
  {"count": {"value": 3.0}}
@@ -90,6 +92,7 @@ SELECT plants.id, plants.name
 FROM plants, genus_terms
 WHERE plants.genus_id @@@ genus_terms.terms
 ORDER BY plants.id;
+WARNING:  using `pdb.term_set` in aggregate position is deprecated
  id | name 
 ----+------
 (0 rows)

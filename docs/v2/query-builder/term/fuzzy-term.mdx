@@ -5,15 +5,10 @@ canonical: https://docs.paradedb.com/v2/query-builder/term/fuzzy-term
 ---
 
 <Note>Highlighting is not supported for `pdb.fuzzy_term`.</Note>
+<Note>For most use cases, we recommend using the [fuzzy query string](/v2/full-text/fuzzy) syntax instead.</Note>
 
 `fuzzy_term` finds results that approximately match the query [term](/documentation/concepts/term),
 allowing for minor typos in the input.
-
-<Note>
-  `value` is treated as a raw token and is not processed further. Use
-  [`match`](/documentation/advanced/full-text/match) to process and fuzzy match
-  a query string.
-</Note>
 
 ```sql
 SELECT description, rating, category

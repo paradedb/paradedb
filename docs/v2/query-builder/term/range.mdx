@@ -4,10 +4,10 @@ description: The equivalent of Postgres' comparison operators (less than, greate
 canonical: https://docs.paradedb.com/v2/query-builder/term/range
 ---
 
+<Note>For most use cases, we recommend using Postgres' native [range syntax](/v2/filtering) instead.</Note>
+
 Finds documents containing a term that falls within a specified range of values. This produces the same results as using
 Postgres' `<`, `>`, etc. range operators.
-
-<Note>Will error if the field has not been indexed as a fast field.</Note>
 
 ```sql
 SELECT description, rating, category

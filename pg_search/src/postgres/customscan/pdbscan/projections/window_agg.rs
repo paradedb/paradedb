@@ -17,7 +17,7 @@
 
 use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::window_function::window_func_oid;
+use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
@@ -41,9 +41,9 @@ use std::collections::HashMap;
 /// a particular window function construct.
 ///
 /// When a feature is fully implemented and stable, its flag should be set to `true`.
-pub mod window_functions {
+pub mod window_aggregates {
     /// Only allow window function replacement in TopN queries (with ORDER BY and LIMIT).
-    /// When true, window functions are only replaced with window_func in TopN execution context.
+    /// When true, window functions are only replaced with window_agg in TopN execution context.
     /// When false, window functions can be replaced in any query context.
     pub const ONLY_ALLOW_TOP_N: bool = true;
 
@@ -88,7 +88,7 @@ impl WindowAggregateInfo {
         for agg_type in &agg_spec.agg_types {
             // Check if this aggregate has a filter
             let has_filter = agg_type.has_filter();
-            if has_filter && !window_functions::WINDOW_AGG_FILTER_CLAUSE {
+            if has_filter && !window_aggregates::WINDOW_AGG_FILTER_CLAUSE {
                 return false;
             }
         }
@@ -108,7 +108,7 @@ impl WindowAggregateInfo {
 /// Extract window aggregates from a query with all-or-nothing support
 ///
 /// This function implements an all-or-nothing approach: either ALL window functions
-/// in the query are supported (and get replaced with window_func placeholders),
+/// in the query are supported (and get replaced with window_agg placeholders),
 /// or NONE of them are replaced and PostgreSQL handles all window functions with
 /// standard execution.
 ///
@@ -123,7 +123,7 @@ pub unsafe fn extract_window_specifications(
     parse: *mut pg_sys::Query,
 ) -> HashMap<usize, AggregationSpec> {
     // Check TopN context requirement if enabled
-    if window_functions::ONLY_ALLOW_TOP_N {
+    if window_aggregates::ONLY_ALLOW_TOP_N {
         let has_order_by = !(*parse).sortClause.is_null();
         let has_limit = !(*parse).limitCount.is_null();
         let is_top_n_query = has_order_by && has_limit;
@@ -135,13 +135,13 @@ pub unsafe fn extract_window_specifications(
 
     // Check query context features
     // Check HAVING clause support
-    if !window_functions::HAVING_SUPPORT && !(*parse).havingQual.is_null() {
+    if !window_aggregates::HAVING_SUPPORT && !(*parse).havingQual.is_null() {
         // Query has HAVING clause but we don't support it - return empty map
         return HashMap::new();
     }
 
     // Check JOIN support
-    if !window_functions::JOIN_SUPPORT && !(*parse).rtable.is_null() {
+    if !window_aggregates::JOIN_SUPPORT && !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         let relation_count = rtable
             .iter_ptr()
@@ -162,11 +162,11 @@ pub unsafe fn extract_window_specifications(
 
     // Extract all window functions and check if they're supported
     for (idx, te) in tlist.iter_ptr().enumerate() {
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+        if let Some(window_agg) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
-            if let Some(agg_type) = extract_standard_aggregate(parse, window_func) {
+            if let Some(agg_type) = extract_standard_aggregate(parse, window_agg) {
                 // Extract complete aggregation specification (aggregate type and ORDER BY)
-                let agg_spec = extract_aggregation_spec(parse, agg_type, window_func);
+                let agg_spec = extract_aggregation_spec(parse, agg_type, window_agg);
 
                 // Only include supported window functions
                 if WindowAggregateInfo::is_supported(&agg_spec) {
@@ -188,17 +188,17 @@ pub unsafe fn extract_window_specifications(
 /// Returns: AggregateType
 unsafe fn extract_standard_aggregate(
     parse: *mut pg_sys::Query,
-    window_func: *mut pg_sys::WindowFunc,
+    window_agg: *mut pg_sys::WindowFunc,
 ) -> Option<AggregateType> {
     use pg_sys::*;
     use pgrx::{FromDatum, JsonB};
 
-    let aggfnoid = (*window_func).winfnoid.to_u32();
-    let args = PgList::<pg_sys::Node>::from_pg((*window_func).args);
+    let aggfnoid = (*window_agg).winfnoid.to_u32();
+    let args = PgList::<pg_sys::Node>::from_pg((*window_agg).args);
 
     // Extract FILTER clause if present
-    let filter = if !(*window_func).aggfilter.is_null() {
-        extract_filter_expression((*window_func).aggfilter)
+    let filter = if !(*window_agg).aggfilter.is_null() {
+        extract_filter_expression((*window_agg).aggfilter)
     } else {
         None
     };
@@ -315,11 +315,11 @@ unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<Se
 unsafe fn extract_aggregation_spec(
     parse: *mut pg_sys::Query,
     agg_type: AggregateType,
-    window_func: *mut pg_sys::WindowFunc,
+    window_agg: *mut pg_sys::WindowFunc,
 ) -> Option<AggregationSpec> {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
-    let winref = (*window_func).winref;
+    let winref = (*window_agg).winref;
 
     if winref == 0 {
         // No window clause - means empty OVER ()
@@ -401,7 +401,7 @@ unsafe fn has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::Lis
     !order_list.is_empty()
 }
 
-/// Extract window_func(json) calls from the processed target list at planning time
+/// Extract window_agg(json) calls from the processed target list at planning time
 /// Convert PostgresExpression filters to SearchQueryInput
 ///
 /// This is called at plan_custom_path time when we have access to root (PlannerInfo),
@@ -451,14 +451,14 @@ pub unsafe fn convert_window_aggregate_filters(
     }
 }
 
-/// Extract window_func(json) calls from a target list and create WindowAggregateInfo
+/// Extract window_agg(json) calls from a target list and create WindowAggregateInfo
 ///
 /// This function:
 /// 1. Iterates through target entries in the PROVIDED target list (usually processed_tlist)
-/// 2. Finds `paradedb.window_func(json)` calls
+/// 2. Finds `paradedb.window_agg(json)` calls
 /// 3. Deserializes the JSON to get `WindowSpecification`
 /// 4. Creates `WindowAggregateInfo` with the CURRENT position as target_entry_index
-pub unsafe fn extract_window_func_calls(tlist: *mut pg_sys::List) -> Vec<WindowAggregateInfo> {
+pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAggregateInfo> {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
     use std::ffi::CStr;
@@ -479,8 +479,8 @@ pub unsafe fn extract_window_func_calls(tlist: *mut pg_sys::List) -> Vec<WindowA
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let context = data.cast::<Context>();
-            if (*funcexpr).funcid == (*context).window_func_procid {
-                // Found a window_func(json) call - deserialize it
+            if (*funcexpr).funcid == (*context).window_agg_procid {
+                // Found a window_agg(json) call - deserialize it
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 if let Some(json_arg) = args.get_ptr(0) {
                     if let Some(const_node) = nodecast!(Const, T_Const, json_arg) {
@@ -515,13 +515,13 @@ pub unsafe fn extract_window_func_calls(tlist: *mut pg_sys::List) -> Vec<WindowA
     }
 
     struct Context {
-        window_func_procid: pg_sys::Oid,
+        window_agg_procid: pg_sys::Oid,
         window_aggs: Vec<WindowAggregateInfo>,
         current_te_index: usize,
     }
 
     let mut context = Context {
-        window_func_procid: window_func_oid(),
+        window_agg_procid: window_agg_oid(),
         window_aggs: Vec::new(),
         current_te_index: 0,
     };

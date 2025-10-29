@@ -97,7 +97,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
 
     // Register global planner hook for window function support
-    customscan::register_window_function_hook();
+    customscan::register_window_aggregate_hook();
 }
 
 #[pg_extern]

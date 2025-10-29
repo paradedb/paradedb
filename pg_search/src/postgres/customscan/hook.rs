@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
-use crate::api::window_function::window_func_oid;
+use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::agg::AggregationSpec;
@@ -219,7 +219,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 
 /// Register a global planner hook to intercept and modify queries before planning.
 /// This is called once during extension initialization and affects all queries.
-pub unsafe fn register_window_function_hook() {
+pub unsafe fn register_window_aggregate_hook() {
     static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 
     PREV_PLANNER_HOOK = pg_sys::planner_hook;
@@ -240,7 +240,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         // Note: it's important to check for window functions first, then search operator,
         // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
         // would cause a panic.
-        if query_has_window_functions(parse) && query_has_search_operator(parse) {
+        if query_has_window_aggregates(parse) && query_has_search_operator(parse) {
             // Extract and replace window functions recursively (including subqueries)
             replace_windowfuncs_recursively(parse);
         }
@@ -256,7 +256,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 }
 
 /// Check if the target list contains any window functions
-unsafe fn has_window_functions(target_list: *mut pg_sys::List) -> bool {
+unsafe fn has_window_aggregates(target_list: *mut pg_sys::List) -> bool {
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
     for te in tlist.iter_ptr() {
         if nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some() {
@@ -267,23 +267,23 @@ unsafe fn has_window_functions(target_list: *mut pg_sys::List) -> bool {
 }
 
 /// Check if the query (or any subquery) contains window functions
-unsafe fn query_has_window_functions(parse: *mut pg_sys::Query) -> bool {
+unsafe fn query_has_window_aggregates(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
 
     // Check the current query's target list
-    if !(*parse).targetList.is_null() && has_window_functions((*parse).targetList) {
+    if !(*parse).targetList.is_null() && has_window_aggregates((*parse).targetList) {
         return true;
     }
 
     // Check subqueries in RTEs (only if SUBQUERY_SUPPORT is enabled)
-    if window_agg::window_functions::SUBQUERY_SUPPORT && !(*parse).rtable.is_null() {
+    if window_agg::window_aggregates::SUBQUERY_SUPPORT && !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
                 && !(*rte).subquery.is_null()
-                && query_has_window_functions((*rte).subquery)
+                && query_has_window_aggregates((*rte).subquery)
             {
                 return true;
             }
@@ -366,7 +366,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
                 // Check if subquery support is enabled
-                if window_agg::window_functions::SUBQUERY_SUPPORT {
+                if window_agg::window_aggregates::SUBQUERY_SUPPORT {
                     replace_windowfuncs_recursively((*rte).subquery);
                 }
                 // If SUBQUERY_SUPPORT is false, we skip processing subqueries,
@@ -379,7 +379,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
 ///
 /// Takes a map of target_entry_index -> AggregationSpec and replaces each WindowFunc
-/// with a paradedb.window_func(json) call containing the serialized AggregationSpec.
+/// with a paradedb.window_agg(json) call containing the serialized AggregationSpec.
 unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
     window_specs: &HashMap<usize, AggregationSpec>,
@@ -390,11 +390,11 @@ unsafe fn replace_windowfuncs_in_query(
 
     let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
     let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
-    let window_func_procid = window_func_oid();
+    let window_agg_procid = window_agg_oid();
     let mut replaced_count = 0;
 
     for (idx, te) in original_tlist.iter_ptr().enumerate() {
-        if let Some(_window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+        if let Some(_window_agg) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Create a flat copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
@@ -421,9 +421,9 @@ unsafe fn replace_windowfuncs_in_query(
                 );
                 args.push(json_const.cast());
 
-                // Create a FuncExpr that calls paradedb.window_func(json)
+                // Create a FuncExpr that calls paradedb.window_agg(json)
                 let funcexpr = pg_sys::makeFuncExpr(
-                    window_func_procid,
+                    window_agg_procid,
                     window_spec.result_type_oid(),
                     args.into_pg(),
                     pg_sys::InvalidOid,

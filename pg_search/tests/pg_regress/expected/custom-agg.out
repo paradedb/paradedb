@@ -59,12 +59,12 @@ SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_func('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"agg_types":[{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}],"grouping_columns":[]}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState

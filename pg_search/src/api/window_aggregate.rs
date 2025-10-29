@@ -17,14 +17,14 @@
 
 //! Internal window function placeholder.
 //!
-//! This module provides `window_func()`, which is used internally to replace
+//! This module provides `window_agg()`, which is used internally to replace
 //! window aggregate calls (like `COUNT(*) OVER ()` or `paradedb.agg(...) OVER ()`)
 //! during query planning.
 //!
 //! ## How It Works
 //!
 //! 1. During planning, the planner hook detects window functions in queries with the `@@@` operator
-//! 2. These window functions are replaced with calls to `window_func(json)` where the JSON
+//! 2. These window functions are replaced with calls to `window_agg(json)` where the JSON
 //!    contains the serialized aggregation specification
 //! 3. The custom scan intercepts these placeholder calls and executes the actual aggregations
 //!    using Tantivy collectors
@@ -32,11 +32,11 @@
 //!
 //! ## User-Facing API
 //!
-//! Users should never call `window_func()` directly. Instead, they should use:
+//! Users should never call `window_agg()` directly. Instead, they should use:
 //! - Standard SQL window functions: `COUNT(*) OVER ()`, `SUM(field) OVER ()`, etc.
 //! - Custom aggregations: `paradedb.agg('{"avg": {"field": "price"}}'::jsonb) OVER ()`
 //!
-//! Both of these get automatically converted to `window_func()` calls during planning.
+//! Both of these get automatically converted to `window_agg()` calls during planning.
 
 use pgrx::prelude::*;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
@@ -49,21 +49,21 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum};
 ///
 /// If this function executes, it means the custom scan failed to intercept it,
 /// which indicates a bug in the planning logic.
-#[pg_extern(volatile, parallel_safe, name = "window_func")]
-pub fn window_func_placeholder(window_aggregate_json: &str) -> i64 {
+#[pg_extern(volatile, parallel_safe, name = "window_agg")]
+pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
     pgrx::error!(
-        "window_func placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
+        "window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
         window_aggregate_json
     )
 }
 
-/// Get the OID of the window_func placeholder function
-pub fn window_func_oid() -> pg_sys::Oid {
+/// Get the OID of the window_agg placeholder function
+pub fn window_agg_oid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.window_func(text)".into_datum()],
+            &[c"paradedb.window_agg(text)".into_datum()],
         )
-        .expect("the `paradedb.window_func` function should exist")
+        .expect("the `paradedb.window_agg` function should exist")
     }
 }

@@ -23,7 +23,7 @@ pub mod projections;
 mod scan_state;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::window_function::window_func_oid;
+use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -48,7 +48,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    convert_window_aggregate_filters, extract_window_func_calls, WindowAggregateInfo,
+    convert_window_aggregate_filters, extract_window_agg_calls, WindowAggregateInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -589,12 +589,12 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_target_list_len(Some(tlist.len()));
 
-            // Extract window_func(json) calls from processed_tlist using expression tree walker
+            // Extract window_agg(json) calls from processed_tlist using expression tree walker
             // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
             // Note: This updates target_entry_index to match the processed_tlist positions
             let processed_tlist = (*builder.args().root).processed_tlist;
 
-            let mut window_aggregates = extract_window_func_calls(processed_tlist);
+            let mut window_aggregates = extract_window_agg_calls(processed_tlist);
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
@@ -1379,14 +1379,14 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time
-/// At this point, the WindowFunc has been replaced with paradedb.window_func(json) calls
+/// At this point, the WindowFunc has been replaced with paradedb.window_agg(json) calls
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
 ) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
     let mut const_nodes = HashMap::default();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
-    let window_func_procid = window_func_oid();
+    let window_agg_procid = window_agg_oid();
     for agg_info in window_aggs {
         let te_idx = agg_info.target_entry_index;
 
@@ -1394,9 +1394,9 @@ unsafe fn inject_window_aggregate_placeholders(
         if let Some(te) = tlist.get_ptr(te_idx) {
             let node_type = (*(*te).expr).type_;
 
-            // Check if this is our window_func FuncExpr
+            // Check if this is our window_agg FuncExpr
             if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if (*funcexpr).funcid == window_func_procid {
+                if (*funcexpr).funcid == window_agg_procid {
                     // Create a placeholder Const node with the appropriate type
                     let const_node = pg_sys::makeConst(
                         agg_info.result_type_oid(),
@@ -1412,7 +1412,7 @@ unsafe fn inject_window_aggregate_placeholders(
                         agg_info.result_type_oid() == pg_sys::INT8OID, // constbyval (true for INT8)
                     );
 
-                    // Replace the window_func FuncExpr with our Const node
+                    // Replace the window_agg FuncExpr with our Const node
                     (*te).expr = const_node.cast();
 
                     const_nodes.insert(te_idx, const_node);

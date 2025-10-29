@@ -25,7 +25,7 @@ pub mod config;
 pub mod operator;
 pub mod tokenize;
 pub mod tokenizers;
-pub mod window_function;
+pub mod window_aggregate;
 
 use pgrx::{
     direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,

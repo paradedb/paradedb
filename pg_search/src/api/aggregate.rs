@@ -21,7 +21,7 @@
 //!
 //! This is the public API for users to specify custom Tantivy aggregations.
 //! When used in window function context (`OVER ()`), it gets intercepted at planning
-//! time and replaced with `window_func()` placeholder. The actual execution happens
+//! time and replaced with `window_agg()` placeholder. The actual execution happens
 //! in the custom scan using Tantivy's aggregation collectors.
 //!
 //! Example: `SELECT *, paradedb.agg('{"avg": {"field": "price"}}'::jsonb) OVER () FROM products`
@@ -29,9 +29,9 @@
 //! When used with GROUP BY, the aggregate currently returns an error indicating it's not supported.
 //! The window function variant is the primary use case.
 //!
-//! ## Internal Function: `window_func(text)`
+//! ## Internal Function: `window_agg(text)`
 //!
-//! This is an internal placeholder function (in `window_function.rs`) that replaces
+//! This is an internal placeholder function (in `window_aggregate.rs`) that replaces
 //! `paradedb.agg()` calls when they appear in window function context during planning.
 //! It should never be called by users directly.
 //!

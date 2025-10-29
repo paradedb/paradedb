@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761710173504,
+  "lastUpdate": 1761710176952,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42766,6 +42766,108 @@ window.BENCHMARK_DATA = {
             "value": 156.015625,
             "unit": "median mem",
             "extra": "avg mem: 173.7631760479496, max mem: 215.78125, count: 56038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57a4340e4213e9d2a3c1dfdfb33baac3c37c87df",
+          "message": "feat: Add `paradedb.snippets` to support rendering the top-n snippets for a document. (#3435)\n\n## What\n\nAdds the `paradedb.snippets` function, and deprecates passing an\n`offset` and `limit` to `paradedb.snippet`.\n\n## Why\n\nAs explained in the new docs, `paradedb.snippets` allows for rendering\nthe top-n snippets (by score or position), regardless of their distance\nfrom one another in the document.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/76.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-28T20:14:22-07:00",
+          "tree_id": "6305fc100e2ae240448bb5226fabdb6adcf7d00b",
+          "url": "https://github.com/paradedb/paradedb/commit/57a4340e4213e9d2a3c1dfdfb33baac3c37c87df"
+        },
+        "date": 1761710174840,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06885808861274849, max background_merging: 1.0, count: 56493"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.826348696909478, max cpu: 9.628887, count: 56493"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.95475614788558, max mem: 23.05078125, count: 56493"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0558348271842855, max cpu: 27.961164, count: 56493"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.53262745218433, max mem: 171.515625, count: 56493"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51437,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51295.72033703291, max block_count: 51437.0, count: 56493"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.878905351105445, max segment_count: 56.0, count: 56493"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643352973021434, max cpu: 27.906979, count: 56493"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 135.75,
+            "unit": "median mem",
+            "extra": "avg mem: 126.21220729227515, max mem: 147.88671875, count: 56493"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.862088203341279, max cpu: 28.486649, count: 56493"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 171.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.55369435981007, max mem: 171.38671875, count: 56493"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.87584590307935, max cpu: 33.667336, count: 56493"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.8069681337732, max mem: 216.625, count: 56493"
           }
         ]
       }

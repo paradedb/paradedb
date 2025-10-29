@@ -21,7 +21,6 @@ use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
-use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -193,29 +192,31 @@ impl TopNScanExecState {
 
         let mut results = HashMap::default();
 
-        // Combine all window aggregates into a single AggregationSpec
+        // Combine all window aggregates from all TargetLists
         // This allows us to execute all aggregations in a single Tantivy pass
         let mut combined_agg_types = Vec::new();
         let mut agg_index_to_te_index = Vec::new(); // Maps aggregate index to target entry index
 
         for agg_info in window_aggs.iter() {
-            for agg_type in &agg_info.agg_spec.agg_types {
+            for agg_type in agg_info.targetlist.aggregates() {
                 agg_index_to_te_index.push(agg_info.target_entry_index);
                 combined_agg_types.push(agg_type.clone());
             }
         }
 
         if !combined_agg_types.is_empty() {
-            // Create a combined AggregationSpec
-            let combined_spec = AggregationSpec {
-                agg_types: combined_agg_types.clone(),
-                grouping_columns: Vec::new(), // No grouping for window functions
-            };
-
-            // Convert to Tantivy Aggregations
-            let aggregations = combined_spec
-                .to_tantivy_aggregations()
-                .unwrap_or_else(|e| pgrx::error!("Failed to build aggregations: {}", e));
+            // Convert aggregates to Tantivy Aggregations
+            let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
+            for (idx, agg_type) in combined_agg_types.iter().enumerate() {
+                let agg_variant = agg_type.clone().into();
+                aggregations.insert(
+                    idx.to_string(),
+                    tantivy::aggregation::agg_req::Aggregation {
+                        agg: agg_variant,
+                        sub_aggregation: tantivy::aggregation::agg_req::Aggregations::new(),
+                    },
+                );
+            }
 
             let indexrel = state
                 .indexrel

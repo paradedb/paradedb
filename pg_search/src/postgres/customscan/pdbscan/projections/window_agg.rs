@@ -20,10 +20,10 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
 use crate::nodecast;
-use crate::postgres::customscan::agg::AggregationSpec;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     parse_coalesce_expression, AggregateType,
 };
+use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::var::fieldname_from_var;
@@ -65,27 +65,27 @@ pub mod window_aggregates {
 pub struct WindowAggregateInfo {
     /// Target entry index where this aggregate should be projected
     pub target_entry_index: usize,
-    /// Aggregation specification (shared with aggregatescan)
-    pub agg_spec: AggregationSpec,
+    /// Target list containing the aggregate (shared structure with aggregatescan)
+    pub targetlist: TargetList,
 }
 
 impl WindowAggregateInfo {
     pub fn result_type_oid(&self) -> pg_sys::Oid {
-        self.agg_spec.result_type_oid()
+        self.targetlist.singleton_result_type_oid()
     }
 
     /// Check if we can handle this aggregation specification
     ///
     /// This is primarily used by window functions to check feature flag support.
     /// Execution capability is determined by feature flags.
-    pub fn is_supported(agg_spec: &Option<AggregationSpec>) -> bool {
-        if agg_spec.is_none() {
+    pub fn is_supported(targetlist: &Option<TargetList>) -> bool {
+        if targetlist.is_none() {
             return false;
         }
-        let agg_spec = agg_spec.as_ref().unwrap();
+        let tlist = targetlist.as_ref().unwrap();
 
         // Check if all aggregate functions are supported
-        for agg_type in &agg_spec.agg_types {
+        for agg_type in tlist.aggregates() {
             // Check if this aggregate has a filter
             let has_filter = agg_type.has_filter();
             if has_filter && !window_aggregates::WINDOW_AGG_FILTER_CLAUSE {
@@ -96,7 +96,7 @@ impl WindowAggregateInfo {
         // Note: PARTITION BY and ORDER BY in OVER clauses are not supported in our use case,
         // because we compute facets over the entire result set, not partitioned subsets.
         // If grouping_columns is non-empty, we reject the query.
-        if !agg_spec.grouping_columns.is_empty() {
+        if !tlist.grouping_columns().is_empty() {
             return false;
         }
 
@@ -118,10 +118,10 @@ impl WindowAggregateInfo {
 /// Parameters:
 /// - parse: The Query object containing all query information
 ///
-/// Returns a HashMap mapping target_entry_index -> WindowSpecification
+/// Returns a HashMap mapping target_entry_index -> TargetList
 pub unsafe fn extract_window_specifications(
     parse: *mut pg_sys::Query,
-) -> HashMap<usize, AggregationSpec> {
+) -> HashMap<usize, TargetList> {
     // Check TopN context requirement if enabled
     if window_aggregates::ONLY_ALLOW_TOP_N {
         let has_order_by = !(*parse).sortClause.is_null();
@@ -316,25 +316,19 @@ unsafe fn extract_aggregation_spec(
     parse: *mut pg_sys::Query,
     agg_type: AggregateType,
     window_agg: *mut pg_sys::WindowFunc,
-) -> Option<AggregationSpec> {
+) -> Option<TargetList> {
     // Get the WindowClause from winref (if it exists)
     // winref is an index (1-based) into the query's windowClause list
     let winref = (*window_agg).winref;
 
     if winref == 0 {
         // No window clause - means empty OVER ()
-        return Some(AggregationSpec {
-            agg_types: vec![agg_type],
-            grouping_columns: Vec::new(),
-        });
+        return Some(TargetList::new_for_window_function(agg_type));
     }
 
     // Access the WindowClause from the list
     if (*parse).windowClause.is_null() {
-        return Some(AggregationSpec {
-            agg_types: vec![agg_type],
-            grouping_columns: Vec::new(),
-        });
+        return Some(TargetList::new_for_window_function(agg_type));
     }
 
     let window_clauses = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause);
@@ -343,10 +337,7 @@ unsafe fn extract_aggregation_spec(
     let window_clause_idx = (winref - 1) as usize;
 
     if window_clause_idx >= window_clauses.len() {
-        return Some(AggregationSpec {
-            agg_types: vec![agg_type],
-            grouping_columns: Vec::new(),
-        });
+        return Some(TargetList::new_for_window_function(agg_type));
     }
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
@@ -364,10 +355,7 @@ unsafe fn extract_aggregation_spec(
         return None;
     }
 
-    Some(AggregationSpec {
-        agg_types: vec![agg_type],
-        grouping_columns: Vec::new(), // PARTITION BY is not supported for window functions
-    })
+    Some(TargetList::new_for_window_function(agg_type)) // PARTITION BY is not supported for window functions
 }
 
 /// Check if there's a frame clause
@@ -414,8 +402,8 @@ pub unsafe fn convert_window_aggregate_filters(
     heap_rti: pg_sys::Index,
 ) {
     for window_agg in window_aggregates.iter_mut() {
-        // Convert filters for all aggregates in this spec
-        for agg_type in &mut window_agg.agg_spec.agg_types {
+        // Convert filters for all aggregates in this targetlist
+        for agg_type in window_agg.targetlist.aggregates_mut() {
             // Check if this aggregate has a FILTER
             if !agg_type.has_filter() {
                 continue;
@@ -495,11 +483,11 @@ pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAg
 
                             // Deserialize AggregationSpec and create WindowAggregateInfo
                             // with the correct target_entry_index from the current position
-                            match serde_json::from_str::<AggregationSpec>(json_str) {
-                                Ok(agg_spec) => {
+                            match serde_json::from_str::<TargetList>(json_str) {
+                                Ok(targetlist) => {
                                     let info = WindowAggregateInfo {
                                         target_entry_index: (*context).current_te_index,
-                                        agg_spec,
+                                        targetlist,
                                     };
                                     (*context).window_aggs.push(info);
                                 }

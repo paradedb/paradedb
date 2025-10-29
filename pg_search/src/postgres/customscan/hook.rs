@@ -19,7 +19,7 @@ use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
-use crate::postgres::customscan::agg::AggregationSpec;
+use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::pdbscan::projections::window_agg;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
@@ -455,11 +455,11 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
 
 /// Replace WindowFunc nodes in the Query's target list with placeholder functions
 ///
-/// Takes a map of target_entry_index -> AggregationSpec and replaces each WindowFunc
-/// with a paradedb.window_agg(json) call containing the serialized AggregationSpec.
+/// Takes a map of target_entry_index -> TargetList and replaces each WindowFunc
+/// with a paradedb.window_agg(json) call containing the serialized TargetList.
 unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
-    window_specs: &HashMap<usize, AggregationSpec>,
+    window_specs: &HashMap<usize, TargetList>,
 ) {
     if (*parse).targetList.is_null() {
         return;
@@ -501,7 +501,7 @@ unsafe fn replace_windowfuncs_in_query(
                 // Create a FuncExpr that calls paradedb.window_agg(json)
                 let funcexpr = pg_sys::makeFuncExpr(
                     window_agg_procid,
-                    window_spec.result_type_oid(),
+                    window_spec.singleton_result_type_oid(),
                     args.into_pg(),
                     pg_sys::InvalidOid,
                     pg_sys::InvalidOid,

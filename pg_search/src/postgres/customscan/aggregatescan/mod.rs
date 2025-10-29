@@ -27,14 +27,17 @@ pub mod scan_state;
 pub mod searchquery;
 pub mod targetlist;
 
+// Re-export commonly used types for easier access
+pub use groupby::GroupingColumn;
+pub use targetlist::TargetListEntry;
+
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
-use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
-use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{

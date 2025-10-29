@@ -26,7 +26,6 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
-pub mod agg;
 pub mod aggregatescan;
 mod builders;
 mod dsm;

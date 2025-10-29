@@ -28,8 +28,10 @@ pub mod tokenizers;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PgList, PostgresType, StringInfo,
+    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
 };
+
+use crate::postgres::utils::lookup_paradedb_function;
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -320,27 +322,5 @@ impl OrderByInfo {
 /// Get the OID of the agg() aggregate function
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn agg_funcoid() -> pg_sys::Oid {
-    unsafe {
-        // Look up the paradedb schema
-        let paradedb_schema = pg_sys::get_namespace_oid(c"paradedb".as_ptr(), true);
-        if paradedb_schema == pg_sys::InvalidOid {
-            return pg_sys::InvalidOid;
-        }
-
-        // Build the qualified aggregate name list: paradedb.agg
-        let mut agg_name_list = PgList::<pg_sys::Node>::new();
-        agg_name_list.push(pg_sys::makeString(c"paradedb".as_ptr() as *mut i8) as *mut _);
-        agg_name_list.push(pg_sys::makeString(c"agg".as_ptr() as *mut i8) as *mut _);
-
-        // Look up the agg aggregate with jsonb argument
-        let arg_types = [pg_sys::JSONBOID];
-
-        // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
-        pg_sys::LookupFuncName(
-            agg_name_list.as_ptr(),
-            arg_types.len() as i32,
-            arg_types.as_ptr(),
-            true, // missing_ok = true, don't error if not found
-        )
-    }
+    lookup_paradedb_function("agg", &[pg_sys::JSONBOID])
 }

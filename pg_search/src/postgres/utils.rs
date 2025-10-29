@@ -649,3 +649,31 @@ pub unsafe fn expr_contains_any_operator(
     walker(node, addr_of_mut!(context).cast());
     context.found
 }
+
+/// Look up a function in the paradedb schema by name and argument types.
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
+pub fn lookup_paradedb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
+    unsafe {
+        // Look up the paradedb schema
+        let paradedb_schema = pg_sys::get_namespace_oid(c"paradedb".as_ptr(), true);
+        if paradedb_schema == pg_sys::InvalidOid {
+            return pg_sys::InvalidOid;
+        }
+
+        // Build the qualified function name list: paradedb.<func_name>
+        let mut func_name_list = pgrx::PgList::<pg_sys::Node>::new();
+        func_name_list.push(pg_sys::makeString(c"paradedb".as_ptr() as *mut i8) as *mut _);
+
+        // Convert func_name to CString for makeString
+        let func_name_cstr = std::ffi::CString::new(func_name).unwrap();
+        func_name_list.push(pg_sys::makeString(func_name_cstr.as_ptr() as *mut i8) as *mut _);
+
+        // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
+        pg_sys::LookupFuncName(
+            func_name_list.as_ptr(),
+            arg_types.len() as i32,
+            arg_types.as_ptr(),
+            true, // missing_ok = true, don't error if not found
+        )
+    }
+}

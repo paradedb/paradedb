@@ -38,8 +38,10 @@
 //!
 //! Both of these get automatically converted to `window_agg()` calls during planning.
 
+use pgrx::pg_sys;
 use pgrx::prelude::*;
-use pgrx::{pg_sys, PgList};
+
+use crate::postgres::utils::lookup_paradedb_function;
 
 /// Internal placeholder function for window aggregates.
 ///
@@ -60,27 +62,5 @@ pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
 /// Get the OID of the window_agg placeholder function
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn window_agg_oid() -> pg_sys::Oid {
-    unsafe {
-        // Look up the paradedb schema
-        let paradedb_schema = pg_sys::get_namespace_oid(c"paradedb".as_ptr(), true);
-        if paradedb_schema == pg_sys::InvalidOid {
-            return pg_sys::InvalidOid;
-        }
-
-        // Build the qualified function name list: paradedb.window_agg
-        let mut func_name_list = PgList::<pg_sys::Node>::new();
-        func_name_list.push(pg_sys::makeString(c"paradedb".as_ptr() as *mut i8) as *mut _);
-        func_name_list.push(pg_sys::makeString(c"window_agg".as_ptr() as *mut i8) as *mut _);
-
-        // Look up the window_agg function with text argument
-        let arg_types = [pg_sys::TEXTOID];
-
-        // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
-        pg_sys::LookupFuncName(
-            func_name_list.as_ptr(),
-            arg_types.len() as i32,
-            arg_types.as_ptr(),
-            true, // missing_ok = true, don't error if not found
-        )
-    }
+    lookup_paradedb_function("window_agg", &[pg_sys::TEXTOID])
 }

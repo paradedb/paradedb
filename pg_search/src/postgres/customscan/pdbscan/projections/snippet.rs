@@ -21,7 +21,6 @@ use crate::api::{FieldName, HashMap, Varno};
 use crate::nodecast;
 use crate::postgres::var::find_one_var;
 
-use paste::paste;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{direct_function_call, extension_sql, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
@@ -184,59 +183,56 @@ struct Context<'a> {
     snippet_type: Vec<SnippetType>,
 }
 
-/// Creates the `snippet*` functions for a given schema
-///
-/// Example:
-/// ```rust
-/// define_snippet_functions!(pdb);
-/// ```
 #[macro_export]
 macro_rules! define_snippet_functions {
     ($schema:ident) => {
-        paste! {
-            #[pgrx::pg_schema]
-            mod $schema {
-                use pgrx::{default, pg_extern, AnyElement};
+        paste::paste! {
+            use pgrx::{default, pg_extern, AnyElement};
 
-                #[pg_extern(name = "snippet", stable, parallel_safe)]
-                fn [<$schema _snippet_from_relation>](
-                    field: AnyElement,
-                    start_tag: default!(String, "'<b>'"),
-                    end_tag: default!(String, "'</b>'"),
-                    max_num_chars: default!(i32, "150"),
-                    limit: default!(Option<i32>, "NULL"),
-                    offset: default!(Option<i32>, "NULL"),
-                ) -> Option<String> {
-                    None
-                }
+            #[pg_extern(name = "snippet", stable, parallel_safe)]
+            fn [<$schema _snippet_from_relation>](
+                field: AnyElement,
+                start_tag: default!(String, "'<b>'"),
+                end_tag: default!(String, "'</b>'"),
+                max_num_chars: default!(i32, "150"),
+                limit: default!(Option<i32>, "NULL"),
+                offset: default!(Option<i32>, "NULL"),
+            ) -> Option<String> {
+                None
+            }
 
-                #[pg_extern(name = "snippets", stable, parallel_safe)]
-                fn [<$schema _snippets_from_relation>](
-                    field: AnyElement,
-                    start_tag: default!(String, "'<b>'"),
-                    end_tag: default!(String, "'</b>'"),
-                    max_num_chars: default!(i32, "150"),
-                    limit: default!(Option<i32>, "NULL"),
-                    offset: default!(Option<i32>, "NULL"),
-                    sort_by: default!(String, "'score'"),
-                ) -> Option<Vec<String>> {
-                    None
-                }
+            #[pg_extern(name = "snippets", stable, parallel_safe)]
+            fn [<$schema _snippets_from_relation>](
+                field: AnyElement,
+                start_tag: default!(String, "'<b>'"),
+                end_tag: default!(String, "'</b>'"),
+                max_num_chars: default!(i32, "150"),
+                limit: default!(Option<i32>, "NULL"),
+                offset: default!(Option<i32>, "NULL"),
+                sort_by: default!(String, "'score'"),
+            ) -> Option<Vec<String>> {
+                None
+            }
 
-                #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
-                fn [<$schema _snippet_positions_from_relation>](
-                    field: AnyElement,
-                    limit: default!(Option<i32>, "NULL"),
-                    offset: default!(Option<i32>, "NULL"),
-                ) -> Option<Vec<Vec<i32>>> {
-                    None
-                }
+            #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+            fn [<$schema _snippet_positions_from_relation>](
+                field: AnyElement,
+                limit: default!(Option<i32>, "NULL"),
+                offset: default!(Option<i32>, "NULL"),
+            ) -> Option<Vec<Vec<i32>>> {
+                None
             }
         }
     };
 }
 
-define_snippet_functions!(pdb);
+#[pgrx::pg_schema]
+mod pdb {
+    define_snippet_functions!(pdb);
+}
+
+// In `0.19.0`, we renamed `paradedb.snippet*` functions to `pdb.snippet*`.
+// This is a backwards compatibility shim to ensure that old queries continue to work.
 define_snippet_functions!(paradedb);
 
 extension_sql!(
@@ -264,7 +260,7 @@ extension_sql!(
     "#,
     name = "paradedb_snippet_placeholder",
     requires = [
-        paradedb::paradedb_snippet_from_relation,
+        paradedb_snippet_from_relation,
         placeholder_support
     ]
 );
@@ -275,7 +271,7 @@ extension_sql!(
     "#,
     name = "paradedb_snippet_positions_placeholder",
     requires = [
-        paradedb::paradedb_snippet_positions_from_relation,
+        paradedb_snippet_positions_from_relation,
         placeholder_support
     ]
 );

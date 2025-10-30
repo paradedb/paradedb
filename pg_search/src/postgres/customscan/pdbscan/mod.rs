@@ -48,7 +48,8 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, snippets_funcoid, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    convert_window_aggregate_filters, extract_window_agg_calls, WindowAggregateInfo,
+    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
+    WindowAggregateInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -639,7 +640,7 @@ impl CustomScan for PdbScan {
             // Note: This updates target_entry_index to match the processed_tlist positions
             let processed_tlist = (*builder.args().root).processed_tlist;
 
-            let mut window_aggregates = extract_window_agg_calls(processed_tlist);
+            let mut window_aggregates = deserialize_window_agg_placeholders(processed_tlist);
 
             if !window_aggregates.is_empty() {
                 // Convert PostgresExpression filters to SearchQueryInput now that we have root
@@ -652,7 +653,7 @@ impl CustomScan for PdbScan {
                             .range_table_index()
                             .expect("range table index should be set");
 
-                        convert_window_aggregate_filters(
+                        resolve_window_aggregate_filters_at_plan_time(
                             &mut window_aggregates,
                             &bm25_index,
                             root,

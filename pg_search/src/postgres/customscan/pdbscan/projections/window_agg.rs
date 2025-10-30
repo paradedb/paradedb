@@ -147,21 +147,16 @@ impl WindowAggregateInfo {
     }
 }
 
-/// Extract window aggregates from a query with all-or-nothing support
+/// Extract window functions from a query and convert them to our internal TargetList representation
 ///
-/// This function implements an all-or-nothing approach: either ALL window functions
-/// in the query are supported (and get replaced with window_agg placeholders),
-/// or NONE of them are replaced and PostgreSQL handles all window functions with
-/// standard execution.
+/// This is the main entry point for window function processing at planner hook time.
+/// It scans the query's target list for WindowFunc nodes, validates they use supported features,
+/// converts them to our internal AggregateType/TargetList format, and returns a map of
+/// target entry index → TargetList for later replacement with placeholder functions.
 ///
-/// This ensures consistent execution - we don't mix our custom window function execution
-/// with PostgreSQL's standard window function execution in the same query.
-///
-/// Parameters:
-/// - parse: The Query object containing all query information
-///
-/// Returns a HashMap mapping target_entry_index -> TargetList
-pub unsafe fn extract_window_specifications(
+/// Returns: HashMap mapping target entry indices to their corresponding TargetList
+///          Empty HashMap if query has unsupported features or no window functions
+pub unsafe fn extract_and_convert_window_functions(
     parse: *mut pg_sys::Query,
 ) -> HashMap<usize, TargetList> {
     // Check TopN context requirement if enabled
@@ -206,13 +201,13 @@ pub unsafe fn extract_window_specifications(
     for (idx, te) in tlist.iter_ptr().enumerate() {
         if let Some(window_agg) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
             // Extract the aggregate function and its details first
-            if let Some(agg_type) = extract_standard_aggregate(parse, window_agg) {
-                // Extract complete aggregation specification (aggregate type and ORDER BY)
-                let agg_spec = extract_aggregation_spec(parse, agg_type, window_agg);
+            if let Some(agg_type) = convert_window_func_to_aggregate_type(parse, window_agg) {
+                // Build TargetList and validate OVER clause
+                let agg_tl = validate_and_build_target_list(parse, agg_type, window_agg);
 
                 // Only include supported window functions
-                if WindowAggregateInfo::is_supported(&agg_spec) {
-                    window_aggs.insert(idx, agg_spec.unwrap());
+                if WindowAggregateInfo::is_supported(&agg_tl) {
+                    window_aggs.insert(idx, agg_tl.unwrap());
                 } else {
                     // Found an unsupported window function - abort and return empty map
                     // so PostgreSQL handles ALL window functions in this query
@@ -225,10 +220,12 @@ pub unsafe fn extract_window_specifications(
     window_aggs
 }
 
-/// Extract window aggregate function using OID-based approach (same as aggregatescan)
+/// Convert a PostgreSQL WindowFunc node to our internal AggregateType representation
+/// Uses OID-based approach (same as aggregatescan) to identify the aggregate function
+/// and extract its field name, missing value, and FILTER clause
 ///
-/// Returns: AggregateType
-unsafe fn extract_standard_aggregate(
+/// Returns: AggregateType (COUNT, SUM, AVG, MIN, MAX, or Custom for paradedb.agg)
+unsafe fn convert_window_func_to_aggregate_type(
     parse: *mut pg_sys::Query,
     window_agg: *mut pg_sys::WindowFunc,
 ) -> Option<AggregateType> {
@@ -240,7 +237,7 @@ unsafe fn extract_standard_aggregate(
 
     // Extract FILTER clause if present
     let filter = if !(*window_agg).aggfilter.is_null() {
-        extract_filter_expression((*window_agg).aggfilter)
+        convert_filter_expr_to_search_query((*window_agg).aggfilter)
     } else {
         None
     };
@@ -338,7 +335,7 @@ unsafe fn extract_standard_aggregate(
     let first_arg = args.get_ptr(0)?;
 
     // Extract field name and missing value using the same logic as aggregatescan
-    let (field, missing) = parse_aggregate_field_from_node(parse, first_arg)?;
+    let (field, missing) = extract_field_name_from_aggregate_arg(parse, first_arg)?;
 
     let agg_type = create_aggregate_from_oid(
         aggfnoid,
@@ -350,9 +347,10 @@ unsafe fn extract_standard_aggregate(
     Some(agg_type)
 }
 
-/// Parse field name and missing value from a Node argument (for window functions)
-/// This is similar to aggregatescan's parse_aggregate_field but works with Node instead of TargetEntry
-unsafe fn parse_aggregate_field_from_node(
+/// Extract the field name and missing value from an aggregate function's argument node
+/// Handles Var nodes (column references) and COALESCE expressions (for missing values)
+/// Returns: (field_name, optional_missing_value)
+unsafe fn extract_field_name_from_aggregate_arg(
     parse: *mut pg_sys::Query,
     arg_node: *mut pg_sys::Node,
 ) -> Option<(FieldName, Option<f64>)> {
@@ -377,7 +375,7 @@ unsafe fn parse_aggregate_field_from_node(
     Some((field, missing))
 }
 
-/// Extract FILTER expression by serializing it for later conversion
+/// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion
 ///
 /// ## Why we can't convert now:
 /// We can't use extract_quals here because root (PlannerInfo) doesn't exist yet
@@ -394,7 +392,9 @@ unsafe fn parse_aggregate_field_from_node(
 /// - nodeToString creates a new string copy (not a pointer to planner hook memory)
 /// - stringToNode allocates new nodes in current memory context
 /// - The deserialized nodes live as long as needed for planning and execution
-unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<SearchQueryInput> {
+unsafe fn convert_filter_expr_to_search_query(
+    filter_expr: *mut pg_sys::Expr,
+) -> Option<SearchQueryInput> {
     if filter_expr.is_null() {
         return None;
     }
@@ -405,12 +405,16 @@ unsafe fn extract_filter_expression(filter_expr: *mut pg_sys::Expr) -> Option<Se
     })
 }
 
-/// Extract complete aggregation specification from a WindowFunc node
+/// Build a TargetList for the window function and validate its OVER clause
 ///
-/// This function extracts:
-/// - Aggregate type (with FILTER clause)
-/// - ORDER BY specification
-unsafe fn extract_aggregation_spec(
+/// Validates that the window function only uses supported features:
+/// - Empty OVER () is supported
+/// - PARTITION BY is NOT supported (returns None)
+/// - Custom frame clauses are NOT supported (returns None)
+/// - ORDER BY within OVER() is NOT supported (returns None)
+///
+/// Returns: Some(TargetList) if supported, None if unsupported features detected
+unsafe fn validate_and_build_target_list(
     parse: *mut pg_sys::Query,
     agg_type: AggregateType,
     window_agg: *mut pg_sys::WindowFunc,
@@ -440,13 +444,13 @@ unsafe fn extract_aggregation_spec(
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
 
-    let has_partition_by = has_partition_by(parse, (*window_clause).partitionClause);
-    let has_frame_clause = has_frame_clause(
+    let has_partition_by = window_has_partition_by(parse, (*window_clause).partitionClause);
+    let has_frame_clause = window_has_custom_frame_clause(
         (*window_clause).frameOptions,
         (*window_clause).startOffset,
         (*window_clause).endOffset,
     );
-    let has_order_by = has_order_by(parse, (*window_clause).orderClause);
+    let has_order_by = window_has_order_by(parse, (*window_clause).orderClause);
 
     // Reject if PARTITION BY, frame clause, or ORDER BY is present
     if has_partition_by || has_frame_clause || has_order_by {
@@ -456,8 +460,9 @@ unsafe fn extract_aggregation_spec(
     Some(TargetList::new(agg_type)) // PARTITION BY is not supported for window functions
 }
 
-/// Check if there's a frame clause
-unsafe fn has_frame_clause(
+/// Check if the window function has a custom frame clause
+/// (not the default RANGE UNBOUNDED PRECEDING AND CURRENT ROW)
+unsafe fn window_has_custom_frame_clause(
     frame_options: i32, // frameOptions is a bitmask containing frame type and bounds
     start_offset: *mut pg_sys::Node,
     end_offset: *mut pg_sys::Node,
@@ -467,8 +472,11 @@ unsafe fn has_frame_clause(
     frame_options & FRAMEOPTION_NONDEFAULT != 0
 }
 
-/// Check if there's a PARTITION BY clause
-unsafe fn has_partition_by(parse: *mut pg_sys::Query, partition_clause: *mut pg_sys::List) -> bool {
+/// Check if the window function has a PARTITION BY clause
+unsafe fn window_has_partition_by(
+    parse: *mut pg_sys::Query,
+    partition_clause: *mut pg_sys::List,
+) -> bool {
     if partition_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
         return false;
     }
@@ -477,8 +485,8 @@ unsafe fn has_partition_by(parse: *mut pg_sys::Query, partition_clause: *mut pg_
     !partition_list.is_empty()
 }
 
-/// Check if there's an ORDER BY clause
-unsafe fn has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::List) -> bool {
+/// Check if the window function has an ORDER BY clause within the OVER()
+unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::List) -> bool {
     if order_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
         return false;
     }
@@ -487,13 +495,17 @@ unsafe fn has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::Lis
     !order_list.is_empty()
 }
 
-/// Extract window_agg(json) calls from the processed target list at planning time
-/// Convert PostgresExpression filters to SearchQueryInput
+/// Resolve window aggregate FILTER clauses at custom plan creation time
 ///
-/// This is called at plan_custom_path time when we have access to root (PlannerInfo),
-/// allowing us to use extract_filter_clause to properly convert FILTER expressions
+/// Converts PostgresExpression filters (serialized at planner hook time) to SearchQueryInput
+/// (executable at runtime). This is called at plan_custom_path time when we have access to
+/// root (PlannerInfo), allowing us to use extract_quals to properly convert FILTER expressions
 /// (same logic as aggregatescan).
-pub unsafe fn convert_window_aggregate_filters(
+///
+/// This two-phase approach is necessary because:
+/// 1. At planner_hook time: We serialize filters as PostgresExpression (no PlannerInfo yet)
+/// 2. At plan_custom_path time: We convert to SearchQueryInput (PlannerInfo available)
+pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
     window_aggregates: &mut [WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
@@ -537,14 +549,22 @@ pub unsafe fn convert_window_aggregate_filters(
     }
 }
 
-/// Extract window_agg(json) calls from a target list and create WindowAggregateInfo
+/// Deserialize window aggregate placeholders from the target list at custom plan creation time
+///
+/// After window functions are replaced with `paradedb.window_agg(json)` placeholders at
+/// planner hook time, this function extracts them from the processed target list and
+/// deserializes the JSON back into WindowAggregateInfo structures.
 ///
 /// This function:
-/// 1. Iterates through target entries in the PROVIDED target list (usually processed_tlist)
-/// 2. Finds `paradedb.window_agg(json)` calls
-/// 3. Deserializes the JSON to get `WindowSpecification`
-/// 4. Creates `WindowAggregateInfo` with the CURRENT position as target_entry_index
-pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAggregateInfo> {
+/// 1. Iterates through target entries in the provided target list (usually processed_tlist)
+/// 2. Finds `paradedb.window_agg(json)` placeholder calls
+/// 3. Deserializes the JSON to recover the TargetList
+/// 4. Creates `WindowAggregateInfo` with the current position as target_entry_index
+///
+/// Returns: Vec of WindowAggregateInfo, one for each window aggregate in the query
+pub unsafe fn deserialize_window_agg_placeholders(
+    tlist: *mut pg_sys::List,
+) -> Vec<WindowAggregateInfo> {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
     use std::ffi::CStr;

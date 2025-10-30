@@ -549,10 +549,10 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     }
 
     // Extract window functions from current query
-    let window_specs = window_agg::extract_window_specifications(parse);
-    if !window_specs.is_empty() {
+    let window_tls = window_agg::extract_and_convert_window_functions(parse);
+    if !window_tls.is_empty() {
         // Replace window functions in current query
-        replace_windowfuncs_in_query(parse, &window_specs);
+        replace_windowfuncs_in_query(parse, &window_tls);
     }
 
     // Recursively process subqueries in RTEs
@@ -577,7 +577,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
 /// with a paradedb.window_agg(json) call containing the serialized TargetList.
 unsafe fn replace_windowfuncs_in_query(
     parse: *mut pg_sys::Query,
-    window_specs: &HashMap<usize, TargetList>,
+    window_tls: &HashMap<usize, TargetList>,
 ) {
     if (*parse).targetList.is_null() {
         return;
@@ -599,9 +599,9 @@ unsafe fn replace_windowfuncs_in_query(
             // Create a flat copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
-            // Get the window specification for this target entry
-            if let Some(window_spec) = window_specs.get(&idx) {
-                let json = serde_json::to_string(window_spec)
+            // Get the window target list for this target entry
+            if let Some(window_tl) = window_tls.get(&idx) {
+                let json = serde_json::to_string(window_tl)
                     .expect("Failed to serialize WindowSpecification");
 
                 // Create a Const node for the JSON string
@@ -625,7 +625,7 @@ unsafe fn replace_windowfuncs_in_query(
                 // Create a FuncExpr that calls paradedb.window_agg(json)
                 let funcexpr = pg_sys::makeFuncExpr(
                     window_agg_procid,
-                    window_spec.singleton_result_type_oid(),
+                    window_tl.singleton_result_type_oid(),
                     args.into_pg(),
                     pg_sys::InvalidOid,
                     pg_sys::InvalidOid,

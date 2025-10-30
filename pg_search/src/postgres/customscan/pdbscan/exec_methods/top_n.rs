@@ -17,6 +17,8 @@
 
 use std::cell::RefCell;
 
+use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
@@ -280,11 +282,20 @@ impl ExecMethod for TopNScanExecState {
         // Run the TopN (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aggregation_collector = aggregations.as_ref().map(|aggregations| {
-                // TODO: (Optionally?) wrap in MVCCFilterCollector.
-                // See also https://github.com/paradedb/paradedb/issues/3253.
-                DistributedAggregationCollector::from_aggs(
+                // Wrap the aggregation collector with MVCC filtering to respect transaction visibility.
+                // This ensures that aggregations only include documents visible to the current transaction,
+                // matching the behavior of the TopN results.
+                let base_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
                     agg_limits.clone(),
+                );
+
+                let heaprel = state.heaprel();
+                MVCCFilterCollector::new(
+                    base_collector,
+                    TSVisibilityChecker::with_rel_and_snap(heaprel.as_ptr(), unsafe {
+                        pg_sys::GetActiveSnapshot()
+                    }),
                 )
             });
             self.search_reader

@@ -33,9 +33,7 @@ use crate::schema::SearchIndexSchema;
 use std::ptr::NonNull;
 
 use anyhow::Result;
-use tantivy::aggregation::{
-    intermediate_agg_result::IntermediateAggregationResults, DistributedAggregationCollector,
-};
+use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::{
     Collector, Feature, FieldFeature, ScoreFeature, SegmentCollector, TopDocs, TopOrderable,
 };
@@ -549,14 +547,17 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_top_n_in_segments(
+    pub fn search_top_n_in_segments<C>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
-        aggregation_collector: Option<DistributedAggregationCollector>,
-    ) -> TopNSearchResults {
+        aggregation_collector: Option<C>,
+    ) -> TopNSearchResults
+    where
+        C: Collector<Fruit = IntermediateAggregationResults>,
+    {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -699,7 +700,7 @@ impl SearchIndexReader {
     /// possible permutations of `F: Feature` types for three columns (which would be 7^3=343 copies
     /// of the method at time of writing).
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
-    fn top_in_segments<F: Feature + Clone>(
+    fn top_in_segments<F, C>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         first_feature: F,
@@ -707,8 +708,12 @@ impl SearchIndexReader {
         mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<DistributedAggregationCollector>,
-    ) -> TopNWithAggregate<F::Output> {
+        aggregation_collector: Option<C>,
+    ) -> TopNWithAggregate<F::Output>
+    where
+        F: Feature + Clone,
+        C: Collector<Fruit = IntermediateAggregationResults>,
+    {
         // if last erased feature is score, then we need to return the score
         match erased_features.len() {
             0 => {
@@ -794,17 +799,21 @@ impl SearchIndexReader {
     }
 
     /// See `top_in_segments` and `search_top_n_in_segments`.
-    fn top_for_orderable_in_segments<O: TopOrderable>(
+    fn top_for_orderable_in_segments<O, C>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderable: O,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<DistributedAggregationCollector>,
+        aggregation_collector: Option<C>,
     ) -> (
         Vec<(O::Output, DocAddress)>,
         Option<IntermediateAggregationResults>,
-    ) {
+    )
+    where
+        O: TopOrderable,
+        C: Collector<Fruit = IntermediateAggregationResults>,
+    {
         let top_docs_collector = TopDocs::with_limit(n)
             .and_offset(offset)
             .order_by(orderable);
@@ -834,14 +843,17 @@ impl SearchIndexReader {
     /// TODO: This is a special case for a single score feature: the score-only codepath is highly
     /// specialized, and at least 50% faster than `TopDocs::order_by` when sorting on only the
     /// score. We should try to close that gap over time, but for now we special case it.
-    fn top_by_score_in_segments(
+    fn top_by_score_in_segments<C>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<DistributedAggregationCollector>,
-    ) -> TopNSearchResults {
+        aggregation_collector: Option<C>,
+    ) -> TopNSearchResults
+    where
+        C: Collector<Fruit = IntermediateAggregationResults>,
+    {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {

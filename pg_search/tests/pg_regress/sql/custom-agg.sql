@@ -140,6 +140,24 @@ FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
 
+-- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
+SELECT *, paradedb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Test 10: Error handling - non-object JSON (should fail fast)
+SELECT *, paradedb.agg('"invalid"'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Test 11: Error handling - invalid aggregation type (should fail fast)
+SELECT *, paradedb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 

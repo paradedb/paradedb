@@ -211,5 +211,23 @@ ORDER BY timestamp DESC LIMIT 10;
   1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2575.0}
 (2 rows)
 
+-- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
+SELECT *, paradedb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ERROR:  paradedb.agg() received JSON with 'buckets' key. Remove the 'buckets' wrapper - paradedb.agg() expects a single aggregation definition. Example: {"terms": {"field": "country"}} instead of {"buckets": {"terms": {"field": "country"}}}
+-- Test 10: Error handling - non-object JSON (should fail fast)
+SELECT *, paradedb.agg('"invalid"'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ERROR:  paradedb.agg() expects a JSON object representing a Tantivy aggregation. Example: {"terms": {"field": "country"}}
+-- Test 11: Error handling - invalid aggregation type (should fail fast)
+SELECT *, paradedb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ERROR:  paradedb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
 -- Cleanup
 DROP TABLE logs CASCADE;

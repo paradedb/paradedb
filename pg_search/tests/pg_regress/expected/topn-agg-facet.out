@@ -2011,6 +2011,114 @@ LIMIT 3;
   3 | ThinkPad X1 |    4.5 |  1599 |           4 |                     7396 |                     4.6
 (3 rows)
 
+-- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
+-- Verify this produces TopN execution plan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, name, description, category, brand, COUNT(*) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, description, category, brand, (paradedb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, description, category, brand, paradedb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT id, name, description, category, brand, COUNT(*) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+ id |    name     |                description                | category | brand  | count 
+----+-------------+-------------------------------------------+----------+--------+-------
+  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  |     4
+  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   |     4
+  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo |     4
+  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     |     4
+(4 rows)
+
+-- Test 39: Benchmark query - TopN + paradedb.agg terms (faceting)
+-- Verify this produces TopN execution plan with custom aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, name, description, category, brand, paradedb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, description, category, brand, (paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, description, category, brand, paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT id, name, description, category, brand, paradedb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+ id |    name     |                description                | category | brand  |                                                                                                      agg                                                                                                       
+----+-------------+-------------------------------------------+----------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
+
+-- Test 40: Benchmark query - TopN + paradedb.agg avg
+-- Verify this produces TopN execution plan with custom aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, name, description, category, brand, paradedb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, description, category, brand, (paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, description, category, brand, paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT id, name, description, category, brand, paradedb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 10;
+ id |    name     |                description                | category | brand  |      agg       
+----+-------------+-------------------------------------------+----------+--------+----------------
+  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"value": 4.6}
+  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"value": 4.6}
+  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"value": 4.6}
+  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"value": 4.6}
+(4 rows)
+
 -- Cleanup
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

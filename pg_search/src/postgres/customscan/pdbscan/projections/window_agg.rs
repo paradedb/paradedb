@@ -265,6 +265,56 @@ unsafe fn extract_standard_aggregate(
             return None;
         };
 
+        // Validate that the JSON is a valid Tantivy aggregation
+        // It should be a single aggregation definition (e.g., {"terms": {...}}, {"avg": {...}})
+        // NOT wrapped in a "buckets" key (that's for the old paradedb.aggregate function)
+        if json_value.get("buckets").is_some() {
+            pgrx::error!(
+                "paradedb.agg() received JSON with 'buckets' key. \
+                 Remove the 'buckets' wrapper - paradedb.agg() expects a single aggregation definition. \
+                 Example: {{\"terms\": {{\"field\": \"country\"}}}} instead of {{\"buckets\": {{\"terms\": {{\"field\": \"country\"}}}}}}"
+            );
+        }
+
+        // Validate it's an object
+        if !json_value.is_object() {
+            pgrx::error!(
+                "paradedb.agg() expects a JSON object representing a Tantivy aggregation. \
+                 Example: {{\"terms\": {{\"field\": \"country\"}}}}"
+            );
+        }
+
+        // Validate that all top-level keys are recognized Tantivy aggregation types
+        // See: https://docs.rs/tantivy/latest/tantivy/aggregation/agg_req/enum.Aggregation.html
+        const VALID_AGG_TYPES: &[&str] = &[
+            "terms",          // Bucket aggregation
+            "range",          // Bucket aggregation
+            "histogram",      // Bucket aggregation
+            "date_histogram", // Bucket aggregation
+            "filter",         // Bucket aggregation
+            "avg",            // Metric aggregation
+            "sum",            // Metric aggregation
+            "min",            // Metric aggregation
+            "max",            // Metric aggregation
+            "count",          // Metric aggregation
+            "stats",          // Metric aggregation
+            "percentiles",    // Metric aggregation
+        ];
+
+        if let Some(obj) = json_value.as_object() {
+            for key in obj.keys() {
+                if !VALID_AGG_TYPES.contains(&key.as_str()) {
+                    pgrx::error!(
+                        "paradedb.agg() received unknown aggregation type '{}'. \
+                         Valid types: {}. \
+                         Example: {{\"terms\": {{\"field\": \"country\"}}}}",
+                        key,
+                        VALID_AGG_TYPES.join(", ")
+                    );
+                }
+            }
+        }
+
         return Some(AggregateType::Custom {
             agg_json: json_value,
             filter,
@@ -529,7 +579,7 @@ pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAg
                             let json_str =
                                 CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
 
-                            // Deserialize AggregationSpec and create WindowAggregateInfo
+                            // Deserialize TargetList and create WindowAggregateInfo
                             // with the correct target_entry_index from the current position
                             match serde_json::from_str::<TargetList>(json_str) {
                                 Ok(targetlist) => {
@@ -539,7 +589,13 @@ pub unsafe fn extract_window_agg_calls(tlist: *mut pg_sys::List) -> Vec<WindowAg
                                     };
                                     (*context).window_aggs.push(info);
                                 }
-                                Err(e) => {}
+                                Err(e) => {
+                                    pgrx::error!(
+                                        "Failed to deserialize window aggregate specification: {}. \
+                                         This is an internal error - the window function replacement may have failed.",
+                                        e
+                                    );
+                                }
                             }
                         }
                     }

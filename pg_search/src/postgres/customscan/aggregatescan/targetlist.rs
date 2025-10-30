@@ -44,6 +44,15 @@ pub struct TargetList {
 }
 
 impl TargetList {
+    /// Create a new TargetList with a single aggregate
+    pub fn new(aggregate: AggregateType) -> Self {
+        TargetList {
+            entries: vec![TargetListEntry::Aggregate(aggregate)],
+            groupby: Default::default(),
+            uses_our_operator: false,
+        }
+    }
+
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.entries.iter().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
@@ -72,15 +81,6 @@ impl TargetList {
 
     pub fn uses_our_operator(&self) -> bool {
         self.uses_our_operator
-    }
-
-    /// Create a new TargetList with a single aggregate (for window functions)
-    pub fn new_for_window_function(aggregate: AggregateType) -> Self {
-        TargetList {
-            entries: vec![TargetListEntry::Aggregate(aggregate)],
-            groupby: Default::default(),
-            uses_our_operator: false,
-        }
     }
 
     /// Get the result type OID for the first aggregate

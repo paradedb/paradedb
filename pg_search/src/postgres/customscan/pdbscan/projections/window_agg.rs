@@ -421,12 +421,12 @@ unsafe fn extract_aggregation_spec(
 
     if winref == 0 {
         // No window clause - means empty OVER ()
-        return Some(TargetList::new_for_window_function(agg_type));
+        return Some(TargetList::new(agg_type));
     }
 
     // Access the WindowClause from the list
     if (*parse).windowClause.is_null() {
-        return Some(TargetList::new_for_window_function(agg_type));
+        return Some(TargetList::new(agg_type));
     }
 
     let window_clauses = PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause);
@@ -435,7 +435,7 @@ unsafe fn extract_aggregation_spec(
     let window_clause_idx = (winref - 1) as usize;
 
     if window_clause_idx >= window_clauses.len() {
-        return Some(TargetList::new_for_window_function(agg_type));
+        return Some(TargetList::new(agg_type));
     }
 
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
@@ -453,7 +453,7 @@ unsafe fn extract_aggregation_spec(
         return None;
     }
 
-    Some(TargetList::new_for_window_function(agg_type)) // PARTITION BY is not supported for window functions
+    Some(TargetList::new(agg_type)) // PARTITION BY is not supported for window functions
 }
 
 /// Check if there's a frame clause

@@ -36,33 +36,32 @@ impl VarContext {
                 (heaprelid, varattno)
             }
             Self::Query(parse) => unsafe {
-                let heaprelid = if !var.is_null() && !parse.is_null() {
-                    let query_ptr = *parse; // Dereference to get *mut Query
-                    let varno = (*var).varno;
-                    let rtable = (*query_ptr).rtable;
+                // Early return for null pointers
+                if var.is_null() || parse.is_null() {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
 
-                    if !rtable.is_null() && varno > 0 {
-                        let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
-                        let rte_index = (varno - 1) as usize;
+                let query_ptr = *parse;
+                let varno = (*var).varno;
+                let rtable = (*query_ptr).rtable;
 
-                        if rte_index < rtable_list.len() {
-                            if let Some(rte) = rtable_list.get_ptr(rte_index) {
-                                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                                    (*rte).relid
-                                } else {
-                                    pg_sys::InvalidOid
-                                }
-                            } else {
-                                pg_sys::InvalidOid
-                            }
-                        } else {
-                            pg_sys::InvalidOid
-                        }
-                    } else {
-                        pg_sys::InvalidOid
-                    }
-                } else {
-                    pg_sys::InvalidOid
+                // Early return for invalid rtable or varno
+                if rtable.is_null() || varno <= 0 {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
+
+                let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+                let rte_index = (varno - 1) as usize;
+
+                // Early return for out of bounds index
+                if rte_index >= rtable_list.len() {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
+
+                // Get the RTE and check if it's a relation
+                let heaprelid = match rtable_list.get_ptr(rte_index) {
+                    Some(rte) if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION => (*rte).relid,
+                    _ => pg_sys::InvalidOid,
                 };
 
                 let varattno = (*var).varattno;

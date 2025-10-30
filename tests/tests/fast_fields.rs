@@ -184,7 +184,7 @@ WITH (
 }
 
 #[rstest]
-fn numeric_fast_field_in_window_agg(mut conn: PgConnection) {
+fn numeric_fast_field_in_window_func(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search

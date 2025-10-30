@@ -57,6 +57,9 @@ impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
 
+// entinel used to represent SQL NULL in term aggregations
+pub const NULL_GROUP_KEY_SENTINEL: &str = "\u{0000}__PDB_NULL__";
+
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,

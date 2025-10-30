@@ -136,6 +136,37 @@ fn test_group_by(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_group_by_null_bucket(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    r#"
+        INSERT INTO paradedb.bm25_search
+            (description, category, rating, in_stock, metadata, created_at, last_updated_date)
+        VALUES
+            ('Ergonomic metal keyboard', 'Electronics', NULL, true, '{"color": "Silver"}', now(), current_date);
+    "#
+    .execute(&mut conn);
+
+    let query = r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'keyboard'
+        GROUP BY rating
+        ORDER BY rating NULLS FIRST
+    "#;
+
+    assert_uses_custom_scan(&mut conn, true, query);
+
+    let results: Vec<(Option<i32>, i64)> = query.fetch(&mut conn);
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0], (None, 1)); // NULL rating group
+    assert_eq!(results[1], (Some(4), 2)); // rating 4 group
+}
+
+#[rstest]
 fn test_no_bm25_index(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'no_bm25', schema_name => 'paradedb');"
         .execute(&mut conn);

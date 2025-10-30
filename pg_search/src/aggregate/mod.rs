@@ -37,8 +37,10 @@ use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::Key;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
@@ -241,7 +243,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             None,
         )?;
 
-        let aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
+        // ensure GROUP BY includes a bucket for documents missing the group-by value
+        set_missing_on_terms(&mut aggregations);
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
@@ -423,7 +427,9 @@ pub fn execute_aggregate(
             }
 
             // have tantivy finalize the intermediate results from each worker
-            let aggregations: Aggregations = agg_req.try_into()?;
+            let mut aggregations: Aggregations = agg_req.try_into()?;
+            // normalize missing on terms here too before merge
+            set_missing_on_terms(&mut aggregations);
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
@@ -457,13 +463,37 @@ pub fn execute_aggregate(
             );
             if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
                 Ok(agg_results.into_final_result(
-                    agg_req.try_into()?,
+                    {
+                        let mut aggregations: Aggregations = agg_req.try_into()?;
+                        set_missing_on_terms(&mut aggregations);
+                        aggregations
+                    },
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 )?)
             } else {
                 Ok(AggregationResults::default())
             }
         }
+    }
+}
+
+// recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
+fn set_missing_on_terms(aggs: &mut Aggregations) {
+    use crate::postgres::customscan::aggregatescan::build::NULL_GROUP_KEY_SENTINEL;
+    for (
+        _name,
+        Aggregation {
+            agg,
+            sub_aggregation,
+        },
+    ) in aggs.iter_mut()
+    {
+        if let AggregationVariants::Terms(terms) = agg {
+            if terms.missing.is_none() {
+                terms.missing = Some(Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()));
+            }
+        }
+        set_missing_on_terms(sub_aggregation);
     }
 }
 

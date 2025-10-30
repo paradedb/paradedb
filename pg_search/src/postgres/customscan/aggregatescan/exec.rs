@@ -26,7 +26,7 @@ use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::types::TantivyValue;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
     AggregationResult as TantivyAggregationResult, AggregationResults as TantivyAggregationResults,
@@ -149,6 +149,42 @@ impl From<MetricResult> for TantivySingleMetricResult {
             unsupported => {
                 panic!("unsupported metric type: {:?}", unsupported);
             }
+        }
+    }
+}
+
+/// Convert an AggregateResult to a PostgreSQL Datum
+/// This is the shared logic for converting both Custom (JSON) and Metric aggregates
+///
+/// # Arguments
+/// * `agg_result` - The aggregate result to convert (Metric or Json)
+/// * `agg_type` - The aggregate type (for nullish fallback)
+/// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
+pub fn aggregate_result_to_datum(
+    agg_result: Option<AggregateResult>,
+    agg_type: &AggregateType,
+    expected_typoid: pg_sys::Oid,
+) -> Option<pg_sys::Datum> {
+    match agg_result {
+        Some(AggregateResult::Json(json_value)) => {
+            // Custom aggregate - return as JSONB
+            JsonB(json_value).into_datum()
+        }
+        Some(AggregateResult::Metric(metric)) => {
+            // Standard metric - convert f64 to appropriate type
+            metric.value.and_then(|value| unsafe {
+                TantivyValue(OwnedValue::F64(value))
+                    .try_into_datum(expected_typoid.into())
+                    .unwrap()
+            })
+        }
+        None => {
+            // No result - use nullish value
+            agg_type.nullish().value.and_then(|value| unsafe {
+                TantivyValue(OwnedValue::F64(value))
+                    .try_into_datum(expected_typoid.into())
+                    .unwrap()
+            })
         }
     }
 }
@@ -353,10 +389,6 @@ impl AggregationResults {
         self,
         agg_types: &[AggregateType],
     ) -> Vec<Option<pg_sys::Datum>> {
-        use crate::postgres::types::TantivyValue;
-        use pgrx::{IntoDatum, JsonB, PgOid};
-        use tantivy::schema::OwnedValue;
-
         let mut results = vec![None; agg_types.len()];
 
         if self.is_empty() {
@@ -371,32 +403,8 @@ impl AggregationResults {
             for (agg_idx, (agg_type, agg_result)) in
                 agg_types.iter().zip(row.aggregates.into_iter()).enumerate()
             {
-                let datum = match agg_result {
-                    Some(AggregateResult::Json(json_value)) => {
-                        // Custom aggregate - return as JSONB
-                        JsonB(json_value).into_datum()
-                    }
-                    Some(AggregateResult::Metric(metric)) => {
-                        // Standard metric - convert f64 to appropriate type
-                        let expected_typoid = agg_type.result_type_oid();
-                        metric.value.and_then(|value| unsafe {
-                            TantivyValue(OwnedValue::F64(value))
-                                .try_into_datum(PgOid::from(expected_typoid))
-                                .unwrap()
-                        })
-                    }
-                    None => {
-                        // No result - use nullish value
-                        agg_type.nullish().value.and_then(|value| unsafe {
-                            let expected_typoid = agg_type.result_type_oid();
-                            TantivyValue(OwnedValue::F64(value))
-                                .try_into_datum(PgOid::from(expected_typoid))
-                                .unwrap()
-                        })
-                    }
-                };
-
-                results[agg_idx] = datum;
+                let expected_typoid = agg_type.result_type_oid();
+                results[agg_idx] = aggregate_result_to_datum(agg_result, agg_type, expected_typoid);
             }
         }
 

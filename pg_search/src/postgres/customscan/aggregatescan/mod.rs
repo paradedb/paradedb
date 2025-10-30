@@ -36,7 +36,6 @@ use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
-use crate::postgres::customscan::aggregatescan::exec::AggregateResult;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
@@ -54,7 +53,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 
-use pgrx::{pg_sys, IntoDatum, JsonB, PgList, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
 
@@ -234,28 +233,11 @@ impl CustomScan for AggregateScan {
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
-                            match aggregates.next().and_then(|v| v) {
-                                Some(AggregateResult::Json(json_value)) => {
-                                    // Custom aggregate - return as JSONB
-                                    JsonB(json_value).into_datum()
-                                }
-                                Some(AggregateResult::Metric(metric)) => {
-                                    // Standard metric - convert f64 to appropriate type
-                                    metric.value.and_then(|value| {
-                                        TantivyValue(OwnedValue::F64(value))
-                                            .try_into_datum(expected_typoid.into())
-                                            .unwrap()
-                                    })
-                                }
-                                None => {
-                                    // No result - use nullish value
-                                    agg_type.nullish().value.and_then(|value| {
-                                        TantivyValue(OwnedValue::F64(value))
-                                            .try_into_datum(expected_typoid.into())
-                                            .unwrap()
-                                    })
-                                }
-                            }
+                            exec::aggregate_result_to_datum(
+                                aggregates.next().and_then(|v| v),
+                                agg_type,
+                                expected_typoid,
+                            )
                         }
                     }
                     (TargetListEntry::Aggregate(agg_type), true) => {

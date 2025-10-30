@@ -52,7 +52,7 @@ SELECT * FROM paradedb.aggregate(
     paradedb.all(),
     '{
         "rating_total": {
-            "sum": {"field": "rating"}
+            "value_count": {"field": "rating"}
         }
     }'
 );

@@ -271,6 +271,16 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
+      - name: Benchmark physical-logical-replication.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: physical-logical-replication.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'
         run: |

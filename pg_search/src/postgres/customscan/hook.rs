@@ -285,7 +285,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         // would cause a panic.
 
         // Only replace window functions in TopN queries
-        if query_has_window_aggregates(parse) {
+        if query_has_window_func_nodes(parse) {
             let has_paradedb_agg = query_has_paradedb_agg(parse);
             if query_is_topn(parse) {
                 if has_paradedb_agg || query_has_search_operator(parse) {
@@ -309,8 +309,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     }
 }
 
-/// Check if the target list contains any window functions
-unsafe fn has_window_aggregates(target_list: *mut pg_sys::List) -> bool {
+/// Check if the target list contains any window functions (WindowFunc nodes)
+/// This is called BEFORE window function replacement in the planner hook
+unsafe fn targetlist_has_window_func_nodes(target_list: *mut pg_sys::List) -> bool {
     struct WalkerContext {
         found: bool,
     }
@@ -354,14 +355,16 @@ unsafe fn has_window_aggregates(target_list: *mut pg_sys::List) -> bool {
     false
 }
 
-/// Check if the query (or any subquery) contains window functions
-unsafe fn query_has_window_aggregates(parse: *mut pg_sys::Query) -> bool {
+/// Check if the query (or any subquery) contains window functions (WindowFunc nodes)
+/// This is called BEFORE window function replacement in the planner hook
+/// Recursively checks subqueries if SUBQUERY_SUPPORT is enabled
+unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
 
     // Check the current query's target list
-    if !(*parse).targetList.is_null() && has_window_aggregates((*parse).targetList) {
+    if !(*parse).targetList.is_null() && targetlist_has_window_func_nodes((*parse).targetList) {
         return true;
     }
 
@@ -371,7 +374,7 @@ unsafe fn query_has_window_aggregates(parse: *mut pg_sys::Query) -> bool {
         for (idx, rte) in rtable.iter_ptr().enumerate() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
                 && !(*rte).subquery.is_null()
-                && query_has_window_aggregates((*rte).subquery)
+                && query_has_window_func_nodes((*rte).subquery)
             {
                 return true;
             }

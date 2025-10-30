@@ -253,7 +253,7 @@ impl PdbScan {
         // 1. The query uses @@@ operator, OR
         // 2. enable_custom_scan_without_operator is true, OR
         // 3. The query has window aggregates (paradedb.agg()) that we must handle
-        let has_window_aggs = query_has_window_agg_in_targetlist(root);
+        let has_window_aggs = query_has_window_agg_functions(root);
         if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
         {
             (quals, ri_type, restrict_info)
@@ -301,26 +301,29 @@ impl customscan::ExecMethod for PdbScan {
     }
 }
 
-/// Check if the query's target list contains paradedb.agg() calls (after replacement with window_agg)
-/// This is used to determine if we should create a custom path even without @@@ operator
-unsafe fn query_has_window_agg_in_targetlist(root: *mut pg_sys::PlannerInfo) -> bool {
-    use crate::api::agg_funcoid;
-
+/// Check if the query's target list contains window_agg() function calls
+///
+/// This is called AFTER window function replacement in PdbScan's create_custom_path.
+/// It looks for FuncExpr nodes with window_agg() OID, NOT WindowFunc nodes.
+///
+/// This is different from query_has_window_functions() in hook.rs which looks for WindowFunc
+/// nodes BEFORE replacement in the planner hook.
+///
+/// Used to determine if we should create a custom path even without @@@ operator.
+unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() {
         return false;
     }
 
     let parse = (*root).parse;
     let window_agg_func_oid = window_agg_oid();
-    let paradedb_agg_oid = agg_funcoid();
 
     // If functions don't exist yet (e.g., during extension creation), skip check
-    if window_agg_func_oid == pg_sys::InvalidOid || paradedb_agg_oid == pg_sys::InvalidOid {
+    if window_agg_func_oid == pg_sys::InvalidOid {
         return false;
     }
 
     let window_agg_func_oid = window_agg_func_oid.to_u32();
-    let paradedb_agg_oid = paradedb_agg_oid.to_u32();
 
     // Check target list for window_agg() or paradedb.agg() function calls
     if !(*parse).targetList.is_null() {
@@ -330,7 +333,7 @@ unsafe fn query_has_window_agg_in_targetlist(root: *mut pg_sys::PlannerInfo) -> 
                 // Check if this is a FuncExpr with window_agg or paradedb.agg OID
                 if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
                     let func_oid = (*func_expr).funcid.to_u32();
-                    if func_oid == window_agg_func_oid || func_oid == paradedb_agg_oid {
+                    if func_oid == window_agg_func_oid {
                         return true;
                     }
                 }
@@ -353,7 +356,7 @@ impl CustomScan for PdbScan {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
 
             // Check if the query has window aggregates (paradedb.agg() or window_agg())
-            let has_window_aggs = query_has_window_agg_in_targetlist(builder.args().root);
+            let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 
             if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
                 // this relation has no restrictions (WHERE clause predicates) and no window aggregates,

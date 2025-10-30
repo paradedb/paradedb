@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
@@ -119,6 +120,16 @@ impl AggregateType {
         qual_state: &mut QualExtractState,
     ) -> Option<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
+
+        // Reject paradedb.agg() in (GROUP BY) aggregate context
+        // It should only be used as a window function (OVER clause) in TopN queries
+        if aggfnoid == agg_funcoid().to_u32() {
+            pgrx::error!(
+                "paradedb.agg() cannot be used in (GROUP BY) aggregates. \
+                 Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead."
+            );
+        }
+
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
         let filter_expr = if (*aggref).aggfilter.is_null() {

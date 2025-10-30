@@ -30,29 +30,12 @@ SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
-   Group Key: logs.category
-   ->  Sort
-         Output: category
-         Sort Key: logs.category
-         ->  Custom Scan (ParadeDB Scan) on public.logs
-               Output: category
-               Table: logs
-               Index: logs_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() placeholder function should not be executed.
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
@@ -92,56 +75,26 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*), paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
-   Group Key: logs.category
-   ->  Sort
-         Output: category
-         Sort Key: logs.category
-         ->  Custom Scan (ParadeDB Scan) on public.logs
-               Output: category
-               Table: logs
-               Index: logs_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT category, 
        COUNT(*),
        paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() placeholder function should not be executed.
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE (status_code >= 500))
-   ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: status_code
-         Table: logs
-         Index: logs_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: status_code
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
-
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  paradedb.agg() placeholder function should not be executed.
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 5: Custom agg with FILTER and OVER (window function)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
@@ -181,31 +134,14 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*), paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
-   Group Key: logs.category
-   ->  Sort
-         Output: category
-         Sort Key: logs.category
-         ->  Custom Scan (ParadeDB Scan) on public.logs
-               Output: category
-               Table: logs
-               Index: logs_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT category, 
        COUNT(*),
        paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() placeholder function should not be executed.
+ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 7: paradedb.agg() without @@@ operator (no WHERE clause)
 -- This tests that paradedb.agg() is intercepted even without search operator
 -- The custom scan is now used because we detect window aggregates

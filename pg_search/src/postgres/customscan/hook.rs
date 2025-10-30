@@ -258,12 +258,19 @@ pub unsafe fn register_window_aggregate_hook() {
 /// ## Replacement Logic
 ///
 /// Only replaces window functions if:
-/// 1. The query contains window functions, AND
-/// 2. Either:
+/// 1. The query is a TopN query (has ORDER BY and LIMIT), AND
+/// 2. The query contains window functions, AND
+/// 3. Either:
 ///    - The query uses `paradedb.agg()` (which MUST be handled by us), OR
 ///    - The query uses the `@@@` search operator (indicating custom scan usage)
 ///
-/// This ensures we don't interfere with queries that PostgreSQL should handle normally.
+/// ## Validation
+///
+/// If `paradedb.agg()` is used, it MUST be:
+/// - Inside a window function (OVER clause)
+/// - In a TopN query (ORDER BY + LIMIT)
+///
+/// Otherwise, the query is rejected with an error.
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,
@@ -276,13 +283,20 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         // Note: it's important to check for window functions first, then search operator,
         // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
         // would cause a panic.
-        // If paradedb.agg() is used, we MUST handle it (regardless of @@@ operator)
-        // If only standard aggregates are used, we only handle them if @@@ is present
-        if query_has_window_aggregates(parse)
-            && (query_has_paradedb_agg(parse) || query_has_search_operator(parse))
-        {
-            // Extract and replace window functions recursively (including subqueries)
-            replace_windowfuncs_recursively(parse);
+
+        // Only replace window functions in TopN queries
+        if query_has_window_aggregates(parse) {
+            let has_paradedb_agg = query_has_paradedb_agg(parse);
+            if query_is_topn(parse) {
+                if has_paradedb_agg || query_has_search_operator(parse) {
+                    // Extract and replace window functions recursively (including subqueries)
+                    replace_windowfuncs_recursively(parse);
+                }
+            } else if has_paradedb_agg {
+                pgrx::error!(
+                    "paradedb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
+                );
+            }
         }
     }
 
@@ -387,25 +401,52 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
-/// Check if the query contains paradedb.agg() window function
+/// Check if the query is a TopN query (has ORDER BY and LIMIT)
+unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
+    if parse.is_null() {
+        return false;
+    }
+
+    // Must have both ORDER BY (sortClause) and LIMIT (limitCount)
+    let has_order_by = !(*parse).sortClause.is_null();
+    let has_limit = !(*parse).limitCount.is_null();
+
+    has_order_by && has_limit
+}
+
+/// Check if the query contains paradedb.agg() in any context (window function or aggregate)
 /// If it does, we MUST handle it (even without @@@ operator)
 unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
     use crate::api::agg_funcoid;
 
     let paradedb_agg_oid = agg_funcoid().to_u32();
 
-    // Check target list for WindowFunc nodes with paradedb.agg
+    // Check target list for both WindowFunc and Aggref nodes with paradedb.agg
     if !(*parse).targetList.is_null() {
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         for te in target_list.iter_ptr() {
             if !(*te).expr.is_null() {
+                // Check for window function usage
                 if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
                     if (*window_func).winfnoid.to_u32() == paradedb_agg_oid {
                         return true;
                     }
                 }
+                // Check for aggregate function usage (GROUP BY context)
+                if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
+                    if (*aggref).aggfnoid.to_u32() == paradedb_agg_oid {
+                        return true;
+                    }
+                }
             }
         }
+    }
+
+    // Check HAVING clause for Aggref nodes
+    if !(*parse).havingQual.is_null()
+        && expr_contains_paradedb_agg((*parse).havingQual, paradedb_agg_oid)
+    {
+        return true;
     }
 
     // Check subqueries
@@ -419,6 +460,50 @@ unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
                 return true;
             }
         }
+    }
+
+    false
+}
+
+/// Helper function to recursively check if an expression contains paradedb.agg()
+unsafe fn expr_contains_paradedb_agg(expr: *mut pg_sys::Node, paradedb_agg_oid: u32) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+
+    // Check if this node is an Aggref with paradedb.agg
+    if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
+        if (*aggref).aggfnoid.to_u32() == paradedb_agg_oid {
+            return true;
+        }
+    }
+
+    // Recursively check child nodes using expression tree walker
+    // For simplicity, we'll check common expression types
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = expr.cast::<pg_sys::OpExpr>();
+            if !(*op_expr).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_paradedb_agg(arg, paradedb_agg_oid) {
+                        return true;
+                    }
+                }
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            if !(*bool_expr).args.is_null() {
+                let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+                for arg in args.iter_ptr() {
+                    if expr_contains_paradedb_agg(arg, paradedb_agg_oid) {
+                        return true;
+                    }
+                }
+            }
+        }
+        _ => {}
     }
 
     false

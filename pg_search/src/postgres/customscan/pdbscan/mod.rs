@@ -45,7 +45,7 @@ use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segm
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    snippet_funcoid, snippet_positions_funcoid, snippets_funcoid, uses_snippets, SnippetType,
+    snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::window_agg::{
     deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
@@ -691,22 +691,14 @@ impl CustomScan for PdbScan {
             let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(processed_tlist);
 
             let mut attname_lookup = HashMap::default();
-            let score_funcoid = score_funcoid();
-            let snippet_funcoid = snippet_funcoid();
-            let snippets_funcoid = snippets_funcoid();
-            let snippet_positions_funcoid = snippet_positions_funcoid();
+            let funcoids: Vec<pg_sys::Oid> = std::iter::once(score_funcoid())
+                .chain(snippet_funcoids().iter().copied())
+                .chain(snippets_funcoids().iter().copied())
+                .chain(snippet_positions_funcoids().iter().copied())
+                .collect();
             for te in processed_tlist.iter_ptr() {
-                let func_vars_at_level = pullout_funcexprs(
-                    te.cast(),
-                    &[
-                        score_funcoid,
-                        snippet_funcoid,
-                        snippets_funcoid,
-                        snippet_positions_funcoid,
-                    ],
-                    rti,
-                    builder.args().root,
-                );
+                let func_vars_at_level =
+                    pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root);
 
                 for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
@@ -803,14 +795,14 @@ impl CustomScan for PdbScan {
                 .expect("should have an attribute name lookup");
 
             let score_funcoid = score_funcoid();
-            let snippet_funcoid = snippet_funcoid();
-            let snippets_funcoid = snippets_funcoid();
-            let snippet_positions_funcoid = snippet_positions_funcoid();
+            let snippet_funcoids = snippet_funcoids();
+            let snippets_funcoids = snippets_funcoids();
+            let snippet_positions_funcoids = snippet_positions_funcoids();
 
             builder.custom_state().score_funcoid = score_funcoid;
-            builder.custom_state().snippet_funcoid = snippet_funcoid;
-            builder.custom_state().snippets_funcoid = snippets_funcoid;
-            builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
+            builder.custom_state().snippet_funcoids = snippet_funcoids.clone();
+            builder.custom_state().snippets_funcoids = snippets_funcoids.clone();
+            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids.clone();
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
@@ -876,9 +868,9 @@ impl CustomScan for PdbScan {
                 builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
-                snippet_funcoid,
-                snippets_funcoid,
-                snippet_positions_funcoid,
+                &snippet_funcoids,
+                &snippets_funcoids,
+                &snippet_positions_funcoids,
             )
             .into_iter()
             .map(|field| (field, None))
@@ -1378,9 +1370,9 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoid,
-        state.custom_state().snippet_funcoid,
-        state.custom_state().snippets_funcoid,
-        state.custom_state().snippet_positions_funcoid,
+        &state.custom_state().snippet_funcoids,
+        &state.custom_state().snippets_funcoids,
+        &state.custom_state().snippet_positions_funcoids,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
     );

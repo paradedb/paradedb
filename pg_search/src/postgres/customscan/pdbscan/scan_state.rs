@@ -77,9 +77,9 @@ pub struct PdbScanState {
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
-    pub snippet_funcoid: pg_sys::Oid,
-    pub snippets_funcoid: pg_sys::Oid,
-    pub snippet_positions_funcoid: pg_sys::Oid,
+    pub snippet_funcoids: Vec<pg_sys::Oid>,
+    pub snippets_funcoids: Vec<pg_sys::Oid>,
+    pub snippet_positions_funcoids: Vec<pg_sys::Oid>,
 
     pub snippet_generators:
         HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,

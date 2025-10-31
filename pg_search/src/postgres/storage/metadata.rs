@@ -112,7 +112,7 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } {
+        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",

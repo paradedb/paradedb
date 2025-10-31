@@ -568,6 +568,48 @@ fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> 
     }
 }
 
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn segment_metas_garbage(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(segment_id, String),
+        name!(xmax, pg_sys::TransactionId),
+        name!(is_deleted, bool),
+        name!(is_mutable, bool),
+        name!(is_orphaned_delete, bool),
+        name!(max_doc, i64),
+        name!(num_docs, i64),
+        name!(num_deleted_docs, i64),
+        name!(byte_size, i64),
+    ),
+> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let metadata = MetaPage::open(&index);
+    let garbage = metadata
+        .segment_metas_garbage()
+        .expect("should be able to open segment_metas_garbage");
+    let data = unsafe { garbage.list() }
+        .into_iter()
+        .map(|entry| {
+            (
+                entry.segment_id().short_uuid_string(),
+                entry.xmax(),
+                entry.is_deleted(),
+                entry.is_mutable(),
+                entry.is_orphaned_delete(),
+                entry.max_doc() as i64,
+                entry.num_docs() as i64,
+                entry.num_deleted_docs() as i64,
+                entry.byte_size() as i64,
+            )
+        })
+        .collect::<Vec<_>>();
+    TableIterator::new(data)
+}
+
 // Deprecated: Use `pdb.index_layer_info` instead.
 extension_sql!(
     r#"create view paradedb.index_layer_info as

@@ -335,9 +335,8 @@ pub mod v1 {
             bman: &mut BufferManager,
             n: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            let xid_horizon = unsafe {
-                pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
-            };
+            let xid_horizon = unsafe { pg_sys::GetCurrentTransactionIdIfAny() }
+                .max(pg_sys::FirstNormalTransactionId);
             let mut blocks = Vec::with_capacity(n);
             let mut blockno = self.start_blockno;
             loop {
@@ -922,6 +921,15 @@ pub mod v2 {
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
         ) {
+            // if we are creating the index, set the XID to the first normal transaction id
+            // because anything garbage-collected during index creation should be immediately re-usable
+            let when_recyclable = if bman.is_create_index() {
+                pg_sys::FullTransactionId {
+                    value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+                }
+            } else {
+                when_recyclable
+            };
             let mut extend_with = extend_with.peekable();
             if extend_with.peek().is_none() {
                 // caller didn't give us anything to do

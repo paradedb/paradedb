@@ -44,11 +44,11 @@ AS 'MODULE_PATHNAME', 'window_agg_placeholder_wrapper';
 /* pg_search::api::aggregate::pdb */
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/aggregate.rs:136
+-- pg_search/src/api/aggregate.rs:150
 -- pg_search::api::aggregate::pdb::agg_fn
 CREATE  FUNCTION pdb."agg_fn"(
 	"_agg_name" TEXT /* &str */
-) RETURNS bigint /* i64 */
+) RETURNS jsonb /* pgrx::datum::json::JsonB */
 STRICT VOLATILE PARALLEL SAFE 
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'agg_fn_placeholder_wrapper';

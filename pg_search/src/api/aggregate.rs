@@ -148,7 +148,7 @@ mod pdb {
     ///
     /// The string argument is used to identify the aggregate in EXPLAIN output.
     #[pg_extern(volatile, parallel_safe, name = "agg_fn")]
-    pub fn agg_fn_placeholder(_agg_name: &str) -> i64 {
+    pub fn agg_fn_placeholder(_agg_name: &str) -> JsonB {
         pgrx::error!(
             "pdb.agg_fn() placeholder should not be executed - \
              custom scan should have intercepted this."

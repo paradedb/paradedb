@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761913175849,
+  "lastUpdate": 1761913932262,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63456,6 +63456,54 @@ window.BENCHMARK_DATA = {
             "value": 118.22228684565218,
             "unit": "median tps",
             "extra": "avg tps: 117.3783843446854, max tps: 131.9791642607965, count: 107236"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3456)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T07:24:09-04:00",
+          "tree_id": "742dbc05a309977e0b2991d390f17befaa41cf12",
+          "url": "https://github.com/paradedb/paradedb/commit/f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe"
+        },
+        "date": 1761913929586,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 671.7149722315698,
+            "unit": "median tps",
+            "extra": "avg tps: 670.7262797415732, max tps: 1031.0948013709033, count: 53646"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 715.4492643454146,
+            "unit": "median tps",
+            "extra": "avg tps: 715.1055557965055, max tps: 1137.6664260217758, count: 53646"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 109.62454625795804,
+            "unit": "median tps",
+            "extra": "avg tps: 109.67023571864644, max tps: 123.74536553806801, count: 53646"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.85988097307454,
+            "unit": "median tps",
+            "extra": "avg tps: 110.4984948131751, max tps: 125.08010567747955, count: 107292"
           }
         ]
       }

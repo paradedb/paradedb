@@ -801,13 +801,13 @@ impl CustomScan for PdbScan {
             let snippets_funcoids = snippets_funcoids();
             let snippet_positions_funcoids = snippet_positions_funcoids();
 
-            builder.custom_state().score_funcoids = score_funcoids.clone();
-            builder.custom_state().snippet_funcoids = snippet_funcoids.clone();
-            builder.custom_state().snippets_funcoids = snippets_funcoids.clone();
-            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids.clone();
+            builder.custom_state().score_funcoids = score_funcoids;
+            builder.custom_state().snippet_funcoids = snippet_funcoids;
+            builder.custom_state().snippets_funcoids = snippets_funcoids;
+            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
-                &score_funcoids,
+                score_funcoids,
                 builder.custom_state().execution_rti,
             );
 
@@ -870,9 +870,9 @@ impl CustomScan for PdbScan {
                 builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
-                &snippet_funcoids,
-                &snippets_funcoids,
-                &snippet_positions_funcoids,
+                snippet_funcoids,
+                snippets_funcoids,
+                snippet_positions_funcoids,
             )
             .into_iter()
             .map(|field| (field, None))
@@ -1371,10 +1371,10 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
-        &state.custom_state().score_funcoids,
-        &state.custom_state().snippet_funcoids,
-        &state.custom_state().snippets_funcoids,
-        &state.custom_state().snippet_positions_funcoids,
+        state.custom_state().score_funcoids,
+        state.custom_state().snippet_funcoids,
+        state.custom_state().snippets_funcoids,
+        state.custom_state().snippet_positions_funcoids,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
     );
@@ -1828,7 +1828,7 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
 
     for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
         match snippet_type {
-            SnippetType::SingleText(_, _, config, _) => {
+            SnippetType::SingleText(_, config, _) => {
                 let snippet = state.make_snippet(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {
@@ -1844,7 +1844,7 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
                     }
                 }
             }
-            SnippetType::MultipleText(_, _, config, _, _) => {
+            SnippetType::MultipleText(_, config, _, _) => {
                 let snippets = state.make_snippets(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {

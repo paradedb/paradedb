@@ -41,6 +41,7 @@ mod pdb {
 
 // In `0.19.0`, we renamed the schema from `paradedb` to `pdb`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
+#[warn(deprecated)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
     None
@@ -56,7 +57,7 @@ extension_sql!(
 
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
-    score_funcoids: &[pg_sys::Oid],
+    score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
 ) -> bool {
     #[pg_guard]
@@ -85,12 +86,12 @@ pub unsafe fn uses_scores(
     }
 
     struct Data {
-        score_funcoids: Vec<pg_sys::Oid>,
+        score_funcoids: [pg_sys::Oid; 2],
         rti: pg_sys::Index,
     }
 
     let mut data = Data {
-        score_funcoids: score_funcoids.to_vec(),
+        score_funcoids,
         rti,
     };
 

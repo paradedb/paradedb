@@ -305,8 +305,8 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-pub fn score_funcoids() -> Vec<pg_sys::Oid> {
-    vec![
+pub fn score_funcoids() -> [pg_sys::Oid; 2] {
+    [
         unsafe {
             direct_function_call::<pg_sys::Oid>(
                 pg_sys::regprocedurein,

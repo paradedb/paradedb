@@ -310,7 +310,7 @@ pub unsafe fn pullup_fast_fields(
                 return None;
             }
             continue;
-        } else if uses_scores((*te).expr.cast(), &score_funcoids(), rti) {
+        } else if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
             matches.push(WhichFastField::Score);
             continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)

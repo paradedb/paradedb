@@ -88,50 +88,36 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    SingleText(
-        FieldName,
-        Vec<pg_sys::Oid>,
-        SnippetConfig,
-        FragmentPositionsConfig,
-    ),
+    SingleText(FieldName, SnippetConfig, FragmentPositionsConfig),
     MultipleText(
         FieldName,
-        Vec<pg_sys::Oid>,
         SnippetConfig,
         SnippetPositionsConfig,
         SnippetSortOrder,
     ),
-    Positions(FieldName, Vec<pg_sys::Oid>, FragmentPositionsConfig),
+    Positions(FieldName, FragmentPositionsConfig),
 }
 
 impl SnippetType {
     pub fn field(&self) -> &FieldName {
         match self {
-            SnippetType::SingleText(field, _, _, _) => field,
-            SnippetType::MultipleText(field, _, _, _, _) => field,
-            SnippetType::Positions(field, _, _) => field,
+            SnippetType::SingleText(field, _, _) => field,
+            SnippetType::MultipleText(field, _, _, _) => field,
+            SnippetType::Positions(field, _) => field,
         }
     }
 
-    // pub fn funcoid(&self) -> pg_sys::Oid {
-    //     match self {
-    //         SnippetType::SingleText(_, funcoid, _, _) => *funcoid,
-    //         SnippetType::MultipleText(_, funcoid, _, _, _) => *funcoid,
-    //         SnippetType::Positions(_, funcoid, _) => *funcoid,
-    //     }
-    // }
-
     pub fn nodeoid(&self) -> pg_sys::Oid {
         match self {
-            SnippetType::SingleText(_, _, _, _) => pg_sys::TEXTOID,
-            SnippetType::MultipleText(_, _, _, _, _) => pg_sys::TEXTARRAYOID,
-            SnippetType::Positions(_, _, _) => pg_sys::INT4ARRAYOID,
+            SnippetType::SingleText(_, _, _) => pg_sys::TEXTOID,
+            SnippetType::MultipleText(_, _, _, _) => pg_sys::TEXTARRAYOID,
+            SnippetType::Positions(_, _) => pg_sys::INT4ARRAYOID,
         }
     }
 
     pub fn configure_generator(&self, generator: &mut SnippetGenerator) {
         match self {
-            SnippetType::SingleText(_, _, config, positions_config) => {
+            SnippetType::SingleText(_, config, positions_config) => {
                 if positions_config.limit().is_some() || positions_config.offset().is_some() {
                     pg_sys::panic::ErrorReport::new(
                         pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
@@ -152,7 +138,7 @@ impl SnippetType {
                 }
                 generator.set_max_num_chars(config.max_num_chars);
             }
-            SnippetType::MultipleText(_, _, config, positions_config, sort_order) => {
+            SnippetType::MultipleText(_, config, positions_config, sort_order) => {
                 // We always use a (default) limit and offset for positions, as we might
                 // potentially produce a huge array otherwise.
                 generator.set_snippets_limit(positions_config.limit_or_default());
@@ -160,7 +146,7 @@ impl SnippetType {
                 generator.set_max_num_chars(config.max_num_chars);
                 generator.set_sort_order(*sort_order);
             }
-            SnippetType::Positions(_, _, positions_config) => {
+            SnippetType::Positions(_, positions_config) => {
                 // Positions are expected to be fairly small, so we always render all of them by
                 // default.
                 if let Some(limit) = positions_config.limit() {
@@ -180,9 +166,9 @@ impl SnippetType {
 struct Context<'a> {
     planning_rti: pg_sys::Index,
     attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    snippet_funcoids: Vec<pg_sys::Oid>,
-    snippets_funcoids: Vec<pg_sys::Oid>,
-    snippet_positions_funcoids: Vec<pg_sys::Oid>,
+    snippet_funcoids: [pg_sys::Oid; 2],
+    snippets_funcoids: [pg_sys::Oid; 2],
+    snippet_positions_funcoids: [pg_sys::Oid; 2],
     snippet_type: Vec<SnippetType>,
 }
 
@@ -227,6 +213,7 @@ mod pdb {
 
 // In `0.19.0`, we renamed `paradedb.snippet*` functions to `pdb.snippet*`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
+#[warn(deprecated)]
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn paradedb_snippet_from_relation(
     field: AnyElement,
@@ -239,6 +226,7 @@ fn paradedb_snippet_from_relation(
     None
 }
 
+#[warn(deprecated)]
 #[pg_extern(name = "snippets", stable, parallel_safe)]
 fn paradedb_snippets_from_relation(
     field: AnyElement,
@@ -252,6 +240,7 @@ fn paradedb_snippets_from_relation(
     None
 }
 
+#[warn(deprecated)]
 #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
 fn paradedb_snippet_positions_from_relation(
     field: AnyElement,
@@ -296,31 +285,31 @@ extension_sql!(
     ]
 );
 
-pub fn snippet_funcoids() -> Vec<pg_sys::Oid> {
-    const SIGNATURES: &[&str] = &[
+pub fn snippet_funcoids() -> [pg_sys::Oid; 2] {
+    const SIGNATURES: &[&str; 2] = &[
         "pdb.snippet(anyelement, text, text, int, int, int)",
         "paradedb.snippet(anyelement, text, text, int, int, int)",
     ];
     get_snippet_funcoids(SIGNATURES)
 }
 
-pub fn snippets_funcoids() -> Vec<pg_sys::Oid> {
-    const SIGNATURES: &[&str] = &[
+pub fn snippets_funcoids() -> [pg_sys::Oid; 2] {
+    const SIGNATURES: &[&str; 2] = &[
         "pdb.snippets(anyelement, text, text, int, int, int, text)",
         "paradedb.snippets(anyelement, text, text, int, int, int, text)",
     ];
     get_snippet_funcoids(SIGNATURES)
 }
 
-pub fn snippet_positions_funcoids() -> Vec<pg_sys::Oid> {
-    const SIGNATURES: &[&str] = &[
+pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
+    const SIGNATURES: &[&str; 2] = &[
         "pdb.snippet_positions(anyelement, int, int)",
         "paradedb.snippet_positions(anyelement, int, int)",
     ];
     get_snippet_funcoids(SIGNATURES)
 }
 
-fn get_snippet_funcoids(signatures: &[&str]) -> Vec<pg_sys::Oid> {
+fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
     unsafe {
         signatures
             .iter()
@@ -333,7 +322,9 @@ fn get_snippet_funcoids(signatures: &[&str]) -> Vec<pg_sys::Oid> {
                 )
                 .unwrap_or_else(|| panic!("the `{}` function should exist", signature))
             })
-            .collect()
+            .collect::<Vec<pg_sys::Oid>>()
+            .try_into()
+            .expect("expected exactly 2 snippet funcoids")
     }
 }
 
@@ -341,9 +332,9 @@ pub unsafe fn uses_snippets(
     planning_rti: pg_sys::Index,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     node: *mut pg_sys::Node,
-    snippet_funcoids: &[pg_sys::Oid],
-    snippets_funcoids: &[pg_sys::Oid],
-    snippet_positions_funcoids: &[pg_sys::Oid],
+    snippet_funcoids: [pg_sys::Oid; 2],
+    snippets_funcoids: [pg_sys::Oid; 2],
+    snippet_positions_funcoids: [pg_sys::Oid; 2],
 ) -> Vec<SnippetType> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -360,7 +351,7 @@ pub unsafe fn uses_snippets(
             if let Some(snippet_type) = extract_snippet(
                 funcexpr,
                 (*context).planning_rti,
-                &(*context).snippet_funcoids,
+                (*context).snippet_funcoids,
                 (*context).attname_lookup,
             ) {
                 (*context).snippet_type.push(snippet_type);
@@ -369,7 +360,7 @@ pub unsafe fn uses_snippets(
             if let Some(snippet_type) = extract_snippets(
                 funcexpr,
                 (*context).planning_rti,
-                &(*context).snippets_funcoids,
+                (*context).snippets_funcoids,
                 (*context).attname_lookup,
             ) {
                 (*context).snippet_type.push(snippet_type);
@@ -378,7 +369,7 @@ pub unsafe fn uses_snippets(
             if let Some(snippet_type) = extract_snippet_positions(
                 funcexpr,
                 (*context).planning_rti,
-                &(*context).snippet_positions_funcoids,
+                (*context).snippet_positions_funcoids,
                 (*context).attname_lookup,
             ) {
                 (*context).snippet_type.push(snippet_type);
@@ -391,9 +382,9 @@ pub unsafe fn uses_snippets(
     let mut context = Context {
         planning_rti,
         attname_lookup,
-        snippet_funcoids: snippet_funcoids.to_vec(),
-        snippets_funcoids: snippets_funcoids.to_vec(),
-        snippet_positions_funcoids: snippet_positions_funcoids.to_vec(),
+        snippet_funcoids,
+        snippets_funcoids,
+        snippet_positions_funcoids,
         snippet_type: vec![],
     };
 
@@ -405,7 +396,7 @@ pub unsafe fn uses_snippets(
 pub unsafe fn extract_snippet(
     func: *mut pg_sys::FuncExpr,
     planning_rti: pg_sys::Index,
-    snippet_funcoids: &[pg_sys::Oid],
+    snippet_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
     if !snippet_funcoids.iter().any(|&oid| oid == (*func).funcid) {
@@ -451,7 +442,6 @@ pub unsafe fn extract_snippet(
 
         Some(SnippetType::SingleText(
             attname,
-            snippet_funcoids.to_vec(),
             SnippetConfig {
                 start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
                 end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
@@ -468,7 +458,7 @@ pub unsafe fn extract_snippet(
 pub unsafe fn extract_snippets(
     func: *mut pg_sys::FuncExpr,
     planning_rti: pg_sys::Index,
-    snippets_funcoids: &[pg_sys::Oid],
+    snippets_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
     if !snippets_funcoids.iter().any(|&oid| oid == (*func).funcid) {
@@ -525,7 +515,6 @@ pub unsafe fn extract_snippets(
 
         Some(SnippetType::MultipleText(
             attname,
-            snippets_funcoids.to_vec(),
             SnippetConfig {
                 start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
                 end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
@@ -543,7 +532,7 @@ pub unsafe fn extract_snippets(
 pub unsafe fn extract_snippet_positions(
     func: *mut pg_sys::FuncExpr,
     planning_rti: pg_sys::Index,
-    snippet_positions_funcoids: &[pg_sys::Oid],
+    snippet_positions_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
     if !snippet_positions_funcoids
@@ -571,7 +560,6 @@ pub unsafe fn extract_snippet_positions(
 
         Some(SnippetType::Positions(
             attname,
-            snippet_positions_funcoids.to_vec(),
             FragmentPositionsConfig { limit, offset },
         ))
     } else {

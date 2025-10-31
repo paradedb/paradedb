@@ -56,7 +56,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::{register_rel_pathlist, register_upper_path};
+pub use hook::{register_rel_pathlist, register_upper_path, register_window_aggregate_hook};
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
 // default/only implementation of `rescan_custom_scan`.

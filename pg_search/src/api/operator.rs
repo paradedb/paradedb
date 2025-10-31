@@ -120,6 +120,16 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     }
 }
 
+pub fn anyelement_text_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, text)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, text)` operator should exist")
+    }
+}
+
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(

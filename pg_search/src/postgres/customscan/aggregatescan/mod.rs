@@ -27,14 +27,18 @@ pub mod scan_state;
 pub mod searchquery;
 pub mod targetlist;
 
+// Re-export commonly used types for easier access
+pub use aggregate_type::AggregateType;
+pub use groupby::GroupingColumn;
+pub use targetlist::TargetListEntry;
+
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
-use crate::postgres::customscan::aggregatescan::groupby::{GroupByClause, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
-use crate::postgres::customscan::aggregatescan::targetlist::TargetListEntry;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -234,16 +238,11 @@ impl CustomScan for AggregateScan {
                                 .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         } else {
-                            aggregates
-                                .next()
-                                .and_then(|v| v)
-                                .unwrap_or_else(|| agg_type.nullish())
-                                .value
-                                .and_then(|value| {
-                                    TantivyValue(OwnedValue::F64(value))
-                                        .try_into_datum(expected_typoid.into())
-                                        .unwrap()
-                                })
+                            exec::aggregate_result_to_datum(
+                                aggregates.next().and_then(|v| v),
+                                agg_type,
+                                expected_typoid,
+                            )
                         }
                     }
                     (TargetListEntry::Aggregate(agg_type), true) => {

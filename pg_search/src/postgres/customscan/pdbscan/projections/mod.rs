@@ -17,6 +17,7 @@
 
 pub mod score;
 pub mod snippet;
+pub mod window_agg;
 
 use crate::api::operator::ReturnedNodePointer;
 use crate::api::FieldName;

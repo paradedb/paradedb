@@ -216,5 +216,11 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  paradedb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
+-- Test 12: Error handling - paradedb.agg() with FILTER clause (should fail at planner hook)
+SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Cleanup
 DROP TABLE logs CASCADE;

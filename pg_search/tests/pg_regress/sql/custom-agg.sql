@@ -162,6 +162,12 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
+-- Test 12: Error handling - paradedb.agg() with FILTER clause (should fail at planner hook)
+SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 

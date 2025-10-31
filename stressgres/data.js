@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761911620821,
+  "lastUpdate": 1761912417668,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35680,6 +35680,54 @@ window.BENCHMARK_DATA = {
             "value": 6.247958659322427,
             "unit": "median tps",
             "extra": "avg tps: 6.183783599158309, max tps: 7.279925769217705, count: 56509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3456)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T07:24:09-04:00",
+          "tree_id": "742dbc05a309977e0b2991d390f17befaa41cf12",
+          "url": "https://github.com/paradedb/paradedb/commit/f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe"
+        },
+        "date": 1761912415096,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1183.1251636682005,
+            "unit": "median tps",
+            "extra": "avg tps: 1179.3372582816783, max tps: 1243.8753771157594, count: 55932"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1293.6851565262505,
+            "unit": "median tps",
+            "extra": "avg tps: 1257.1142577877245, max tps: 1304.2653934487894, count: 55932"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1689.9672584511807,
+            "unit": "median tps",
+            "extra": "avg tps: 1604.6426701197795, max tps: 1879.6882086220219, count: 55932"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.906215132925287,
+            "unit": "median tps",
+            "extra": "avg tps: 5.900581418767218, max tps: 6.9705393847290305, count: 55932"
           }
         ]
       }

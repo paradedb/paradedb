@@ -27,7 +27,7 @@ use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::SearchField;
-use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
+use pgrx::{direct_function_call, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -115,6 +115,25 @@ pub unsafe fn try_pushdown_inner(
     let rhs = args.get_ptr(1)?;
     let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
     let search_field = pushdown.search_field();
+
+    // avoid pushing down JSON comparisons against the literal text 'null'.
+    // SQL `(json ->> path) = 'null'` compares against the string "null", while JSON nulls
+    // yield SQL NULL under `->>`, so equality is UNKNOWN/false. Pushing this down can
+    // accidentally match JSON null semantics differently.
+    if search_field.is_json() {
+        if let Some(konst) = nodecast!(Const, T_Const, rhs) {
+            let typ = (*konst).consttype;
+            if !(*konst).constisnull
+                && (typ == pg_sys::TEXTOID || typ == pg_sys::VARCHAROID)
+            {
+                if let Some(val) = String::from_datum((*konst).constvalue, false) {
+                    if val == "null" {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {

@@ -427,6 +427,18 @@ impl From<&Qual> for SearchQueryInput {
                 // Special handling for boolean fields to correctly handle NULL values,
                 // and for general fielded queries to ensure SQL three-valued logic wrt NULLs.
                 match qual.as_ref() {
+                    // IS NULL is represented as NOT(IS NOT NULL). For JSON/text paths this should
+                    // include rows where the field is missing or JSON null. That is exactly
+                    // All + must_not Exists(field). Do NOT add an Exists guard here, otherwise
+                    // we'd produce an impossible clause (Exists AND NOT Exists).
+                    Qual::PushdownIsNotNull { field } => SearchQueryInput::Boolean {
+                        must: vec![SearchQueryInput::All],
+                        should: Default::default(),
+                        must_not: vec![SearchQueryInput::FieldedQuery {
+                            field: field.attname(),
+                            query: pdb::Query::Exists,
+                        }],
+                    },
                     // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
                     // rather than using must_not, to avoid including NULLs
                     // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)

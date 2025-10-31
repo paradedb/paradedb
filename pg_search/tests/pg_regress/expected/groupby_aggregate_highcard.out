@@ -89,9 +89,9 @@ LIMIT 5 OFFSET 5;
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: rating, (now())
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: rating, now()
+         Output: rating, pdb.agg_fn('COUNT(*)'::text)
          Index: products_idx
          Tantivy Query: {"with_index":{"query":"all"}}
            Applies to Aggregates: COUNT(*)
@@ -163,9 +163,9 @@ LIMIT 0;
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: rating, (now())
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: rating, now()
+         Output: rating, pdb.agg_fn('COUNT(*)'::text)
          Index: products_idx
          Tantivy Query: {"with_index":{"query":"all"}}
            Applies to Aggregates: COUNT(*)

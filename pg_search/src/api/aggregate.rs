@@ -48,7 +48,7 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::ExprContextGuard;
+use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
 
 #[pg_extern]
@@ -81,12 +81,12 @@ pub fn aggregate(
 #[pgrx::pg_schema]
 mod pdb {
     use pgrx::aggregate::Aggregate;
-    use pgrx::{Internal, JsonB};
+    use pgrx::{pg_extern, Internal, JsonB};
 
     /// Placeholder aggregate for `pdb.agg()`.
     ///
     /// This aggregate should never actually execute - it's intercepted at planning time
-    /// for window functions. If it does execute (e.g., in GROUP BY), it will error immediately.
+    /// for window functions or by AggregateScan for (GROUP BY) aggregate queries.
     #[derive(pgrx::AggregateName, Default)]
     #[aggregate_name = "agg"]
     pub struct AggPlaceholder;
@@ -103,6 +103,13 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
             // This should never execute - if it does, the query wasn't handled by our custom scan
+            if !crate::gucs::enable_aggregate_custom_scan() {
+                pgrx::error!(
+                    "pdb.agg() requires aggregate custom scan to be enabled. \
+                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
+                );
+            }
+
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
@@ -117,6 +124,13 @@ mod pdb {
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
             // This should never execute - if it does, the query wasn't handled by our custom scan
+            if !crate::gucs::enable_aggregate_custom_scan() {
+                pgrx::error!(
+                    "pdb.agg() requires aggregate custom scan to be enabled. \
+                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
+                );
+            }
+
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
@@ -125,4 +139,25 @@ mod pdb {
         )
         }
     }
+
+    /// Placeholder function for aggregate replacement in custom scans.
+    ///
+    /// This function should never execute - it's used to replace Aggref nodes
+    /// in the plan tree to avoid "Aggref found in non-Agg plan node" errors.
+    /// The actual aggregation is performed by the custom scan.
+    ///
+    /// The string argument is used to identify the aggregate in EXPLAIN output.
+    #[pg_extern(volatile, parallel_safe, name = "agg_fn")]
+    pub fn agg_fn_placeholder(_agg_name: &str) -> JsonB {
+        pgrx::error!(
+            "pdb.agg_fn() placeholder should not be executed - \
+             custom scan should have intercepted this."
+        )
+    }
+}
+
+/// Get the OID of the pdb.agg_fn() placeholder function
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
+pub fn agg_fn_oid() -> pgrx::pg_sys::Oid {
+    lookup_pdb_function("agg_fn", &[pgrx::pg_sys::TEXTOID])
 }

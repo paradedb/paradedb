@@ -194,7 +194,14 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
         return;
     }
 
-    if !gucs::enable_aggregate_custom_scan() {
+    // Check if pdb.agg() is used - if so, enable aggregate custom scan regardless of GUC
+    // Otherwise, respect the enable_aggregate_custom_scan GUC setting
+    let has_paradedb_agg = unsafe {
+        let parse = (*root).parse;
+        !parse.is_null() && query_has_paradedb_agg(parse)
+    };
+
+    if !has_paradedb_agg && !gucs::enable_aggregate_custom_scan() {
         return;
     }
 

@@ -335,8 +335,9 @@ pub mod v1 {
             bman: &mut BufferManager,
             n: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            let xid_horizon = unsafe { pg_sys::GetCurrentTransactionIdIfAny() }
-                .max(pg_sys::FirstNormalTransactionId);
+            let xid_horizon = unsafe {
+                pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
+            };
             let mut blocks = Vec::with_capacity(n);
             let mut blockno = self.start_blockno;
             loop {

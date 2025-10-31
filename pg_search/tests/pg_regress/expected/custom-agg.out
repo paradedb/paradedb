@@ -30,12 +30,26 @@ SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ category |                                                     agg                                                     
+----------+-------------------------------------------------------------------------------------------------------------
+ database | {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
@@ -75,26 +89,49 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
 SELECT category, 
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ category | count |                                                     agg                                                     
+----------+-------+-------------------------------------------------------------------------------------------------------------
+ database |     2 | {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Aggregate Definition: {"0":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"filter":{"range":{"field":"status_code","is_datetime":false,"lower_bound":{"included":500},"upper_bound":null}}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
 -- Test 5: Custom agg with FILTER and OVER (window function)
 -- NOTE: FILTER with window functions is currently not supported
 -- This test documents the current limitation
@@ -121,14 +158,24 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), CUSTOM_AGG({"max":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
 SELECT category, 
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
 -- Test 7: pdb.agg() without @@@ operator (no WHERE clause)
 -- This tests that pdb.agg() is intercepted even without search operator
 -- The custom scan is now used because we detect window aggregates
@@ -222,5 +269,717 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
+-- =====================================================================
+-- SECTION 2: pdb.agg() with Different Aggregation Types (GROUP BY)
+-- =====================================================================
+-- Test 13: pdb.agg() with range aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100},{"to":1000,"from":100},{"from":1000}]}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"to":100.0},{"from":100.0,"to":1000.0},{"from":1000.0}]}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ category |                                                                                        agg                                                                                        
+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ database | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 1}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 1}, {"key": "1000-*", "from": 1000.0, "doc_count": 0}]}
+(1 row)
+
+-- Test 14: pdb.agg() with histogram aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"histogram":{"field":"response_time","interval":100}})
+     Aggregate Definition: {"0":{"histogram":{"extended_bounds":null,"field":"response_time","hard_bounds":null,"interval":100.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":null,"offset":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                     agg                                     
+-----------------------------------------------------------------------------
+ {"buckets": [{"key": 0.0, "doc_count": 1}, {"key": 100.0, "doc_count": 1}]}
+(1 row)
+
+-- Test 15: pdb.agg() with stats aggregation (multiple metrics)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"stats":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  unsupported metric type: Stats(Stats { count: 2, sum: 200.0, min: Some(50.0), max: Some(150.0), avg: Some(100.0) })
+-- Test 16: pdb.agg() with min aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"min":{"field":"response_time"}})
+     Aggregate Definition: {"0":{"min":{"field":"response_time","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 17: pdb.agg() with max aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"max":{"field":"status_code"}})
+     Aggregate Definition: {"0":{"max":{"field":"status_code","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 18: pdb.agg() with count aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  Failed to deserialize custom aggregate: unknown variant `count`, expected one of `range`, `histogram`, `date_histogram`, `terms`, `filter`, `avg`, `value_count`, `max`, `min`, `stats`, `extended_stats`, `sum`, `percentiles`, `top_hits`, `cardinality`
+SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  Failed to deserialize custom aggregate: unknown variant `count`, expected one of `range`, `histogram`, `date_histogram`, `terms`, `filter`, `avg`, `value_count`, `max`, `min`, `stats`, `extended_stats`, `sum`, `percentiles`, `top_hits`, `cardinality`
+-- =====================================================================
+-- SECTION 3: Multiple pdb.agg() Calls in Same Query
+-- =====================================================================
+-- Test 19: Multiple pdb.agg() with different aggregation types (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}},"1":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 20: Multiple pdb.agg() without GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
+FROM logs
+WHERE description @@@ 'error';
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"max":{"field":"status_code"}})
+     Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}},"1":{"max":{"field":"status_code","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
+FROM logs
+WHERE description @@@ 'error';
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 21: Mix of standard aggregates and multiple pdb.agg()
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       COUNT(*) AS total_count,
+       SUM(response_time) AS total_response_time,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AGG'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), SUM(response_time), CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"response_time","missing":null}},"1":{"avg":{"field":"response_time","missing":null}},"2":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category,
+       COUNT(*) AS total_count,
+       SUM(response_time) AS total_response_time,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- =====================================================================
+-- SECTION 4: pdb.agg() with Complex WHERE Clauses
+-- =====================================================================
+-- Test 22: pdb.agg() with boolean AND in WHERE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' AND status_code >= 500;
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
+     Aggregate Definition: {"0":{"terms":{"field":"category"}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' AND status_code >= 500;
+                                                      agg                                                       
+----------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 23: pdb.agg() with boolean OR in WHERE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' OR description @@@ 'timeout';
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' OR description @@@ 'timeout';
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 24: pdb.agg() with nested boolean expressions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+GROUP BY category;
+                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"response_time","lower_bound":{"excluded":1000},"upper_bound":null,"is_datetime":false}}]}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+GROUP BY category;
+ category |                                                     agg                                                     
+----------+-------------------------------------------------------------------------------------------------------------
+ database | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network  | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(2 rows)
+
+-- =====================================================================
+-- SECTION 5: pdb.agg() with Empty Results
+-- =====================================================================
+-- Test 25: pdb.agg() with no matching documents
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz';
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
+     Aggregate Definition: {"0":{"terms":{"field":"category"}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz';
+ agg 
+-----
+ 
+(1 row)
+
+-- Test 26: pdb.agg() with GROUP BY and no matching documents
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz'
+GROUP BY category;
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz'
+GROUP BY category;
+ category | agg 
+----------+-----
+(0 rows)
+
+-- =====================================================================
+-- SECTION 6: pdb.agg() with Multiple GROUP BY Columns
+-- =====================================================================
+-- Test 27: pdb.agg() with two GROUP BY columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category, severity;
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, severity, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category, severity
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"severity","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category, severity;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 28: pdb.agg() with GROUP BY in different column order
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text), category
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+                                                     agg                                                     | category 
+-------------------------------------------------------------------------------------------------------------+----------
+ {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | database
+(1 row)
+
+-- =====================================================================
+-- SECTION 7: pdb.agg() Window Functions (TopN)
+-- =====================================================================
+-- Test 29: Multiple pdb.agg() window functions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: logs
+         Index: logs_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ id |        description         | severity | category | response_time | status_code |        timestamp         |   avg_response   |    max_status    
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------+------------------
+  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0} | {"value": 500.0}
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0} | {"value": 500.0}
+(2 rows)
+
+-- Test 30: pdb.agg() window function with standard aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       COUNT(*) OVER () AS total_count,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: logs
+         Index: logs_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT *,
+       COUNT(*) OVER () AS total_count,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ id |        description         | severity | category | response_time | status_code |        timestamp         | total_count |                                               category_breakdown                                               
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------
+  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 |           2 | {"buckets": [{"key": "database", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 |           2 | {"buckets": [{"key": "database", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(2 rows)
+
+-- Test 31: pdb.agg() window function with different ORDER BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY response_time DESC LIMIT 5;
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.logs
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: logs
+         Index: logs_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: response_time desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY response_time DESC LIMIT 5;
+ id |        description         | severity | category | response_time | status_code |        timestamp         |   avg_response   
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0}
+  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0}
+(2 rows)
+
+-- =====================================================================
+-- SECTION 8: pdb.agg() with ORDER BY
+-- =====================================================================
+-- Test 32: pdb.agg() with ORDER BY on GROUP BY column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category DESC;
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","order":{"_key":"desc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category DESC;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 33: pdb.agg() with multiple ORDER BY columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category ASC, severity DESC;
+                                                                                                                                               QUERY PLAN                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, severity, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category, severity
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"severity","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category ASC, severity DESC;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- =====================================================================
+-- SECTION 9: pdb.agg() with FILTER (GROUP BY context)
+-- =====================================================================
+-- Test 34: pdb.agg() with FILTER on indexed field (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"severity","lenient":null,"query_string":"error"}}}}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}}}}
+(7 rows)
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 35: pdb.agg() with FILTER on numeric field (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"range":{"field":"status_code","is_datetime":false,"lower_bound":{"included":500},"upper_bound":null}}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}}}}
+(7 rows)
+
+SELECT category,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ category |                                                     agg                                                     
+----------+-------------------------------------------------------------------------------------------------------------
+ database | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 36: Multiple pdb.agg() with different FILTER clauses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text), pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"range":{"field":"status_code","is_datetime":false,"lower_bound":{"included":500},"upper_bound":null}}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"range":{"field":"status_code","is_datetime":false,"lower_bound":null,"upper_bound":{"excluded":500}}}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}},"1":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}}}}
+(7 rows)
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- =====================================================================
+-- SECTION 10: pdb.agg() Edge Cases
+-- =====================================================================
+-- Test 37: pdb.agg() with contradictory WHERE clauses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
+                                                                                                                                                                        QUERY PLAN                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
+     Aggregate Definition: {"0":{"terms":{"field":"category"}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
+ agg 
+-----
+ 
+(1 row)
+
+-- Test 38: pdb.agg() with tautological WHERE clause
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
+-- Test 39: pdb.agg() with all() query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all();
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
+     Aggregate Definition: {"0":{"terms":{"field":"category"}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all();
+                                                                                        agg                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "database", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 40: pdb.agg() with GROUP BY and all() query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.logs
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: logs_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+ERROR:  called `Result::unwrap()` on an `Err` value: UnsupportedIntoConversion("jsonb")
 -- Cleanup
 DROP TABLE logs CASCADE;

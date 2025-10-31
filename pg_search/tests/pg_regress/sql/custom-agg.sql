@@ -168,6 +168,400 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
+-- =====================================================================
+-- SECTION 2: pdb.agg() with Different Aggregation Types (GROUP BY)
+-- =====================================================================
+
+-- Test 13: pdb.agg() with range aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Test 14: pdb.agg() with histogram aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 15: pdb.agg() with stats aggregation (multiple metrics)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Test 16: pdb.agg() with min aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 17: pdb.agg() with max aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 18: pdb.agg() with count aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 3: Multiple pdb.agg() Calls in Same Query
+-- =====================================================================
+
+-- Test 19: Multiple pdb.agg() with different aggregation types (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Test 20: Multiple pdb.agg() without GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 21: Mix of standard aggregates and multiple pdb.agg()
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       COUNT(*) AS total_count,
+       SUM(response_time) AS total_response_time,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category,
+       COUNT(*) AS total_count,
+       SUM(response_time) AS total_response_time,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 4: pdb.agg() with Complex WHERE Clauses
+-- =====================================================================
+
+-- Test 22: pdb.agg() with boolean AND in WHERE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' AND status_code >= 500;
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' AND status_code >= 500;
+
+-- Test 23: pdb.agg() with boolean OR in WHERE
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' OR description @@@ 'timeout';
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error' OR description @@@ 'timeout';
+
+-- Test 24: pdb.agg() with nested boolean expressions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+GROUP BY category;
+
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 5: pdb.agg() with Empty Results
+-- =====================================================================
+
+-- Test 25: pdb.agg() with no matching documents
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz';
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz';
+
+-- Test 26: pdb.agg() with GROUP BY and no matching documents
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'nonexistent_term_xyz'
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 6: pdb.agg() with Multiple GROUP BY Columns
+-- =====================================================================
+
+-- Test 27: pdb.agg() with two GROUP BY columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category, severity;
+
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category, severity;
+
+-- Test 28: pdb.agg() with GROUP BY in different column order
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+
+SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+
+-- =====================================================================
+-- SECTION 7: pdb.agg() Window Functions (TopN)
+-- =====================================================================
+
+-- Test 29: Multiple pdb.agg() window functions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
+       pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Test 30: pdb.agg() window function with standard aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       COUNT(*) OVER () AS total_count,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+SELECT *,
+       COUNT(*) OVER () AS total_count,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Test 31: pdb.agg() window function with different ORDER BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY response_time DESC LIMIT 5;
+
+SELECT *,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY response_time DESC LIMIT 5;
+
+-- =====================================================================
+-- SECTION 8: pdb.agg() with ORDER BY
+-- =====================================================================
+
+-- Test 32: pdb.agg() with ORDER BY on GROUP BY column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category DESC;
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category DESC;
+
+-- Test 33: pdb.agg() with multiple ORDER BY columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category ASC, severity DESC;
+
+SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category, severity
+ORDER BY category ASC, severity DESC;
+
+-- =====================================================================
+-- SECTION 9: pdb.agg() with FILTER (GROUP BY context)
+-- =====================================================================
+
+-- Test 34: pdb.agg() with FILTER on indexed field (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Test 35: pdb.agg() with FILTER on numeric field (GROUP BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category,
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Test 36: Multiple pdb.agg() with different FILTER clauses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+SELECT category,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 10: pdb.agg() Edge Cases
+-- =====================================================================
+
+-- Test 37: pdb.agg() with contradictory WHERE clauses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
+
+-- Test 38: pdb.agg() with tautological WHERE clause
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
+
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
+
+-- Test 39: pdb.agg() with all() query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all();
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all();
+
+-- Test 40: pdb.agg() with GROUP BY and all() query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
+FROM logs
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 

@@ -357,13 +357,78 @@ unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys
     (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
     (*paradedb_funcexpr).inputcollid = (*aggref).inputcollid;
     (*paradedb_funcexpr).location = (*aggref).location;
-    (*paradedb_funcexpr).args = PgList::<pg_sys::Node>::new().into_pg();
+
+    // Create a string argument with the aggregate function name for better EXPLAIN output
+    let agg_name = get_aggregate_name(aggref);
+    let agg_name_const = make_text_const(&agg_name);
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(agg_name_const.cast());
+    (*paradedb_funcexpr).args = args.into_pg();
 
     paradedb_funcexpr
 }
 
+/// Get a human-readable name for the aggregate function
+unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
+    // Try to get the function name from the catalog
+    let funcid = (*aggref).aggfnoid;
+    let proc_tuple =
+        pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::PROCOID as _, funcid.into());
+
+    if !proc_tuple.is_null() {
+        let proc_form = pg_sys::GETSTRUCT(proc_tuple) as *mut pg_sys::FormData_pg_proc;
+        let name_data = &(*proc_form).proname;
+
+        // Convert i8 array to u8 for UTF-8 parsing
+        let name_bytes: Vec<u8> = name_data
+            .data
+            .iter()
+            .take_while(|&&b| b != 0)
+            .map(|&b| b as u8)
+            .collect();
+
+        let name_str = std::str::from_utf8(&name_bytes)
+            .unwrap_or("unknown")
+            .to_string();
+
+        pg_sys::ReleaseSysCache(proc_tuple);
+
+        // Add (*) for COUNT(*) or star aggregates
+        if (*aggref).aggstar {
+            format!("{}(*)", name_str.to_uppercase())
+        } else {
+            name_str.to_uppercase()
+        }
+    } else {
+        "UNKNOWN".to_string()
+    }
+}
+
+/// Create a text Const node from a string
+unsafe fn make_text_const(text: &str) -> *mut pg_sys::Const {
+    let text_datum = text
+        .into_datum()
+        .expect("failed to convert string to datum");
+
+    pg_sys::makeConst(
+        pg_sys::TEXTOID,
+        -1,
+        pg_sys::DEFAULT_COLLATION_OID,
+        -1,
+        text_datum,
+        false, // constisnull
+        false, // constbyval (text is not passed by value)
+    )
+}
+
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
 unsafe fn placeholder_procid() -> pg_sys::Oid {
-    pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
-        .expect("the `now()` function should exist")
+    let agg_fn_oid = crate::api::agg_fn_oid();
+    if agg_fn_oid != pg_sys::InvalidOid {
+        agg_fn_oid
+    } else {
+        // Fallback to now() if pdb.agg_fn doesn't exist yet (e.g., during extension creation)
+        pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
+            .expect("the `now()` function should exist")
+    }
 }

@@ -17,10 +17,37 @@ CREATE TABLE logs (
 );
 
 INSERT INTO logs (description, severity, category, response_time, status_code, timestamp) VALUES
+    -- Database errors
     ('Database connection error', 'error', 'database', 150, 500, '2024-01-01 10:00:00'),
+    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00'),
+    ('Database timeout error', 'critical', 'database', 3000, 503, '2024-01-01 10:05:00'),
+    ('Database deadlock detected', 'error', 'database', 200, 500, '2024-01-01 10:10:00'),
+    ('Database connection pool exhausted', 'critical', 'database', 5000, 503, '2024-01-01 10:15:00'),
+    ('Slow database query', 'warning', 'database', 2500, 200, '2024-01-01 10:20:00'),
+    
+    -- API errors
     ('Failed to fetch data', 'error', 'api', 200, 404, '2024-01-01 10:01:00'),
+    ('API rate limit exceeded', 'warning', 'api', 100, 429, '2024-01-01 10:06:00'),
+    ('API authentication failed', 'error', 'api', 80, 401, '2024-01-01 10:11:00'),
+    ('API endpoint not found', 'error', 'api', 50, 404, '2024-01-01 10:16:00'),
+    ('API internal server error', 'critical', 'api', 1500, 500, '2024-01-01 10:21:00'),
+    
+    -- Network errors
     ('Timeout connecting to service', 'error', 'network', 5000, 503, '2024-01-01 10:02:00'),
-    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00');
+    ('Network connection refused', 'error', 'network', 100, 503, '2024-01-01 10:07:00'),
+    ('DNS resolution failed', 'error', 'network', 30, 503, '2024-01-01 10:12:00'),
+    ('Network timeout error', 'critical', 'network', 10000, 504, '2024-01-01 10:17:00'),
+    
+    -- Application errors
+    ('Application crashed', 'critical', 'application', 0, 500, '2024-01-01 10:04:00'),
+    ('Memory allocation error', 'critical', 'application', 10, 500, '2024-01-01 10:08:00'),
+    ('Null pointer exception', 'error', 'application', 5, 500, '2024-01-01 10:13:00'),
+    ('Stack overflow error', 'critical', 'application', 2, 500, '2024-01-01 10:18:00'),
+    
+    -- Security errors
+    ('Unauthorized access attempt', 'warning', 'security', 20, 403, '2024-01-01 10:09:00'),
+    ('Invalid authentication token', 'error', 'security', 15, 401, '2024-01-01 10:14:00'),
+    ('Suspicious activity detected', 'critical', 'security', 25, 403, '2024-01-01 10:19:00');
 
 CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
 WITH (

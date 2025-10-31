@@ -13,10 +13,37 @@ CREATE TABLE logs (
     timestamp TIMESTAMP
 );
 INSERT INTO logs (description, severity, category, response_time, status_code, timestamp) VALUES
+    -- Database errors
     ('Database connection error', 'error', 'database', 150, 500, '2024-01-01 10:00:00'),
+    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00'),
+    ('Database timeout error', 'critical', 'database', 3000, 503, '2024-01-01 10:05:00'),
+    ('Database deadlock detected', 'error', 'database', 200, 500, '2024-01-01 10:10:00'),
+    ('Database connection pool exhausted', 'critical', 'database', 5000, 503, '2024-01-01 10:15:00'),
+    ('Slow database query', 'warning', 'database', 2500, 200, '2024-01-01 10:20:00'),
+    
+    -- API errors
     ('Failed to fetch data', 'error', 'api', 200, 404, '2024-01-01 10:01:00'),
+    ('API rate limit exceeded', 'warning', 'api', 100, 429, '2024-01-01 10:06:00'),
+    ('API authentication failed', 'error', 'api', 80, 401, '2024-01-01 10:11:00'),
+    ('API endpoint not found', 'error', 'api', 50, 404, '2024-01-01 10:16:00'),
+    ('API internal server error', 'critical', 'api', 1500, 500, '2024-01-01 10:21:00'),
+    
+    -- Network errors
     ('Timeout connecting to service', 'error', 'network', 5000, 503, '2024-01-01 10:02:00'),
-    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00');
+    ('Network connection refused', 'error', 'network', 100, 503, '2024-01-01 10:07:00'),
+    ('DNS resolution failed', 'error', 'network', 30, 503, '2024-01-01 10:12:00'),
+    ('Network timeout error', 'critical', 'network', 10000, 504, '2024-01-01 10:17:00'),
+    
+    -- Application errors
+    ('Application crashed', 'critical', 'application', 0, 500, '2024-01-01 10:04:00'),
+    ('Memory allocation error', 'critical', 'application', 10, 500, '2024-01-01 10:08:00'),
+    ('Null pointer exception', 'error', 'application', 5, 500, '2024-01-01 10:13:00'),
+    ('Stack overflow error', 'critical', 'application', 2, 500, '2024-01-01 10:18:00'),
+    
+    -- Security errors
+    ('Unauthorized access attempt', 'warning', 'security', 20, 403, '2024-01-01 10:09:00'),
+    ('Invalid authentication token', 'error', 'security', 15, 401, '2024-01-01 10:14:00'),
+    ('Suspicious activity detected', 'critical', 'security', 25, 403, '2024-01-01 10:19:00');
 CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
     key_field = 'id',
@@ -45,10 +72,13 @@ SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category |                                                     agg                                                     
-----------+-------------------------------------------------------------------------------------------------------------
- database | {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
+  category   |                                                                       agg                                                                        
+-------------+--------------------------------------------------------------------------------------------------------------------------------------------------
+ database    | {"buckets": [{"key": "error", "doc_count": 2}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ application | {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ api         | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network     | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
 
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -75,11 +105,16 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |       agg        
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0}
-(2 rows)
+ id |        description         | severity |  category   | response_time | status_code |        timestamp         |             agg              
+----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
+ 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286}
+ 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
+ 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286}
+  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
+  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
+  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
+(7 rows)
 
 -- Test 3: Mix custom and standard aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -106,10 +141,13 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category | count |                                                     agg                                                     
-----------+-------+-------------------------------------------------------------------------------------------------------------
- database |     2 | {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
+  category   | count |                                                                       agg                                                                        
+-------------+-------+--------------------------------------------------------------------------------------------------------------------------------------------------
+ database    |     3 | {"buckets": [{"key": "error", "doc_count": 2}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ application |     2 | {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ api         |     1 | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network     |     1 | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
 
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -203,13 +241,19 @@ ORDER BY timestamp DESC LIMIT 10;
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
- id |          description          | severity | category | response_time | status_code |        timestamp         |        agg        
-----+-------------------------------+----------+----------+---------------+-------------+--------------------------+-------------------
-  4 | Invalid query syntax error    | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 1350.0}
-  3 | Timeout connecting to service | error    | network  |          5000 |         503 | Mon Jan 01 10:02:00 2024 | {"value": 1350.0}
-  2 | Failed to fetch data          | error    | api      |           200 |         404 | Mon Jan 01 10:01:00 2024 | {"value": 1350.0}
-  1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 1350.0}
-(4 rows)
+ id |            description             | severity |  category   | response_time | status_code |        timestamp         |             agg              
+----+------------------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------
+ 11 | API internal server error          | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1274.409090909091}
+  6 | Slow database query                | warning  | database    |          2500 |         200 | Mon Jan 01 10:20:00 2024 | {"value": 1274.409090909091}
+ 22 | Suspicious activity detected       | critical | security    |            25 |         403 | Mon Jan 01 10:19:00 2024 | {"value": 1274.409090909091}
+ 19 | Stack overflow error               | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1274.409090909091}
+ 15 | Network timeout error              | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1274.409090909091}
+ 10 | API endpoint not found             | error    | api         |            50 |         404 | Mon Jan 01 10:16:00 2024 | {"value": 1274.409090909091}
+  5 | Database connection pool exhausted | critical | database    |          5000 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1274.409090909091}
+ 21 | Invalid authentication token       | error    | security    |            15 |         401 | Mon Jan 01 10:14:00 2024 | {"value": 1274.409090909091}
+ 18 | Null pointer exception             | error    | application |             5 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1274.409090909091}
+ 14 | DNS resolution failed              | error    | network     |            30 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1274.409090909091}
+(10 rows)
 
 -- Test 8: pdb.agg() with simple WHERE condition (not @@@)
 -- This tests that pdb.agg() works with regular WHERE conditions
@@ -239,11 +283,19 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
- id |          description          | severity | category | response_time | status_code |        timestamp         |        agg        
-----+-------------------------------+----------+----------+---------------+-------------+--------------------------+-------------------
-  3 | Timeout connecting to service | error    | network  |          5000 |         503 | Mon Jan 01 10:02:00 2024 | {"value": 2575.0}
-  1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2575.0}
-(2 rows)
+ id |            description             | severity |  category   | response_time | status_code |        timestamp         |              agg              
+----+------------------------------------+----------+-------------+---------------+-------------+--------------------------+-------------------------------
+ 11 | API internal server error          | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1922.8461538461538}
+ 19 | Stack overflow error               | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1922.8461538461538}
+ 15 | Network timeout error              | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1922.8461538461538}
+  5 | Database connection pool exhausted | critical | database    |          5000 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1922.8461538461538}
+ 18 | Null pointer exception             | error    | application |             5 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1922.8461538461538}
+ 14 | DNS resolution failed              | error    | network     |            30 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1922.8461538461538}
+  4 | Database deadlock detected         | error    | database    |           200 |         500 | Mon Jan 01 10:10:00 2024 | {"value": 1922.8461538461538}
+ 17 | Memory allocation error            | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 1922.8461538461538}
+ 13 | Network connection refused         | error    | network     |           100 |         503 | Mon Jan 01 10:07:00 2024 | {"value": 1922.8461538461538}
+  3 | Database timeout error             | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 1922.8461538461538}
+(10 rows)
 
 -- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
 SELECT *, pdb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
@@ -293,10 +345,13 @@ SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to":
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category |                                                                                        agg                                                                                        
-----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- database | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 1}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 1}, {"key": "1000-*", "from": 1000.0, "doc_count": 0}]}
-(1 row)
+  category   |                                                                                        agg                                                                                        
+-------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ database    | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 1}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 1}, {"key": "1000-*", "from": 1000.0, "doc_count": 1}]}
+ application | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 2}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 0}, {"key": "1000-*", "from": 1000.0, "doc_count": 0}]}
+ api         | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 0}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 0}, {"key": "1000-*", "from": 1000.0, "doc_count": 1}]}
+ network     | {"buckets": [{"to": 100.0, "key": "*-100", "doc_count": 0}, {"to": 1000.0, "key": "100-1000", "from": 100.0, "doc_count": 0}, {"key": "1000-*", "from": 1000.0, "doc_count": 1}]}
+(4 rows)
 
 -- Test 14: pdb.agg() with histogram aggregation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -316,9 +371,9 @@ WHERE description @@@ 'error';
 SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error';
-                                     agg                                     
------------------------------------------------------------------------------
- {"buckets": [{"key": 0.0, "doc_count": 1}, {"key": 100.0, "doc_count": 1}]}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 0.0, "doc_count": 3}, {"key": 100.0, "doc_count": 1}, {"key": 200.0, "doc_count": 0}, {"key": 300.0, "doc_count": 0}, {"key": 400.0, "doc_count": 0}, {"key": 500.0, "doc_count": 0}, {"key": 600.0, "doc_count": 0}, {"key": 700.0, "doc_count": 0}, {"key": 800.0, "doc_count": 0}, {"key": 900.0, "doc_count": 0}, {"key": 1000.0, "doc_count": 0}, {"key": 1100.0, "doc_count": 0}, {"key": 1200.0, "doc_count": 0}, {"key": 1300.0, "doc_count": 0}, {"key": 1400.0, "doc_count": 0}, {"key": 1500.0, "doc_count": 1}, {"key": 1600.0, "doc_count": 0}, {"key": 1700.0, "doc_count": 0}, {"key": 1800.0, "doc_count": 0}, {"key": 1900.0, "doc_count": 0}, {"key": 2000.0, "doc_count": 0}, {"key": 2100.0, "doc_count": 0}, {"key": 2200.0, "doc_count": 0}, {"key": 2300.0, "doc_count": 0}, {"key": 2400.0, "doc_count": 0}, {"key": 2500.0, "doc_count": 0}, {"key": 2600.0, "doc_count": 0}, {"key": 2700.0, "doc_count": 0}, {"key": 2800.0, "doc_count": 0}, {"key": 2900.0, "doc_count": 0}, {"key": 3000.0, "doc_count": 1}, {"key": 3100.0, "doc_count": 0}, {"key": 3200.0, "doc_count": 0}, {"key": 3300.0, "doc_count": 0}, {"key": 3400.0, "doc_count": 0}, {"key": 3500.0, "doc_count": 0}, {"key": 3600.0, "doc_count": 0}, {"key": 3700.0, "doc_count": 0}, {"key": 3800.0, "doc_count": 0}, {"key": 3900.0, "doc_count": 0}, {"key": 4000.0, "doc_count": 0}, {"key": 4100.0, "doc_count": 0}, {"key": 4200.0, "doc_count": 0}, {"key": 4300.0, "doc_count": 0}, {"key": 4400.0, "doc_count": 0}, {"key": 4500.0, "doc_count": 0}, {"key": 4600.0, "doc_count": 0}, {"key": 4700.0, "doc_count": 0}, {"key": 4800.0, "doc_count": 0}, {"key": 4900.0, "doc_count": 0}, {"key": 5000.0, "doc_count": 0}, {"key": 5100.0, "doc_count": 0}, {"key": 5200.0, "doc_count": 0}, {"key": 5300.0, "doc_count": 0}, {"key": 5400.0, "doc_count": 0}, {"key": 5500.0, "doc_count": 0}, {"key": 5600.0, "doc_count": 0}, {"key": 5700.0, "doc_count": 0}, {"key": 5800.0, "doc_count": 0}, {"key": 5900.0, "doc_count": 0}, {"key": 6000.0, "doc_count": 0}, {"key": 6100.0, "doc_count": 0}, {"key": 6200.0, "doc_count": 0}, {"key": 6300.0, "doc_count": 0}, {"key": 6400.0, "doc_count": 0}, {"key": 6500.0, "doc_count": 0}, {"key": 6600.0, "doc_count": 0}, {"key": 6700.0, "doc_count": 0}, {"key": 6800.0, "doc_count": 0}, {"key": 6900.0, "doc_count": 0}, {"key": 7000.0, "doc_count": 0}, {"key": 7100.0, "doc_count": 0}, {"key": 7200.0, "doc_count": 0}, {"key": 7300.0, "doc_count": 0}, {"key": 7400.0, "doc_count": 0}, {"key": 7500.0, "doc_count": 0}, {"key": 7600.0, "doc_count": 0}, {"key": 7700.0, "doc_count": 0}, {"key": 7800.0, "doc_count": 0}, {"key": 7900.0, "doc_count": 0}, {"key": 8000.0, "doc_count": 0}, {"key": 8100.0, "doc_count": 0}, {"key": 8200.0, "doc_count": 0}, {"key": 8300.0, "doc_count": 0}, {"key": 8400.0, "doc_count": 0}, {"key": 8500.0, "doc_count": 0}, {"key": 8600.0, "doc_count": 0}, {"key": 8700.0, "doc_count": 0}, {"key": 8800.0, "doc_count": 0}, {"key": 8900.0, "doc_count": 0}, {"key": 9000.0, "doc_count": 0}, {"key": 9100.0, "doc_count": 0}, {"key": 9200.0, "doc_count": 0}, {"key": 9300.0, "doc_count": 0}, {"key": 9400.0, "doc_count": 0}, {"key": 9500.0, "doc_count": 0}, {"key": 9600.0, "doc_count": 0}, {"key": 9700.0, "doc_count": 0}, {"key": 9800.0, "doc_count": 0}, {"key": 9900.0, "doc_count": 0}, {"key": 10000.0, "doc_count": 1}]}
 (1 row)
 
 -- Test 15: pdb.agg() with stats aggregation (multiple metrics)
@@ -342,7 +397,7 @@ SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  unsupported metric type: Stats(Stats { count: 2, sum: 200.0, min: Some(50.0), max: Some(150.0), avg: Some(100.0) })
+ERROR:  unsupported metric type: Stats(Stats { count: 3, sum: 3200.0, min: Some(50.0), max: Some(3000.0), avg: Some(1066.6666666666667) })
 -- Test 16: pdb.agg() with min aggregation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
@@ -494,9 +549,9 @@ WHERE description @@@ 'error' AND status_code >= 500;
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error' AND status_code >= 500;
-                                                      agg                                                       
-----------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+                                                                                                            agg                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "application", "doc_count": 2}, {"key": "database", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- Test 23: pdb.agg() with boolean OR in WHERE
@@ -539,11 +594,13 @@ SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
 GROUP BY category;
- category |                                                     agg                                                     
-----------+-------------------------------------------------------------------------------------------------------------
- database | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- network  | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(2 rows)
+  category   |                                                                       agg                                                                        
+-------------+--------------------------------------------------------------------------------------------------------------------------------------------------
+ application | {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ database    | {"buckets": [{"key": "error", "doc_count": 1}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network     | {"buckets": [{"key": "error", "doc_count": 1}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ api         | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
 
 -- =====================================================================
 -- SECTION 5: pdb.agg() with Empty Results
@@ -646,10 +703,13 @@ FROM logs
 WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY category;
-                                                     agg                                                     | category 
--------------------------------------------------------------------------------------------------------------+----------
- {"buckets": [{"key": "error", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | database
-(1 row)
+                                                                       agg                                                                        |  category   
+--------------------------------------------------------------------------------------------------------------------------------------------------+-------------
+ {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}                                   | api
+ {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}                                   | application
+ {"buckets": [{"key": "error", "doc_count": 2}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | database
+ {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}                                   | network
+(4 rows)
 
 -- =====================================================================
 -- SECTION 7: pdb.agg() Window Functions (TopN)
@@ -683,11 +743,16 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |   avg_response   |    max_status    
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------+------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0} | {"value": 500.0}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0} | {"value": 500.0}
-(2 rows)
+ id |        description         | severity |  category   | response_time | status_code |        timestamp         |         avg_response         |    max_status    
+----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------+------------------
+ 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+(7 rows)
 
 -- Test 30: pdb.agg() window function with standard aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -718,11 +783,16 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         | total_count |                                               category_breakdown                                               
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 |           2 | {"buckets": [{"key": "database", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 |           2 | {"buckets": [{"key": "database", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(2 rows)
+ id |        description         | severity |  category   | response_time | status_code |        timestamp         | total_count |                                                                                                     category_breakdown                                                                                                     
+----+----------------------------+----------+-------------+---------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(7 rows)
 
 -- Test 31: pdb.agg() window function with different ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -751,11 +821,14 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY response_time DESC LIMIT 5;
- id |        description         | severity | category | response_time | status_code |        timestamp         |   avg_response   
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 100.0}
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 100.0}
-(2 rows)
+ id |        description         | severity | category | response_time | status_code |        timestamp         |         avg_response         
+----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------------------
+ 15 | Network timeout error      | critical | network  |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
+  3 | Database timeout error     | critical | database |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
+ 11 | API internal server error  | critical | api      |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
+  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
+  2 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
+(5 rows)
 
 -- =====================================================================
 -- SECTION 8: pdb.agg() with ORDER BY
@@ -858,10 +931,13 @@ SELECT category,
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
- category |                                                     agg                                                     
-----------+-------------------------------------------------------------------------------------------------------------
- database | {"buckets": [{"key": "error", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
+  category   |                                                                       agg                                                                        
+-------------+--------------------------------------------------------------------------------------------------------------------------------------------------
+ database    | {"buckets": [{"key": "error", "doc_count": 1}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ application | {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ api         | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network     | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
 
 -- Test 36: Multiple pdb.agg() with different FILTER clauses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -952,9 +1028,9 @@ WHERE id @@@ paradedb.all();
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE id @@@ paradedb.all();
-                                                                                        agg                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "database", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+                                                                                                                               agg                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- Test 40: pdb.agg() with GROUP BY and all() query
@@ -1014,7 +1090,7 @@ FROM logs
 WHERE description @@@ 'error';
                                                                             response_time_buckets                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 0}]}
+ {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
 (1 row)
 
 -- Test 42: Range histogram with GROUP BY
@@ -1051,10 +1127,13 @@ FROM logs
 WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY category;
- category |                                                                            response_time_buckets                                                                             
-----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- database | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 0}]}
-(1 row)
+  category   |                                                                            response_time_buckets                                                                             
+-------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ api         | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 0}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 0}, {"key": "slow", "from": 1000.0, "doc_count": 1}]}
+ application | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 2}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 0}, {"key": "slow", "from": 1000.0, "doc_count": 0}]}
+ database    | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 1}]}
+ network     | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 0}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 0}, {"key": "slow", "from": 1000.0, "doc_count": 1}]}
+(4 rows)
 
 -- Test 43: Range histogram for status codes (HTTP status buckets)
 -- Common pattern: 2xx, 3xx, 4xx, 5xx buckets
@@ -1085,9 +1164,9 @@ SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
 ]}}'::jsonb) AS status_code_buckets
 FROM logs
 WHERE id @@@ paradedb.all();
-                                                                                                                                                                      status_code_buckets                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"to": 200.0, "key": "*-200", "doc_count": 0}, {"to": 300.0, "key": "2xx", "from": 200.0, "doc_count": 0}, {"to": 400.0, "key": "3xx", "from": 300.0, "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 2}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 2}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
+                                                                                                                                                                      status_code_buckets                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"to": 200.0, "key": "*-200", "doc_count": 0}, {"to": 300.0, "key": "2xx", "from": 200.0, "doc_count": 1}, {"to": 400.0, "key": "3xx", "from": 300.0, "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 8}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 13}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
 (1 row)
 
 -- Test 44: Multiple range histograms in one query
@@ -1127,7 +1206,7 @@ FROM logs
 WHERE description @@@ 'error';
                                                                             response_time_buckets                                                                             |                                                                                                          status_code_buckets                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 0}]} | {"buckets": [{"to": 400.0, "key": "*-400", "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 1}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 1}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
+ {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]} | {"buckets": [{"to": 400.0, "key": "*-400", "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 1}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 6}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
 (1 row)
 
 -- Test 45: Range histogram with TopN (window function)
@@ -1166,11 +1245,16 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity | category | response_time | status_code |        timestamp         |                                                                          response_time_distribution                                                                          
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  4 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 0}]}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 1}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 0}]}
-(2 rows)
+ id |        description         | severity |  category   | response_time | status_code |        timestamp         |                                                                          response_time_distribution                                                                          
+----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+(7 rows)
 
 -- Cleanup
 DROP TABLE logs CASCADE;

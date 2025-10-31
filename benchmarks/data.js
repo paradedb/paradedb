@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761949868868,
+  "lastUpdate": 1761950893204,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -40232,6 +40232,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 86.9625,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54564e51539bcf3e3a6aeed022cfa1a16e8a7556",
+          "message": "feat: added `pdb.agg()` support in (GROUP BY) aggregates and improved EXPLAIN output (#3466)\n\n# Ticket(s) Closed\n\n- Closes #3465\n\n## What\n\nThis PR adds support for `pdb.agg()` in GROUP BY aggregate queries and\nreplaces all aggregate placeholders with `pdb.agg_fn()` for clearer\nEXPLAIN output.\n\n## Why\n\nPreviously, `pdb.agg()` only worked as a window function in TopN queries\n(with `OVER` clause). Users couldn't use it in standard GROUP BY\naggregates, limiting its utility for faceting patterns. Additionally,\nEXPLAIN plans showed generic `now()` placeholders for all aggregates,\nmaking it difficult to understand which aggregates were being replaced.\n\n## How\n\n### 1. Enable `pdb.agg()` in GROUP BY Context\n\n- Removed the rejection of `pdb.agg()` in GROUP BY context and added\nparsing logic to handle it as `AggregateType::Custom` variant\n- When `pdb.agg()` is detected in an `Aggref` node, extract the JSON\nargument and store it in the `Custom` variant\n\n### 2. Improve EXPLAIN Output with `pdb.agg_fn()`\n\n- Added `pdb.agg_fn(text)` that takes a string argument identifying the\naggregate type (e.g., 'COUNT(*)', 'SUM', 'AVG', 'AGG')\n\n### 3. Key Technical Details\n\n- `pdb.agg()` now works in both contexts:\n- **Window functions** (TopN): `SELECT *, pdb.agg('{\"terms\": {\"field\":\n\"category\"}}'::jsonb) OVER () FROM logs WHERE ... ORDER BY ... LIMIT\n...`\n- **(GROUP BY) aggregates**: `SELECT category, pdb.agg('{\"terms\":\n{\"field\": \"severity\"}}'::jsonb) FROM logs WHERE ... GROUP BY category`\n- EXPLAIN output now shows `pdb.agg_fn('COUNT(*)'::text)` instead of\n`now()` for all aggregates\n\n## Tests\n\n- Added tests to `custom-agg.sql`.",
+          "timestamp": "2025-10-31T15:05:09-07:00",
+          "tree_id": "902858ac0e03ff20f1951f89d1dc62ac561eb034",
+          "url": "https://github.com/paradedb/paradedb/commit/54564e51539bcf3e3a6aeed022cfa1a16e8a7556"
+        },
+        "date": 1761950890731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1198.0365000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 651.0705,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1499.905,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 710.5995,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 687.124,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1602.256,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 24.374000000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 68.6395,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 92.8945,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

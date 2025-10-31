@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761912417668,
+  "lastUpdate": 1761912422488,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45790,6 +45790,108 @@ window.BENCHMARK_DATA = {
             "value": 157.28515625,
             "unit": "median mem",
             "extra": "avg mem: 175.8727593447504, max mem: 217.14453125, count: 56509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3456)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T07:24:09-04:00",
+          "tree_id": "742dbc05a309977e0b2991d390f17befaa41cf12",
+          "url": "https://github.com/paradedb/paradedb/commit/f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe"
+        },
+        "date": 1761912419915,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06942358578273618, max background_merging: 1.0, count: 55932"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.810128384048778, max cpu: 11.861615, count: 55932"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.798362087557212, max mem: 20.97265625, count: 55932"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.989838464571645, max cpu: 27.639154, count: 55932"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.2662357444084, max mem: 165.859375, count: 55932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51179,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51043.35482371451, max block_count: 51179.0, count: 55932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.370664378173494, max segment_count: 56.0, count: 55932"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.610422684309402, max cpu: 27.988338, count: 55932"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 140.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 129.87952530528142, max mem: 153.04296875, count: 55932"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7976504294947855, max cpu: 28.318584, count: 55932"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 171.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.7155539455276, max mem: 171.53515625, count: 55932"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.995288674162712, max cpu: 33.267326, count: 55932"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.8472210116749, max mem: 215.8359375, count: 55932"
           }
         ]
       }

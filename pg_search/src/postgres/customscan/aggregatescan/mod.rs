@@ -379,19 +379,14 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
         let proc_form = pg_sys::GETSTRUCT(proc_tuple) as *mut pg_sys::FormData_pg_proc;
         let name_data = &(*proc_form).proname;
 
-        // Convert i8 array to u8 for UTF-8 parsing
-        let name_bytes: Vec<u8> = name_data
-            .data
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| b as u8)
-            .collect();
-
-        let name_str = std::str::from_utf8(&name_bytes)
-            .unwrap_or("unknown")
-            .to_string();
+        let name_str = pgrx::name_data_to_str(name_data);
 
         pg_sys::ReleaseSysCache(proc_tuple);
+
+        // Special case for pdb.agg() custom aggregate
+        if name_str == "agg" {
+            return "pdb.AGG".to_string();
+        }
 
         // Add (*) for COUNT(*) or star aggregates
         if (*aggref).aggstar {
@@ -405,6 +400,11 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 }
 
 /// Create a text Const node from a string
+///
+/// # Safety
+/// This function must be called within a PostgreSQL memory context that will persist
+/// for the lifetime of the plan tree. The returned Const node will be allocated in the
+/// current memory context and should not be freed manually.
 unsafe fn make_text_const(text: &str) -> *mut pg_sys::Const {
     let text_datum = text
         .into_datum()

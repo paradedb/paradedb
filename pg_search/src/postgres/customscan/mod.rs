@@ -305,12 +305,21 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-pub fn score_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pdb.score(anyelement)".into_datum()],
-        )
-        .expect("the `pdb.score(anyelement)` function should exist")
-    }
+pub fn score_funcoids() -> [pg_sys::Oid; 2] {
+    [
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pdb.score(anyelement)".into_datum()],
+            )
+            .expect("the `pdb.score(anyelement)` function should exist")
+        },
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.score(anyelement)".into_datum()],
+            )
+            .expect("the `paradedb.score(anyelement)` function should exist")
+        },
+    ]
 }

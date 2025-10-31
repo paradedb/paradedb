@@ -73,13 +73,13 @@ pub struct PdbScanState {
 
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
-    pub score_funcoid: pg_sys::Oid,
+    pub score_funcoids: [pg_sys::Oid; 2],
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
-    pub snippet_funcoid: pg_sys::Oid,
-    pub snippets_funcoid: pg_sys::Oid,
-    pub snippet_positions_funcoid: pg_sys::Oid,
+    pub snippet_funcoids: [pg_sys::Oid; 2],
+    pub snippets_funcoids: [pg_sys::Oid; 2],
+    pub snippet_positions_funcoids: [pg_sys::Oid; 2],
 
     pub snippet_generators:
         HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
@@ -256,7 +256,7 @@ impl PdbScanState {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-        if let SnippetType::SingleText(_, _, config, _) = snippet_type {
+        if let SnippetType::SingleText(_, config, _) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 
@@ -275,7 +275,7 @@ impl PdbScanState {
             .snippets(&text)
             .into_iter()
             .flat_map(|mut snippet| {
-                if let SnippetType::MultipleText(_, _, config, _, _) = snippet_type {
+                if let SnippetType::MultipleText(_, config, _, _) = snippet_type {
                     snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
                 }
 

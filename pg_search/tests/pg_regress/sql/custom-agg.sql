@@ -562,6 +562,126 @@ WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
 
+-- =====================================================================
+-- SECTION 11: Range Histogram (Classic Faceting Pattern)
+-- =====================================================================
+
+-- Test 41: Range histogram for response time buckets
+-- This is a common faceting pattern - much more efficient than using CASE/CTE
+-- Equivalent to: CASE WHEN response_time < 100 THEN '0-100' WHEN ... END
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
+    {"to": 100, "key": "fast"},
+    {"from": 100, "to": 1000, "key": "medium"},
+    {"from": 1000, "key": "slow"}
+]}}'::jsonb) AS response_time_buckets
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
+    {"to": 100, "key": "fast"},
+    {"from": 100, "to": 1000, "key": "medium"},
+    {"from": 1000, "key": "slow"}
+]}}'::jsonb) AS response_time_buckets
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 42: Range histogram with GROUP BY
+-- Facet response time buckets per category
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, 
+       pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) AS response_time_buckets
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+
+SELECT category, 
+       pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) AS response_time_buckets
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+
+-- Test 43: Range histogram for status codes (HTTP status buckets)
+-- Common pattern: 2xx, 3xx, 4xx, 5xx buckets
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
+    {"from": 200, "to": 300, "key": "2xx"},
+    {"from": 300, "to": 400, "key": "3xx"},
+    {"from": 400, "to": 500, "key": "4xx"},
+    {"from": 500, "to": 600, "key": "5xx"}
+]}}'::jsonb) AS status_code_buckets
+FROM logs
+WHERE id @@@ paradedb.all();
+
+SELECT pdb.agg('{"range": {"field": "status_code", "ranges": [
+    {"from": 200, "to": 300, "key": "2xx"},
+    {"from": 300, "to": 400, "key": "3xx"},
+    {"from": 400, "to": 500, "key": "4xx"},
+    {"from": 500, "to": 600, "key": "5xx"}
+]}}'::jsonb) AS status_code_buckets
+FROM logs
+WHERE id @@@ paradedb.all();
+
+-- Test 44: Multiple range histograms in one query
+-- Get both response time and status code distributions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) AS response_time_buckets,
+       pdb.agg('{"range": {"field": "status_code", "ranges": [
+           {"from": 400, "to": 500, "key": "4xx"},
+           {"from": 500, "to": 600, "key": "5xx"}
+       ]}}'::jsonb) AS status_code_buckets
+FROM logs
+WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) AS response_time_buckets,
+       pdb.agg('{"range": {"field": "status_code", "ranges": [
+           {"from": 400, "to": 500, "key": "4xx"},
+           {"from": 500, "to": 600, "key": "5xx"}
+       ]}}'::jsonb) AS status_code_buckets
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 45: Range histogram with TopN (window function)
+-- Get response time distribution alongside top N results
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) OVER () AS response_time_distribution
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
+SELECT *,
+       pdb.agg('{"range": {"field": "response_time", "ranges": [
+           {"to": 100, "key": "fast"},
+           {"from": 100, "to": 1000, "key": "medium"},
+           {"from": 1000, "key": "slow"}
+       ]}}'::jsonb) OVER () AS response_time_distribution
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 

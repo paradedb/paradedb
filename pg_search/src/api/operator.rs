@@ -479,7 +479,73 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     opexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     opexpr.location = (*(*srs).fcall).location;
 
-    ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
+    // Preserve SQL 3VL under NOT/OR when our custom scans are disabled by wrapping the
+    // operator call in a CASE that propagates NULL from the original LHS. When custom
+    // scans are enabled, return the raw operator to keep planner visibility.
+    if !crate::gucs::enable_custom_scan() {
+        // Build: CASE WHEN (lhs IS NULL) THEN NULL ELSE (lhs @@@ rhs) END
+        let location = (*(*srs).fcall).location;
+
+        // Build a NullTest: (lhs IS NULL)
+        let nulltest = pg_sys::NullTest {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_NullTest,
+            },
+            arg: pg_sys::copyObjectImpl(lhs.cast::<core::ffi::c_void>()).cast::<pg_sys::Expr>(),
+            nulltesttype: pg_sys::NullTestType::IS_NULL,
+            argisrow: false,
+            location,
+        }
+        .palloc();
+
+        // Build a NULL::bool Const for THEN branch
+        let null_bool = pg_sys::makeConst(
+            pg_sys::BOOLOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            core::mem::size_of::<u8>() as _,
+            false.into_datum().unwrap(),
+            true, // constisnull
+            true, // byval
+        )
+        .cast::<pg_sys::Expr>();
+
+        // WHEN clause
+        let whenclause = pg_sys::CaseWhen {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_CaseWhen,
+            },
+            expr: nulltest.cast::<pg_sys::Expr>(),
+            result: null_bool,
+            location,
+        }
+        .palloc()
+        .cast::<pg_sys::Node>();
+
+        let mut when_list = PgList::<pg_sys::Node>::new();
+        when_list.push(whenclause);
+
+        // Leak the OpExpr into the Node memory context before using in CASE
+        let opexpr_expr_ptr = opexpr.into_pg().cast::<pg_sys::Expr>();
+
+        // CASE expression with defresult = opexpr
+        let caseexpr = pg_sys::CaseExpr {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_CaseExpr,
+            },
+            casetype: pg_sys::BOOLOID,
+            casecollid: pg_sys::Oid::INVALID,
+            arg: std::ptr::null_mut(),
+            args: when_list.into_pg(),
+            defresult: opexpr_expr_ptr,
+            location,
+        }
+        .palloc();
+
+        ReturnedNodePointer(NonNull::new(caseexpr.cast()))
+    } else {
+        ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
+    }
 }
 
 unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *mut pg_sys::Var {

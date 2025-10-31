@@ -60,7 +60,7 @@ GROUP BY category;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -127,7 +127,7 @@ GROUP BY category;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -158,7 +158,7 @@ WHERE description @@@ 'error';
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -203,7 +203,7 @@ GROUP BY category;
                                                                               QUERY PLAN                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), CUSTOM_AGG({"max":{"field":"response_time"}})
@@ -344,7 +344,7 @@ GROUP BY category;
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100},{"to":1000,"from":100},{"from":1000}]}})
@@ -372,7 +372,7 @@ WHERE description @@@ 'error';
                                                                                                                                   QUERY PLAN                                                                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"histogram":{"field":"response_time","interval":100}})
@@ -396,7 +396,7 @@ GROUP BY category;
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"response_time"}})
@@ -424,7 +424,7 @@ WHERE description @@@ 'error';
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"min":{"field":"response_time"}})
@@ -447,7 +447,7 @@ WHERE description @@@ 'error';
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"max":{"field":"status_code"}})
@@ -471,7 +471,7 @@ GROUP BY category;
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"status_code"}})
@@ -505,7 +505,7 @@ GROUP BY category;
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -536,7 +536,7 @@ WHERE description @@@ 'error';
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"max":{"field":"status_code"}})
@@ -565,7 +565,7 @@ GROUP BY category;
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('pdb.AGG'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(response_time), CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -600,7 +600,7 @@ WHERE description @@@ 'error' AND status_code >= 500;
                                                                                                                                      QUERY PLAN                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
@@ -623,7 +623,7 @@ WHERE description @@@ 'error' OR description @@@ 'timeout';
                                                                                                                                                      QUERY PLAN                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -647,7 +647,7 @@ GROUP BY category;
                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"response_time","lower_bound":{"excluded":1000},"upper_bound":null,"is_datetime":false}}]}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -678,7 +678,7 @@ WHERE description @@@ 'nonexistent_term_xyz';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
@@ -702,7 +702,7 @@ GROUP BY category;
                                                                               QUERY PLAN                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -731,7 +731,7 @@ ORDER BY category, severity;
                                                                                                                                                QUERY PLAN                                                                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, severity, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, severity, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -763,7 +763,7 @@ ORDER BY category;
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text), category
+   Output: pdb.agg_fn('pdb.agg'::text), category
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -916,7 +916,7 @@ ORDER BY category DESC;
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -947,7 +947,7 @@ ORDER BY category ASC, severity DESC;
                                                                                                                                                QUERY PLAN                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, severity, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, severity, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -982,7 +982,7 @@ GROUP BY category;
                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -1013,7 +1013,7 @@ GROUP BY category;
                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
@@ -1045,7 +1045,7 @@ GROUP BY category;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -1078,7 +1078,7 @@ WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
@@ -1101,7 +1101,7 @@ WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}]}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -1124,7 +1124,7 @@ WHERE id @@@ paradedb.all();
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
@@ -1149,7 +1149,7 @@ ORDER BY category;
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
@@ -1188,7 +1188,7 @@ WHERE description @@@ 'error';
                                                                                                                          QUERY PLAN                                                                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}})
@@ -1223,7 +1223,7 @@ ORDER BY category;
                                                                                                                                                 QUERY PLAN                                                                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: category, pdb.agg_fn('pdb.AGG'::text)
+   Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}})
@@ -1263,7 +1263,7 @@ WHERE id @@@ paradedb.all();
                                                                                                                                                    QUERY PLAN                                                                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"status_code","ranges":[{"to":300,"key":"2xx","from":200},{"to":400,"key":"3xx","from":300},{"to":500,"key":"4xx","from":400},{"to":600,"key":"5xx","from":500}]}})
@@ -1300,7 +1300,7 @@ WHERE description @@@ 'error';
                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
-   Output: pdb.agg_fn('pdb.AGG'::text), pdb.agg_fn('pdb.AGG'::text)
+   Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}}), CUSTOM_AGG({"range":{"field":"status_code","ranges":[{"to":500,"key":"4xx","from":400},{"to":600,"key":"5xx","from":500}]}})

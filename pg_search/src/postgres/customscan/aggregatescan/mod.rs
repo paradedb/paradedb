@@ -390,7 +390,7 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 
         // Special case for pdb.agg() custom aggregate
         if name_str == "agg" {
-            return "pdb.AGG".to_string();
+            return "pdb.agg".to_string();
         }
 
         // Add (*) for COUNT(*) or star aggregates

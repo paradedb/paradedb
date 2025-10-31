@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761945650351,
+  "lastUpdate": 1761945866660,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25852,6 +25852,42 @@ window.BENCHMARK_DATA = {
             "value": 5.439534445410794,
             "unit": "median tps",
             "extra": "avg tps: 4.912099828502454, max tps: 6.042222431970741, count: 57277"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "01597180ebf0ca07154331f8b6f43689d042af16",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3468)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-31T16:54:43-04:00",
+          "tree_id": "3b7bab58147ca8f22c27dd864e37ea679ef86bfb",
+          "url": "https://github.com/paradedb/paradedb/commit/01597180ebf0ca07154331f8b6f43689d042af16"
+        },
+        "date": 1761945864140,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.233554267624692,
+            "unit": "median tps",
+            "extra": "avg tps: 7.040787175535023, max tps: 10.99144909884825, count: 57270"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.385289113896929,
+            "unit": "median tps",
+            "extra": "avg tps: 4.864527193412732, max tps: 5.964602807070725, count: 57270"
           }
         ]
       }

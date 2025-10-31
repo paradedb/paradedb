@@ -243,9 +243,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             None,
         )?;
 
+        let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
-        // ensure GROUP BY includes a bucket for documents missing the group-by value
-        set_missing_on_terms(&mut aggregations);
+        if from_sql {
+            // ensure GROUP BY includes a bucket for documents missing the group-by value
+            set_missing_on_terms(&mut aggregations);
+        }
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
@@ -347,6 +350,8 @@ pub fn execute_aggregate(
     expr_context: *mut pg_sys::ExprContext,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     unsafe {
+        // Determine once whether this aggregation request originated from SQL
+        let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),
@@ -428,8 +433,10 @@ pub fn execute_aggregate(
 
             // have tantivy finalize the intermediate results from each worker
             let mut aggregations: Aggregations = agg_req.try_into()?;
-            // normalize missing on terms here too before merge
-            set_missing_on_terms(&mut aggregations);
+            // normalize missing on terms here too before merge, but only for SQL-originated requests
+            if agg_from_sql {
+                set_missing_on_terms(&mut aggregations);
+            }
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
                 AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
@@ -465,7 +472,9 @@ pub fn execute_aggregate(
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
-                        set_missing_on_terms(&mut aggregations);
+                        if agg_from_sql {
+                            set_missing_on_terms(&mut aggregations);
+                        }
                         aggregations
                     },
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),

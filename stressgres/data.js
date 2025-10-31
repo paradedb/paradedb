@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761945866660,
+  "lastUpdate": 1761945870566,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32422,6 +32422,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.20212301621943, max segment_count: 105.0, count: 57277"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "01597180ebf0ca07154331f8b6f43689d042af16",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3468)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-31T16:54:43-04:00",
+          "tree_id": "3b7bab58147ca8f22c27dd864e37ea679ef86bfb",
+          "url": "https://github.com/paradedb/paradedb/commit/01597180ebf0ca07154331f8b6f43689d042af16"
+        },
+        "date": 1761945868021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.853102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.65052300216876, max cpu: 42.772278, count: 57270"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 227.7722557348961, max mem: 231.2890625, count: 57270"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.415500036850684, max cpu: 33.20158, count: 57270"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.8456598131657, max mem: 167.5, count: 57270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24372,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23234.856940806705, max block_count: 26210.0, count: 57270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.56048541994063, max segment_count: 108.0, count: 57270"
           }
         ]
       }

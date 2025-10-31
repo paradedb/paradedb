@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761910847483,
+  "lastUpdate": 1761911616854,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24520,6 +24520,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3090902899889745,
             "unit": "median tps",
             "extra": "avg tps: 4.803287175004472, max tps: 5.875134095299102, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3456)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T07:24:09-04:00",
+          "tree_id": "742dbc05a309977e0b2991d390f17befaa41cf12",
+          "url": "https://github.com/paradedb/paradedb/commit/f597ec3ba44e9e7bd660bfe9018b9e4d980d8efe"
+        },
+        "date": 1761911614335,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.435534542993656,
+            "unit": "median tps",
+            "extra": "avg tps: 7.201617575509421, max tps: 11.204094380331528, count: 57921"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.296352109440232,
+            "unit": "median tps",
+            "extra": "avg tps: 4.794644788161396, max tps: 5.878001458420092, count: 57921"
           }
         ]
       }

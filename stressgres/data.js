@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761941561097,
+  "lastUpdate": 1761942339912,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25408,6 +25408,42 @@ window.BENCHMARK_DATA = {
             "value": 5.27717223303113,
             "unit": "median tps",
             "extra": "avg tps: 4.772953403240498, max tps: 5.846738051969933, count: 57751"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3458)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T15:56:03-04:00",
+          "tree_id": "23f41bcb6cb35b7466a8728e3eed2188d60c43f0",
+          "url": "https://github.com/paradedb/paradedb/commit/6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982"
+        },
+        "date": 1761942337620,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.455178773466962,
+            "unit": "median tps",
+            "extra": "avg tps: 7.225386863958925, max tps: 11.327742090076457, count: 57493"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3474621541088005,
+            "unit": "median tps",
+            "extra": "avg tps: 4.837284316468303, max tps: 5.897614112333673, count: 57493"
           }
         ]
       }

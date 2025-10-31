@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761950930307,
+  "lastUpdate": 1761950934767,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48814,6 +48814,108 @@ window.BENCHMARK_DATA = {
             "value": 156.9296875,
             "unit": "median mem",
             "extra": "avg mem: 174.45176799007444, max mem: 216.8203125, count: 56420"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54564e51539bcf3e3a6aeed022cfa1a16e8a7556",
+          "message": "feat: added `pdb.agg()` support in (GROUP BY) aggregates and improved EXPLAIN output (#3466)\n\n# Ticket(s) Closed\n\n- Closes #3465\n\n## What\n\nThis PR adds support for `pdb.agg()` in GROUP BY aggregate queries and\nreplaces all aggregate placeholders with `pdb.agg_fn()` for clearer\nEXPLAIN output.\n\n## Why\n\nPreviously, `pdb.agg()` only worked as a window function in TopN queries\n(with `OVER` clause). Users couldn't use it in standard GROUP BY\naggregates, limiting its utility for faceting patterns. Additionally,\nEXPLAIN plans showed generic `now()` placeholders for all aggregates,\nmaking it difficult to understand which aggregates were being replaced.\n\n## How\n\n### 1. Enable `pdb.agg()` in GROUP BY Context\n\n- Removed the rejection of `pdb.agg()` in GROUP BY context and added\nparsing logic to handle it as `AggregateType::Custom` variant\n- When `pdb.agg()` is detected in an `Aggref` node, extract the JSON\nargument and store it in the `Custom` variant\n\n### 2. Improve EXPLAIN Output with `pdb.agg_fn()`\n\n- Added `pdb.agg_fn(text)` that takes a string argument identifying the\naggregate type (e.g., 'COUNT(*)', 'SUM', 'AVG', 'AGG')\n\n### 3. Key Technical Details\n\n- `pdb.agg()` now works in both contexts:\n- **Window functions** (TopN): `SELECT *, pdb.agg('{\"terms\": {\"field\":\n\"category\"}}'::jsonb) OVER () FROM logs WHERE ... ORDER BY ... LIMIT\n...`\n- **(GROUP BY) aggregates**: `SELECT category, pdb.agg('{\"terms\":\n{\"field\": \"severity\"}}'::jsonb) FROM logs WHERE ... GROUP BY category`\n- EXPLAIN output now shows `pdb.agg_fn('COUNT(*)'::text)` instead of\n`now()` for all aggregates\n\n## Tests\n\n- Added tests to `custom-agg.sql`.",
+          "timestamp": "2025-10-31T15:05:09-07:00",
+          "tree_id": "902858ac0e03ff20f1951f89d1dc62ac561eb034",
+          "url": "https://github.com/paradedb/paradedb/commit/54564e51539bcf3e3a6aeed022cfa1a16e8a7556"
+        },
+        "date": 1761950932225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05010471761740797, max background_merging: 1.0, count: 56342"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.760965195382018, max cpu: 9.667674, count: 56342"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.256921734673956, max mem: 25.328125, count: 56342"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.931298128694659, max cpu: 9.667674, count: 56342"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 154.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 152.7313993806796, max mem: 154.73046875, count: 56342"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60284,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60043.58895672855, max block_count: 60284.0, count: 56342"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.084768023854316, max segment_count: 59.0, count: 56342"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.114456896451907, max cpu: 28.152493, count: 56342"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 179.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 179.02919391839126, max mem: 204.2734375, count: 56342"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.870214424416313, max cpu: 27.961164, count: 56342"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 171.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.16595662427673, max mem: 171.47265625, count: 56342"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.868345751675488, max cpu: 33.3996, count: 56342"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.75762717810426, max mem: 217.4140625, count: 56342"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761945080660,
+  "lastUpdate": 1761945646508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25816,6 +25816,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3474621541088005,
             "unit": "median tps",
             "extra": "avg tps: 4.837284316468303, max tps: 5.897614112333673, count: 57493"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9cc49b6f263a32d8c46c047c21b9acd448ff9f5a",
+          "message": "fix: custom scan with GROUP BY on columns containing NULL values (#3454)\n\n# Ticket(s) Closed\n\n- Closes #3356 \n\n## What\nFix Aggregate Custom Scan dropping NULL groups; NULL now forms its own\nGROUP BY bucket\n\n## Why\nMatch SQL/Postgres semantics; users reported NULL groups missing.\n\n## How\nSet TermsAggregation.missing to a sentinel at execution and map it back\nto SQL NULL during materialization.\n\n## Tests\nAdded test_group_by_null_bucket\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nSigned-off-by: Daniil Tatarinov <92638932+idkwhttsay@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-31T13:51:07-07:00",
+          "tree_id": "51600e36badb2cb861b41750a21e9e816ac22e26",
+          "url": "https://github.com/paradedb/paradedb/commit/9cc49b6f263a32d8c46c047c21b9acd448ff9f5a"
+        },
+        "date": 1761945644106,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.140387134296928,
+            "unit": "median tps",
+            "extra": "avg tps: 6.946843971538513, max tps: 10.743075116349521, count: 57277"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.439534445410794,
+            "unit": "median tps",
+            "extra": "avg tps: 4.912099828502454, max tps: 6.042222431970741, count: 57277"
           }
         ]
       }

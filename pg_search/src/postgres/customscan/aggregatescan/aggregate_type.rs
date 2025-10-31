@@ -121,11 +121,11 @@ impl AggregateType {
     ) -> Option<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
-        // Reject paradedb.agg() in (GROUP BY) aggregate context
+        // Reject pdb.agg() in (GROUP BY) aggregate context
         // It should only be used as a window function (OVER clause) in TopN queries
         if aggfnoid == agg_funcoid().to_u32() {
             pgrx::error!(
-                "paradedb.agg() cannot be used in (GROUP BY) aggregates. \
+                "pdb.agg() cannot be used in (GROUP BY) aggregates. \
                  Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead."
             );
         }

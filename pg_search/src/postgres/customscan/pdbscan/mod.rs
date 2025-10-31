@@ -253,7 +253,7 @@ impl PdbScan {
         // We allow custom scan if:
         // 1. The query uses @@@ operator, OR
         // 2. enable_custom_scan_without_operator is true, OR
-        // 3. The query has window aggregates (paradedb.agg()) that we must handle
+        // 3. The query has window aggregates (pdb.agg()) that we must handle
         let has_window_aggs = query_has_window_agg_functions(root);
         if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
         {
@@ -312,7 +312,7 @@ impl customscan::ExecMethod for PdbScan {
 ///
 /// Used to determine if we should create a custom path even without @@@ operator.
 ///
-/// Also validates that paradedb.agg() is not present - if it is, that means the planner hook
+/// Also validates that pdb.agg() is not present - if it is, that means the planner hook
 /// didn't replace it (e.g., not a TopN query), and we should reject it.
 unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() {
@@ -331,21 +331,21 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     let window_agg_func_oid = window_agg_func_oid.to_u32();
     let paradedb_agg_func_oid = paradedb_agg_func_oid.to_u32();
 
-    // Check target list for window_agg() or paradedb.agg() function calls
+    // Check target list for window_agg() or pdb.agg() function calls
     if !(*parse).targetList.is_null() {
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         for te in target_list.iter_ptr() {
             if !(*te).expr.is_null() {
-                // Check if this is a FuncExpr with window_agg or paradedb.agg OID
+                // Check if this is a FuncExpr with window_agg or pdb.agg OID
                 if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
                     let func_oid = (*func_expr).funcid.to_u32();
                     if func_oid == window_agg_func_oid {
                         return true;
                     } else if func_oid == paradedb_agg_func_oid {
-                        // paradedb.agg() should have been replaced by planner hook
+                        // pdb.agg() should have been replaced by planner hook
                         // If it's still here, it means it wasn't a valid TopN query
                         pgrx::error!(
-                            "paradedb.agg() can only be used as a window function in TopN queries \
+                            "pdb.agg() can only be used as a window function in TopN queries \
                              (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
                              SQL aggregates like COUNT(*), SUM(), etc. \
                              Hint: Try using '@@@ paradedb.all()' with ORDER BY and LIMIT, \
@@ -371,7 +371,7 @@ impl CustomScan for PdbScan {
         unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
 
-            // Check if the query has window aggregates (paradedb.agg() or window_agg())
+            // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 
             if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
@@ -431,7 +431,7 @@ impl CustomScan for PdbScan {
             );
 
             // If we have window aggregates but no quals, we must still create the custom path
-            // because paradedb.agg() can only be executed by our custom scan
+            // because pdb.agg() can only be executed by our custom scan
             let quals = if let Some(q) = quals {
                 q
             } else if has_window_aggs {

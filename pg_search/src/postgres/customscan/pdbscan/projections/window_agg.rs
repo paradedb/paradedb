@@ -25,7 +25,7 @@
 //!
 //! The implementation uses an early replacement strategy at the `planner_hook` stage:
 //!
-//! 1. **Detection**: Identify queries with window functions and `@@@` operator or `paradedb.agg()`
+//! 1. **Detection**: Identify queries with window functions and `@@@` operator or `pdb.agg()`
 //! 2. **Extraction**: Parse `WindowFunc` AST nodes and extract aggregate definitions into `TargetList`
 //! 3. **Replacement**: Replace `WindowFunc` nodes with `paradedb.window_agg(json)` placeholders
 //! 4. **Execution**: Execute aggregations via Tantivy's `MultiCollector` in TopN scan
@@ -60,7 +60,7 @@
 //! LIMIT 10;
 //!
 //! -- Custom Tantivy aggregation
-//! SELECT *, paradedb.agg('{"terms": {"field": "brand"}}') OVER () AS brand_facets
+//! SELECT *, pdb.agg('{"terms": {"field": "brand"}}') OVER () AS brand_facets
 //! FROM products
 //! WHERE description @@@ 'smartphone'
 //! ORDER BY rating DESC
@@ -131,8 +131,8 @@ impl WindowAggregateInfo {
     /// Execution capability is determined by feature flags.
     ///
     /// Important: If we're rejecting a window function due to unsupported features (e.g., FILTER),
-    /// and it uses paradedb.agg() (Custom aggregate), we must error out because PostgreSQL
-    /// cannot handle paradedb.agg() - it's a placeholder that only we can execute.
+    /// and it uses pdb.agg() (Custom aggregate), we must error out because PostgreSQL
+    /// cannot handle pdb.agg() - it's a placeholder that only we can execute.
     pub fn is_supported(targetlist: &Option<TargetList>) -> bool {
         if targetlist.is_none() {
             return false;
@@ -145,11 +145,11 @@ impl WindowAggregateInfo {
             let has_filter = agg_type.has_filter();
             if has_filter && !window_aggregates::WINDOW_AGG_FILTER_CLAUSE {
                 // If we're rejecting due to FILTER not being supported, check if this is
-                // a Custom aggregate (paradedb.agg()). If so, we must error out because
+                // a Custom aggregate (pdb.agg()). If so, we must error out because
                 // PostgreSQL cannot handle it.
                 if matches!(agg_type, AggregateType::Custom { .. }) {
                     pgrx::error!(
-                        "paradedb.agg() with FILTER clause is not currently supported. \
+                        "pdb.agg() with FILTER clause is not currently supported. \
                          FILTER with window functions requires the '{}' feature flag to be enabled. \
                          Try removing the FILTER clause or use a standard aggregate function instead. \
                          See https://github.com/paradedb/paradedb/issues for more information.",
@@ -164,11 +164,11 @@ impl WindowAggregateInfo {
         // because we compute facets over the entire result set, not partitioned subsets.
         // If grouping_columns is non-empty, we reject the query.
         if !tlist.grouping_columns().is_empty() {
-            // Check if any aggregate is Custom (paradedb.agg()) - if so, error out
+            // Check if any aggregate is Custom (pdb.agg()) - if so, error out
             for agg_type in tlist.aggregates() {
                 if matches!(agg_type, AggregateType::Custom { .. }) {
                     pgrx::error!(
-                        "paradedb.agg() with PARTITION BY or ORDER BY in OVER clause is not currently supported. \
+                        "pdb.agg() with PARTITION BY or ORDER BY in OVER clause is not currently supported. \
                          These features require the '{}' feature flag to be enabled. \
                          Try removing PARTITION BY/ORDER BY or use a standard aggregate function instead. \
                          See https://github.com/paradedb/paradedb/issues for more information.",
@@ -261,7 +261,7 @@ pub unsafe fn extract_and_convert_window_functions(
 /// Uses OID-based approach (same as aggregatescan) to identify the aggregate function
 /// and extract its field name, missing value, and FILTER clause
 ///
-/// Returns: AggregateType (COUNT, SUM, AVG, MIN, MAX, or Custom for paradedb.agg)
+/// Returns: AggregateType (COUNT, SUM, AVG, MIN, MAX, or Custom for pdb.agg)
 unsafe fn convert_window_func_to_aggregate_type(
     parse: *mut pg_sys::Query,
     window_agg: *mut pg_sys::WindowFunc,
@@ -301,11 +301,11 @@ unsafe fn convert_window_func_to_aggregate_type(
 
         // Validate that the JSON is a valid Tantivy aggregation
         // It should be a single aggregation definition (e.g., {"terms": {...}}, {"avg": {...}})
-        // NOT wrapped in a "buckets" key (that's for the old paradedb.aggregate function)
+        // NOT wrapped in a "buckets" key (that's for the old pdb.aggregate function)
         if json_value.get("buckets").is_some() {
             pgrx::error!(
-                "paradedb.agg() received JSON with 'buckets' key. \
-                 Remove the 'buckets' wrapper - paradedb.agg() expects a single aggregation definition. \
+                "pdb.agg() received JSON with 'buckets' key. \
+                 Remove the 'buckets' wrapper - pdb.agg() expects a single aggregation definition. \
                  Example: {{\"terms\": {{\"field\": \"country\"}}}} instead of {{\"buckets\": {{\"terms\": {{\"field\": \"country\"}}}}}}"
             );
         }
@@ -313,7 +313,7 @@ unsafe fn convert_window_func_to_aggregate_type(
         // Validate it's an object
         if !json_value.is_object() {
             pgrx::error!(
-                "paradedb.agg() expects a JSON object representing a Tantivy aggregation. \
+                "pdb.agg() expects a JSON object representing a Tantivy aggregation. \
                  Example: {{\"terms\": {{\"field\": \"country\"}}}}"
             );
         }
@@ -339,7 +339,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             for key in obj.keys() {
                 if !VALID_AGG_TYPES.contains(&key.as_str()) {
                     pgrx::error!(
-                        "paradedb.agg() received unknown aggregation type '{}'. \
+                        "pdb.agg() received unknown aggregation type '{}'. \
                          Valid types: {}. \
                          Example: {{\"terms\": {{\"field\": \"country\"}}}}",
                         key,

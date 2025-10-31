@@ -1,4 +1,4 @@
--- Test custom agg function with paradedb.agg()
+-- Test custom agg function with pdb.agg()
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -32,24 +32,24 @@ WITH (
 
 -- Test 1: Simple custom agg with terms aggregation (without search query - should fail gracefully or not be intercepted)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
-SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
@@ -58,26 +58,26 @@ ORDER BY timestamp DESC LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
 
-SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
@@ -86,7 +86,7 @@ WHERE description @@@ 'error';
 -- NOTE: FILTER with window functions is currently not supported
 -- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -94,7 +94,7 @@ ORDER BY timestamp DESC LIMIT 10;
 
 -- This query is expected to fail because FILTER with OVER is not yet supported
 -- The error message guides users to file an issue or use paradedb.all()
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -104,66 +104,66 @@ ORDER BY timestamp DESC LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
+       pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
+       pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
--- Test 7: paradedb.agg() without @@@ operator (no WHERE clause)
--- This tests that paradedb.agg() is intercepted even without search operator
+-- Test 7: pdb.agg() without @@@ operator (no WHERE clause)
+-- This tests that pdb.agg() is intercepted even without search operator
 -- The custom scan is now used because we detect window aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Execute the query - should work now with custom scan
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
 
--- Test 8: paradedb.agg() with simple WHERE condition (not @@@)
--- This tests that paradedb.agg() works with regular WHERE conditions
+-- Test 8: pdb.agg() with simple WHERE condition (not @@@)
+-- This tests that pdb.agg() works with regular WHERE conditions
 -- The custom scan should be used because we have window aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Execute the query - should work with custom scan
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
-SELECT *, paradedb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Test 10: Error handling - non-object JSON (should fail fast)
-SELECT *, paradedb.agg('"invalid"'::jsonb) OVER ()
+SELECT *, pdb.agg('"invalid"'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Test 11: Error handling - invalid aggregation type (should fail fast)
-SELECT *, paradedb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
--- Test 12: Error handling - paradedb.agg() with FILTER clause (should fail at planner hook)
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
+-- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;

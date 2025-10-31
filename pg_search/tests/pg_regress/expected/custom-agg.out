@@ -1,4 +1,4 @@
--- Test custom agg function with paradedb.agg()
+-- Test custom agg function with pdb.agg()
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS logs CASCADE;
@@ -26,28 +26,28 @@ WITH (
 );
 -- Test 1: Simple custom agg with terms aggregation (without search query - should fail gracefully or not be intercepted)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
-SELECT category, paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 2: Custom agg in window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -57,7 +57,7 @@ ORDER BY timestamp DESC LIMIT 10;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
@@ -71,77 +71,77 @@ ORDER BY timestamp DESC LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"terms": {"field": "severity"}}'::jsonb)
+       pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
-SELECT paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 5: Custom agg with FILTER and OVER (window function)
 -- NOTE: FILTER with window functions is currently not supported
 -- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
+ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- This query is expected to fail because FILTER with OVER is not yet supported
 -- The error message guides users to file an issue or use paradedb.all()
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
+ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Test 6: EXPLAIN query to show custom agg is recognized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
+       pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 SELECT category, 
        COUNT(*),
-       paradedb.agg('{"max": {"field": "response_time"}}'::jsonb)
+       pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
--- Test 7: paradedb.agg() without @@@ operator (no WHERE clause)
--- This tests that paradedb.agg() is intercepted even without search operator
+ERROR:  pdb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
+-- Test 7: pdb.agg() without @@@ operator (no WHERE clause)
+-- This tests that pdb.agg() is intercepted even without search operator
 -- The custom scan is now used because we detect window aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -153,7 +153,7 @@ ORDER BY timestamp DESC LIMIT 10;
 (12 rows)
 
 -- Execute the query - should work now with custom scan
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
  id |          description          | severity | category | response_time | status_code |        timestamp         |        agg        
@@ -164,20 +164,20 @@ ORDER BY timestamp DESC LIMIT 10;
   1 | Database connection error     | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 1350.0}
 (4 rows)
 
--- Test 8: paradedb.agg() with simple WHERE condition (not @@@)
--- This tests that paradedb.agg() works with regular WHERE conditions
+-- Test 8: pdb.agg() with simple WHERE condition (not @@@)
+-- This tests that pdb.agg() works with regular WHERE conditions
 -- The custom scan should be used because we have window aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -188,7 +188,7 @@ ORDER BY timestamp DESC LIMIT 10;
 (11 rows)
 
 -- Execute the query - should work with custom scan
-SELECT *, paradedb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
@@ -199,28 +199,28 @@ ORDER BY timestamp DESC LIMIT 10;
 (2 rows)
 
 -- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
-SELECT *, paradedb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() received JSON with 'buckets' key. Remove the 'buckets' wrapper - paradedb.agg() expects a single aggregation definition. Example: {"terms": {"field": "country"}} instead of {"buckets": {"terms": {"field": "country"}}}
+ERROR:  pdb.agg() received JSON with 'buckets' key. Remove the 'buckets' wrapper - pdb.agg() expects a single aggregation definition. Example: {"terms": {"field": "country"}} instead of {"buckets": {"terms": {"field": "country"}}}
 -- Test 10: Error handling - non-object JSON (should fail fast)
-SELECT *, paradedb.agg('"invalid"'::jsonb) OVER ()
+SELECT *, pdb.agg('"invalid"'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() expects a JSON object representing a Tantivy aggregation. Example: {"terms": {"field": "country"}}
+ERROR:  pdb.agg() expects a JSON object representing a Tantivy aggregation. Example: {"terms": {"field": "country"}}
 -- Test 11: Error handling - invalid aggregation type (should fail fast)
-SELECT *, paradedb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
+SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
--- Test 12: Error handling - paradedb.agg() with FILTER clause (should fail at planner hook)
-SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
+ERROR:  pdb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
+-- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
+ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Cleanup
 DROP TABLE logs CASCADE;

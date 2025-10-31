@@ -18,7 +18,7 @@
 //! Internal window function placeholder.
 //!
 //! This module provides `window_agg()`, which is used internally to replace
-//! window aggregate calls (like `COUNT(*) OVER ()` or `paradedb.agg(...) OVER ()`)
+//! window aggregate calls (like `COUNT(*) OVER ()` or `pdb.agg(...) OVER ()`)
 //! during query planning.
 //!
 //! ## How It Works
@@ -34,33 +34,37 @@
 //!
 //! Users should never call `window_agg()` directly. Instead, they should use:
 //! - Standard SQL window functions: `COUNT(*) OVER ()`, `SUM(field) OVER ()`, etc.
-//! - Custom aggregations: `paradedb.agg('{"avg": {"field": "price"}}'::jsonb) OVER ()`
+//! - Custom aggregations: `pdb.agg('{"avg": {"field": "price"}}'::jsonb) OVER ()`
 //!
 //! Both of these get automatically converted to `window_agg()` calls during planning.
 
 use pgrx::pg_sys;
-use pgrx::prelude::*;
 
-use crate::postgres::utils::lookup_paradedb_function;
+use crate::postgres::utils::lookup_pdb_function;
 
-/// Internal placeholder function for window aggregates.
-///
-/// This function should never actually execute - it exists only as a placeholder
-/// that the custom scan replaces during execution. The JSON parameter contains
-/// the serialized aggregation specification.
-///
-/// If this function executes, it means the custom scan failed to intercept it,
-/// which indicates a bug in the planning logic.
-#[pg_extern(volatile, parallel_safe, name = "window_agg")]
-pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
-    pgrx::error!(
+#[pgrx::pg_schema]
+mod pdb {
+    use pgrx::prelude::*;
+
+    /// Internal placeholder function for window aggregates.
+    ///
+    /// This function should never actually execute - it exists only as a placeholder
+    /// that the custom scan replaces during execution. The JSON parameter contains
+    /// the serialized aggregation specification.
+    ///
+    /// If this function executes, it means the custom scan failed to intercept it,
+    /// which indicates a bug in the planning logic.
+    #[pg_extern(volatile, parallel_safe, name = "window_agg")]
+    pub fn window_agg_placeholder(window_aggregate_json: &str) -> i64 {
+        pgrx::error!(
         "window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {}",
         window_aggregate_json
     )
+    }
 }
 
 /// Get the OID of the window_agg placeholder function
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn window_agg_oid() -> pg_sys::Oid {
-    lookup_paradedb_function("window_agg", &[pg_sys::TEXTOID])
+    lookup_pdb_function("window_agg", &[pg_sys::TEXTOID])
 }

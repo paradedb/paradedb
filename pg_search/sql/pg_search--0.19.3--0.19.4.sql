@@ -2,7 +2,7 @@
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:92
 -- pg_search::api::aggregate::agg_placeholder_agg_placeholder_finalize
-CREATE  FUNCTION "agg_placeholder_agg_placeholder_finalize"(
+CREATE  FUNCTION pdb."agg_placeholder_agg_placeholder_finalize"(
 	"this" internal /* pgrx::datum::internal::Internal */
 ) RETURNS jsonb /* pgrx::datum::json::JsonB */
 LANGUAGE c /* Rust */
@@ -11,7 +11,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_agg_placeholder_finalize_wrapper';
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:92
 -- pg_search::api::aggregate::agg_placeholder_agg_placeholder_state
-CREATE  FUNCTION "agg_placeholder_agg_placeholder_state"(
+CREATE  FUNCTION pdb."agg_placeholder_agg_placeholder_state"(
 	"this" internal, /* pgrx::datum::internal::Internal */
 	"arg_one" jsonb /* pgrx::datum::json::JsonB */
 ) RETURNS internal /* pgrx::datum::internal::Internal */
@@ -21,7 +21,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_agg_placeholder_state_wrapper';
 /* <begin connected objects> */
 -- pg_search/src/api/window_aggregate.rs:52
 -- pg_search::api::window_aggregate::window_agg
-CREATE  FUNCTION "window_agg"(
+CREATE  FUNCTION pdb."window_agg"(
 	"window_aggregate_json" TEXT /* &str */
 ) RETURNS bigint /* i64 */
 STRICT VOLATILE PARALLEL SAFE 
@@ -31,7 +31,7 @@ AS 'MODULE_PATHNAME', 'window_agg_placeholder_wrapper';
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:92
 -- pg_search::api::aggregate::AggPlaceholder
-CREATE AGGREGATE agg (
+CREATE AGGREGATE pdb.agg (
 	jsonb /* pgrx::datum::json::JsonB */
 )
 (

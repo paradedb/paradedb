@@ -1125,31 +1125,31 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 39: Benchmark query - TopN + paradedb.agg terms (faceting)
+-- Test 39: Benchmark query - TopN + pdb.agg terms (faceting)
 -- Verify this produces TopN execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT id, name, description, category, brand, paradedb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
+SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
-SELECT id, name, description, category, brand, paradedb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
+SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 40: Benchmark query - TopN + paradedb.agg avg
+-- Test 40: Benchmark query - TopN + pdb.agg avg
 -- Verify this produces TopN execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT id, name, description, category, brand, paradedb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
-SELECT id, name, description, category, brand, paradedb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
+SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC

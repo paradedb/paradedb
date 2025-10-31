@@ -261,12 +261,12 @@ pub unsafe fn register_window_aggregate_hook() {
 /// 1. The query is a TopN query (has ORDER BY and LIMIT), AND
 /// 2. The query contains window functions, AND
 /// 3. Either:
-///    - The query uses `paradedb.agg()` (which MUST be handled by us), OR
+///    - The query uses `pdb.agg()` (which MUST be handled by us), OR
 ///    - The query uses the `@@@` search operator (indicating custom scan usage)
 ///
 /// ## Validation
 ///
-/// If `paradedb.agg()` is used, it MUST be:
+/// If `pdb.agg()` is used, it MUST be:
 /// - Inside a window function (OVER clause)
 /// - In a TopN query (ORDER BY + LIMIT)
 ///
@@ -294,7 +294,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
                 }
             } else if has_paradedb_agg {
                 pgrx::error!(
-                    "paradedb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
+                    "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
                 );
             }
         }
@@ -454,12 +454,12 @@ unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
     has_order_by && has_limit
 }
 
-/// Check if the query contains paradedb.agg() in any context (window function or aggregate)
+/// Check if the query contains pdb.agg() in any context (window function or aggregate)
 /// If it does, we MUST handle it (even without @@@ operator)
 /// Uses expression_tree_walker for complete traversal
 ///
 /// NOTE: This logic is duplicated with `maybe_needs_const_projections` in pdbscan/projections/mod.rs.
-/// Both need to identify paradedb.agg() calls, so changes to one should be reflected in the other.
+/// Both need to identify pdb.agg() calls, so changes to one should be reflected in the other.
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
     use crate::api::agg_funcoid;

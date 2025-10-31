@@ -655,20 +655,19 @@ pub unsafe fn expr_contains_any_operator(
     context.found
 }
 
-/// Look up a function in the paradedb schema by name and argument types.
+/// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
-pub fn lookup_paradedb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
+pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
     unsafe {
-        // Look up the paradedb schema
-        let paradedb_schema = pg_sys::get_namespace_oid(c"paradedb".as_ptr(), true);
-        if paradedb_schema == pg_sys::InvalidOid {
+        // Look up the pdb schema
+        let pdb_schema = pg_sys::get_namespace_oid(c"pdb".as_ptr(), true);
+        if pdb_schema == pg_sys::InvalidOid {
             return pg_sys::InvalidOid;
         }
 
-        // Build the qualified function name list: paradedb.<func_name>
+        // Build the qualified function name list: pdb.<func_name>
         let mut func_name_list = PgList::<pg_sys::Node>::new();
-        func_name_list
-            .push(pg_sys::makeString(c"paradedb".as_ptr() as *mut std::ffi::c_char) as *mut _);
+        func_name_list.push(pg_sys::makeString(c"pdb".as_ptr() as *mut std::ffi::c_char) as *mut _);
         // Convert func_name to CString for makeString
         let func_name_cstr = std::ffi::CString::new(func_name).unwrap();
         func_name_list

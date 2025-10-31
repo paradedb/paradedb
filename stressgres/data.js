@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761943906343,
+  "lastUpdate": 1761944673861,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65928,6 +65928,54 @@ window.BENCHMARK_DATA = {
             "value": 110.70748854633224,
             "unit": "median tps",
             "extra": "avg tps: 109.7631846633075, max tps: 127.90105898680847, count: 107304"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3458)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T15:56:03-04:00",
+          "tree_id": "23f41bcb6cb35b7466a8728e3eed2188d60c43f0",
+          "url": "https://github.com/paradedb/paradedb/commit/6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982"
+        },
+        "date": 1761944671515,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 600.3033607030516,
+            "unit": "median tps",
+            "extra": "avg tps: 600.7755238419638, max tps: 909.7100081018773, count: 53644"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 699.4449500408797,
+            "unit": "median tps",
+            "extra": "avg tps: 699.353538618191, max tps: 1109.4592763204562, count: 53644"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 107.84851267244395,
+            "unit": "median tps",
+            "extra": "avg tps: 107.93895891046016, max tps: 120.21079067931113, count: 53644"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.7368914877411,
+            "unit": "median tps",
+            "extra": "avg tps: 108.50380903029487, max tps: 146.5515783443781, count: 107288"
           }
         ]
       }

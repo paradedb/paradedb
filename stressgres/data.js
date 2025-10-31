@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761888386632,
+  "lastUpdate": 1761888924425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24076,6 +24076,42 @@ window.BENCHMARK_DATA = {
             "value": 5.366212223146859,
             "unit": "median tps",
             "extra": "avg tps: 4.852617505801795, max tps: 5.958764414219768, count: 57302"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79f42258720b4639c61b351573835ec86946be4d",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3459)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-30T22:05:50-07:00",
+          "tree_id": "f9d76dfc00b90142ee5c2095a49d6c6044b8642b",
+          "url": "https://github.com/paradedb/paradedb/commit/79f42258720b4639c61b351573835ec86946be4d"
+        },
+        "date": 1761888922189,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.271430312205798,
+            "unit": "median tps",
+            "extra": "avg tps: 7.117873651776412, max tps: 11.112718083305236, count: 57489"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3313145215330175,
+            "unit": "median tps",
+            "extra": "avg tps: 4.809304504617616, max tps: 5.8906955635434395, count: 57489"
           }
         ]
       }

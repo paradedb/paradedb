@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761944677725,
+  "lastUpdate": 1761944859927,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7648,6 +7648,72 @@ window.BENCHMARK_DATA = {
             "value": 155.20934056181832,
             "unit": "median tps",
             "extra": "avg tps: 174.5129538022643, max tps: 500.84517623489637, count: 55265"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9cc49b6f263a32d8c46c047c21b9acd448ff9f5a",
+          "message": "fix: custom scan with GROUP BY on columns containing NULL values (#3454)\n\n# Ticket(s) Closed\n\n- Closes #3356 \n\n## What\nFix Aggregate Custom Scan dropping NULL groups; NULL now forms its own\nGROUP BY bucket\n\n## Why\nMatch SQL/Postgres semantics; users reported NULL groups missing.\n\n## How\nSet TermsAggregation.missing to a sentinel at execution and map it back\nto SQL NULL during materialization.\n\n## Tests\nAdded test_group_by_null_bucket\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nSigned-off-by: Daniil Tatarinov <92638932+idkwhttsay@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-31T13:51:07-07:00",
+          "tree_id": "51600e36badb2cb861b41750a21e9e816ac22e26",
+          "url": "https://github.com/paradedb/paradedb/commit/9cc49b6f263a32d8c46c047c21b9acd448ff9f5a"
+        },
+        "date": 1761944857571,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 729.8248955417201,
+            "unit": "median tps",
+            "extra": "avg tps: 728.3972506671513, max tps: 803.7636987100072, count: 55253"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3233.2518982197316,
+            "unit": "median tps",
+            "extra": "avg tps: 3223.726566420169, max tps: 3246.9599069743495, count: 55253"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 741.6595571581818,
+            "unit": "median tps",
+            "extra": "avg tps: 741.4373312711396, max tps: 804.603143050901, count: 55253"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 634.9135167724245,
+            "unit": "median tps",
+            "extra": "avg tps: 633.3718314975345, max tps: 640.1231670822192, count: 55253"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1728.8002218589425,
+            "unit": "median tps",
+            "extra": "avg tps: 1720.4830422057228, max tps: 1747.653237875214, count: 110506"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1282.9183042701056,
+            "unit": "median tps",
+            "extra": "avg tps: 1273.2428437173521, max tps: 1286.234359528281, count: 55253"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 154.88916814299554,
+            "unit": "median tps",
+            "extra": "avg tps: 160.68085910416482, max tps: 1101.5144722478935, count: 55253"
           }
         ]
       }

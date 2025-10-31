@@ -922,7 +922,7 @@ pub mod v2 {
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
         ) {
             // if we are creating the index, set the XID to the first normal transaction id
-            // because anything garbage-collected during index creation should be immediately re-usable
+            // because anything garbage-collected during index creation should be immediately reusable
             let when_recyclable = if bman.is_create_index() {
                 pg_sys::FullTransactionId {
                     value: pg_sys::FirstNormalTransactionId.into_inner() as u64,

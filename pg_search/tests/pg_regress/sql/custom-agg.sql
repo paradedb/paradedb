@@ -253,14 +253,14 @@ SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error';
 
--- Test 18: pdb.agg() with count aggregation
+-- Test 18: pdb.agg() with value_count aggregation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+SELECT category, pdb.agg('{"value_count": {"field": "status_code"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
-SELECT category, pdb.agg('{"count": {"field": "status_code"}}'::jsonb)
+SELECT category, pdb.agg('{"value_count": {"field": "status_code"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761888150020,
+  "lastUpdate": 1761888383076,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50122,6 +50122,60 @@ window.BENCHMARK_DATA = {
             "value": 19.219715018829888,
             "unit": "median tps",
             "extra": "avg tps: 19.171361651835884, max tps: 19.94748783931325, count: 55511"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2407641297d84b64c713dad81acdd8315e6b79fc",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3457)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T00:30:59-04:00",
+          "tree_id": "450ab6e5fa278fae99366a42232375da6d7f993a",
+          "url": "https://github.com/paradedb/paradedb/commit/2407641297d84b64c713dad81acdd8315e6b79fc"
+        },
+        "date": 1761888380937,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.5765161185111,
+            "unit": "median tps",
+            "extra": "avg tps: 37.54815748562647, max tps: 42.39971320510943, count: 55457"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.23326943782945,
+            "unit": "median tps",
+            "extra": "avg tps: 265.59715976650466, max tps: 2895.0979674833125, count: 55457"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1003.9167718555082,
+            "unit": "median tps",
+            "extra": "avg tps: 1001.7554029244407, max tps: 1008.4959389529075, count: 55457"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 111.87291330896647,
+            "unit": "median tps",
+            "extra": "avg tps: 150.89689860548862, max tps: 842.5578960237611, count: 110914"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.859493669080145,
+            "unit": "median tps",
+            "extra": "avg tps: 19.00597852220667, max tps: 20.523353435705083, count: 55457"
           }
         ]
       }

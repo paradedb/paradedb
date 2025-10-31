@@ -30,20 +30,20 @@ use tantivy::TantivyError;
 type NeedClose = bool;
 
 #[repr(transparent)]
-struct IsCreateIndex(Rc<RefCell<Option<bool>>>);
+struct IsCreateIndex(Rc<RefCell<bool>>);
 impl Default for IsCreateIndex {
     fn default() -> Self {
-        Self(Rc::new(RefCell::new(None)))
+        Self(Rc::new(RefCell::new(false)))
     }
 }
 
 impl IsCreateIndex {
     fn set(&self, value: bool) {
-        self.0.replace(Some(value));
+        self.0.replace(value);
     }
 
     fn get(&self) -> bool {
-        self.0.borrow().unwrap_or(false)
+        *self.0.borrow()
     }
 }
 

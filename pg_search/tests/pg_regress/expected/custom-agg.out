@@ -1256,5 +1256,22 @@ ORDER BY timestamp DESC LIMIT 10;
   1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
 (7 rows)
 
+-- =====================================================================
+-- SECTION 12: Error Handling - Aggregate Custom Scan Disabled
+-- =====================================================================
+-- Test 46: pdb.agg() with aggregate custom scan disabled (should error)
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+ERROR:  pdb.agg() requires aggregate custom scan to be enabled. Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg().
+-- Test 47: pdb.agg() with GROUP BY and aggregate custom scan disabled (should error)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+ERROR:  pdb.agg() requires aggregate custom scan to be enabled. Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg().
+-- Re-enable for cleanup
+SET paradedb.enable_aggregate_custom_scan TO on;
 -- Cleanup
 DROP TABLE logs CASCADE;

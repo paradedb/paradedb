@@ -709,6 +709,26 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
+-- =====================================================================
+-- SECTION 12: Error Handling - Aggregate Custom Scan Disabled
+-- =====================================================================
+
+-- Test 46: pdb.agg() with aggregate custom scan disabled (should error)
+SET paradedb.enable_aggregate_custom_scan TO off;
+
+SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error';
+
+-- Test 47: pdb.agg() with GROUP BY and aggregate custom scan disabled (should error)
+SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
+FROM logs
+WHERE description @@@ 'error'
+GROUP BY category;
+
+-- Re-enable for cleanup
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
 

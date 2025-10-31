@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761888924425,
+  "lastUpdate": 1761888928170,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30166,6 +30166,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.66671320372762, max segment_count: 106.0, count: 57302"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79f42258720b4639c61b351573835ec86946be4d",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3459)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-30T22:05:50-07:00",
+          "tree_id": "f9d76dfc00b90142ee5c2095a49d6c6044b8642b",
+          "url": "https://github.com/paradedb/paradedb/commit/79f42258720b4639c61b351573835ec86946be4d"
+        },
+        "date": 1761888925944,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.238733533447622, max cpu: 42.687748, count: 57489"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.2850847009863, max mem: 228.41015625, count: 57489"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.42869872043457, max cpu: 33.23442, count: 57489"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 165.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 165.0870724317913, max mem: 167.3125, count: 57489"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24351,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23327.782219207154, max block_count: 26095.0, count: 57489"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.67125884951903, max segment_count: 105.0, count: 57489"
           }
         ]
       }

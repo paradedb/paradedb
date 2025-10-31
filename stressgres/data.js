@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761923717766,
+  "lastUpdate": 1761923721677,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31012,6 +31012,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.95291863054851, max segment_count: 106.0, count: 57921"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd59ebce0e763abace37f635da83616d11df7019",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3462)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-31T10:45:37-04:00",
+          "tree_id": "665f4a44d0e5f13c591de664e214f957d4147386",
+          "url": "https://github.com/paradedb/paradedb/commit/fd59ebce0e763abace37f635da83616d11df7019"
+        },
+        "date": 1761923719415,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.853102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.657680665613167, max cpu: 42.687748, count: 57907"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.80824000390712, max mem: 229.95703125, count: 57907"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.35102287799536, max cpu: 33.267326, count: 57907"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.259809708347, max mem: 166.375, count: 57907"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24451,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23318.356675358766, max block_count: 26417.0, count: 57907"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.81855388813096, max segment_count: 107.0, count: 57907"
           }
         ]
       }

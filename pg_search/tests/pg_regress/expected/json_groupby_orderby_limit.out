@@ -41,9 +41,9 @@ LIMIT 5;
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: ((metadata ->> 'category'::text)), (now())
+   Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
-         Output: (metadata ->> 'category'::text), now()
+         Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
          Index: idx_json_single
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
            Applies to Aggregates: COUNT(*)

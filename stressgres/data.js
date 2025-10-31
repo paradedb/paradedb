@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761945870566,
+  "lastUpdate": 1761946458902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37612,6 +37612,54 @@ window.BENCHMARK_DATA = {
             "value": 5.826804646768651,
             "unit": "median tps",
             "extra": "avg tps: 5.827961141211719, max tps: 8.108318902485198, count: 56527"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9cc49b6f263a32d8c46c047c21b9acd448ff9f5a",
+          "message": "fix: custom scan with GROUP BY on columns containing NULL values (#3454)\n\n# Ticket(s) Closed\n\n- Closes #3356 \n\n## What\nFix Aggregate Custom Scan dropping NULL groups; NULL now forms its own\nGROUP BY bucket\n\n## Why\nMatch SQL/Postgres semantics; users reported NULL groups missing.\n\n## How\nSet TermsAggregation.missing to a sentinel at execution and map it back\nto SQL NULL during materialization.\n\n## Tests\nAdded test_group_by_null_bucket\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nSigned-off-by: Daniil Tatarinov <92638932+idkwhttsay@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-31T13:51:07-07:00",
+          "tree_id": "51600e36badb2cb861b41750a21e9e816ac22e26",
+          "url": "https://github.com/paradedb/paradedb/commit/9cc49b6f263a32d8c46c047c21b9acd448ff9f5a"
+        },
+        "date": 1761946456385,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1184.826884045765,
+            "unit": "median tps",
+            "extra": "avg tps: 1179.283231747638, max tps: 1245.2147363464624, count: 56289"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1218.6219675424984,
+            "unit": "median tps",
+            "extra": "avg tps: 1178.8778774793475, max tps: 1303.8295839806449, count: 56289"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1805.918605500835,
+            "unit": "median tps",
+            "extra": "avg tps: 1721.9414054777924, max tps: 1983.5030396502107, count: 56289"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.8710244051394005,
+            "unit": "median tps",
+            "extra": "avg tps: 5.86498481953741, max tps: 8.306496634784866, count: 56289"
           }
         ]
       }

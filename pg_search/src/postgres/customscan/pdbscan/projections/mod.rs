@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_positions_funcoids, SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::score_funcoids;
 use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
@@ -100,7 +100,7 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let data = &*data.cast::<Data>();
-            if (*funcexpr).funcid == data.score_funcoid
+            if data.score_funcoids.contains(&(*funcexpr).funcid)
                 || data.snippet_funcoids.contains(&(*funcexpr).funcid)
                 || data
                     .snippet_positions_funcoids
@@ -114,13 +114,13 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     }
 
     struct Data {
-        score_funcoid: pg_sys::Oid,
+        score_funcoids: Vec<pg_sys::Oid>,
         snippet_funcoids: Vec<pg_sys::Oid>,
         snippet_positions_funcoids: Vec<pg_sys::Oid>,
     }
 
     let mut data = Data {
-        score_funcoid: score_funcoid(),
+        score_funcoids: score_funcoids(),
         snippet_funcoids: snippet_funcoids(),
         snippet_positions_funcoids: snippet_positions_funcoids(),
     };
@@ -201,7 +201,7 @@ pub unsafe fn pullout_funcexprs(
 pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
-    score_funcoid: pg_sys::Oid,
+    score_funcoids: &[pg_sys::Oid],
     snippet_funcoids: &[pg_sys::Oid],
     snippets_funcoids: &[pg_sys::Oid],
     snippet_positions_funcoids: &[pg_sys::Oid],
@@ -226,7 +226,7 @@ pub unsafe fn inject_placeholders(
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
-            if (*funcexpr).funcid == data.score_funcoid {
+            if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.const_score_node.cast());
             }
 
@@ -307,7 +307,7 @@ pub unsafe fn inject_placeholders(
     struct Data<'a> {
         rti: pg_sys::Index,
 
-        score_funcoid: pg_sys::Oid,
+        score_funcoids: Vec<pg_sys::Oid>,
         const_score_node: *mut pg_sys::Const,
 
         snippet_funcoids: Vec<pg_sys::Oid>,
@@ -323,7 +323,7 @@ pub unsafe fn inject_placeholders(
     let mut data = Data {
         rti,
 
-        score_funcoid,
+        score_funcoids: score_funcoids.to_vec(),
         const_score_node: pg_sys::makeConst(
             pg_sys::FLOAT4OID,
             -1,

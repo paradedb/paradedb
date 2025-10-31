@@ -73,7 +73,7 @@ pub struct PdbScanState {
 
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
-    pub score_funcoid: pg_sys::Oid,
+    pub score_funcoids: Vec<pg_sys::Oid>,
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 

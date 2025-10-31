@@ -259,10 +259,7 @@ extension_sql!(
     ALTER FUNCTION paradedb.snippet SUPPORT paradedb.placeholder_support;
     "#,
     name = "paradedb_snippet_placeholder",
-    requires = [
-        paradedb_snippet_from_relation,
-        placeholder_support
-    ]
+    requires = [paradedb_snippet_from_relation, placeholder_support]
 );
 
 extension_sql!(
@@ -311,7 +308,7 @@ fn get_snippet_funcoids(signatures: &[&str]) -> Vec<pg_sys::Oid> {
                     pg_sys::regprocedurein,
                     &[cstr.as_c_str().into_datum()],
                 )
-                .expect(&format!("the `{}` function should exist", signature))
+                .unwrap_or_else(|| panic!("the `{}` function should exist", signature))
             })
             .collect()
     }

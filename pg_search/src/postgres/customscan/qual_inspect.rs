@@ -20,7 +20,7 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
-use crate::postgres::customscan::{operator_oid, score_funcoid};
+use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
@@ -744,7 +744,7 @@ unsafe fn opexpr(
         pg_sys::NodeTag::T_FuncExpr => {
             // direct support for pdb.score() in the WHERE clause
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
-            if (*funcexpr).funcid != score_funcoid() {
+            if !score_funcoids().contains(&(*funcexpr).funcid) {
                 return node_opexpr(
                     root,
                     rti,

@@ -58,7 +58,7 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::qual_inspect::{
     extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
 };
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
@@ -691,7 +691,9 @@ impl CustomScan for PdbScan {
             let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(processed_tlist);
 
             let mut attname_lookup = HashMap::default();
-            let funcoids: Vec<pg_sys::Oid> = std::iter::once(score_funcoid())
+            let funcoids: Vec<pg_sys::Oid> = score_funcoids()
+                .iter()
+                .copied()
                 .chain(snippet_funcoids().iter().copied())
                 .chain(snippets_funcoids().iter().copied())
                 .chain(snippet_positions_funcoids().iter().copied())
@@ -794,18 +796,18 @@ impl CustomScan for PdbScan {
                 .cloned()
                 .expect("should have an attribute name lookup");
 
-            let score_funcoid = score_funcoid();
+            let score_funcoids = score_funcoids();
             let snippet_funcoids = snippet_funcoids();
             let snippets_funcoids = snippets_funcoids();
             let snippet_positions_funcoids = snippet_positions_funcoids();
 
-            builder.custom_state().score_funcoid = score_funcoid;
+            builder.custom_state().score_funcoids = score_funcoids.clone();
             builder.custom_state().snippet_funcoids = snippet_funcoids.clone();
             builder.custom_state().snippets_funcoids = snippets_funcoids.clone();
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids.clone();
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
-                score_funcoid,
+                &score_funcoids,
                 builder.custom_state().execution_rti,
             );
 
@@ -1369,7 +1371,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
-        state.custom_state().score_funcoid,
+        &state.custom_state().score_funcoids,
         &state.custom_state().snippet_funcoids,
         &state.custom_state().snippets_funcoids,
         &state.custom_state().snippet_positions_funcoids,

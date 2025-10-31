@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761946458902,
+  "lastUpdate": 1761946463108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48232,6 +48232,108 @@ window.BENCHMARK_DATA = {
             "value": 157.93359375,
             "unit": "median mem",
             "extra": "avg mem: 176.70152751948183, max mem: 218.9375, count: 56527"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9cc49b6f263a32d8c46c047c21b9acd448ff9f5a",
+          "message": "fix: custom scan with GROUP BY on columns containing NULL values (#3454)\n\n# Ticket(s) Closed\n\n- Closes #3356 \n\n## What\nFix Aggregate Custom Scan dropping NULL groups; NULL now forms its own\nGROUP BY bucket\n\n## Why\nMatch SQL/Postgres semantics; users reported NULL groups missing.\n\n## How\nSet TermsAggregation.missing to a sentinel at execution and map it back\nto SQL NULL during materialization.\n\n## Tests\nAdded test_group_by_null_bucket\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nSigned-off-by: Daniil Tatarinov <92638932+idkwhttsay@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-10-31T13:51:07-07:00",
+          "tree_id": "51600e36badb2cb861b41750a21e9e816ac22e26",
+          "url": "https://github.com/paradedb/paradedb/commit/9cc49b6f263a32d8c46c047c21b9acd448ff9f5a"
+        },
+        "date": 1761946460585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06811277514256782, max background_merging: 1.0, count: 56289"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.822854421888736, max cpu: 9.696969, count: 56289"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 18.55745426226705, max mem: 20.1640625, count: 56289"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.983028627299016, max cpu: 27.906979, count: 56289"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.45910037096502, max mem: 165.66015625, count: 56289"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51550,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51418.029774911614, max block_count: 51550.0, count: 56289"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.77299294711222, max segment_count: 56.0, count: 56289"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.724513360383103, max cpu: 27.906979, count: 56289"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 151.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.8831036176029, max mem: 158.75, count: 56289"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.788499252142959, max cpu: 28.070175, count: 56289"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 172.5,
+            "unit": "median mem",
+            "extra": "avg mem: 169.52761384051502, max mem: 172.5, count: 56289"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.818089293567535, max cpu: 33.267326, count: 56289"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.88062110270212, max mem: 216.13671875, count: 56289"
           }
         ]
       }

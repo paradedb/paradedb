@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761888383076,
+  "lastUpdate": 1761888386632,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -60838,6 +60838,114 @@ window.BENCHMARK_DATA = {
             "value": 156.8828125,
             "unit": "median mem",
             "extra": "avg mem: 155.24857165133938, max mem: 158.1796875, count: 55511"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2407641297d84b64c713dad81acdd8315e6b79fc",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3457)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T00:30:59-04:00",
+          "tree_id": "450ab6e5fa278fae99366a42232375da6d7f993a",
+          "url": "https://github.com/paradedb/paradedb/commit/2407641297d84b64c713dad81acdd8315e6b79fc"
+        },
+        "date": 1761888384496,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.564189900190772, max cpu: 38.019802, count: 55457"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.33974013650214, max mem: 157.4140625, count: 55457"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.680785050239399, max cpu: 27.906979, count: 55457"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 110.7632062481968, max mem: 112.29296875, count: 55457"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.946763888550905, max cpu: 9.467456, count: 55457"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 144.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 124.10681861340768, max mem: 145.58984375, count: 55457"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 31033,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31380.226932578393, max block_count: 63943.0, count: 55457"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.122476502294557, max cpu: 4.660194, count: 55457"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.71870315909173, max mem: 130.421875, count: 55457"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.748561948897343, max segment_count: 52.0, count: 55457"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.11748171306337, max cpu: 32.526623, count: 110914"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.39815729979983, max mem: 157.078125, count: 110914"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.162044988837225, max cpu: 27.87996, count: 55457"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 156.3088902212525, max mem: 159.8359375, count: 55457"
           }
         ]
       }

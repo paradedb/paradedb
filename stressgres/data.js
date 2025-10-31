@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761886059397,
+  "lastUpdate": 1761886832070,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23854,6 +23854,42 @@ window.BENCHMARK_DATA = {
             "value": 5.351918408829509,
             "unit": "median tps",
             "extra": "avg tps: 4.836495414444153, max tps: 5.922189277492248, count: 57504"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2407641297d84b64c713dad81acdd8315e6b79fc",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3457)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T00:30:59-04:00",
+          "tree_id": "450ab6e5fa278fae99366a42232375da6d7f993a",
+          "url": "https://github.com/paradedb/paradedb/commit/2407641297d84b64c713dad81acdd8315e6b79fc"
+        },
+        "date": 1761886829865,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.357586254983378,
+            "unit": "median tps",
+            "extra": "avg tps: 7.128212599565654, max tps: 11.09421801226065, count: 57302"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.366212223146859,
+            "unit": "median tps",
+            "extra": "avg tps: 4.852617505801795, max tps: 5.958764414219768, count: 57302"
           }
         ]
       }

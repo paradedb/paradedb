@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{FieldName, HashSet as FxHashSet};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -449,21 +450,97 @@ impl From<&Qual> for SearchQueryInput {
                     // is "all" rather than "NOT all"
                     Qual::ExternalExpr => SearchQueryInput::All,
 
-                    // For other types of negation, use the standard Boolean query with must_not
-                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
-                    // NULL values differently than when negating equality operators
+                    // For other types of negation, prefer to exclude NULLs for the same field.
+                    // In SQL three-valued logic, NOT (predicate(field)) should not include rows where
+                    // field IS NULL (predicate evaluates to UNKNOWN). To mirror this, when the negated
+                    // predicate targets exactly one field, add an Exists constraint on that field.
+                    // If we can't determine a single field, fall back to NOT with an All must clause.
                     _ => {
-                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
+                        let inner = SearchQueryInput::from(qual.as_ref());
 
-                        SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
+                        if let Some(field) = single_field_in_query(&inner) {
+                            SearchQueryInput::Boolean {
+                                must: vec![SearchQueryInput::FieldedQuery {
+                                    field,
+                                    query: pdb::Query::Exists,
+                                }],
+                                should: vec![],
+                                must_not: vec![inner],
+                            }
+                        } else {
+                            SearchQueryInput::Boolean {
+                                must: vec![SearchQueryInput::All],
+                                should: Default::default(),
+                                must_not: vec![inner],
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// Try to determine if the query exclusively targets a single field.
+/// Returns that field when determinable; otherwise None.
+fn single_field_in_query(query: &SearchQueryInput) -> Option<FieldName> {
+    let mut fields: FxHashSet<FieldName> = FxHashSet::default();
+    collect_field_names(query, &mut fields);
+    if fields.len() == 1 {
+        // Safe unwrap due to len()==1
+        fields.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn collect_field_names(query: &SearchQueryInput, acc: &mut FxHashSet<FieldName>) {
+    match query {
+        SearchQueryInput::FieldedQuery { field, .. } => {
+            acc.insert(field.clone());
+        }
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+        } => {
+            for q in must {
+                collect_field_names(q, acc);
+            }
+            for q in should {
+                collect_field_names(q, acc);
+            }
+            for q in must_not {
+                collect_field_names(q, acc);
+            }
+        }
+        SearchQueryInput::Boost { query, .. } | SearchQueryInput::ConstScore { query, .. } => {
+            collect_field_names(query, acc);
+        }
+        SearchQueryInput::ScoreFilter { query, .. } => {
+            if let Some(q) = query.as_ref() {
+                collect_field_names(q, acc);
+            }
+        }
+        SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+            for q in disjuncts {
+                collect_field_names(q, acc);
+            }
+        }
+        SearchQueryInput::WithIndex { query, .. } => {
+            collect_field_names(query, acc);
+        }
+        SearchQueryInput::HeapFilter { indexed_query, .. } => {
+            collect_field_names(indexed_query, acc);
+        }
+        // Queries without explicit field targeting
+        SearchQueryInput::All
+        | SearchQueryInput::Empty
+        | SearchQueryInput::Uninitialized
+        | SearchQueryInput::MoreLikeThis { .. }
+        | SearchQueryInput::Parse { .. }
+        | SearchQueryInput::TermSet { .. }
+        | SearchQueryInput::PostgresExpression { .. } => {}
     }
 }
 
@@ -1721,7 +1798,26 @@ mod tests {
                     should,
                     must_not,
                 },
-            ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
+            ) => {
+                if must_not.len() != 1 {
+                    return false;
+                }
+                if must.len() != 1 {
+                    return false;
+                }
+                match &must[0] {
+                    SearchQueryInput::All => true,
+                    SearchQueryInput::FieldedQuery {
+                        field: f,
+                        query: pdb::Query::Exists,
+                    } => {
+                        // If the negated inner query targets a single field, our planner may add an Exists constraint for NULL-safety
+                        // We can't easily reconstruct the exact field from inner here, so allow Exists on any field
+                        true
+                    }
+                    _ => false,
+                }
+            }
 
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (

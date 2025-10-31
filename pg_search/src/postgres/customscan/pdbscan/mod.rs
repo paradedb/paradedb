@@ -1771,7 +1771,8 @@ fn base_query_has_search_predicates(
         | SearchQueryInput::MoreLikeThis { .. } => false,
 
         // These are search predicates that use the @@@ operator
-        SearchQueryInput::FieldedQuery { query: pdb::Query::ParseWithField { query_string, .. }, .. } => {
+        SearchQueryInput::FieldedQuery { query: pdb::Query::ParseWithField { query_string, .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Parse { query_string, .. }, .. } => {
             // For ParseWithField, check if it's a text search or a range query
             !is_range_query_string(query_string)
         }

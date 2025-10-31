@@ -182,7 +182,7 @@ impl PdbScan {
         }
 
         unsafe {
-            inject_score_and_snippet_placeholders(state);
+            inject_pdb_placeholders(state);
         }
     }
 
@@ -311,6 +311,9 @@ impl customscan::ExecMethod for PdbScan {
 /// nodes BEFORE replacement in the planner hook.
 ///
 /// Used to determine if we should create a custom path even without @@@ operator.
+///
+/// Also validates that paradedb.agg() is not present - if it is, that means the planner hook
+/// didn't replace it (e.g., not a TopN query), and we should reject it.
 unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() {
         return false;
@@ -318,6 +321,7 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
 
     let parse = (*root).parse;
     let window_agg_func_oid = window_agg_oid();
+    let paradedb_agg_func_oid = crate::api::agg_funcoid();
 
     // If functions don't exist yet (e.g., during extension creation), skip check
     if window_agg_func_oid == pg_sys::InvalidOid {
@@ -325,6 +329,7 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     }
 
     let window_agg_func_oid = window_agg_func_oid.to_u32();
+    let paradedb_agg_func_oid = paradedb_agg_func_oid.to_u32();
 
     // Check target list for window_agg() or paradedb.agg() function calls
     if !(*parse).targetList.is_null() {
@@ -336,6 +341,16 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
                     let func_oid = (*func_expr).funcid.to_u32();
                     if func_oid == window_agg_func_oid {
                         return true;
+                    } else if func_oid == paradedb_agg_func_oid {
+                        // paradedb.agg() should have been replaced by planner hook
+                        // If it's still here, it means it wasn't a valid TopN query
+                        pgrx::error!(
+                            "paradedb.agg() can only be used as a window function in TopN queries \
+                             (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
+                             SQL aggregates like COUNT(*), SUM(), etc. \
+                             Hint: Try using '@@@ paradedb.all()' with ORDER BY and LIMIT, \
+                             or see https://github.com/paradedb/paradedb/issues for more information."
+                        );
                     }
                 }
             }
@@ -1343,7 +1358,8 @@ fn check_visibility(
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
 }
 
-unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
+/// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
+unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = !state.custom_state().window_aggregates.is_empty();

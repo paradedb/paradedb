@@ -98,8 +98,13 @@ impl Aggregate<AggPlaceholder> for AggPlaceholder {
         _arg: Self::Args,
         _fcinfo: pgrx::pg_sys::FunctionCallInfo,
     ) -> Self::State {
-        // This should never execute - fail eagerly with a clear message
-        pgrx::error!("paradedb.agg() placeholder function should not be executed.")
+        // This should never execute - if it does, the query wasn't handled by our custom scan
+        pgrx::error!(
+            "paradedb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
     }
 
     fn finalize(
@@ -107,7 +112,12 @@ impl Aggregate<AggPlaceholder> for AggPlaceholder {
         _direct_arg: Self::OrderedSetArgs,
         _fcinfo: pgrx::pg_sys::FunctionCallInfo,
     ) -> Self::Finalize {
-        // This should never execute - fail eagerly with a clear message
-        pgrx::error!("paradedb.agg() placeholder function should not be executed.")
+        // This should never execute - if it does, the query wasn't handled by our custom scan
+        pgrx::error!(
+            "paradedb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
     }
 }

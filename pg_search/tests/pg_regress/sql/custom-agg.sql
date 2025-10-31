@@ -83,6 +83,8 @@ FROM logs
 WHERE description @@@ 'error';
 
 -- Test 5: Custom agg with FILTER and OVER (window function)
+-- NOTE: FILTER with window functions is currently not supported
+-- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
@@ -90,6 +92,8 @@ FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
+-- This query is expected to fail because FILTER with OVER is not yet supported
+-- The error message guides users to file an issue or use paradedb.all()
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs

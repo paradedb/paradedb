@@ -96,36 +96,23 @@ FROM logs
 WHERE description @@@ 'error';
 ERROR:  paradedb.agg() cannot be used in (GROUP BY) aggregates. Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead.
 -- Test 5: Custom agg with FILTER and OVER (window function)
+-- NOTE: FILTER with window functions is currently not supported
+-- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE (status_code >= 500)) OVER (?))
-   ->  Sort
-         Output: id, description, severity, category, response_time, status_code, "timestamp", (paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE (status_code >= 500)) OVER (?))
-         Sort Key: logs."timestamp" DESC
-         ->  WindowAgg
-               Output: id, description, severity, category, response_time, status_code, "timestamp", paradedb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE (status_code >= 500)) OVER (?)
-               ->  Custom Scan (ParadeDB Scan) on public.logs
-                     Output: id, description, severity, category, response_time, status_code, "timestamp"
-                     Table: logs
-                     Index: logs_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
+ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
+-- This query is expected to fail because FILTER with OVER is not yet supported
+-- The error message guides users to file an issue or use paradedb.all()
 SELECT *, paradedb.agg('{"terms": {"field": "category"}}'::jsonb) 
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  paradedb.agg() placeholder function should not be executed.
+ERROR:  paradedb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Test 6: EXPLAIN query to show custom agg is recognized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, 

@@ -36,9 +36,18 @@
 //! We replace window functions at `planner_hook` (before path generation) rather than at
 //! `create_upper_paths_hook` with `UPPERREL_WINDOW` because:
 //!
-//! - **Consistency**: Our `AggregateCustomScan` uses the same pattern for `Aggref` nodes
 //! - **Simpler Integration**: Reuses existing `PdbScan` infrastructure without nested scans
 //! - **Avoids Complexity**: No need for `WindowCustomScan` wrapping `PdbScan`
+//! - **Single Scan**: Allows TopN + aggregation in one scan pass
+//!
+//! Note: `AggregateCustomScan` uses `create_upper_paths_hook` with `UPPERREL_GROUP_AGG`,
+//! not `planner_hook`. The approaches differ because:
+//! - GROUP BY aggregates: Need to replace the entire Aggregate node (upper path)
+//! - Window functions: Can replace individual function calls in target list (planner hook)
+//!
+//! **Tradeoff**: This approach requires duplicating some detection logic between planner_hook
+//! and create_custom_path (see comments in hook.rs about duplication with extract_quals).
+//! See GitHub issue #3455 for potential unification.
 //!
 //! # Example Usage
 //!
@@ -120,6 +129,10 @@ impl WindowAggregateInfo {
     ///
     /// This is primarily used by window functions to check feature flag support.
     /// Execution capability is determined by feature flags.
+    ///
+    /// Important: If we're rejecting a window function due to unsupported features (e.g., FILTER),
+    /// and it uses paradedb.agg() (Custom aggregate), we must error out because PostgreSQL
+    /// cannot handle paradedb.agg() - it's a placeholder that only we can execute.
     pub fn is_supported(targetlist: &Option<TargetList>) -> bool {
         if targetlist.is_none() {
             return false;
@@ -131,6 +144,18 @@ impl WindowAggregateInfo {
             // Check if this aggregate has a filter
             let has_filter = agg_type.has_filter();
             if has_filter && !window_aggregates::WINDOW_AGG_FILTER_CLAUSE {
+                // If we're rejecting due to FILTER not being supported, check if this is
+                // a Custom aggregate (paradedb.agg()). If so, we must error out because
+                // PostgreSQL cannot handle it.
+                if matches!(agg_type, AggregateType::Custom { .. }) {
+                    pgrx::error!(
+                        "paradedb.agg() with FILTER clause is not currently supported. \
+                         FILTER with window functions requires the '{}' feature flag to be enabled. \
+                         Try removing the FILTER clause or use a standard aggregate function instead. \
+                         See https://github.com/paradedb/paradedb/issues for more information.",
+                        "WINDOW_AGG_FILTER_CLAUSE"
+                    );
+                }
                 return false;
             }
         }
@@ -139,6 +164,18 @@ impl WindowAggregateInfo {
         // because we compute facets over the entire result set, not partitioned subsets.
         // If grouping_columns is non-empty, we reject the query.
         if !tlist.grouping_columns().is_empty() {
+            // Check if any aggregate is Custom (paradedb.agg()) - if so, error out
+            for agg_type in tlist.aggregates() {
+                if matches!(agg_type, AggregateType::Custom { .. }) {
+                    pgrx::error!(
+                        "paradedb.agg() with PARTITION BY or ORDER BY in OVER clause is not currently supported. \
+                         These features require the '{}' feature flag to be enabled. \
+                         Try removing PARTITION BY/ORDER BY or use a standard aggregate function instead. \
+                         See https://github.com/paradedb/paradedb/issues for more information.",
+                        "WINDOW_AGG_PARTITION_BY / WINDOW_AGG_ORDER_BY"
+                    );
+                }
+            }
             return false;
         }
 

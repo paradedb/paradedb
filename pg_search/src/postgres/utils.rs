@@ -605,6 +605,11 @@ impl<T> ToPalloc for T {
 
 /// Recursively check if an expression tree contains any of the specified operators
 /// Uses PostgreSQL's expression_tree_walker for robust traversal
+///
+/// NOTE: This logic is duplicated with `extract_quals` in qual_inspect.rs.
+/// Both need to traverse expression trees looking for operators, so changes to one
+/// should be reflected in the other.
+/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 pub unsafe fn expr_contains_any_operator(
     node: *mut pg_sys::Node,
     target_opnos: &[pg_sys::Oid],

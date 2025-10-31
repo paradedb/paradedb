@@ -387,6 +387,10 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 /// Check if the query contains the @@@ search operator
 /// This indicates that our custom scans will likely handle this query
 /// Uses expression_tree_walker via expr_contains_any_operator for complete traversal
+///
+/// NOTE: This logic is duplicated with `extract_quals` in qual_inspect.rs.
+/// Both need to identify the same operators, so changes to one should be reflected in the other.
+/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     let searchqueryinput_opno = anyelement_query_input_opoid();
     let text_opno = anyelement_text_opoid();
@@ -453,6 +457,10 @@ unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
 /// Check if the query contains paradedb.agg() in any context (window function or aggregate)
 /// If it does, we MUST handle it (even without @@@ operator)
 /// Uses expression_tree_walker for complete traversal
+///
+/// NOTE: This logic is duplicated with `maybe_needs_const_projections` in pdbscan/projections/mod.rs.
+/// Both need to identify paradedb.agg() calls, so changes to one should be reflected in the other.
+/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
     use crate::api::agg_funcoid;
 

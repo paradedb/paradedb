@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761897947707,
+  "lastUpdate": 1761898699663,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50908,6 +50908,60 @@ window.BENCHMARK_DATA = {
             "value": 17.82681900230857,
             "unit": "median tps",
             "extra": "avg tps: 17.907695543344666, max tps: 21.34191631222101, count: 55466"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ab788d8862dbc249e491026fc4c7c52bcebac92",
+          "message": "feat: TopN + Window Aggregate (Faceting) - Planning Phase (#3312)\n\n# Ticket(s) Closed\n\n- Partially closes #3054\n\n## What\n\nImplements planning-time extraction and replacement for window\naggregates in TopN queries, enabling faceting patterns like\nElasticsearch where a single query returns both top results and\naggregate counts.\n\n```sql\n-- Returns top 3 laptops by rating + total count of all matching laptops\nSELECT id, name, rating, COUNT(*) OVER () as total_count\nFROM products\nWHERE description @@@ 'laptop'\nORDER BY rating DESC\nLIMIT 3;\n```\n\n## Why\n\nE-commerce and search applications commonly need to return:\n1. Top N results (e.g., first page of products)\n2. Aggregate facets (e.g., total count, category distribution, price\nranges)\n\nWithout this feature, users must either:\n- Run two separate queries (inefficient, inconsistent results)\n- Use CTEs that scan the index twice\n- Use PostgreSQL's standard window functions (can't efficiently leverage\nTantivy's fast aggregation)\n\nWith this change, we can compute both TopN results and aggregates in a\n**single Tantivy index pass** using `MultiCollector`.\n\n## How\n\n### Architecture\n\n**Two-stage approach:**\n\n1. **Planner Hook (early)**: Replaces `WindowFunc` nodes with\n`paradedb.window_func(json)` placeholders\n- Serializes complete window specification (aggregate type, PARTITION\nBY, ORDER BY, FILTER, frame clauses) to JSON\n- Only replaces if query has `@@@` operator (i.e., our custom scans will\nhandle it)\n- Uses PostgreSQL's `nodeToString()`/`stringToNode()` to safely\nserialize filter expressions across memory contexts\n\n2. **Custom Scan Planning (later)**: Deserializes window aggregates and\nconverts FILTER clauses\n   - Extracts `window_func(json)` calls from processed target list\n- Converts serialized filter expressions to `SearchQueryInput` (now that\nwe have `PlannerInfo`)\n   - Stores in `PrivateData` for execution\n\n### Current Capabilities\n\n**Supported (execution):**\n- `COUNT(*) OVER ()` in TopN queries (ORDER BY + LIMIT)\n\n**Supported (planning only - extracted but not executed):**\n- All standard aggregates: COUNT, SUM, AVG, MIN, MAX\n- PARTITION BY clauses\n- ORDER BY in OVER clauses\n- FILTER clauses (with full conversion to `SearchQueryInput`)\n- Custom frame clauses (ROWS, RANGE, GROUPS)\n\n**Feature flags** control what gets replaced vs. falls back to\nPostgreSQL's WindowAgg.\n\n## Tests\n\nAdded a regression test suite: `topn-agg-facet.sql`\n\n### Example Output\n\n```sql\n-- Test 2: Execution works!\nSELECT id, name, rating, COUNT(*) OVER () as total_count\nFROM products WHERE description @@@ 'laptop'\nORDER BY rating DESC LIMIT 3;\n\n id |     name     | rating | total_count \n----+--------------+--------+-------------\n  1 | MacBook Pro  |    4.8 |           4\n  5 | ASUS ROG     |    4.7 |           4\n  2 | Dell XPS 13  |    4.6 |           4\n```\n\nEXPLAIN shows our custom scan with `window_func(...)` placeholders\ninstead of PostgreSQL's `WindowAgg` node.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-10-31T00:22:44-07:00",
+          "tree_id": "667979799ec8274136662d7ae330623eb0ed09ef",
+          "url": "https://github.com/paradedb/paradedb/commit/0ab788d8862dbc249e491026fc4c7c52bcebac92"
+        },
+        "date": 1761898697194,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.57885609971984,
+            "unit": "median tps",
+            "extra": "avg tps: 37.689186775250505, max tps: 39.87905145451284, count: 55493"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.4054764731266,
+            "unit": "median tps",
+            "extra": "avg tps: 274.99081515567934, max tps: 2984.8898362235673, count: 55493"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1031.2527014438974,
+            "unit": "median tps",
+            "extra": "avg tps: 1025.022107939053, max tps: 1038.6719828165324, count: 55493"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.456203216622,
+            "unit": "median tps",
+            "extra": "avg tps: 156.88550844815683, max tps: 869.8233770477032, count: 110986"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.450754904221103,
+            "unit": "median tps",
+            "extra": "avg tps: 18.486039467923266, max tps: 19.543983668797086, count: 55493"
           }
         ]
       }

@@ -26,7 +26,7 @@ mod pdb {
     use pgrx::{extension_sql, pg_extern, AnyElement};
 
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-    fn pdb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
+    fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
         None
     }
 
@@ -34,8 +34,8 @@ mod pdb {
         r#"
     ALTER FUNCTION pdb.score SUPPORT paradedb.placeholder_support;
     "#,
-        name = "pdb_score_placeholder",
-        requires = [pdb_score_from_relation, placeholder_support]
+        name = "score_placeholder",
+        requires = [score_from_relation, placeholder_support]
     );
 }
 

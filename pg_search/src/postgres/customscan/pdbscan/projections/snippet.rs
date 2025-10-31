@@ -22,7 +22,10 @@ use crate::nodecast;
 use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, extension_sql, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{
+    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
+    FromDatum, IntoDatum, PgList,
+};
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -183,75 +186,95 @@ struct Context<'a> {
     snippet_type: Vec<SnippetType>,
 }
 
-#[macro_export]
-macro_rules! define_snippet_functions {
-    ($schema:ident) => {
-        paste::paste! {
-            use pgrx::{default, pg_extern, AnyElement};
-
-            #[pg_extern(name = "snippet", stable, parallel_safe)]
-            fn [<$schema _snippet_from_relation>](
-                field: AnyElement,
-                start_tag: default!(String, "'<b>'"),
-                end_tag: default!(String, "'</b>'"),
-                max_num_chars: default!(i32, "150"),
-                limit: default!(Option<i32>, "NULL"),
-                offset: default!(Option<i32>, "NULL"),
-            ) -> Option<String> {
-                None
-            }
-
-            #[pg_extern(name = "snippets", stable, parallel_safe)]
-            fn [<$schema _snippets_from_relation>](
-                field: AnyElement,
-                start_tag: default!(String, "'<b>'"),
-                end_tag: default!(String, "'</b>'"),
-                max_num_chars: default!(i32, "150"),
-                limit: default!(Option<i32>, "NULL"),
-                offset: default!(Option<i32>, "NULL"),
-                sort_by: default!(String, "'score'"),
-            ) -> Option<Vec<String>> {
-                None
-            }
-
-            #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
-            fn [<$schema _snippet_positions_from_relation>](
-                field: AnyElement,
-                limit: default!(Option<i32>, "NULL"),
-                offset: default!(Option<i32>, "NULL"),
-            ) -> Option<Vec<Vec<i32>>> {
-                None
-            }
-        }
-    };
-}
-
 #[pgrx::pg_schema]
 mod pdb {
-    define_snippet_functions!(pdb);
+    use pgrx::{default, pg_extern, AnyElement};
+
+    #[pg_extern(name = "snippet", stable, parallel_safe)]
+    fn snippet_from_relation(
+        field: AnyElement,
+        start_tag: default!(String, "'<b>'"),
+        end_tag: default!(String, "'</b>'"),
+        max_num_chars: default!(i32, "150"),
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
+    ) -> Option<String> {
+        None
+    }
+
+    #[pg_extern(name = "snippets", stable, parallel_safe)]
+    fn snippets_from_relation(
+        field: AnyElement,
+        start_tag: default!(String, "'<b>'"),
+        end_tag: default!(String, "'</b>'"),
+        max_num_chars: default!(i32, "150"),
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
+        sort_by: default!(String, "'score'"),
+    ) -> Option<Vec<String>> {
+        None
+    }
+
+    #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+    fn snippet_positions_from_relation(
+        field: AnyElement,
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
+    ) -> Option<Vec<Vec<i32>>> {
+        None
+    }
 }
 
 // In `0.19.0`, we renamed `paradedb.snippet*` functions to `pdb.snippet*`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
-define_snippet_functions!(paradedb);
+#[pg_extern(name = "snippet", stable, parallel_safe)]
+fn paradedb_snippet_from_relation(
+    field: AnyElement,
+    start_tag: default!(String, "'<b>'"),
+    end_tag: default!(String, "'</b>'"),
+    max_num_chars: default!(i32, "150"),
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+) -> Option<String> {
+    None
+}
+
+#[pg_extern(name = "snippets", stable, parallel_safe)]
+fn paradedb_snippets_from_relation(
+    field: AnyElement,
+    start_tag: default!(String, "'<b>'"),
+    end_tag: default!(String, "'</b>'"),
+    max_num_chars: default!(i32, "150"),
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+    sort_by: default!(String, "'score'"),
+) -> Option<Vec<String>> {
+    None
+}
+
+#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+fn paradedb_snippet_positions_from_relation(
+    field: AnyElement,
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+) -> Option<Vec<Vec<i32>>> {
+    None
+}
 
 extension_sql!(
     r#"
     ALTER FUNCTION pdb.snippet SUPPORT paradedb.placeholder_support;
     "#,
-    name = "pdb_snippet_placeholder",
-    requires = [pdb::pdb_snippet_from_relation, placeholder_support]
+    name = "snippet_placeholder",
+    requires = [pdb::snippet_from_relation, placeholder_support]
 );
 
 extension_sql!(
     r#"
     ALTER FUNCTION pdb.snippet_positions SUPPORT paradedb.placeholder_support;
     "#,
-    name = "pdb_snippet_positions_placeholder",
-    requires = [
-        pdb::pdb_snippet_positions_from_relation,
-        placeholder_support
-    ]
+    name = "snippet_positions_placeholder",
+    requires = [pdb::snippet_positions_from_relation, placeholder_support]
 );
 
 extension_sql!(

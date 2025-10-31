@@ -29,7 +29,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::uses_scores;
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
 
@@ -310,7 +310,7 @@ pub unsafe fn pullup_fast_fields(
                 return None;
             }
             continue;
-        } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
+        } else if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
             matches.push(WhichFastField::Score);
             continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)

@@ -34,7 +34,7 @@ pub use targetlist::TargetListEntry;
 
 use crate::nodecast;
 
-use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -219,10 +219,15 @@ impl CustomScan for AggregateScan {
                 let expected_typoid = attr.type_oid().value();
 
                 let datum = match (entry, row.is_empty()) {
-                    (TargetListEntry::GroupingColumn(gc_idx), false) => row.group_keys[*gc_idx]
-                        .clone()
-                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                        .expect("should be able to convert to datum"),
+                    (TargetListEntry::GroupingColumn(gc_idx), false) => {
+                        let key = row.group_keys[*gc_idx].clone();
+                        match &key.0 {
+                            OwnedValue::Str(s) if s == NULL_GROUP_KEY_SENTINEL => None,
+                            _ => key
+                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum"),
+                        }
+                    }
                     (TargetListEntry::GroupingColumn(_), true) => None,
                     (TargetListEntry::Aggregate(agg_type), false) => {
                         if agg_type.can_use_doc_count()

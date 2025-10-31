@@ -386,9 +386,10 @@ GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
   category   | count 
 -------------+-------
+             |     2
  clothing    |     1
  electronics |     1
-(2 rows)
+(3 rows)
 
 -- =========================================
 -- Test 5: Original example from issue

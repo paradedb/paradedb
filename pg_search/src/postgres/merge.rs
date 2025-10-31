@@ -475,7 +475,7 @@ pub unsafe fn garbage_collect_index(
 
     // TODO: Consider explicitly checking replication slots rather than indirectly checking
     // for hot_standby_feedback.
-    if hot_standby::feedback_xmin().is_none() {
+    if hot_standby::feedback_xmin().is_none() || indexrel.is_create_index() {
         // Replication is not enabled: immediately free the entries. It doesn't matter when we
         // commit the segment metas list in this case.
         segment_metas.commit();

@@ -710,17 +710,18 @@ WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
 
 -- =====================================================================
--- SECTION 12: Error Handling - Aggregate Custom Scan Disabled
+-- SECTION 12: pdb.agg() with Aggregate Custom Scan GUC Disabled
 -- =====================================================================
 
--- Test 46: pdb.agg() with aggregate custom scan disabled (should error)
+-- Test 46: pdb.agg() should work even when GUC is disabled (explicit opt-in)
 SET paradedb.enable_aggregate_custom_scan TO off;
 
+-- Should still work because pdb.agg() is an explicit opt-in
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error';
 
--- Test 47: pdb.agg() with GROUP BY and aggregate custom scan disabled (should error)
+-- Test 47: pdb.agg() with GROUP BY should also work when GUC is disabled
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'

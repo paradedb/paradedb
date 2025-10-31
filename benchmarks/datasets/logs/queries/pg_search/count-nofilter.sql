@@ -11,4 +11,4 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.al
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all();
 
 -- pdb.agg without GROUP BY
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT pdb.agg('{"value_count": {"field": "ctid"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "ctid"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all();

@@ -1371,20 +1371,32 @@ ORDER BY timestamp DESC LIMIT 10;
 (7 rows)
 
 -- =====================================================================
--- SECTION 12: Error Handling - Aggregate Custom Scan Disabled
+-- SECTION 12: pdb.agg() with Aggregate Custom Scan GUC Disabled
 -- =====================================================================
--- Test 46: pdb.agg() with aggregate custom scan disabled (should error)
+-- Test 46: pdb.agg() should work even when GUC is disabled (explicit opt-in)
 SET paradedb.enable_aggregate_custom_scan TO off;
+-- Should still work because pdb.agg() is an explicit opt-in
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error';
-ERROR:  pdb.agg() requires aggregate custom scan to be enabled. Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg().
--- Test 47: pdb.agg() with GROUP BY and aggregate custom scan disabled (should error)
+                                                                                                            agg                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 47: pdb.agg() with GROUP BY should also work when GUC is disabled
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
-ERROR:  pdb.agg() requires aggregate custom scan to be enabled. Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg().
+  category   |                                                                       agg                                                                        
+-------------+--------------------------------------------------------------------------------------------------------------------------------------------------
+ database    | {"buckets": [{"key": "error", "doc_count": 2}, {"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ application | {"buckets": [{"key": "critical", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ api         | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ network     | {"buckets": [{"key": "critical", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
+
 -- Re-enable for cleanup
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Cleanup

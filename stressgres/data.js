@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761913936469,
+  "lastUpdate": 1761922938767,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7384,6 +7384,72 @@ window.BENCHMARK_DATA = {
             "value": 116.79738354060932,
             "unit": "median tps",
             "extra": "avg tps: 156.90097443945555, max tps: 1082.669386332165, count: 55289"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd59ebce0e763abace37f635da83616d11df7019",
+          "message": "fix: Reuse recycled pages during `CREATE INDEX` immediately (#3462)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds a new flag to `PgSearchRelation` that tells us whether we are in\nindex creation\n- If we are, all pages returned to the FSM have an XID of\n`FirstNormalTransactionId` so they can be re-used immediately, which is\nokay because there are no concurrent reads to an index that is being\ncreated\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-31T10:45:37-04:00",
+          "tree_id": "665f4a44d0e5f13c591de664e214f957d4147386",
+          "url": "https://github.com/paradedb/paradedb/commit/fd59ebce0e763abace37f635da83616d11df7019"
+        },
+        "date": 1761922936032,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 765.4663448733876,
+            "unit": "median tps",
+            "extra": "avg tps: 764.3885545567247, max tps: 887.5083743405767, count: 55338"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3341.2251933812486,
+            "unit": "median tps",
+            "extra": "avg tps: 3307.0491840489676, max tps: 3361.411963895961, count: 55338"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 783.9677585826716,
+            "unit": "median tps",
+            "extra": "avg tps: 781.5340183828896, max tps: 811.1273057434313, count: 55338"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 660.4178580549791,
+            "unit": "median tps",
+            "extra": "avg tps: 659.1224863014166, max tps: 668.7296179273036, count: 55338"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1728.191012638016,
+            "unit": "median tps",
+            "extra": "avg tps: 1720.8421493363767, max tps: 1750.4874655114193, count: 110676"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1240.7391363667084,
+            "unit": "median tps",
+            "extra": "avg tps: 1229.8834417978758, max tps: 1258.8540830778675, count: 55338"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 156.80129295125386,
+            "unit": "median tps",
+            "extra": "avg tps: 170.01143320031457, max tps: 987.2175077101687, count: 55338"
           }
         ]
       }

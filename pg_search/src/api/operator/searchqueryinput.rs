@@ -23,6 +23,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
@@ -190,16 +191,90 @@ pub fn search_with_query_input(
         let ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 
+        // Build a lightweight MVCC visibility checker over the heap to filter out
+        // tuples from aborted or invisible transactions using the ctid fast field.
+        struct LocalVisCheck {
+            scan: *mut pg_sys::IndexFetchTableData,
+            slot: *mut pg_sys::TupleTableSlot,
+            snapshot: pg_sys::Snapshot,
+            tid: pg_sys::ItemPointerData,
+            vmbuf: pg_sys::Buffer,
+        }
+
+        impl Drop for LocalVisCheck {
+            fn drop(&mut self) {
+                unsafe {
+                    if !pg_sys::IsTransactionState() {
+                        return;
+                    }
+                    pg_sys::table_index_fetch_end(self.scan);
+                    pg_sys::ExecClearTuple(self.slot);
+                    if self.vmbuf != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                        pg_sys::ReleaseBuffer(self.vmbuf);
+                    }
+                }
+            }
+        }
+
+        unsafe fn make_vischeck(index_relation: &PgSearchRelation) -> LocalVisCheck {
+            let heaprel = index_relation
+                .heap_relation()
+                .expect("index should reference a heap relation");
+            let heapptr = heaprel.as_ptr();
+            LocalVisCheck {
+                scan: pg_sys::table_index_fetch_begin(heapptr),
+                slot: pg_sys::MakeTupleTableSlot(
+                    pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
+                    &pg_sys::TTSOpsBufferHeapTuple,
+                ),
+                snapshot: pg_sys::GetActiveSnapshot(),
+                tid: pg_sys::ItemPointerData::default(),
+                vmbuf: pg_sys::InvalidBuffer as _,
+            }
+        }
+
+        unsafe fn is_visible(v: &mut LocalVisCheck, ctid: u64) -> bool {
+            utils::u64_to_item_pointer(ctid, &mut v.tid);
+
+            if pg_sys::visibilitymap_get_status(
+                (*v.scan).rel,
+                pgrx::itemptr::item_pointer_get_block_number(&v.tid),
+                &mut v.vmbuf,
+            ) != 0
+            {
+                return true;
+            }
+
+            let mut call_again = false;
+            let mut all_dead = false;
+            pg_sys::ExecClearTuple(v.slot);
+            pg_sys::table_index_fetch_tuple(
+                v.scan,
+                &mut v.tid,
+                v.snapshot,
+                v.slot,
+                &mut call_again,
+                &mut all_dead,
+            )
+        }
+
+        let mut vis = unsafe { make_vischeck(&index_relation) };
+
         // now, query the SearchReader and collect up the docs that match our query.
         // the matches are cached so that the same input query will return the same results
         // throughout the duration of the scan
         let matches = search_reader
             .search()
-            .map(|(_, doc_address)| {
+            .filter_map(|(_, doc_address)| {
                 check_for_interrupts!();
-                ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
+                // Exclude invisible rows using the ctid fast field.
+                let ctid_ff = ff_helper.ctid(doc_address.segment_ord);
+                let ctid = ctid_ff.as_u64(doc_address.doc_id)?;
+                if unsafe { is_visible(&mut vis, ctid) } {
+                    ff_helper.value(0, doc_address)
+                } else {
+                    None
+                }
             })
             .collect();
 

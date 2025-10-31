@@ -479,35 +479,7 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     opexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     opexpr.location = (*(*srs).fcall).location;
 
-    // Wrap the operator in a CASE to preserve SQL 3VL for NULLs on the original LHS:
-    // CASE WHEN (lhs IS NULL) THEN NULL ELSE (key_field @@@ with_index(query)) END
-    // This ensures NOT(...) does not incorrectly include NULL rows.
-    let mut nulltest = PgBox::<pg_sys::NullTest>::alloc_node(pg_sys::NodeTag::T_NullTest);
-    nulltest.arg = lhs.cast();
-    nulltest.nulltesttype = pg_sys::NullTestType::IS_NULL;
-    nulltest.argisrow = false;
-    nulltest.location = (*(*srs).fcall).location;
-
-    let mut whenclause = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
-    // condition: lhs IS NULL
-    whenclause.expr = nulltest.into_pg().cast();
-    // result: NULL boolean
-    whenclause.result = pg_sys::makeBoolConst(false, true).cast();
-    whenclause.location = (*(*srs).fcall).location;
-
-    let mut whens = PgList::<pg_sys::Node>::new();
-    whens.push(whenclause.into_pg().cast());
-
-    let mut caseexpr = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
-    caseexpr.casetype = pg_sys::BOOLOID;
-    caseexpr.casecollid = pg_sys::Oid::INVALID;
-    caseexpr.arg = std::ptr::null_mut();
-    caseexpr.args = whens.into_pg();
-    // ELSE branch is the actual operator expression
-    caseexpr.defresult = opexpr.into_pg().cast();
-    caseexpr.location = (*(*srs).fcall).location;
-
-    ReturnedNodePointer(NonNull::new(caseexpr.into_pg().cast()))
+    ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
 }
 
 unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *mut pg_sys::Var {

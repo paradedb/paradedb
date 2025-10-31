@@ -23,6 +23,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
@@ -93,6 +94,11 @@ pub struct PdbScanState {
     pub ambulkdelete_epoch: u32,
 
     pub doc_from_heap_state: Option<HeapFetchState>,
+
+    // Window aggregate support
+    pub window_aggregates: Vec<WindowAggregateInfo>,
+    pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
+    pub const_window_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,

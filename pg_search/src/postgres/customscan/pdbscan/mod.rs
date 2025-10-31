@@ -19,10 +19,11 @@
 mod exec_methods;
 pub mod parallel;
 mod privdat;
-mod projections;
+pub mod projections;
 mod scan_state;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
+use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -45,6 +46,10 @@ use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, snippets_funcoid, uses_snippets, SnippetType,
+};
+use crate::postgres::customscan::pdbscan::projections::window_agg::{
+    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
+    WindowAggregateInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -177,7 +182,7 @@ impl PdbScan {
         }
 
         unsafe {
-            inject_score_and_snippet_placeholders(state);
+            inject_pdb_placeholders(state);
         }
     }
 
@@ -245,7 +250,13 @@ impl PdbScan {
         };
 
         // Finally, decide whether we can actually use the extracted quals.
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() {
+        // We allow custom scan if:
+        // 1. The query uses @@@ operator, OR
+        // 2. enable_custom_scan_without_operator is true, OR
+        // 3. The query has window aggregates (pdb.agg()) that we must handle
+        let has_window_aggs = query_has_window_agg_functions(root);
+        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
+        {
             (quals, ri_type, restrict_info)
         } else {
             (None, ri_type, restrict_info)
@@ -291,6 +302,64 @@ impl customscan::ExecMethod for PdbScan {
     }
 }
 
+/// Check if the query's target list contains window_agg() function calls
+///
+/// This is called AFTER window function replacement in PdbScan's create_custom_path.
+/// It looks for FuncExpr nodes with window_agg() OID, NOT WindowFunc nodes.
+///
+/// This is different from query_has_window_functions() in hook.rs which looks for WindowFunc
+/// nodes BEFORE replacement in the planner hook.
+///
+/// Used to determine if we should create a custom path even without @@@ operator.
+///
+/// Also validates that pdb.agg() is not present - if it is, that means the planner hook
+/// didn't replace it (e.g., not a TopN query), and we should reject it.
+unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
+    if root.is_null() || (*root).parse.is_null() {
+        return false;
+    }
+
+    let parse = (*root).parse;
+    let window_agg_func_oid = window_agg_oid();
+    let paradedb_agg_func_oid = crate::api::agg_funcoid();
+
+    // If functions don't exist yet (e.g., during extension creation), skip check
+    if window_agg_func_oid == pg_sys::InvalidOid {
+        return false;
+    }
+
+    let window_agg_func_oid = window_agg_func_oid.to_u32();
+    let paradedb_agg_func_oid = paradedb_agg_func_oid.to_u32();
+
+    // Check target list for window_agg() or pdb.agg() function calls
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null() {
+                // Check if this is a FuncExpr with window_agg or pdb.agg OID
+                if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                    let func_oid = (*func_expr).funcid.to_u32();
+                    if func_oid == window_agg_func_oid {
+                        return true;
+                    } else if func_oid == paradedb_agg_func_oid {
+                        // pdb.agg() should have been replaced by planner hook
+                        // If it's still here, it means it wasn't a valid TopN query
+                        pgrx::error!(
+                            "pdb.agg() can only be used as a window function in TopN queries \
+                             (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
+                             SQL aggregates like COUNT(*), SUM(), etc. \
+                             Hint: Try using '@@@ paradedb.all()' with ORDER BY and LIMIT, \
+                             or see https://github.com/paradedb/paradedb/issues for more information."
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -301,9 +370,13 @@ impl CustomScan for PdbScan {
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
-            if matches!(ri_type, RestrictInfoType::None) {
-                // this relation has no restrictions (WHERE clause predicates), so there's no need
-                // for us to do anything
+
+            // Check if the query has window aggregates (pdb.agg() or window_agg())
+            let has_window_aggs = query_has_window_agg_functions(builder.args().root);
+
+            if matches!(ri_type, RestrictInfoType::None) && !has_window_aggs {
+                // this relation has no restrictions (WHERE clause predicates) and no window aggregates,
+                // so there's no need for us to do anything
                 return None;
             }
 
@@ -357,10 +430,15 @@ impl CustomScan for PdbScan {
                 is_select,
             );
 
-            let Some(quals) = quals else {
-                // if we are not able to push down all of the quals, then do not propose the custom
-                // scan, as that would mean executing filtering against heap tuples (which amounts
-                // to a join, and would require more planning).
+            // If we have window aggregates but no quals, we must still create the custom path
+            // because pdb.agg() can only be executed by our custom scan
+            let quals = if let Some(q) = quals {
+                q
+            } else if has_window_aggs {
+                // No WHERE clause, but we have window aggregates - use All query
+                Qual::All
+            } else {
+                // No quals and no window aggregates - we can't help
                 return None;
             };
 
@@ -572,15 +650,45 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_target_list_len(Some(tlist.len()));
 
-            let private_data = builder.custom_private();
+            // Extract window_agg(json) calls from processed_tlist using expression tree walker
+            // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
+            // Note: This updates target_entry_index to match the processed_tlist positions
+            let processed_tlist = (*builder.args().root).processed_tlist;
 
-            let rti: i32 = private_data
+            let mut window_aggregates = deserialize_window_agg_placeholders(processed_tlist);
+
+            if !window_aggregates.is_empty() {
+                // Convert PostgresExpression filters to SearchQueryInput now that we have root
+                // Note: root was not available in the planner hook, so we needed to delay this until now.
+                let private_data = builder.custom_private();
+                if let Some(heaprelid) = private_data.heaprelid() {
+                    if let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid) {
+                        let root = builder.args().root;
+                        let rti = private_data
+                            .range_table_index()
+                            .expect("range table index should be set");
+
+                        resolve_window_aggregate_filters_at_plan_time(
+                            &mut window_aggregates,
+                            &bm25_index,
+                            root,
+                            rti,
+                        );
+                    }
+                }
+
+                builder
+                    .custom_private_mut()
+                    .set_window_aggregates(window_aggregates);
+            }
+
+            let private_data = builder.custom_private();
+            let rti = private_data
                 .range_table_index()
                 .expect("range table index should have been set")
                 .try_into()
                 .expect("range table index should not be negative");
-            let processed_tlist =
-                PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
+            let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(processed_tlist);
 
             let mut attname_lookup = HashMap::default();
             let score_funcoid = score_funcoid();
@@ -712,6 +820,10 @@ impl CustomScan for PdbScan {
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
                 builder.custom_private().join_predicates().clone();
+
+            // Store window aggregates in the scan state
+            let window_aggs = builder.custom_private().window_aggregates().clone();
+            builder.custom_state().window_aggregates = window_aggs;
 
             // store our query into our custom state too
             let base_query = builder
@@ -970,11 +1082,13 @@ impl CustomScan for PdbScan {
                             }
                         };
 
-                        if !state.custom_state().need_scores()
-                            && !state.custom_state().need_snippets()
-                        {
+                        let needs_special_projection = state.custom_state().need_scores()
+                            || state.custom_state().need_snippets()
+                            || state.custom_state().window_aggregate_results.is_some();
+
+                        if !needs_special_projection {
                             //
-                            // we don't need scores or snippets
+                            // we don't need scores, snippets, or window aggregates
                             // do the projection and return
                             //
 
@@ -1000,6 +1114,20 @@ impl CustomScan for PdbScan {
                                     .expect("const_score_node should be set");
                                 (*const_score_node).constvalue = score.into_datum().unwrap();
                                 (*const_score_node).constisnull = false;
+                            }
+
+                            // Update window aggregate values
+                            if let Some(agg_results) =
+                                &state.custom_state().window_aggregate_results
+                            {
+                                for (te_idx, datum) in agg_results {
+                                    if let Some(const_node) =
+                                        state.custom_state().const_window_agg_nodes.get(te_idx)
+                                    {
+                                        (**const_node).constvalue = *datum;
+                                        (**const_node).constisnull = false;
+                                    }
+                                }
                             }
 
                             // finally, do the projection
@@ -1084,6 +1212,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
+                window_aggregates: privdata.window_aggregates().clone(),
             };
         }
         if matches!(topn_pathkey_info, PathKeyInfo::None) {
@@ -1094,6 +1223,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
+                window_aggregates: privdata.window_aggregates().clone(),
             };
         }
     }
@@ -1126,6 +1256,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             orderby_info,
+            window_aggregates,
         } => builder.custom_state().assign_exec_method(
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
@@ -1227,9 +1358,14 @@ fn check_visibility(
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
 }
 
-unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
-    if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
-        // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
+/// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
+unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
+    let need_scores = state.custom_state().need_scores();
+    let need_snippets = state.custom_state().need_snippets();
+    let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
+
+    if !need_scores && !need_snippets && !has_window_aggs {
+        // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
 
@@ -1249,9 +1385,70 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
         &state.custom_state().snippet_generators,
     );
 
+    // Now inject window aggregate placeholders
+    let (targetlist, const_window_agg_nodes) = if !state.custom_state().window_aggregates.is_empty()
+    {
+        inject_window_aggregate_placeholders(targetlist, &state.custom_state().window_aggregates)
+    } else {
+        (targetlist, HashMap::default())
+    };
+
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
+    state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
+}
+
+/// Inject placeholder Const nodes for window aggregates at execution time
+/// At this point, the WindowFunc has been replaced with paradedb.window_agg(json) calls
+unsafe fn inject_window_aggregate_placeholders(
+    targetlist: *mut pg_sys::List,
+    window_aggs: &[WindowAggregateInfo],
+) -> (*mut pg_sys::List, HashMap<usize, *mut pg_sys::Const>) {
+    let mut const_nodes = HashMap::default();
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    let window_agg_procid = window_agg_oid();
+
+    // If window_agg function doesn't exist yet, return original targetlist
+    if window_agg_procid == pg_sys::InvalidOid {
+        return (targetlist, const_nodes);
+    }
+
+    for agg_info in window_aggs {
+        let te_idx = agg_info.target_entry_index;
+
+        // Get the target entry at this index
+        if let Some(te) = tlist.get_ptr(te_idx) {
+            let node_type = (*(*te).expr).type_;
+
+            // Check if this is our window_agg FuncExpr
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                if (*funcexpr).funcid == window_agg_procid {
+                    // Create a placeholder Const node with the appropriate type
+                    let const_node = pg_sys::makeConst(
+                        agg_info.result_type_oid(),
+                        -1,
+                        pg_sys::DEFAULT_COLLATION_OID,
+                        if agg_info.result_type_oid() == pg_sys::INT8OID {
+                            8
+                        } else {
+                            -1
+                        },
+                        pg_sys::Datum::null(),
+                        true,                                          // constisnull
+                        agg_info.result_type_oid() == pg_sys::INT8OID, // constbyval (true for INT8)
+                    );
+
+                    // Replace the window_agg FuncExpr with our Const node
+                    (*te).expr = const_node.cast();
+
+                    const_nodes.insert(te_idx, const_node);
+                }
+            }
+        }
+    }
+
+    (tlist.into_pg(), const_nodes)
 }
 
 #[derive(Debug, Clone)]

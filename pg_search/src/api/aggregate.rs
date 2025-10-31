@@ -15,6 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Aggregate functions for ParadeDB search.
+//!
+//! ## User-Facing Function: `pdb.agg(jsonb)`
+//!
+//! This is the public API for users to specify custom Tantivy aggregations.
+//! When used in window function context (`OVER ()`), it gets intercepted at planning
+//! time and replaced with `window_agg()` placeholder. The actual execution happens
+//! in the custom scan using Tantivy's aggregation collectors.
+//!
+//! Example: `SELECT *, pdb.agg('{"avg": {"field": "price"}}'::jsonb) OVER () FROM products`
+//!
+//! When used with GROUP BY, the aggregate currently returns an error indicating it's not supported.
+//! The window function variant is the primary use case.
+//!
+//! ## Internal Function: `window_agg(text)`
+//!
+//! This is an internal placeholder function (in `window_aggregate.rs`) that replaces
+//! `pdb.agg()` calls when they appear in window function context during planning.
+//! It should never be called by users directly.
+//!
+//! ## Placeholder Aggregate: `AggPlaceholder`
+//!
+//! This implements the `pdb.agg()` aggregate using pgrx's native aggregate API.
+//! It should never actually execute - if it does, it will error immediately with a
+//! clear message. This is similar to how `paradedb.score()` works as a placeholder
+//! that the custom scan intercepts and handles.
+
 use std::error::Error;
 
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
@@ -48,5 +75,54 @@ pub fn aggregate(
         Ok(JsonB(serde_json::Value::Null))
     } else {
         Ok(JsonB(serde_json::to_value(aggregate)?))
+    }
+}
+
+#[pgrx::pg_schema]
+mod pdb {
+    use pgrx::aggregate::Aggregate;
+    use pgrx::{Internal, JsonB};
+
+    /// Placeholder aggregate for `pdb.agg()`.
+    ///
+    /// This aggregate should never actually execute - it's intercepted at planning time
+    /// for window functions. If it does execute (e.g., in GROUP BY), it will error immediately.
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "agg"]
+    pub struct AggPlaceholder;
+
+    #[pgrx::pg_aggregate(parallel_safe)]
+    impl Aggregate<AggPlaceholder> for AggPlaceholder {
+        type Args = JsonB;
+        type State = Internal;
+        type Finalize = JsonB;
+
+        fn state(
+            _current: Self::State,
+            _arg: Self::Args,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            // This should never execute - if it does, the query wasn't handled by our custom scan
+            pgrx::error!(
+            "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
+        }
+
+        fn finalize(
+            _current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            // This should never execute - if it does, the query wasn't handled by our custom scan
+            pgrx::error!(
+            "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
+        }
     }
 }

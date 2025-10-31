@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761947238595,
+  "lastUpdate": 1761947431124,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -54310,6 +54310,60 @@ window.BENCHMARK_DATA = {
             "value": 18.286390105994908,
             "unit": "median tps",
             "extra": "avg tps: 18.27718080659479, max tps: 19.058211056804105, count: 55443"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "01597180ebf0ca07154331f8b6f43689d042af16",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3468)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-31T16:54:43-04:00",
+          "tree_id": "3b7bab58147ca8f22c27dd864e37ea679ef86bfb",
+          "url": "https://github.com/paradedb/paradedb/commit/01597180ebf0ca07154331f8b6f43689d042af16"
+        },
+        "date": 1761947428748,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.887170037005305,
+            "unit": "median tps",
+            "extra": "avg tps: 36.94129430292807, max tps: 40.67623565262464, count: 55535"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.02807007693525,
+            "unit": "median tps",
+            "extra": "avg tps: 274.5172053416808, max tps: 2917.042129490344, count: 55535"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1028.0262503747008,
+            "unit": "median tps",
+            "extra": "avg tps: 1021.0313036276485, max tps: 1047.2146070085018, count: 55535"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.09186303045887,
+            "unit": "median tps",
+            "extra": "avg tps: 156.3806307641562, max tps: 839.9030835061388, count: 111070"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.04220330053911,
+            "unit": "median tps",
+            "extra": "avg tps: 17.951132992139932, max tps: 19.33424013497465, count: 55535"
           }
         ]
       }

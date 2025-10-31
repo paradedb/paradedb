@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761896357154,
+  "lastUpdate": 1761896362030,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20512,6 +20512,126 @@ window.BENCHMARK_DATA = {
             "value": 148.0078125,
             "unit": "median mem",
             "extra": "avg mem: 128.63837900350836, max mem: 152.765625, count: 55225"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ab788d8862dbc249e491026fc4c7c52bcebac92",
+          "message": "feat: TopN + Window Aggregate (Faceting) - Planning Phase (#3312)\n\n# Ticket(s) Closed\n\n- Partially closes #3054\n\n## What\n\nImplements planning-time extraction and replacement for window\naggregates in TopN queries, enabling faceting patterns like\nElasticsearch where a single query returns both top results and\naggregate counts.\n\n```sql\n-- Returns top 3 laptops by rating + total count of all matching laptops\nSELECT id, name, rating, COUNT(*) OVER () as total_count\nFROM products\nWHERE description @@@ 'laptop'\nORDER BY rating DESC\nLIMIT 3;\n```\n\n## Why\n\nE-commerce and search applications commonly need to return:\n1. Top N results (e.g., first page of products)\n2. Aggregate facets (e.g., total count, category distribution, price\nranges)\n\nWithout this feature, users must either:\n- Run two separate queries (inefficient, inconsistent results)\n- Use CTEs that scan the index twice\n- Use PostgreSQL's standard window functions (can't efficiently leverage\nTantivy's fast aggregation)\n\nWith this change, we can compute both TopN results and aggregates in a\n**single Tantivy index pass** using `MultiCollector`.\n\n## How\n\n### Architecture\n\n**Two-stage approach:**\n\n1. **Planner Hook (early)**: Replaces `WindowFunc` nodes with\n`paradedb.window_func(json)` placeholders\n- Serializes complete window specification (aggregate type, PARTITION\nBY, ORDER BY, FILTER, frame clauses) to JSON\n- Only replaces if query has `@@@` operator (i.e., our custom scans will\nhandle it)\n- Uses PostgreSQL's `nodeToString()`/`stringToNode()` to safely\nserialize filter expressions across memory contexts\n\n2. **Custom Scan Planning (later)**: Deserializes window aggregates and\nconverts FILTER clauses\n   - Extracts `window_func(json)` calls from processed target list\n- Converts serialized filter expressions to `SearchQueryInput` (now that\nwe have `PlannerInfo`)\n   - Stores in `PrivateData` for execution\n\n### Current Capabilities\n\n**Supported (execution):**\n- `COUNT(*) OVER ()` in TopN queries (ORDER BY + LIMIT)\n\n**Supported (planning only - extracted but not executed):**\n- All standard aggregates: COUNT, SUM, AVG, MIN, MAX\n- PARTITION BY clauses\n- ORDER BY in OVER clauses\n- FILTER clauses (with full conversion to `SearchQueryInput`)\n- Custom frame clauses (ROWS, RANGE, GROUPS)\n\n**Feature flags** control what gets replaced vs. falls back to\nPostgreSQL's WindowAgg.\n\n## Tests\n\nAdded a regression test suite: `topn-agg-facet.sql`\n\n### Example Output\n\n```sql\n-- Test 2: Execution works!\nSELECT id, name, rating, COUNT(*) OVER () as total_count\nFROM products WHERE description @@@ 'laptop'\nORDER BY rating DESC LIMIT 3;\n\n id |     name     | rating | total_count \n----+--------------+--------+-------------\n  1 | MacBook Pro  |    4.8 |           4\n  5 | ASUS ROG     |    4.7 |           4\n  2 | Dell XPS 13  |    4.6 |           4\n```\n\nEXPLAIN shows our custom scan with `window_func(...)` placeholders\ninstead of PostgreSQL's `WindowAgg` node.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-10-31T00:22:44-07:00",
+          "tree_id": "667979799ec8274136662d7ae330623eb0ed09ef",
+          "url": "https://github.com/paradedb/paradedb/commit/0ab788d8862dbc249e491026fc4c7c52bcebac92"
+        },
+        "date": 1761896359472,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8706184981246325, max cpu: 13.93998, count: 55301"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2959531275429, max mem: 156.3984375, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.631025753358878, max cpu: 9.347614, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.502902510239416, max mem: 28.5234375, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.876623362129396, max cpu: 14.243324, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 156.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.15614432831234, max mem: 156.9296875, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.533278140591984, max cpu: 4.733728, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 158.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.92853895612194, max mem: 158.61328125, count: 55301"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.710198749404736, max cpu: 9.476802, count: 110602"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 158.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2468311208206, max mem: 159.24609375, count: 110602"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 29425,
+            "unit": "median block_count",
+            "extra": "avg block_count: 29393.653731397262, max block_count: 56321.0, count: 55301"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.525325039330212, max segment_count: 58.0, count: 55301"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594945902261237, max cpu: 4.824121, count: 55301"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.08678697039838, max mem: 159.75390625, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7759424078843296, max cpu: 9.266409, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 129.68003043853184, max mem: 151.7421875, count: 55301"
           }
         ]
       }

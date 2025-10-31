@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761930663271,
+  "lastUpdate": 1761931119131,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65124,6 +65124,54 @@ window.BENCHMARK_DATA = {
             "value": 110.85988097307454,
             "unit": "median tps",
             "extra": "avg tps: 110.4984948131751, max tps: 125.08010567747955, count: 107292"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce078b1a04b8abd9a6fa1069da7dd39d5a6e4745",
+          "message": "chore: Upgrade to `0.19.4` (#3463)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T12:07:10-04:00",
+          "tree_id": "4766cc8f0b89a2db964d69042a05bef719aaa991",
+          "url": "https://github.com/paradedb/paradedb/commit/ce078b1a04b8abd9a6fa1069da7dd39d5a6e4745"
+        },
+        "date": 1761931116624,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 656.4922966749682,
+            "unit": "median tps",
+            "extra": "avg tps: 655.8827623706842, max tps: 937.3313828717031, count: 53652"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 702.5471608448578,
+            "unit": "median tps",
+            "extra": "avg tps: 702.6915436955063, max tps: 1142.5987341783402, count: 53652"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 109.44333814868497,
+            "unit": "median tps",
+            "extra": "avg tps: 109.47285045293997, max tps: 127.40611568466204, count: 53652"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.70748854633224,
+            "unit": "median tps",
+            "extra": "avg tps: 109.7631846633075, max tps: 127.90105898680847, count: 107304"
           }
         ]
       }

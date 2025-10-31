@@ -12,3 +12,6 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.te
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT severity FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity);
+
+-- normal scan
+SET paradedb.enable_aggregate_custom_scan TO off; SET paradedb.enable_mixed_fast_field_exec = false; SELECT COUNT(*) FROM (SELECT severity FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity);

@@ -38,6 +38,6 @@ CREATE AGGREGATE pdb.agg (
 CREATE  FUNCTION pdb."window_agg"(
 	"window_aggregate_json" TEXT /* &str */
 ) RETURNS bigint /* i64 */
-STRICT VOLATILE PARALLEL SAFE 
+STRICT VOLATILE PARALLEL SAFE
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'window_agg_placeholder_wrapper';

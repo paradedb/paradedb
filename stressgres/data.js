@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761888928170,
+  "lastUpdate": 1761889138685,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61860,6 +61860,54 @@ window.BENCHMARK_DATA = {
             "value": 114.03305020456312,
             "unit": "median tps",
             "extra": "avg tps: 113.75943981874991, max tps: 122.11026485604106, count: 107376"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2407641297d84b64c713dad81acdd8315e6b79fc",
+          "message": "fix: only show hot standby warning if `XLogInsertAllowed()` (#3457)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe had a community report that the hot standby warning was showing up on\na primary that had a hot standby -- also check `XLogInsertAllowed` in\nhopes that this more accurately detects if we are actually a standby\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T00:30:59-04:00",
+          "tree_id": "450ab6e5fa278fae99366a42232375da6d7f993a",
+          "url": "https://github.com/paradedb/paradedb/commit/2407641297d84b64c713dad81acdd8315e6b79fc"
+        },
+        "date": 1761889136389,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 655.4629263651123,
+            "unit": "median tps",
+            "extra": "avg tps: 655.883765270322, max tps: 981.8351708550808, count: 53642"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 668.7864776748976,
+            "unit": "median tps",
+            "extra": "avg tps: 669.239553503551, max tps: 1160.6405501594734, count: 53642"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 110.24643141103444,
+            "unit": "median tps",
+            "extra": "avg tps: 110.43164736598726, max tps: 130.21482209566318, count: 53642"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.89258803170253,
+            "unit": "median tps",
+            "extra": "avg tps: 111.57436936541677, max tps: 140.41176549498377, count: 107284"
           }
         ]
       }

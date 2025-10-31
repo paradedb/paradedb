@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761942343472,
+  "lastUpdate": 1761943143195,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37000,6 +37000,54 @@ window.BENCHMARK_DATA = {
             "value": 5.777459966302907,
             "unit": "median tps",
             "extra": "avg tps: 5.780172956868885, max tps: 7.29243424094824, count: 56445"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982",
+          "message": "fix: bring back `paradedb.score` and `paradedb.snippet*` (#3458)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThese functions were moved to the `pdb` schema for v2, but this PR\npreserves the old functions so existing queries are not broken.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-31T15:56:03-04:00",
+          "tree_id": "23f41bcb6cb35b7466a8728e3eed2188d60c43f0",
+          "url": "https://github.com/paradedb/paradedb/commit/6722cfe0d68005c4bdda6f54b0dd2c6ca7f73982"
+        },
+        "date": 1761943140876,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1192.4476953611804,
+            "unit": "median tps",
+            "extra": "avg tps: 1186.452487094059, max tps: 1256.0073385555802, count: 56527"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1262.623598196579,
+            "unit": "median tps",
+            "extra": "avg tps: 1220.4320715450608, max tps: 1280.338322368376, count: 56527"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1869.6054459250147,
+            "unit": "median tps",
+            "extra": "avg tps: 1785.3154317318185, max tps: 2098.4378891935853, count: 56527"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.826804646768651,
+            "unit": "median tps",
+            "extra": "avg tps: 5.827961141211719, max tps: 8.108318902485198, count: 56527"
           }
         ]
       }

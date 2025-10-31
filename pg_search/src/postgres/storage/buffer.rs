@@ -836,6 +836,10 @@ impl BufferManager {
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
     }
+
+    pub fn is_create_index(&self) -> bool {
+        self.rbufacc.rel().is_create_index()
+    }
 }
 
 /// Directly create a new buffer in the specified relation via extension, bypassing the Free Space Map,

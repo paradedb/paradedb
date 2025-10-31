@@ -32,6 +32,7 @@ pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
+use crate::api::agg_funcoid;
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
@@ -377,6 +378,9 @@ unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys
 unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
     // Try to get the function name from the catalog
     let funcid = (*aggref).aggfnoid;
+    if funcid == agg_funcoid() {
+        return "pdb.agg".to_string();
+    }
     let proc_tuple =
         pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::PROCOID as _, funcid.into());
 
@@ -387,11 +391,6 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
         let name_str = pgrx::name_data_to_str(name_data);
 
         pg_sys::ReleaseSysCache(proc_tuple);
-
-        // Special case for pdb.agg() custom aggregate
-        if name_str == "agg" {
-            return "pdb.agg".to_string();
-        }
 
         // Add (*) for COUNT(*) or star aggregates
         if (*aggref).aggstar {

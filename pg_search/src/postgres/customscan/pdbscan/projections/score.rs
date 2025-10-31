@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::score_funcoids;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{pg_guard, pg_sys, PgList};
+use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
 use std::ptr::addr_of_mut;
 
 #[pgrx::pg_schema]
@@ -39,9 +39,25 @@ mod pdb {
     );
 }
 
+// In `0.19.0`, we renamed the schema from `paradedb` to `pdb`.
+// This is a backwards compatibility shim to ensure that old queries continue to work.
+#[warn(deprecated)]
+#[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
+fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
+    None
+}
+
+extension_sql!(
+    r#"
+    ALTER FUNCTION paradedb.score SUPPORT paradedb.placeholder_support;
+    "#,
+    name = "paradedb_score_placeholder",
+    requires = [paradedb_score_from_relation, placeholder_support]
+);
+
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
-    score_funcoid: pg_sys::Oid,
+    score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
 ) -> bool {
     #[pg_guard]
@@ -55,7 +71,7 @@ pub unsafe fn uses_scores(
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let data = data.cast::<Data>();
-            if (*funcexpr).funcid == (*data).score_funcoid {
+            if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 assert!(args.len() == 1, "score function must have 1 argument");
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
@@ -70,18 +86,21 @@ pub unsafe fn uses_scores(
     }
 
     struct Data {
-        score_funcoid: pg_sys::Oid,
+        score_funcoids: [pg_sys::Oid; 2],
         rti: pg_sys::Index,
     }
 
-    let mut data = Data { score_funcoid, rti };
+    let mut data = Data {
+        score_funcoids,
+        rti,
+    };
 
     walker(node, addr_of_mut!(data).cast())
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if (*funcexpr).funcid == score_funcoid() {
+        if score_funcoids().contains(&(*funcexpr).funcid) {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             assert!(args.len() == 1, "score function must have 1 argument");
             if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {

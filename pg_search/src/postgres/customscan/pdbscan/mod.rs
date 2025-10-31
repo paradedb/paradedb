@@ -45,7 +45,7 @@ use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segm
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    snippet_funcoid, snippet_positions_funcoid, snippets_funcoid, uses_snippets, SnippetType,
+    snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::window_agg::{
     deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
@@ -58,7 +58,7 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::qual_inspect::{
     extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
 };
-use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
@@ -691,22 +691,16 @@ impl CustomScan for PdbScan {
             let processed_tlist = PgList::<pg_sys::TargetEntry>::from_pg(processed_tlist);
 
             let mut attname_lookup = HashMap::default();
-            let score_funcoid = score_funcoid();
-            let snippet_funcoid = snippet_funcoid();
-            let snippets_funcoid = snippets_funcoid();
-            let snippet_positions_funcoid = snippet_positions_funcoid();
+            let funcoids: Vec<pg_sys::Oid> = score_funcoids()
+                .iter()
+                .copied()
+                .chain(snippet_funcoids().iter().copied())
+                .chain(snippets_funcoids().iter().copied())
+                .chain(snippet_positions_funcoids().iter().copied())
+                .collect();
             for te in processed_tlist.iter_ptr() {
-                let func_vars_at_level = pullout_funcexprs(
-                    te.cast(),
-                    &[
-                        score_funcoid,
-                        snippet_funcoid,
-                        snippets_funcoid,
-                        snippet_positions_funcoid,
-                    ],
-                    rti,
-                    builder.args().root,
-                );
+                let func_vars_at_level =
+                    pullout_funcexprs(te.cast(), &funcoids, rti, builder.args().root);
 
                 for (funcexpr, var, attname) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
@@ -802,18 +796,18 @@ impl CustomScan for PdbScan {
                 .cloned()
                 .expect("should have an attribute name lookup");
 
-            let score_funcoid = score_funcoid();
-            let snippet_funcoid = snippet_funcoid();
-            let snippets_funcoid = snippets_funcoid();
-            let snippet_positions_funcoid = snippet_positions_funcoid();
+            let score_funcoids = score_funcoids();
+            let snippet_funcoids = snippet_funcoids();
+            let snippets_funcoids = snippets_funcoids();
+            let snippet_positions_funcoids = snippet_positions_funcoids();
 
-            builder.custom_state().score_funcoid = score_funcoid;
-            builder.custom_state().snippet_funcoid = snippet_funcoid;
-            builder.custom_state().snippets_funcoid = snippets_funcoid;
-            builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
+            builder.custom_state().score_funcoids = score_funcoids;
+            builder.custom_state().snippet_funcoids = snippet_funcoids;
+            builder.custom_state().snippets_funcoids = snippets_funcoids;
+            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
-                score_funcoid,
+                score_funcoids,
                 builder.custom_state().execution_rti,
             );
 
@@ -876,9 +870,9 @@ impl CustomScan for PdbScan {
                 builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
-                snippet_funcoid,
-                snippets_funcoid,
-                snippet_positions_funcoid,
+                snippet_funcoids,
+                snippets_funcoids,
+                snippet_positions_funcoids,
             )
             .into_iter()
             .map(|field| (field, None))
@@ -1377,10 +1371,10 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
-        state.custom_state().score_funcoid,
-        state.custom_state().snippet_funcoid,
-        state.custom_state().snippets_funcoid,
-        state.custom_state().snippet_positions_funcoid,
+        state.custom_state().score_funcoids,
+        state.custom_state().snippet_funcoids,
+        state.custom_state().snippets_funcoids,
+        state.custom_state().snippet_positions_funcoids,
         &state.custom_state().var_attname_lookup,
         &state.custom_state().snippet_generators,
     );
@@ -1834,7 +1828,7 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
 
     for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
         match snippet_type {
-            SnippetType::SingleText(_, _, config, _) => {
+            SnippetType::SingleText(_, config, _) => {
                 let snippet = state.make_snippet(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {
@@ -1850,7 +1844,7 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
                     }
                 }
             }
-            SnippetType::MultipleText(_, _, config, _, _) => {
+            SnippetType::MultipleText(_, config, _, _) => {
                 let snippets = state.make_snippets(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {

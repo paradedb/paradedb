@@ -330,10 +330,7 @@ pub enum LinderaLanguage {
 
 impl Default for SearchTokenizer {
     fn default() -> Self {
-        Self::UnicodeWords {
-            remove_emojis: false,
-            filters: SearchTokenizerFilters::default(),
-        }
+        Self::Default(SearchTokenizerFilters::default())
     }
 }
 

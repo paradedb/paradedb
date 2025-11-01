@@ -5,6 +5,8 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
 use pgrx::pg_sys;
+use stable_deref_trait::StableDeref;
+use std::mem::size_of;
 use std::ops::Deref;
 
 /// A module to help with tracking when/where blocks are acquired and released.
@@ -168,12 +170,13 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
-            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
-                && pg_sys::InterruptHoldoffCount > 0    // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
-                && crate::postgres::utils::IsTransactionState()
-            {
-                pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+                // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
+                if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState()
+                {
+                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+                }
             }
         }
     }
@@ -193,7 +196,23 @@ impl Buffer {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
             pg_page,
-            _buffer: self,
+            _buffer: Some(self),
+        }
+    }
+
+    /// Converts this Buffer into an ImmutablePage, which is UNLOCKED but still pinned.
+    ///
+    /// SAFETY: Must only be used with Buffers representing immutable data, which will not be
+    /// changed until all pins are dropped and/or a transaction horizon has passed (as enforced by
+    /// the FSM, for example).
+    pub unsafe fn into_immutable_page(mut self) -> ImmutablePage {
+        // Unlock the buffer, but preserve our pin.
+        pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+        let pg_buffer =
+            std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
+        block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
+        ImmutablePage {
+            pinned_buffer: PinnedBuffer::new(pg_buffer),
         }
     }
 
@@ -275,7 +294,7 @@ impl BufferMut {
         unsafe {
             Page {
                 pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
-                _buffer: &self.inner,
+                _buffer: Some(&self.inner),
             }
         }
     }
@@ -343,7 +362,7 @@ pub struct Page<'a> {
 
     // we never use this directly, but we hold onto it so that its Drop impl
     // won't run while we're live
-    _buffer: &'a Buffer,
+    _buffer: Option<&'a Buffer>,
 }
 
 impl<'a> Page<'a> {
@@ -858,3 +877,28 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     special.xmax = pg_sys::InvalidTransactionId;
     buffer
 }
+
+#[derive(Debug)]
+pub struct ImmutablePage {
+    pinned_buffer: PinnedBuffer,
+}
+
+impl Deref for ImmutablePage {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        let pg_page = unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) };
+        let page = Page {
+            pg_page,
+            _buffer: None,
+        };
+        let slice = page.as_slice();
+        // It's safe to extend the lifetime of this slice because `self` owns the `Buffer`,
+        // which keeps the underlying page data alive and pinned in memory.
+        unsafe { &*(slice as *const [u8]) }
+    }
+}
+
+unsafe impl StableDeref for ImmutablePage {}
+unsafe impl Send for ImmutablePage {}
+unsafe impl Sync for ImmutablePage {}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762019228723,
+  "lastUpdate": 1762019994409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -55282,6 +55282,60 @@ window.BENCHMARK_DATA = {
             "value": 17.575504078228175,
             "unit": "median tps",
             "extra": "avg tps: 17.635528477855626, max tps: 18.767315135479013, count: 55388"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912bf02cf2a5e829d10ecf0006560e2cbe853050",
+          "message": "perf: Avoid copying Postgres buffers (#3402)\n\n# Ticket(s) Closed\n\n- Closes #3374\n\n## What\n\nThis change introduces zero-copy from Postgres `Buffer`s (in most\ncases), meaning that we avoid copying out of buffers in order to hand\nout `OwnedBytes` for them.\n\n## Why\n\nAs described on #3374, we currently go to great lengths to avoid calls\nto `{FileHandle, FileSlice}::read_bytes`, because each of them would\nacquire a lock on a Postgres `Buffer`, and then copy out of it into\n`OwnedBytes`.\n\nBut `OwnedBytes` is not actually \"owned\": it's reference counted, and\ncan be backed by a structure that borrows from shared memory, like a\n`Buffer`. This allows us to avoid copying `Buffer`s, and to instead\nslice into them.\n\nAdditionally, because the `Buffer`s of a `BytesList` are immutable, we\ndo not need to hold read locks on them after loading them the first\ntime: a pin is sufficient.\n\n## How\n\nIntroduces a method to assert that a `Buffer` is immutable, and release\nits read lock to convert it into the `ImmutablePage` type, which can be\nwrapped into `OwnedBytes`.\n\n## Tests\n\nSome benchmarks show up to 1.4x speedups; none show slowdowns.",
+          "timestamp": "2025-11-01T10:02:07-07:00",
+          "tree_id": "bde8bd0131ae8b2148ed36e77f0743ee59a2ad2a",
+          "url": "https://github.com/paradedb/paradedb/commit/912bf02cf2a5e829d10ecf0006560e2cbe853050"
+        },
+        "date": 1762019992047,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.18830963090533,
+            "unit": "median tps",
+            "extra": "avg tps: 38.364549662345965, max tps: 42.2763750801428, count: 55422"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.8616779432419,
+            "unit": "median tps",
+            "extra": "avg tps: 264.2312445934639, max tps: 2582.3735744679175, count: 55422"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 991.513613427341,
+            "unit": "median tps",
+            "extra": "avg tps: 987.4205603018222, max tps: 1035.001369315583, count: 55422"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 120.34687201060575,
+            "unit": "median tps",
+            "extra": "avg tps: 155.73687523099773, max tps: 806.0234955990376, count: 110844"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.139686771574436,
+            "unit": "median tps",
+            "extra": "avg tps: 19.1739417223662, max tps: 20.087830075379376, count: 55422"
           }
         ]
       }

@@ -198,61 +198,85 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, text_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "inet_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, inet_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, numeric_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, boolean_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, json_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "range_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, range_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, datetime_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "target_segment_count".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "background_layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, background_layer_sizes_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "mutable_segment_rows".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
         },
     ];
     build_relopts(reloptions, validate, options)

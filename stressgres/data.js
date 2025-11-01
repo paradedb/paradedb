@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762038552481,
+  "lastUpdate": 1762039352048,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26518,6 +26518,42 @@ window.BENCHMARK_DATA = {
             "value": 5.487175970475268,
             "unit": "median tps",
             "extra": "avg tps: 4.958171244060796, max tps: 6.10859190899298, count: 57536"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "926b75997d98d962680052dbe09ea2ced08b0d90",
+          "message": "fix: snippet generation with `unicode_words` tokenizer (#3475)\n\n# Ticket(s) Closed\n\n- Closes #3474 \n\n## What\n\nThe `unicode_words` tokenizer was not tracking token offsets, which\nbroke snippet generation.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-11-01T18:52:41-04:00",
+          "tree_id": "5102e12cff8e8ae183c08dc00090dd25b13c4d33",
+          "url": "https://github.com/paradedb/paradedb/commit/926b75997d98d962680052dbe09ea2ced08b0d90"
+        },
+        "date": 1762039349517,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.244499712172582,
+            "unit": "median tps",
+            "extra": "avg tps: 7.037182030960185, max tps: 11.009113576574139, count: 57549"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.45579543973793,
+            "unit": "median tps",
+            "extra": "avg tps: 4.930718084653197, max tps: 6.048289239698333, count: 57549"
           }
         ]
       }

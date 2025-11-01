@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762017609148,
+  "lastUpdate": 1762017613198,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22186,6 +22186,126 @@ window.BENCHMARK_DATA = {
             "value": 149.4140625,
             "unit": "median mem",
             "extra": "avg mem: 130.5943713413973, max mem: 154.17578125, count: 55349"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912bf02cf2a5e829d10ecf0006560e2cbe853050",
+          "message": "perf: Avoid copying Postgres buffers (#3402)\n\n# Ticket(s) Closed\n\n- Closes #3374\n\n## What\n\nThis change introduces zero-copy from Postgres `Buffer`s (in most\ncases), meaning that we avoid copying out of buffers in order to hand\nout `OwnedBytes` for them.\n\n## Why\n\nAs described on #3374, we currently go to great lengths to avoid calls\nto `{FileHandle, FileSlice}::read_bytes`, because each of them would\nacquire a lock on a Postgres `Buffer`, and then copy out of it into\n`OwnedBytes`.\n\nBut `OwnedBytes` is not actually \"owned\": it's reference counted, and\ncan be backed by a structure that borrows from shared memory, like a\n`Buffer`. This allows us to avoid copying `Buffer`s, and to instead\nslice into them.\n\nAdditionally, because the `Buffer`s of a `BytesList` are immutable, we\ndo not need to hold read locks on them after loading them the first\ntime: a pin is sufficient.\n\n## How\n\nIntroduces a method to assert that a `Buffer` is immutable, and release\nits read lock to convert it into the `ImmutablePage` type, which can be\nwrapped into `OwnedBytes`.\n\n## Tests\n\nSome benchmarks show up to 1.4x speedups; none show slowdowns.",
+          "timestamp": "2025-11-01T10:02:07-07:00",
+          "tree_id": "bde8bd0131ae8b2148ed36e77f0743ee59a2ad2a",
+          "url": "https://github.com/paradedb/paradedb/commit/912bf02cf2a5e829d10ecf0006560e2cbe853050"
+        },
+        "date": 1762017610627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.899557821937935, max cpu: 14.0625, count: 55338"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 158.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.2825137535464, max mem: 159.3515625, count: 55338"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.627028671272393, max cpu: 9.329447, count: 55338"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.52508801027323, max mem: 29.578125, count: 55338"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9420533787939345, max cpu: 14.4, count: 55338"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 157.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.39578194459503, max mem: 158.734375, count: 55338"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.434850332372552, max cpu: 4.738401, count: 55338"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.05470302956377, max mem: 157.62890625, count: 55338"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.704163401735472, max cpu: 9.619239, count: 110676"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.46607891503126, max mem: 159.15625, count: 110676"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28467,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28328.87397448408, max block_count: 54908.0, count: 55338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.385810835230764, max segment_count: 57.0, count: 55338"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.647324978537641, max cpu: 9.284333, count: 55338"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 154.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.12720773925693, max mem: 160.84375, count: 55338"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.4265439243178712, max cpu: 4.7477746, count: 55338"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 128.6876816253072, max mem: 152.99609375, count: 55338"
           }
         ]
       }

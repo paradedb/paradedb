@@ -121,15 +121,6 @@ impl AggregateType {
     ) -> Option<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
-        // Reject pdb.agg() in (GROUP BY) aggregate context
-        // It should only be used as a window function (OVER clause) in TopN queries
-        if aggfnoid == agg_funcoid().to_u32() {
-            pgrx::error!(
-                "pdb.agg() cannot be used in (GROUP BY) aggregates. \
-                 Use it as a window function with OVER clause in TopN queries (ORDER BY + LIMIT) instead."
-            );
-        }
-
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
 
         let filter_expr = if (*aggref).aggfilter.is_null() {
@@ -148,6 +139,24 @@ impl AggregateType {
             )
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
+
+        // Check for pdb.agg() custom aggregate
+        if aggfnoid == agg_funcoid().to_u32() {
+            // Extract JSON argument
+            let arg = args.get_ptr(0)?;
+            let expr = (*arg).expr;
+            if let Some(const_node) = nodecast!(Const, T_Const, expr) {
+                let json_datum = (*const_node).constvalue;
+                let json_value = pgrx::JsonB::from_datum(json_datum, false)?;
+
+                return Some(AggregateType::Custom {
+                    agg_json: json_value.0,
+                    filter: filter_query,
+                    indexrelid: bm25_index.oid(),
+                });
+            }
+            return None;
+        }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
             return Some(AggregateType::CountAny {

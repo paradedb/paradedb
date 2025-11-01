@@ -138,16 +138,23 @@ enum AggregationStyle {
 }
 
 struct MetricResult(TantivyMetricResult);
-impl From<MetricResult> for TantivySingleMetricResult {
+/// Convert a Tantivy MetricResult to an AggregateResult
+///
+/// Simple metrics (Average, Count, Sum, Min, Max) are converted to single metric results.
+/// Complex metrics (Stats, Percentiles, etc.) are serialized to JSON.
+impl From<MetricResult> for AggregateResult {
     fn from(val: MetricResult) -> Self {
         match val.0 {
             TantivyMetricResult::Average(r)
             | TantivyMetricResult::Count(r)
             | TantivyMetricResult::Sum(r)
             | TantivyMetricResult::Min(r)
-            | TantivyMetricResult::Max(r) => r,
-            unsupported => {
-                panic!("unsupported metric type: {:?}", unsupported);
+            | TantivyMetricResult::Max(r) => AggregateResult::Metric(r),
+            // Complex metrics (Stats, Percentiles, etc.) - serialize to JSON
+            other => {
+                let json_value = serde_json::to_value(&other)
+                    .unwrap_or_else(|e| pgrx::error!("Failed to serialize metric: {}", e));
+                AggregateResult::Json(json_value)
             }
         }
     }
@@ -172,19 +179,34 @@ pub fn aggregate_result_to_datum(
         }
         Some(AggregateResult::Metric(metric)) => {
             // Standard metric - convert f64 to appropriate type
-            metric.value.and_then(|value| unsafe {
-                TantivyValue(OwnedValue::F64(value))
-                    .try_into_datum(expected_typoid.into())
-                    .unwrap()
-            })
+            // If expected type is JSONB (for pdb.agg() custom aggregates),
+            // serialize the entire metric result to match Tantivy's JSON format
+            if expected_typoid == pg_sys::JSONBOID {
+                // Serialize the SingleMetricResult to JSON
+                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
+                    pgrx::error!("Failed to serialize metric result to JSON: {}", e)
+                });
+                JsonB(json_value).into_datum()
+            } else {
+                metric.value.and_then(|value| unsafe {
+                    TantivyValue(OwnedValue::F64(value))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
+            }
         }
         None => {
             // No result - use nullish value
-            agg_type.nullish().value.and_then(|value| unsafe {
-                TantivyValue(OwnedValue::F64(value))
-                    .try_into_datum(expected_typoid.into())
-                    .unwrap()
-            })
+            // If expected type is JSONB, return JSON null
+            if expected_typoid == pg_sys::JSONBOID {
+                JsonB(serde_json::Value::Null).into_datum()
+            } else {
+                agg_type.nullish().value.and_then(|value| unsafe {
+                    TantivyValue(OwnedValue::F64(value))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
+            }
         }
     }
 }
@@ -318,8 +340,7 @@ impl AggregationResults {
             for (_name, result) in entries {
                 match result {
                     TantivyAggregationResult::MetricResult(metric) => {
-                        let single = MetricResult(metric).into();
-                        row.aggregates.push(Some(AggregateResult::Metric(single)));
+                        row.aggregates.push(Some(MetricResult(metric).into()));
                     }
                     other => {
                         let json_value = serde_json::to_value(&other).unwrap_or_else(|e| {
@@ -355,8 +376,7 @@ impl AggregationResults {
             match result {
                 TantivyAggregationResult::MetricResult(metric) if !is_custom => {
                     // Standard metric aggregate
-                    let single = MetricResult(metric).into();
-                    aggregates.push(Some(AggregateResult::Metric(single)));
+                    aggregates.push(Some(MetricResult(metric).into()));
                 }
                 TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
                     let mut sub_rows = Vec::new();
@@ -477,8 +497,7 @@ impl AggregationResults {
                     for (_n, res) in current {
                         match res {
                             TantivyAggregationResult::MetricResult(metric) => {
-                                let single = MetricResult(metric).into();
-                                found_metrics.push(Some(AggregateResult::Metric(single)));
+                                found_metrics.push(Some(MetricResult(metric).into()));
                             }
                             other => {
                                 let json_value = serde_json::to_value(&other).unwrap_or_else(|e| {

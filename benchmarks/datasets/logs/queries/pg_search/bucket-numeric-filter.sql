@@ -9,3 +9,6 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.te
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT severity, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity;
+
+-- pdb.agg with GROUP BY
+SELECT severity, pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity;

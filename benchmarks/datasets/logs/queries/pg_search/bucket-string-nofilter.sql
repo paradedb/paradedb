@@ -9,3 +9,6 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.al
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT country, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country;
+
+-- pdb.agg with GROUP BY
+SELECT country, pdb.agg('{"terms": {"field": "country"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country;

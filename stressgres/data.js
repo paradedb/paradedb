@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762020779358,
+  "lastUpdate": 1762038548169,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7912,6 +7912,72 @@ window.BENCHMARK_DATA = {
             "value": 179.46647501573116,
             "unit": "median tps",
             "extra": "avg tps: 203.070023926736, max tps: 813.6663398440202, count: 55338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "926b75997d98d962680052dbe09ea2ced08b0d90",
+          "message": "fix: snippet generation with `unicode_words` tokenizer (#3475)\n\n# Ticket(s) Closed\n\n- Closes #3474 \n\n## What\n\nThe `unicode_words` tokenizer was not tracking token offsets, which\nbroke snippet generation.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-11-01T18:52:41-04:00",
+          "tree_id": "5102e12cff8e8ae183c08dc00090dd25b13c4d33",
+          "url": "https://github.com/paradedb/paradedb/commit/926b75997d98d962680052dbe09ea2ced08b0d90"
+        },
+        "date": 1762038545738,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 807.4762047459573,
+            "unit": "median tps",
+            "extra": "avg tps: 803.9841371541004, max tps: 828.4925296082245, count: 55319"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3201.3620201028702,
+            "unit": "median tps",
+            "extra": "avg tps: 3179.4100996732013, max tps: 3217.241277913932, count: 55319"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 777.5752508509647,
+            "unit": "median tps",
+            "extra": "avg tps: 775.2816555174654, max tps: 780.1854652558861, count: 55319"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 667.5888206994227,
+            "unit": "median tps",
+            "extra": "avg tps: 664.2256451539951, max tps: 671.1715327566747, count: 55319"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1701.627567194735,
+            "unit": "median tps",
+            "extra": "avg tps: 1696.8020788227848, max tps: 1725.78157304885, count: 110638"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1241.4835575922632,
+            "unit": "median tps",
+            "extra": "avg tps: 1229.8297641590416, max tps: 1252.2422545533866, count: 55319"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 114.47027129727357,
+            "unit": "median tps",
+            "extra": "avg tps: 141.26372855053918, max tps: 1020.3134198763177, count: 55319"
           }
         ]
       }

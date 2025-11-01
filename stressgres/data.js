@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762018414637,
+  "lastUpdate": 1762019224309,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38320,6 +38320,54 @@ window.BENCHMARK_DATA = {
             "value": 5.773408807691584,
             "unit": "median tps",
             "extra": "avg tps: 5.78041396414008, max tps: 7.140934191292774, count: 56342"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912bf02cf2a5e829d10ecf0006560e2cbe853050",
+          "message": "perf: Avoid copying Postgres buffers (#3402)\n\n# Ticket(s) Closed\n\n- Closes #3374\n\n## What\n\nThis change introduces zero-copy from Postgres `Buffer`s (in most\ncases), meaning that we avoid copying out of buffers in order to hand\nout `OwnedBytes` for them.\n\n## Why\n\nAs described on #3374, we currently go to great lengths to avoid calls\nto `{FileHandle, FileSlice}::read_bytes`, because each of them would\nacquire a lock on a Postgres `Buffer`, and then copy out of it into\n`OwnedBytes`.\n\nBut `OwnedBytes` is not actually \"owned\": it's reference counted, and\ncan be backed by a structure that borrows from shared memory, like a\n`Buffer`. This allows us to avoid copying `Buffer`s, and to instead\nslice into them.\n\nAdditionally, because the `Buffer`s of a `BytesList` are immutable, we\ndo not need to hold read locks on them after loading them the first\ntime: a pin is sufficient.\n\n## How\n\nIntroduces a method to assert that a `Buffer` is immutable, and release\nits read lock to convert it into the `ImmutablePage` type, which can be\nwrapped into `OwnedBytes`.\n\n## Tests\n\nSome benchmarks show up to 1.4x speedups; none show slowdowns.",
+          "timestamp": "2025-11-01T10:02:07-07:00",
+          "tree_id": "bde8bd0131ae8b2148ed36e77f0743ee59a2ad2a",
+          "url": "https://github.com/paradedb/paradedb/commit/912bf02cf2a5e829d10ecf0006560e2cbe853050"
+        },
+        "date": 1762019221870,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 792.6891654376457,
+            "unit": "median tps",
+            "extra": "avg tps: 728.2023295945783, max tps: 1050.6850813291314, count: 56088"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1298.9490886253498,
+            "unit": "median tps",
+            "extra": "avg tps: 1268.2512754813954, max tps: 1309.677073325734, count: 56088"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1804.9928694087475,
+            "unit": "median tps",
+            "extra": "avg tps: 1761.3202718728282, max tps: 2002.0547846821105, count: 56088"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.875569982170475,
+            "unit": "median tps",
+            "extra": "avg tps: 5.8735928079534965, max tps: 7.2375696333812, count: 56088"
           }
         ]
       }

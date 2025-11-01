@@ -146,6 +146,20 @@ mod pdb {
     }
 
     #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "parse")]
+    pub fn parse_query(
+        query_string: String,
+        lenient: default!(Option<bool>, "NULL"),
+        conjunction_mode: default!(Option<bool>, "NULL"),
+    ) -> pdb::Query {
+        pdb::Query::Parse {
+            query_string,
+            lenient,
+            conjunction_mode,
+        }
+    }
+
+    #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "parse_with_field")]
     pub fn parse_with_field(
         query_string: String,

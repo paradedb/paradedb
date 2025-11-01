@@ -72,3 +72,26 @@ CREATE OR REPLACE FUNCTION paradedb.snippets(
 STABLE PARALLEL SAFE
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'paradedb_snippets_from_relation_wrapper';
+-- pg_search/src/api/builder_fns/pdb.rs:149
+-- pg_search::api::builder_fns::pdb::pdb::_f30e8accdb684eec9e64d6ac49e3167e::parse
+CREATE  FUNCTION "parse"(
+	"field" FieldName, /* pg_search::api::FieldName */
+	"query_string" TEXT, /* alloc::string::String */
+	"lenient" bool DEFAULT NULL, /* core::option::Option<bool> */
+	"conjunction_mode" bool DEFAULT NULL /* core::option::Option<bool> */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'parse_query_bfn_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/pdb.rs:149
+-- pg_search::api::builder_fns::pdb::pdb::parse
+CREATE  FUNCTION pdb."parse"(
+	"query_string" TEXT, /* alloc::string::String */
+	"lenient" bool DEFAULT NULL, /* core::option::Option<bool> */
+	"conjunction_mode" bool DEFAULT NULL /* core::option::Option<bool> */
+) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+IMMUTABLE PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'parse_query_wrapper';

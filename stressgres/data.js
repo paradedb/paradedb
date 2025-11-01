@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762019224309,
+  "lastUpdate": 1762019228723,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49246,6 +49246,108 @@ window.BENCHMARK_DATA = {
             "value": 157.5390625,
             "unit": "median mem",
             "extra": "avg mem: 175.75762717810426, max mem: 217.4140625, count: 56342"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912bf02cf2a5e829d10ecf0006560e2cbe853050",
+          "message": "perf: Avoid copying Postgres buffers (#3402)\n\n# Ticket(s) Closed\n\n- Closes #3374\n\n## What\n\nThis change introduces zero-copy from Postgres `Buffer`s (in most\ncases), meaning that we avoid copying out of buffers in order to hand\nout `OwnedBytes` for them.\n\n## Why\n\nAs described on #3374, we currently go to great lengths to avoid calls\nto `{FileHandle, FileSlice}::read_bytes`, because each of them would\nacquire a lock on a Postgres `Buffer`, and then copy out of it into\n`OwnedBytes`.\n\nBut `OwnedBytes` is not actually \"owned\": it's reference counted, and\ncan be backed by a structure that borrows from shared memory, like a\n`Buffer`. This allows us to avoid copying `Buffer`s, and to instead\nslice into them.\n\nAdditionally, because the `Buffer`s of a `BytesList` are immutable, we\ndo not need to hold read locks on them after loading them the first\ntime: a pin is sufficient.\n\n## How\n\nIntroduces a method to assert that a `Buffer` is immutable, and release\nits read lock to convert it into the `ImmutablePage` type, which can be\nwrapped into `OwnedBytes`.\n\n## Tests\n\nSome benchmarks show up to 1.4x speedups; none show slowdowns.",
+          "timestamp": "2025-11-01T10:02:07-07:00",
+          "tree_id": "bde8bd0131ae8b2148ed36e77f0743ee59a2ad2a",
+          "url": "https://github.com/paradedb/paradedb/commit/912bf02cf2a5e829d10ecf0006560e2cbe853050"
+        },
+        "date": 1762019226367,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05027813436029097, max background_merging: 1.0, count: 56088"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7516641745997275, max cpu: 9.775968, count: 56088"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.930035098305343, max mem: 21.72265625, count: 56088"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3887405837369995, max cpu: 32.74854, count: 56088"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 178.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.84495485888246, max mem: 196.01953125, count: 56088"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59971,
+            "unit": "median block_count",
+            "extra": "avg block_count: 59729.41105049208, max block_count: 59971.0, count: 56088"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.05355869348167, max segment_count: 55.0, count: 56088"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609308223348934, max cpu: 18.622696, count: 56088"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 135.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 125.17195474355032, max mem: 147.12890625, count: 56088"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752052019282078, max cpu: 28.070175, count: 56088"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 171.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.6342515054468, max mem: 172.3515625, count: 56088"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.897135812287466, max cpu: 33.83686, count: 56088"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 174.9129763162352, max mem: 217.73046875, count: 56088"
           }
         ]
       }

@@ -27,6 +27,7 @@ pub enum Expr {
         name: String,
         value: String,
         is_indexed: bool,
+        is_nullable: bool,
     },
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
@@ -40,9 +41,14 @@ impl Expr {
                 name,
                 value,
                 is_indexed,
+                is_nullable,
             } => {
                 let op = if *is_indexed { indexed_op } else { " = " };
-                format!("{name} {op} {value}")
+                if *is_nullable {
+                    format!("({name} IS NOT NULL) AND ({name} {op} {value})")
+                } else {
+                    format!("{name} {op} {value}")
+                }
             }
             Expr::Not(e) => {
                 format!("NOT ({})", e.to_sql(indexed_op))
@@ -65,7 +71,14 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
     let columns = columns
         .iter()
         .filter(|c| c.is_whereable)
-        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
+        .map(|c| {
+            (
+                c.name.to_owned(),
+                c.sample_value.to_owned(),
+                c.is_indexed,
+                c.is_nullable,
+            )
+        })
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.
@@ -73,10 +86,11 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         proptest::sample::select::<Expr>(
             columns
                 .iter()
-                .map(|(col, val, is_indexed)| Expr::Atom {
+                .map(|(col, val, is_indexed, is_nullable)| Expr::Atom {
                     name: format!("{table}.{col}"),
                     value: val.clone(),
                     is_indexed: *is_indexed,
+                    is_nullable: *is_nullable,
                 })
                 .collect::<Vec<_>>(),
         )

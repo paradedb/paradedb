@@ -51,6 +51,8 @@ pub struct Column {
     pub is_groupable: bool,
     pub is_whereable: bool,
     pub is_indexed: bool,
+    /// Whether this column may contain NULL values in generated data
+    pub is_nullable: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
 }
@@ -69,6 +71,7 @@ impl Column {
             is_groupable: true,
             is_whereable: true,
             is_indexed: true,
+            is_nullable: false,
             bm25_options: None,
             random_generator_sql: "NULL",
         }
@@ -91,6 +94,12 @@ impl Column {
 
     pub const fn indexed(mut self, is_indexed: bool) -> Self {
         self.is_indexed = is_indexed;
+        self
+    }
+
+    /// Mark whether this column can contain NULL values in the generated dataset.
+    pub const fn nullable(mut self, is_nullable: bool) -> Self {
+        self.is_nullable = is_nullable;
         self
     }
 

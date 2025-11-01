@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762039355950,
+  "lastUpdate": 1762040165181,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38650,6 +38650,54 @@ window.BENCHMARK_DATA = {
             "value": 5.875569982170475,
             "unit": "median tps",
             "extra": "avg tps: 5.8735928079534965, max tps: 7.2375696333812, count: 56088"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "926b75997d98d962680052dbe09ea2ced08b0d90",
+          "message": "fix: snippet generation with `unicode_words` tokenizer (#3475)\n\n# Ticket(s) Closed\n\n- Closes #3474 \n\n## What\n\nThe `unicode_words` tokenizer was not tracking token offsets, which\nbroke snippet generation.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-11-01T18:52:41-04:00",
+          "tree_id": "5102e12cff8e8ae183c08dc00090dd25b13c4d33",
+          "url": "https://github.com/paradedb/paradedb/commit/926b75997d98d962680052dbe09ea2ced08b0d90"
+        },
+        "date": 1762040162706,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1175.3103395727176,
+            "unit": "median tps",
+            "extra": "avg tps: 1175.766569012867, max tps: 1226.1667482259866, count: 55868"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1200.6427268954594,
+            "unit": "median tps",
+            "extra": "avg tps: 1183.243657118825, max tps: 1248.198560476713, count: 55868"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1730.4072128700896,
+            "unit": "median tps",
+            "extra": "avg tps: 1635.7416354324316, max tps: 1907.5133994971293, count: 55868"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.82811233325719,
+            "unit": "median tps",
+            "extra": "avg tps: 5.8332853840304635, max tps: 7.198773357814922, count: 55868"
           }
         ]
       }

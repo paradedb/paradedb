@@ -258,8 +258,8 @@ impl From<&Qual> for SearchQueryInput {
     fn from(value: &Qual) -> Self {
         match value {
             Qual::All => SearchQueryInput::All,
-            Qual::ExternalVar => SearchQueryInput::Empty,
-            Qual::ExternalExpr => SearchQueryInput::Empty,
+            Qual::ExternalVar => SearchQueryInput::All,
+            Qual::ExternalExpr => SearchQueryInput::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")

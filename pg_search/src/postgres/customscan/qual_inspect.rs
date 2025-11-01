@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -424,8 +423,7 @@ impl From<&Qual> for SearchQueryInput {
                 }
             }
             Qual::Not(qual) => {
-                // Special handling for boolean fields to correctly handle NULL values,
-                // and for general fielded queries to ensure SQL three-valued logic wrt NULLs.
+                // Special handling for boolean fields to correctly handle NULL values
                 match qual.as_ref() {
                     // IS NULL is represented as NOT(IS NOT NULL). For JSON/text paths this should
                     // include rows where the field is missing or JSON null. That is exactly
@@ -463,105 +461,16 @@ impl From<&Qual> for SearchQueryInput {
                     // is "all" rather than "NOT all"
                     Qual::ExternalExpr => SearchQueryInput::All,
 
-                    // Negation of IS operators follows SQL: IS NOT TRUE includes FALSE and NULL;
-                    // IS NOT FALSE includes TRUE and NULL. Preserve prior behavior (no Exists()).
-                    Qual::PushdownVarIsTrue { field } => SearchQueryInput::Boolean {
-                        must: vec![SearchQueryInput::All],
-                        should: Default::default(),
-                        must_not: vec![SearchQueryInput::FieldedQuery {
-                            field: field.attname(),
-                            query: pdb::Query::Term {
-                                value: OwnedValue::Bool(true),
-                                is_datetime: false,
-                            },
-                        }],
-                    },
-                    Qual::PushdownVarIsFalse { field } => SearchQueryInput::Boolean {
-                        must: vec![SearchQueryInput::All],
-                        should: Default::default(),
-                        must_not: vec![SearchQueryInput::FieldedQuery {
-                            field: field.attname(),
-                            query: pdb::Query::Term {
-                                value: OwnedValue::Bool(false),
-                                is_datetime: false,
-                            },
-                        }],
-                    },
-
-                    // For other types of negation, ensure we don't accidentally include NULLs.
-                    // In SQL, NOT excludes rows where field IS NULL. Using a plain must_not against All() would incorrectly
-                    // include NULLs. To mirror SQL semantics for fielded predicates, we require that
-                    // the field exists, and then exclude the matching set.
-                    //
-                    // For non-fielded expressions, fall back to the conservative All + must_not form.
+                    // For other types of negation, use the standard Boolean query with must_not
+                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
+                    // NULL values differently than when negating equality operators
                     _ => {
-                        let inner = SearchQueryInput::from(qual.as_ref());
+                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
-                        // If the inner is a fielded query, wrap with Exists(field) in must.
-                        match inner {
-                            SearchQueryInput::FieldedQuery { ref field, .. } => {
-                                SearchQueryInput::Boolean {
-                                    must: vec![SearchQueryInput::FieldedQuery {
-                                        field: field.clone(),
-                                        query: pdb::Query::Exists,
-                                    }],
-                                    should: Default::default(),
-                                    must_not: vec![inner],
-                                }
-                            }
-                            // If the inner is already a boolean with fielded inners only, we can still
-                            // apply the same approach by requiring that at least one involved field exists.
-                            SearchQueryInput::Boolean {
-                                ref must,
-                                ref should,
-                                ref must_not,
-                            } => {
-                                // Try to find any field name referenced; if found, require its existence.
-                                fn first_field(q: &SearchQueryInput) -> Option<FieldName> {
-                                    match q {
-                                        SearchQueryInput::FieldedQuery { field, .. } => {
-                                            Some(field.clone())
-                                        }
-                                        SearchQueryInput::Boolean {
-                                            must,
-                                            should,
-                                            must_not,
-                                        } => must
-                                            .iter()
-                                            .chain(should.iter())
-                                            .chain(must_not.iter())
-                                            .find_map(first_field),
-                                        _ => None,
-                                    }
-                                }
-
-                                if let Some(field) = must
-                                    .iter()
-                                    .chain(should.iter())
-                                    .chain(must_not.iter())
-                                    .find_map(first_field)
-                                {
-                                    SearchQueryInput::Boolean {
-                                        must: vec![SearchQueryInput::FieldedQuery {
-                                            field,
-                                            query: pdb::Query::Exists,
-                                        }],
-                                        should: Default::default(),
-                                        must_not: vec![inner],
-                                    }
-                                } else {
-                                    SearchQueryInput::Boolean {
-                                        must: vec![SearchQueryInput::All],
-                                        should: Default::default(),
-                                        must_not: vec![inner],
-                                    }
-                                }
-                            }
-                            _ => SearchQueryInput::Boolean {
-                                must: vec![SearchQueryInput::All],
-                                should: Default::default(),
-                                must_not: vec![inner],
-                            },
+                        SearchQueryInput::Boolean {
+                            must: vec![SearchQueryInput::All],
+                            should: Default::default(),
+                            must_not,
                         }
                     }
                 }
@@ -1824,27 +1733,7 @@ mod tests {
                     should,
                     must_not,
                 },
-            ) => {
-                if !should.is_empty() || must.len() != 1 || must_not.len() != 1 {
-                    return false;
-                }
-
-                // Accept classic NOT(inner): { must: [All], must_not: [inner] }
-                if matches!(must[0], SearchQueryInput::All) {
-                    return true;
-                }
-
-                // Accept NULL-guarded NOT(inner): { must: [Exists(field)], must_not: [inner] }
-                let must_is_exists = matches!(
-                    &must[0],
-                    SearchQueryInput::FieldedQuery {
-                        query: pdb::Query::Exists,
-                        ..
-                    }
-                );
-                let inner_input = SearchQueryInput::from(inner.as_ref());
-                must_is_exists && must_not[0] == inner_input
-            }
+            ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,
 
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (

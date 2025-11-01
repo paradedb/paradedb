@@ -180,7 +180,7 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Alias,
-        SearchTokenizer::Simple(SearchTokenizerFilters::default()),
+        SearchTokenizer::Default(SearchTokenizerFilters::default()),
         tokenize_alias,
         json_to_alias,
         jsonb_to_alias,
@@ -191,12 +191,12 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Simple,
-        SearchTokenizer::Simple(SearchTokenizerFilters::default()),
+        SearchTokenizer::Default(SearchTokenizerFilters::default()),
         tokenize_simple,
         json_to_simple,
         jsonb_to_simple,
         "simple",
-        preferred = false,
+        preferred = true,
         custom_typmod = false
     );
 
@@ -329,7 +329,7 @@ pub(crate) mod pdb {
         json_to_unicode_words,
         jsonb_to_unicode_words,
         "unicode_words",
-        preferred = true,
+        preferred = false,
         custom_typmod = false
     );
 }

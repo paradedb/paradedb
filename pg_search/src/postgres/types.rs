@@ -690,13 +690,52 @@ impl TryFrom<TantivyValue> for u64 {
     }
 }
 
+// Classifies NUMERIC: F64 for ±(2^53-2), else I64/U64. Conservative boundary avoids JSON precision loss.
+fn classify_numeric_for_tantivy(numeric: &pgrx::AnyNumeric) -> (bool, bool) {
+    // Use conservative boundary (2^53-2) not (2^53-1) to avoid precision loss during JSON roundtrip.
+    const MAX_SAFE_FOR_JSON: i64 = (1i64 << 53) - 2;
+    const MIN_SAFE_FOR_JSON: i64 = -MAX_SAFE_FOR_JSON;
+
+    // Try to extract as i64 first (covers most common cases)
+    if let Ok(i64_val) = TryInto::<i64>::try_into(numeric.clone()) {
+        // Check if it's within JSON-safe F64 range (excluding boundary values)
+        if i64_val > MIN_SAFE_FOR_JSON && i64_val <= MAX_SAFE_FOR_JSON {
+            return (true, false); // Use F64
+        }
+        return (false, true); // Use I64 to preserve precision
+    }
+
+    // If it doesn't fit in i64, try u64
+    if let Ok(u64_val) = TryInto::<u64>::try_into(numeric.clone()) {
+        if u64_val <= MAX_SAFE_FOR_JSON as u64 {
+            return (true, false); // Use F64
+        }
+        return (false, false); // Use U64 to preserve precision
+    }
+
+    // If it's not an integer, it's already a float - use F64
+    (true, false)
+}
+
 impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
-        )))
+        let (use_f64, is_i64) = classify_numeric_for_tantivy(&val);
+
+        if use_f64 {
+            // Safe to convert to F64
+            let f64_val: f64 = val.try_into()?;
+            Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+        } else if is_i64 {
+            // Convert to I64 to preserve precision
+            let i64_val: i64 = val.try_into()?;
+            Ok(TantivyValue(tantivy::schema::OwnedValue::I64(i64_val)))
+        } else {
+            // Convert to U64 to preserve precision
+            let u64_val: u64 = val.try_into()?;
+            Ok(TantivyValue(tantivy::schema::OwnedValue::U64(u64_val)))
+        }
     }
 }
 

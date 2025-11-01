@@ -21,7 +21,8 @@ use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
-    check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
+    check_range_bounds, coerce_bound_to_field_type, expand_json_numeric_to_terms,
+    value_to_json_term, value_to_term, QueryError, SearchQueryInput, F64_SAFE_INTEGER_MAX,
 };
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
@@ -35,6 +36,7 @@ use tantivy::query::{
     TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
+use tantivy::schema::{Field, FieldType};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
@@ -671,18 +673,70 @@ fn proximity(
     Ok(Box::new(prox))
 }
 
+/// Creates TermSetQuery for pdb::Query::TermSet (used by === operator for TEXT, not for numeric IN pushdown).
+/// For JSON numeric fields, expands each value into I64/U64/F64 variants for cross-type matching.
+/// Numeric IN clauses use query/mod.rs::SearchQueryInput::TermSet instead.
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
     terms: Vec<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    // For JSON paths like "data.amount", we must look up the root field "data" in the schema
+    // to correctly identify it as a JSON field type. Using the full path would fail the lookup
+    // since only the root column exists in the schema as a JsonObject field.
     let search_field = schema
-        .search_field(&field)
+        .search_field(field.root())
         .expect("field should exist in schema");
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
 
+    // Check if this is a JSON numeric field requiring multi-type matching
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some();
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let has_numeric_terms = terms.iter().any(|v| {
+        matches!(
+            v,
+            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+        )
+    });
+
+    if is_json_numeric_field && has_numeric_terms && !is_date_time {
+        // For JSON numeric fields, each term may expand to multiple type variants
+        let all_terms: Vec<Term> = terms
+            .into_iter()
+            .flat_map(|term_value| {
+                if matches!(
+                    term_value,
+                    OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+                ) {
+                    // Expand numeric value to all possible type variants
+                    expand_json_numeric_to_terms(
+                        tantivy_field,
+                        &term_value,
+                        field.path().as_deref(),
+                    )
+                    .expect("could not expand JSON numeric to terms")
+                } else {
+                    // Non-numeric values use standard term creation
+                    vec![value_to_term(
+                        tantivy_field,
+                        &term_value,
+                        field_type,
+                        field.path().as_deref(),
+                        is_date_time,
+                    )
+                    .expect("could not convert argument to search term")]
+                }
+            })
+            .collect();
+
+        return Ok(Box::new(TermSetQuery::new(all_terms)));
+    }
+
+    // Standard term set for non-JSON or non-numeric fields
     Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
         value_to_term(
             tantivy_field,
@@ -707,6 +761,49 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+
+    // For JSON numeric fields, create multi-type query to handle I64/F64 matching
+    // Check if the root field is JSON AND if we have a nested path (indicating JSON field access)
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some(); // If path exists, we're accessing a nested field
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let is_numeric_value = matches!(
+        value,
+        OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+    );
+
+    if is_json_numeric_field && is_numeric_value && !is_datetime {
+        // Use the shared helper function to expand numeric values to multiple type variants
+        let expanded_terms =
+            expand_json_numeric_to_terms(search_field.field(), value, field.path().as_deref())?;
+
+        // Convert record_option once to avoid ownership issues in closure
+        let index_record_option = record_option.into();
+
+        // If only one term variant, return a simple TermQuery (optimization)
+        if expanded_terms.len() == 1 {
+            return Ok(Box::new(TermQuery::new(
+                expanded_terms.into_iter().next().unwrap(),
+                index_record_option,
+            )));
+        }
+
+        // Multiple term variants: create BooleanQuery with OR logic (should)
+        let term_queries: Vec<(Occur, Box<dyn TantivyQuery>)> = expanded_terms
+            .into_iter()
+            .map(|term| {
+                (
+                    Occur::Should,
+                    Box::new(TermQuery::new(term, index_record_option)) as Box<dyn TantivyQuery>,
+                )
+            })
+            .collect();
+
+        return Ok(Box::new(BooleanQuery::new(term_queries)));
+    }
+
+    // Standard single-term query for non-JSON or non-numeric fields
     let term = value_to_term(
         search_field.field(),
         value,
@@ -752,6 +849,220 @@ fn regex(
         RegexQuery::from_pattern(pattern, search_field.field())
             .map_err(|err| QueryError::RegexError(err, pattern.to_string()))?,
     ))
+}
+
+/// Creates multi-type range query for JSON numeric fields: generates I64/U64/F64 RangeQuery variants combined with OR logic.
+/// Used for BETWEEN, >, <, >=, <= operators on JSON numeric fields to handle type ambiguity (values stored as I64/F64/U64).
+/// Helper functions determine_types_for_range() selects types, convert_bound_to_type() converts bounds per type.
+fn create_json_numeric_range_query(
+    _field_name: &FieldName,
+    tantivy_field: Field,
+    field_type: &FieldType,
+    lower_bound: Bound<OwnedValue>,
+    upper_bound: Bound<OwnedValue>,
+    path: Option<&str>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    // Collect all type-specific range queries
+    let mut range_queries: Vec<(Occur, Box<dyn TantivyQuery>)> = Vec::new();
+
+    // Determine which types to generate based on the bound values
+    let types_to_generate = determine_types_for_range(&lower_bound, &upper_bound);
+
+    // Generate a RangeQuery for each applicable type
+    for value_type in types_to_generate {
+        let lower_term =
+            convert_bound_to_type(&lower_bound, value_type, tantivy_field, field_type, path)?;
+        let upper_term =
+            convert_bound_to_type(&upper_bound, value_type, tantivy_field, field_type, path)?;
+
+        // Only add if the bounds are valid (not empty range)
+        if !is_empty_range(&lower_term, &upper_term) {
+            range_queries.push((
+                Occur::Should,
+                Box::new(RangeQuery::new(lower_term, upper_term)),
+            ));
+        }
+    }
+
+    // If only one variant, return it directly (optimization)
+    if range_queries.len() == 1 {
+        return Ok(range_queries.into_iter().next().unwrap().1);
+    }
+
+    // Multiple variants: wrap in BooleanQuery with OR logic (should)
+    Ok(Box::new(BooleanQuery::new(range_queries)))
+}
+
+/// Determines which numeric types (I64, F64, U64) should be used for range query expansion
+/// based on the values in the range bounds.
+fn determine_types_for_range(
+    lower_bound: &Bound<OwnedValue>,
+    upper_bound: &Bound<OwnedValue>,
+) -> Vec<NumericType> {
+    let mut types = Vec::new();
+
+    // Extract values from bounds to analyze
+    let values: Vec<&OwnedValue> = [lower_bound, upper_bound]
+        .iter()
+        .filter_map(|bound| match bound {
+            Bound::Included(v) | Bound::Excluded(v) => Some(v),
+            Bound::Unbounded => None,
+        })
+        .collect();
+
+    if values.is_empty() {
+        // Unbounded range, generate all types
+        return vec![NumericType::I64, NumericType::F64, NumericType::U64];
+    }
+
+    // Analyze each value to determine which types it could be
+    let mut needs_i64 = false;
+    let mut needs_f64 = false;
+    let mut needs_u64 = false;
+
+    for value in &values {
+        match value {
+            OwnedValue::I64(i64_val) => {
+                needs_i64 = true;
+                needs_f64 = true; // I64 values can also match F64 representation
+                if *i64_val >= 0 {
+                    needs_u64 = true; // Non-negative I64 can also match U64
+                }
+            }
+            OwnedValue::U64(u64_val) => {
+                needs_u64 = true;
+                if *u64_val <= F64_SAFE_INTEGER_MAX {
+                    needs_f64 = true; // Within F64 safe range
+                }
+                if *u64_val <= i64::MAX as u64 {
+                    needs_i64 = true; // Within I64 range
+                }
+            }
+            OwnedValue::F64(f64_val) => {
+                needs_f64 = true;
+                if !f64_val.is_finite() {
+                    // NaN, Infinity: only F64
+                    return vec![NumericType::F64];
+                }
+                if f64_val.fract() == 0.0 {
+                    // Whole number: could match integer types
+                    if *f64_val >= i64::MIN as f64 && *f64_val <= i64::MAX as f64 {
+                        needs_i64 = true;
+                    }
+                    if *f64_val >= 0.0 && *f64_val <= u64::MAX as f64 {
+                        needs_u64 = true;
+                    }
+                }
+            }
+            _ => continue,
+        }
+    }
+
+    if needs_i64 {
+        types.push(NumericType::I64);
+    }
+    if needs_f64 {
+        types.push(NumericType::F64);
+    }
+    if needs_u64 {
+        types.push(NumericType::U64);
+    }
+
+    types
+}
+
+/// Numeric type enumeration for multi-type expansion
+#[derive(Copy, Clone)]
+enum NumericType {
+    I64,
+    F64,
+    U64,
+}
+
+/// Converts a bound value to the specified numeric type and returns it as a Term bound.
+fn convert_bound_to_type(
+    bound: &Bound<OwnedValue>,
+    target_type: NumericType,
+    tantivy_field: Field,
+    _field_type: &FieldType,
+    path: Option<&str>,
+) -> anyhow::Result<Bound<Term>> {
+    match bound {
+        Bound::Included(value) => {
+            let converted_value = convert_value_to_type(value, target_type)?;
+            let term = value_to_json_term(tantivy_field, &converted_value, path, true, false)?;
+            Ok(Bound::Included(term))
+        }
+        Bound::Excluded(value) => {
+            let converted_value = convert_value_to_type(value, target_type)?;
+            let term = value_to_json_term(tantivy_field, &converted_value, path, true, false)?;
+            Ok(Bound::Excluded(term))
+        }
+        Bound::Unbounded => Ok(Bound::Unbounded),
+    }
+}
+
+/// Converts an OwnedValue to the specified numeric type.
+fn convert_value_to_type(
+    value: &OwnedValue,
+    target_type: NumericType,
+) -> anyhow::Result<OwnedValue> {
+    Ok(match target_type {
+        NumericType::I64 => match value {
+            OwnedValue::I64(v) => OwnedValue::I64(*v),
+            OwnedValue::U64(v) => {
+                if *v <= i64::MAX as u64 {
+                    OwnedValue::I64(*v as i64)
+                } else {
+                    // Value too large for I64, this variant will be skipped
+                    return Err(anyhow::anyhow!("Value too large for I64"));
+                }
+            }
+            OwnedValue::F64(v) => {
+                if v.fract() == 0.0 && *v >= i64::MIN as f64 && *v <= i64::MAX as f64 {
+                    OwnedValue::I64(*v as i64)
+                } else {
+                    return Err(anyhow::anyhow!("F64 value not convertible to I64"));
+                }
+            }
+            _ => return Err(anyhow::anyhow!("Unsupported value type")),
+        },
+        NumericType::F64 => match value {
+            OwnedValue::I64(v) => OwnedValue::F64(*v as f64),
+            OwnedValue::U64(v) => OwnedValue::F64(*v as f64),
+            OwnedValue::F64(v) => OwnedValue::F64(*v),
+            _ => return Err(anyhow::anyhow!("Unsupported value type")),
+        },
+        NumericType::U64 => match value {
+            OwnedValue::I64(v) => {
+                if *v >= 0 {
+                    OwnedValue::U64(*v as u64)
+                } else {
+                    // Negative value cannot be U64
+                    return Err(anyhow::anyhow!("Negative value cannot be U64"));
+                }
+            }
+            OwnedValue::U64(v) => OwnedValue::U64(*v),
+            OwnedValue::F64(v) => {
+                if v.fract() == 0.0 && *v >= 0.0 && *v <= u64::MAX as f64 {
+                    OwnedValue::U64(*v as u64)
+                } else {
+                    return Err(anyhow::anyhow!("F64 value not convertible to U64"));
+                }
+            }
+            _ => return Err(anyhow::anyhow!("Unsupported value type")),
+        },
+    })
+}
+
+/// Checks if a range is empty (lower >= upper for included bounds).
+fn is_empty_range(lower: &Bound<Term>, upper: &Bound<Term>) -> bool {
+    match (lower, upper) {
+        (Bound::Included(l), Bound::Excluded(u)) => l >= u,
+        (Bound::Excluded(l), Bound::Included(u)) => l >= u,
+        (Bound::Excluded(l), Bound::Excluded(u)) => l >= u,
+        _ => false,
+    }
 }
 
 fn range_within(
@@ -1324,6 +1635,36 @@ fn range(
     let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
+    // For JSON numeric fields, create multi-type range query to handle I64/F64/U64 matching
+    // Check if the root field is JSON AND if we have a nested path (indicating JSON field access)
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some(); // If path exists, we're accessing a nested field
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let has_numeric_bounds = [&lower_bound, &upper_bound]
+        .iter()
+        .any(|bound| match bound {
+            Bound::Included(v) | Bound::Excluded(v) => {
+                matches!(
+                    v,
+                    OwnedValue::I64(_) | OwnedValue::U64(_) | OwnedValue::F64(_)
+                )
+            }
+            Bound::Unbounded => false,
+        });
+
+    if is_json_numeric_field && has_numeric_bounds && !is_datetime {
+        return create_json_numeric_range_query(
+            field,
+            search_field.field(),
+            field_type,
+            lower_bound,
+            upper_bound,
+            field.path().as_deref(),
+        );
+    }
+
+    // Standard single-type range query for non-JSON fields or non-numeric values
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
             search_field.field(),

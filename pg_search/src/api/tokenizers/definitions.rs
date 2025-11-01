@@ -196,7 +196,7 @@ pub(crate) mod pdb {
         json_to_simple,
         jsonb_to_simple,
         "simple",
-        preferred = true,
+        preferred = false,
         custom_typmod = false
     );
 
@@ -329,7 +329,7 @@ pub(crate) mod pdb {
         json_to_unicode_words,
         jsonb_to_unicode_words,
         "unicode_words",
-        preferred = false,
+        preferred = true,
         custom_typmod = false
     );
 }

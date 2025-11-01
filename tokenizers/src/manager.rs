@@ -626,7 +626,7 @@ mod tests {
 
     #[rstest]
     fn test_search_tokenizer() {
-        let tokenizer = SearchTokenizer::Simple();
+        let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
         assert_eq!(tokenizer.name(), "default".to_string());
 
         let json = r#"{

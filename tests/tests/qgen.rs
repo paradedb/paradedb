@@ -51,12 +51,7 @@ const COLUMNS: &[Column] = &[
             "(ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int]"
         ),
     Column::new("color", "VARCHAR", "'blue'")
-        .whereable({
-            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
-            // provide coverage for ORDER BY on a column containing NULL.
-            // https://github.com/paradedb/paradedb/issues/3111
-            false
-        })
+        .nullable(true)
         .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql(
             "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
@@ -65,12 +60,7 @@ const COLUMNS: &[Column] = &[
         .bm25_numeric_field(r#""age": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
-        .whereable({
-            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
-            // provide coverage for ORDER BY on a column containing NULL.
-            // https://github.com/paradedb/paradedb/issues/3111
-            false
-        })
+        .nullable(true)
         .bm25_numeric_field(r#""quantity": { "fast": true }"#)
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761952476947,
+  "lastUpdate": 1762017609148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7846,6 +7846,72 @@ window.BENCHMARK_DATA = {
             "value": 180.0953226675154,
             "unit": "median tps",
             "extra": "avg tps: 181.68744471786857, max tps: 547.5974435960943, count: 55349"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912bf02cf2a5e829d10ecf0006560e2cbe853050",
+          "message": "perf: Avoid copying Postgres buffers (#3402)\n\n# Ticket(s) Closed\n\n- Closes #3374\n\n## What\n\nThis change introduces zero-copy from Postgres `Buffer`s (in most\ncases), meaning that we avoid copying out of buffers in order to hand\nout `OwnedBytes` for them.\n\n## Why\n\nAs described on #3374, we currently go to great lengths to avoid calls\nto `{FileHandle, FileSlice}::read_bytes`, because each of them would\nacquire a lock on a Postgres `Buffer`, and then copy out of it into\n`OwnedBytes`.\n\nBut `OwnedBytes` is not actually \"owned\": it's reference counted, and\ncan be backed by a structure that borrows from shared memory, like a\n`Buffer`. This allows us to avoid copying `Buffer`s, and to instead\nslice into them.\n\nAdditionally, because the `Buffer`s of a `BytesList` are immutable, we\ndo not need to hold read locks on them after loading them the first\ntime: a pin is sufficient.\n\n## How\n\nIntroduces a method to assert that a `Buffer` is immutable, and release\nits read lock to convert it into the `ImmutablePage` type, which can be\nwrapped into `OwnedBytes`.\n\n## Tests\n\nSome benchmarks show up to 1.4x speedups; none show slowdowns.",
+          "timestamp": "2025-11-01T10:02:07-07:00",
+          "tree_id": "bde8bd0131ae8b2148ed36e77f0743ee59a2ad2a",
+          "url": "https://github.com/paradedb/paradedb/commit/912bf02cf2a5e829d10ecf0006560e2cbe853050"
+        },
+        "date": 1762017606556,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 807.6548201022811,
+            "unit": "median tps",
+            "extra": "avg tps: 805.5218369733365, max tps: 810.0328627724697, count: 55338"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3165.9102269611176,
+            "unit": "median tps",
+            "extra": "avg tps: 3130.033512525101, max tps: 3173.6032939150223, count: 55338"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 776.1265155863094,
+            "unit": "median tps",
+            "extra": "avg tps: 775.6842940492104, max tps: 829.648795109788, count: 55338"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 677.3490987275505,
+            "unit": "median tps",
+            "extra": "avg tps: 675.3802001849896, max tps: 681.6796260011579, count: 55338"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1715.1109750891064,
+            "unit": "median tps",
+            "extra": "avg tps: 1702.1488336196082, max tps: 1720.5538149952033, count: 110676"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1255.2802009436348,
+            "unit": "median tps",
+            "extra": "avg tps: 1243.929576758884, max tps: 1264.065293841118, count: 55338"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 179.46647501573116,
+            "unit": "median tps",
+            "extra": "avg tps: 203.070023926736, max tps: 813.6663398440202, count: 55338"
           }
         ]
       }

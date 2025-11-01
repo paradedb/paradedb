@@ -1,50 +1,52 @@
-version: 2
+# NOTE: Dependabot is disabled on enterprise, because all updates should land in community first.
 
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
-    groups:
-      github-actions-dependencies:
-        patterns:
-          - "*"
+# version: 2
 
-  # - package-ecosystem: "docker"
-  #   directory: "/docker"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     docker-dependencies:
-  #       patterns:
-  #         - "*"
+# updates:
+#   - package-ecosystem: "github-actions"
+#     directory: "/"
+#     schedule:
+#       interval: "monthly"
+#     ignore:
+#       - dependency-name: "*"
+#         update-types: ["version-update:semver-patch"]
+#     groups:
+#       github-actions-dependencies:
+#         patterns:
+#           - "*"
 
-  # - package-ecosystem: "cargo"
-  #   directory: "/pg_search"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     pg_search-dependencies:
-  #       patterns:
-  #         - "*"
+#   - package-ecosystem: "docker"
+#     directory: "/docker"
+#     schedule:
+#       interval: "monthly"
+#     ignore:
+#       - dependency-name: "*"
+#         update-types: ["version-update:semver-patch"]
+#     groups:
+#       docker-dependencies:
+#         patterns:
+#           - "*"
 
-  # - package-ecosystem: "cargo"
-  #   directory: "/tokenizers"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     tokenizers-dependencies:
-  #       patterns:
-  #         - "*"
+#   - package-ecosystem: "cargo"
+#     directory: "/pg_search"
+#     schedule:
+#       interval: "monthly"
+#     ignore:
+#       - dependency-name: "*"
+#         update-types: ["version-update:semver-patch"]
+#     groups:
+#       pg_search-dependencies:
+#         patterns:
+#           - "*"
+
+#   - package-ecosystem: "cargo"
+#     directory: "/tokenizers"
+#     schedule:
+#       interval: "monthly"
+#     ignore:
+#       - dependency-name: "*"
+#         update-types: ["version-update:semver-patch"]
+#     groups:
+#       tokenizers-dependencies:
+#         patterns:
+#           - "*"

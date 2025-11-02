@@ -141,7 +141,7 @@ jobs:
             echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
           else
             echo "No schema difference detected"
-            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload comment artifact (only if diff)

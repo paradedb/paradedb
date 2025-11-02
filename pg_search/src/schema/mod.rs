@@ -432,7 +432,7 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::JsonObject(options) => {
-                matches!(self.field_type, SearchFieldType::Json(_))
+                self.is_json()
                     && options.is_fast()
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
             }

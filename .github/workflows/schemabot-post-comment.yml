@@ -70,6 +70,7 @@ jobs:
               : `No artifact found for SHA ${sha}`
             );
 
+      # Useful for debugging
       - name: List Available Artifacts
         uses: actions/github-script@v8
         with:
@@ -91,7 +92,6 @@ jobs:
         with:
           name: schemabot-comment-${{ github.event.workflow_run.head_sha }}
           run-id: ${{ steps.artifact.outputs.run_id }}
-          artifact-ids: ${{ steps.artifact.outputs.artifact_id }}
           path: ./artifact
           github-token: ${{ secrets.GITHUB_TOKEN }}
 

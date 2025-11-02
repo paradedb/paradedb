@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762040941976,
+  "lastUpdate": 1762041714024,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -69090,6 +69090,54 @@ window.BENCHMARK_DATA = {
             "value": 113.11773874716545,
             "unit": "median tps",
             "extra": "avg tps: 112.1419100715924, max tps: 128.6275294684062, count: 107364"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "926b75997d98d962680052dbe09ea2ced08b0d90",
+          "message": "fix: snippet generation with `unicode_words` tokenizer (#3475)\n\n# Ticket(s) Closed\n\n- Closes #3474 \n\n## What\n\nThe `unicode_words` tokenizer was not tracking token offsets, which\nbroke snippet generation.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-11-01T18:52:41-04:00",
+          "tree_id": "5102e12cff8e8ae183c08dc00090dd25b13c4d33",
+          "url": "https://github.com/paradedb/paradedb/commit/926b75997d98d962680052dbe09ea2ced08b0d90"
+        },
+        "date": 1762041711463,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 662.0932305263893,
+            "unit": "median tps",
+            "extra": "avg tps: 661.0817966263334, max tps: 906.3855274191375, count: 53583"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 760.8974463450342,
+            "unit": "median tps",
+            "extra": "avg tps: 759.4001856976384, max tps: 1167.2473341529947, count: 53583"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 110.49052587381736,
+            "unit": "median tps",
+            "extra": "avg tps: 110.60313047577098, max tps: 124.15448930466187, count: 53583"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.77225578724895,
+            "unit": "median tps",
+            "extra": "avg tps: 111.13912309589573, max tps: 124.73756667658445, count: 107166"
           }
         ]
       }

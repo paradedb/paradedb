@@ -252,6 +252,31 @@ impl Clone for SearchIndexReader {
 }
 
 impl SearchIndexReader {
+    /// Detect fast-field type for a JSON path by probing segment fast fields.
+    fn detect_json_fastfield_type(&self, name: &str) -> Option<tantivy::schema::Type> {
+        for reader in self.searcher.segment_readers().iter() {
+            let ffr = reader.fast_fields();
+            if ffr.i64(name).is_ok() {
+                return Some(tantivy::schema::Type::I64);
+            }
+            if ffr.u64(name).is_ok() {
+                return Some(tantivy::schema::Type::U64);
+            }
+            if ffr.f64(name).is_ok() {
+                return Some(tantivy::schema::Type::F64);
+            }
+            if ffr.bool(name).is_ok() {
+                return Some(tantivy::schema::Type::Bool);
+            }
+            if ffr.date(name).is_ok() {
+                return Some(tantivy::schema::Type::Date);
+            }
+            if let Ok(Some(_)) = ffr.str(name) {
+                return Some(tantivy::schema::Type::Str);
+            }
+        }
+        None
+    }
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
@@ -533,6 +558,78 @@ impl SearchIndexReader {
                             offset,
                         ),
                     ),
+                    tantivy::schema::Type::Json => match self
+                        .detect_json_fastfield_type(sort_field.as_ref())
+                        .unwrap_or(tantivy::schema::Type::Str)
+                    {
+                        tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::string(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::u64(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        tantivy::schema::Type::I64 => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::i64(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        tantivy::schema::Type::F64 => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::f64(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        tantivy::schema::Type::Bool => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::bool(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        tantivy::schema::Type::Date => TopNSearchResults::new_for_discarded_field(
+                            &self.searcher,
+                            self.top_in_segments(
+                                segment_ids,
+                                FieldFeature::datetime(sort_field),
+                                *direction,
+                                erased_features,
+                                n,
+                                offset,
+                            ),
+                        ),
+                        x => panic!("Unsupported JSON underlying fast-field type: {x:?}"),
+                    },
                     tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
@@ -895,6 +992,26 @@ impl SearchIndexReader {
                     match field.field_entry().field_type().value_type() {
                         tantivy::schema::Type::Str => erased_features
                             .push_string_feature(FieldFeature::string(sort_field), *direction),
+                        tantivy::schema::Type::Json => match self
+                            .detect_json_fastfield_type(sort_field.as_ref())
+                            .unwrap_or(tantivy::schema::Type::Str)
+                        {
+                            tantivy::schema::Type::Str => erased_features
+                                .push_string_feature(FieldFeature::string(sort_field), *direction),
+                            tantivy::schema::Type::U64 => erased_features
+                                .push_ff_feature(FieldFeature::u64(sort_field), *direction),
+                            tantivy::schema::Type::I64 => erased_features
+                                .push_ff_feature(FieldFeature::i64(sort_field), *direction),
+                            tantivy::schema::Type::F64 => erased_features
+                                .push_ff_feature(FieldFeature::f64(sort_field), *direction),
+                            tantivy::schema::Type::Bool => erased_features
+                                .push_ff_feature(FieldFeature::bool(sort_field), *direction),
+                            tantivy::schema::Type::Date => erased_features
+                                .push_ff_feature(FieldFeature::datetime(sort_field), *direction),
+                            other => {
+                                panic!("Unsupported JSON underlying fast-field type: {other:?}")
+                            }
+                        },
                         tantivy::schema::Type::U64 => erased_features
                             .push_ff_feature(FieldFeature::u64(sort_field), *direction),
                         tantivy::schema::Type::I64 => erased_features

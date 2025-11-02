@@ -1,0 +1,102 @@
+# workflows/schemabot-comment.yml
+#
+# SchemaBot Comment
+# Post a comment to a PR if SchemaBot detected a schema difference.
+
+name: SchemaBot Comment
+
+on:
+  workflow_run:
+    workflows: ["SchemaBot CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  maybe-comment:
+    # Only when CI succeeded and the run came from a PR
+    if: >
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.event == 'pull_request')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find associated PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = context.payload?.workflow_run?.pull_requests || [];
+            if (!prs.length) core.setFailed('No associated PR found for this run.');
+            core.setOutput('number', String(prs[0].number));
+
+      - name: Locate schemabot-comment artifact
+        id: art
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.workflow_run.head_sha;
+            const runId = context.payload.workflow_run.id;
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId
+            });
+            const artifact = data.artifacts.find(a =>
+              a.name === `schemabot-comment-${sha}` && !a.expired
+            );
+            core.setOutput('found', artifact ? 'true' : 'false');
+            core.setOutput('artifact_id', artifact?.id ?? '');
+
+      - name: Stop if there is no diff artifact
+        if: steps.art.outputs.found != 'true'
+        run: echo "No schema diff; nothing to comment." && exit 0
+
+      - name: Download artifact by ID
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.art.outputs.artifact_id }}
+          path: ./artifact
+
+      - name: Read comment body
+        id: msg
+        run: |
+          BODY="$(cat ./artifact/commit-message.md)"
+          # escape for set-output
+          BODY="${BODY//'%'/'%25'}"
+          BODY="${BODY//$'\n'/'%0A'}"
+          BODY="${BODY//$'\r'/'%0D'}"
+          echo "body=$BODY" >> $GITHUB_OUTPUT
+
+      - name: Upsert PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const number = Number("${{ steps.pr.outputs.number }}");
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number
+            });
+
+            const marker = 'A schema difference was detected.';
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: `${{ steps.msg.outputs.body }}`
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                body: `${{ steps.msg.outputs.body }}`
+              });
+            }

@@ -42,7 +42,7 @@ jobs:
             core.setOutput('number', String(prs[0].number));
 
       - name: Locate SchemaBot Comment Artifact
-        id: art
+        id: artifact
         uses: actions/github-script@v8
         with:
           script: |
@@ -54,55 +54,33 @@ jobs:
               run_id: runId
             });
             const artifact = data.artifacts.find(a =>
-              a.name === `schemabot-post-comment-${sha}` && !a.expired
+              a.name === `schemabot-comment-${sha}` && !a.expired
             );
             core.setOutput('found', artifact ? 'true' : 'false');
             core.setOutput('artifact_id', artifact?.id ?? '');
 
       - name: Download artifact by ID
-        if: steps.art.outputs.found == 'true'
+        if: steps.artifact.outputs.found == 'true'
         uses: actions/download-artifact@v6
         with:
-          artifact-ids: ${{ steps.art.outputs.artifact_id }}
+          artifact-ids: ${{ steps.artifact.outputs.artifact_id }}
           path: ./artifact
 
-      - name: Read Comment Body
-        id: msg
-        if: steps.art.outputs.found == 'true'
-        run: |
-          BODY="$(cat ./artifact/commit-message.md)"
-          # escape for set-output
-          BODY="${BODY//'%'/'%25'}"
-          BODY="${BODY//$'\n'/'%0A'}"
-          BODY="${BODY//$'\r'/'%0D'}"
-          echo "body=$BODY" >> $GITHUB_OUTPUT
-
       - name: Upsert PR Comment on Original PR
+        if: steps.artifact.outputs.found == 'true'
         uses: actions/github-script@v8
         with:
           script: |
+            const fs = require('fs');
             const number = Number("${{ steps.pr.outputs.number }}");
+            const body = fs.readFileSync('./artifact/commit-message.md', 'utf8'); // untrusted, but not interpolated
             const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: number
             });
-
             const marker = 'A schema difference was detected.';
             const existing = comments.find(c => c.user.type === 'Bot' && c.body?.includes(marker));
-
             if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: `${{ steps.msg.outputs.body }}`
-              });
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                body: `${{ steps.msg.outputs.body }}`
-              });
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: number, body });
             }

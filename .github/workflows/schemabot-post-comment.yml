@@ -1,9 +1,11 @@
-# workflows/schemabot-comment.yml
+# workflows/schemabot-post-comment.yml
 #
 # SchemaBot Comment
-# Post a comment to a PR if SchemaBot detected a schema difference.
+# Post a comment to a PR if SchemaBot detected a schema difference. We split the SchemaBot
+# CI workflow in two since external contributors cannot post PR comments from a workflow
+# run triggered by their PR due to GitHub Actions permission restrictions.
 
-name: SchemaBot Comment
+name: SchemaBot
 
 on:
   workflow_run:
@@ -16,26 +18,28 @@ permissions:
 
 jobs:
   maybe-comment:
+    name: Post Comment
+    runs-on: ubuntu-latest
     # Only when CI succeeded and the run came from a PR
     if: >
       ${{
         github.event.workflow_run.conclusion == 'success' &&
         (github.event.workflow_run.event == 'pull_request')
       }}
-    runs-on: ubuntu-latest
+
     steps:
-      - name: Find associated PR number
+      - name: Find Associated PR Number
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prs = context.payload?.workflow_run?.pull_requests || [];
             if (!prs.length) core.setFailed('No associated PR found for this run.');
             core.setOutput('number', String(prs[0].number));
 
-      - name: Locate schemabot-comment artifact
+      - name: Locate SchemaBot Comment Artifact
         id: art
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const sha = context.payload.workflow_run.head_sha;
@@ -46,23 +50,21 @@ jobs:
               run_id: runId
             });
             const artifact = data.artifacts.find(a =>
-              a.name === `schemabot-comment-${sha}` && !a.expired
+              a.name === `schemabot-post-comment-${sha}` && !a.expired
             );
             core.setOutput('found', artifact ? 'true' : 'false');
             core.setOutput('artifact_id', artifact?.id ?? '');
 
-      - name: Stop if there is no diff artifact
-        if: steps.art.outputs.found != 'true'
-        run: echo "No schema diff; nothing to comment." && exit 0
-
       - name: Download artifact by ID
-        uses: actions/download-artifact@v4
+        if: steps.art.outputs.found == 'true'
+        uses: actions/download-artifact@v6
         with:
           artifact-ids: ${{ steps.art.outputs.artifact_id }}
           path: ./artifact
 
-      - name: Read comment body
+      - name: Read Comment Body
         id: msg
+        if: steps.art.outputs.found == 'true'
         run: |
           BODY="$(cat ./artifact/commit-message.md)"
           # escape for set-output
@@ -71,8 +73,8 @@ jobs:
           BODY="${BODY//$'\r'/'%0D'}"
           echo "body=$BODY" >> $GITHUB_OUTPUT
 
-      - name: Upsert PR comment
-        uses: actions/github-script@v7
+      - name: Upsert PR Comment on Original PR
+        uses: actions/github-script@v8
         with:
           script: |
             const number = Number("${{ steps.pr.outputs.number }}");

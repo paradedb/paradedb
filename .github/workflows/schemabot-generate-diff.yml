@@ -1,9 +1,9 @@
-# workflows/schemabot-ci.yml
+# workflows/schemabot-generate-diff.yml
 #
-# SchemaBot CI
+# SchemaBot Generate Diff
 # Determine if a commit introduces an extension schema change for pg_search.
 
-name: SchemaBot CI
+name: SchemaBot
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ on:
       - main
       - 0.*.x # Release branches
     paths:
-      - ".github/workflows/schemabot-ci.yml"
+      - ".github/workflows/schemabot-generate-diff.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
@@ -21,12 +21,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: schemabot-ci-${{ github.head_ref || github.ref }}
+  group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  schemabot-ci:
-    name: SchemaBot
+  schemabot-generate-diff:
+    name: Generate Schema Diff
     runs-on: ubicloud-standard-8
     defaults:
       run:
@@ -112,32 +112,37 @@ jobs:
       - name: Generate Commit Message
         id: generate_commit_message
         run: |
-          echo "Generating GitHub comment message"
-          {
-            echo 'A schema difference was detected.'
-            echo
-            echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-            echo
-            echo '```sql'
-            cat ~/diff.sql
-            echo '```'
+          if test -s ~/diff.sql; then
+            echo "Generating GitHub comment message"
+            {
+              echo 'A schema difference was detected.'
+              echo
+              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
+              echo
+              echo '```sql'
+              cat ~/diff.sql
+              echo '```'
 
-            #
-            # Include the full schema diff, for informational purposes
-            #
+              #
+              # Include the full schema diff, for informational purposes
+              #
 
-            echo
-            echo '<details>'
-            echo '<summary>The full diff between both schemas is:</summary>'
-            echo
-            echo '```diff'
-            cat ~/diff.patch
-            echo '```'
-            echo '</details>'
-          } >> commit-message.md
+              echo
+              echo '<details>'
+              echo '<summary>The full diff between both schemas is:</summary>'
+              echo
+              echo '```diff'
+              cat ~/diff.patch
+              echo '```'
+              echo '</details>'
+            } >> commit-message.md
 
-          # Set a flag to indicate a schema difference was detected
-          echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+            # Set a flag to indicate a schema difference was detected
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload comment artifact (only if diff)
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'

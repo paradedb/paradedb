@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762111049470,
+  "lastUpdate": 1762111053171,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33550,6 +33550,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.3267128881475, max segment_count: 106.0, count: 57549"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "47ac148adc7ec11da0e4e8fde5fe7c5c7a33c9fa",
+          "message": "fix: snippet generation with `unicode_words` tokenizer (#3478)\n\n# Ticket(s) Closed\n\n- Closes #3474 \n\n## What\n\nThe `unicode_words` tokenizer was not tracking token offsets, which\nbroke snippet generation.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-02T10:47:39-08:00",
+          "tree_id": "04f913ebcc8cb57110c02458fdc0e8aff9902add",
+          "url": "https://github.com/paradedb/paradedb/commit/47ac148adc7ec11da0e4e8fde5fe7c5c7a33c9fa"
+        },
+        "date": 1762111050905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.82353,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.377335472285147, max cpu: 42.899704, count: 57587"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.9848116355471, max mem: 230.03125, count: 57587"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.285553045602946, max cpu: 33.333336, count: 57587"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.5563869666765, max mem: 165.53125, count: 57587"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24215,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23109.767343324012, max block_count: 25970.0, count: 57587"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.32326740410161, max segment_count: 105.0, count: 57587"
           }
         ]
       }

@@ -54,7 +54,7 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -80,7 +80,7 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('SUM'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: SUM(value)
@@ -99,7 +99,7 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('AVG'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: AVG(value)
@@ -118,7 +118,7 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('MIN'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MIN(value)
@@ -137,7 +137,7 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('MAX'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MAX(value)
@@ -157,7 +157,7 @@ FROM empty_test WHERE id @@@ paradedb.all();
                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now(), now(), now(), now(), now(), now()
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
@@ -189,7 +189,7 @@ GROUP BY category;
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, now()
+   Output: category, pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -214,7 +214,7 @@ ORDER BY category;
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, now(), now(), now()
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
@@ -249,7 +249,7 @@ ORDER BY category, value;
                                                                                                               QUERY PLAN                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, value, now()
+   Output: category, value, pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)

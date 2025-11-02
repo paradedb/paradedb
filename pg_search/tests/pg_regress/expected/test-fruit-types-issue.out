@@ -49,7 +49,7 @@ GROUP BY name;
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('AVG'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(price), MAX(rating), AVG(age)
@@ -82,7 +82,7 @@ GROUP BY name;
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), MAX(rating)
@@ -111,7 +111,7 @@ GROUP BY name;
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('AVG'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), MAX(rating), AVG(age)

@@ -3,7 +3,7 @@
 # SchemaBot Generate Diff
 # Determine if a commit introduces an extension schema change for pg_search.
 
-name: SchemaBot
+name: SchemaBot Generate Diff
 
 on:
   pull_request:

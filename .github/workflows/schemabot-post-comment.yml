@@ -5,11 +5,11 @@
 # CI workflow in two since external contributors cannot post PR comments from a workflow
 # run triggered by their PR due to GitHub Actions permission restrictions.
 
-name: SchemaBot
+name: SchemaBot Post Comment
 
 on:
   workflow_run:
-    workflows: ["SchemaBot CI"]
+    workflows: ["SchemaBot Generate Diff"]
     types: [completed]
 
 permissions:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   maybe-comment:
-    name: Post Comment
+    name: Post PR Comment
     runs-on: ubuntu-latest
     # Only when CI succeeded and the run came from a PR
     if: >

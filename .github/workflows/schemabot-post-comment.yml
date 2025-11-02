@@ -4,6 +4,10 @@
 # Post a comment to a PR if SchemaBot detected a schema difference. We split the SchemaBot
 # CI workflow in two since external contributors cannot post PR comments from a workflow
 # run triggered by their PR due to GitHub Actions permission restrictions.
+#
+# !! IMPORTANT !!
+# Since this workflow runs can run on workflow_run triggers from external contributors' PRs,
+# it MUST NOT run `actions/checkout` or otherwise have access to our codebase.
 
 name: SchemaBot Post Comment
 

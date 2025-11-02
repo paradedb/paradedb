@@ -86,23 +86,20 @@ jobs:
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
-          # Add the PR target repo as 'upstream' (works for both same-repo & forks)
-          git remote add upstream "https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git" || true
+          # Switch to the base git rev
+          git checkout .
+          git checkout ${{ github.event.pull_request.base.sha }}
 
-          # Fetch exactly the base commit object
-          git fetch --no-tags --depth=1 upstream ${{ github.event.pull_request.base.sha }}
+          # See if we need a different cargo-pgrx and install it if so
 
-          # Discard local changes and check out the fetched commit detached
-          git reset --hard
-          git checkout --detach FETCH_HEAD
 
-          # Recompute cargo-pgrx version and re-init if needed
           THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
             cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
+          # Generate schema
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
@@ -114,32 +111,37 @@ jobs:
       - name: Generate Commit Message
         id: generate_commit_message
         run: |
-          echo "Generating GitHub comment message"
-          {
-            echo 'A schema difference was detected.'
-            echo
-            echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-            echo
-            echo '```sql'
-            cat ~/diff.sql
-            echo '```'
+          if test -s ~/diff.sql; then
+            echo "Generating GitHub comment message"
+            {
+              echo 'A schema difference was detected.'
+              echo
+              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
+              echo
+              echo '```sql'
+              cat ~/diff.sql
+              echo '```'
 
-            #
-            # Include the full schema diff, for informational purposes
-            #
+              #
+              # Include the full schema diff, for informational purposes
+              #
 
-            echo
-            echo '<details>'
-            echo '<summary>The full diff between both schemas is:</summary>'
-            echo
-            echo '```diff'
-            cat ~/diff.patch
-            echo '```'
-            echo '</details>'
-          } >> commit-message.md
+              echo
+              echo '<details>'
+              echo '<summary>The full diff between both schemas is:</summary>'
+              echo
+              echo '```diff'
+              cat ~/diff.patch
+              echo '```'
+              echo '</details>'
+            } >> commit-message.md
 
-          # Set a flag to indicate a schema difference was detected
-          echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+            # Set a flag to indicate a schema difference was detected
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload comment artifact (only if diff)
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'

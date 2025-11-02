@@ -112,37 +112,32 @@ jobs:
       - name: Generate Commit Message
         id: generate_commit_message
         run: |
-          if test -s ~/diff.sql; then
-            echo "Generating GitHub comment message"
-            {
-              echo 'A schema difference was detected.'
-              echo
-              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-              echo
-              echo '```sql'
-              cat ~/diff.sql
-              echo '```'
+          echo "Generating GitHub comment message"
+          {
+            echo 'A schema difference was detected.'
+            echo
+            echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
+            echo
+            echo '```sql'
+            cat ~/diff.sql
+            echo '```'
 
-              #
-              # Include the full schema diff, for informational purposes
-              #
+            #
+            # Include the full schema diff, for informational purposes
+            #
 
-              echo
-              echo '<details>'
-              echo '<summary>The full diff between both schemas is:</summary>'
-              echo
-              echo '```diff'
-              cat ~/diff.patch
-              echo '```'
-              echo '</details>'
-            } >> commit-message.md
+            echo
+            echo '<details>'
+            echo '<summary>The full diff between both schemas is:</summary>'
+            echo
+            echo '```diff'
+            cat ~/diff.patch
+            echo '```'
+            echo '</details>'
+          } >> commit-message.md
 
-            # Set a flag to indicate a schema difference was detected
-            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
-          else
-            echo "No schema difference detected"
-            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
-          fi
+          # Set a flag to indicate a schema difference was detected
+          echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
 
       - name: Upload comment artifact (only if diff)
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'

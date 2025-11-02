@@ -20,6 +20,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: schemabot-post-comment-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   maybe-comment:
     name: Post PR Comment
@@ -40,6 +44,7 @@ jobs:
             const prs = context.payload?.workflow_run?.pull_requests || [];
             if (!prs.length) core.setFailed('No associated PR found for this run.');
             core.setOutput('number', String(prs[0].number));
+            core.info(`Found PR #${prs[0].number}`);
 
       - name: Locate SchemaBot Comment Artifact
         id: artifact
@@ -58,11 +63,17 @@ jobs:
             );
             core.setOutput('found', artifact ? 'true' : 'false');
             core.setOutput('artifact_id', artifact?.id ?? '');
+            core.setOutput('run_id', runId);
+            core.info(artifact
+              ? `Found artifact ID ${artifact.id} for SHA ${sha}`
+              : `No artifact found for SHA ${sha}`
+            );
 
-      - name: Download artifact by ID
+      - name: Download Artifact by ID
         if: steps.artifact.outputs.found == 'true'
         uses: actions/download-artifact@v6
         with:
+          run-id: ${{ steps.artifact.outputs.run_id }}
           artifact-ids: ${{ steps.artifact.outputs.artifact_id }}
           path: ./artifact
 

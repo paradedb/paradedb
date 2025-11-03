@@ -86,8 +86,8 @@ jobs:
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
-          # Add the PR target repo as 'upstream' (works for both same-repo & forks)
-          git remote add upstream "https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git" || true
+          # Add the PR target repo as 'upstream' (works for both same-repo & forks, and for pull_request & push events)
+          git remote add upstream "https://github.com/${{ github.event.pull_request.base.repo.full_name || github.repository }}.git" || true
 
           # Fetch exactly the base commit object
           git fetch --no-tags --depth=1 upstream ${{ github.event.pull_request.base.sha }}

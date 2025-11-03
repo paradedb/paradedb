@@ -32,8 +32,9 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, HtmlStripCharacterFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
-    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer, CharacterFilter,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, HtmlStripCharacterFilter, Language, LowerCaser,
+    NgramTokenizer, RawTokenizer, RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter,
+    TextAnalyzer, WhitespaceTokenizer,
 };
 use tantivy_jieba;
 
@@ -672,6 +673,7 @@ mod tests {
                     ascii_folding: None,
                     normalizer: None,
                     alpha_num_only: None,
+                    html_strip: None,
                 }
             }
         );
@@ -696,6 +698,7 @@ mod tests {
                 ascii_folding: None,
                 normalizer: None,
                 alpha_num_only: None,
+                html_strip: None,
             },
         };
 
@@ -740,6 +743,7 @@ mod tests {
                 ascii_folding: None,
                 normalizer: None,
                 alpha_num_only: None,
+                html_strip: None,
             })
         );
 
@@ -792,6 +796,7 @@ mod tests {
                 ascii_folding: None,
                 normalizer: None,
                 alpha_num_only: None,
+                html_strip: None,
             })
         );
 

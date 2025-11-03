@@ -1,0 +1,132 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.unicode_words('html_strip=true')::text[];
+                text                 
+-------------------------------------
+ {the,test,of,the,html_strip,filter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.unicode_words('html_strip=true')::text[];
+                              text                               
+-----------------------------------------------------------------
+ {tom's,html_strip,filter,handles,ampersands,like,a,b,correctly}
+(1 row)
+
+SELECT 'Invalid entities like &nosuchentity; &#xRT; &#-1; s == “&amp hej och hå”`'::pdb.unicode_words('html_strip=true')::text[];
+                            text                             
+-------------------------------------------------------------
+ {invalid,entities,like,nosuchentity,xrt,1,s,amp,hej,och,hå}
+(1 row)
+
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.unicode_words('html_strip=false')::text[];
+                    text                     
+---------------------------------------------
+ {the,b,test,b,of,the,i,html_strip,i,filter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.unicode_words('html_strip=false')::text[];
+                                        text                                        
+------------------------------------------------------------------------------------
+ {tom,apos,s,quot,html_strip,quot,filter,handles,ampersands,like,a,amp,b,correctly}
+(1 row)
+
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.unicode_words::text[];
+                    text                     
+---------------------------------------------
+ {the,b,test,b,of,the,i,html_strip,i,filter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.unicode_words::text[];
+                                        text                                        
+------------------------------------------------------------------------------------
+ {tom,apos,s,quot,html_strip,quot,filter,handles,ampersands,like,a,amp,b,correctly}
+(1 row)
+
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.unicode_words('html_strip=true')::text[];
+                text                 
+-------------------------------------
+ {the,test,of,the,html_strip,filter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.unicode_words('html_strip=true')::text[];
+                              text                               
+-----------------------------------------------------------------
+ {tom's,html_strip,filter,handles,ampersands,like,a,b,correctly}
+(1 row)
+
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.simple('html_strip=true')::text[];
+                text                 
+-------------------------------------
+ {the,test,of,the,html,strip,filter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.simple('html_strip=true')::text[];
+                              text                               
+-----------------------------------------------------------------
+ {tom,s,html,strip,filter,handles,ampersands,like,a,b,correctly}
+(1 row)
+
+SELECT 'The <b>test</b> of the <i>html_strip</i> filter'::pdb.ngram(5, 5, 'html_strip=true')::text[];
+                                                                                                           text                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"the t","he te","e tes"," test","test ","est o","st of","t of "," of t","of th","f the"," the ","the h","he ht","e htm"," html",html_,tml_s,ml_st,l_str,_stri,strip,"trip ","rip f","ip fi","p fil"," filt",filte,ilter}
+(1 row)
+
+SELECT 'Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.'::pdb.ngram(5, 5, 'html_strip=true')::text[];
+                                                                                                                                                                                                                            text                                                                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {tom's,"om's ","m's \"","'s \"h","s \"ht"," \"htm","\"html",html_,tml_s,ml_st,l_str,_stri,strip,"trip\"","rip\" ","ip\" f","p\" fi","\" fil"," filt",filte,ilter,"lter ","ter h","er ha","r han"," hand",handl,andle,ndles,"dles ","les a","es am","s amp"," ampe",amper,mpers,persa,ersan,rsand,sands,"ands ","nds l","ds li","s lik"," like","like ","ike a","ke a&","e a&b"," a&b ","a&b c","&b co","b cor"," corr",corre,orrec,rrect,rectl,ectly,ctly.}
+(1 row)
+
+DROP TABLE IF EXISTS html_strip_test;
+CREATE TABLE html_strip_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+INSERT INTO html_strip_test (content) VALUES
+('This is a <b>test</b> of the <i>html_strip</i> filter'),
+('Tom&apos;s &quot;html_strip&quot; filter handles ampersands like A&amp;B correctly.');
+-- with html strip
+CREATE INDEX html_strip_test_idx ON html_strip_test USING bm25 (
+    id,
+    (content::pdb.unicode_words('html_strip=true'))
+) WITH (
+    key_field = 'id'
+);
+SELECT pdb.snippet(content, start_tag => '<strong>', end_tag => '</strong>'), pdb.snippet_positions(content) FROM html_strip_test WHERE content === 'test' ORDER BY id;
+                         snippet                          | snippet_positions 
+----------------------------------------------------------+-------------------
+ This is a <strong>test</strong> of the html_strip filter | {"{10,14}"}
+(1 row)
+
+SELECT pdb.snippet(content, start_tag => '<strong>', end_tag => '</strong>'), pdb.snippet_positions(content) FROM html_strip_test WHERE content === 'ampersands' ORDER BY id;
+                                               snippet                                               | snippet_positions 
+-----------------------------------------------------------------------------------------------------+-------------------
+ Tom&#x27;s &quot;html_strip&quot; filter handles <strong>ampersands</strong> like A&amp;B correctly | {"{34,44}"}
+(1 row)
+
+-- without html strip
+DROP INDEX html_strip_test_idx;
+CREATE INDEX html_strip_test_idx ON html_strip_test USING bm25 (
+    id,
+    content
+) WITH (
+    key_field = 'id'
+);
+SELECT pdb.snippet(content, start_tag => '<strong>', end_tag => '</strong>'), pdb.snippet_positions(content) FROM html_strip_test WHERE content === 'test' ORDER BY id;
+                                            snippet                                             | snippet_positions 
+------------------------------------------------------------------------------------------------+-------------------
+ This is a &lt;b&gt;<strong>test</strong>&lt;/b&gt; of the &lt;i&gt;html_strip&lt;/i&gt; filter | {"{13,17}"}
+(1 row)
+
+SELECT pdb.snippet(content, start_tag => '<strong>', end_tag => '</strong>'), pdb.snippet_positions(content) FROM html_strip_test WHERE content === 'ampersands' ORDER BY id;
+                                                       snippet                                                       | snippet_positions 
+---------------------------------------------------------------------------------------------------------------------+-------------------
+ Tom&amp;apos;s &amp;quot;html_strip&amp;quot; filter handles <strong>ampersands</strong> like A&amp;amp;B correctly | {"{49,59}"}
+(1 row)
+
+DROP TABLE html_strip_test;

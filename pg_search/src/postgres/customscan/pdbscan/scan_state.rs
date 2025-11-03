@@ -35,9 +35,7 @@ use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::tokenizer::{CharacterFilter, HtmlStripCharacterFilter};
 use tantivy::SegmentReader;
-use tantivy::schema::FieldType;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -468,28 +466,26 @@ impl PdbScanState {
             pg_sys::heap_freetuple(htup);
         }
 
-        let result = if apply_char_filters {
-            let reader = self.search_reader.as_ref().expect("search reader should be initialized");
-            let search_field = reader.schema().search_field(field).expect("field {field} should be indexed");
-            let tokenizer = reader.searcher().index().tokenizer_for_field(tantivy_field).expect("tokenizer for {field} should be initialized");
+        if apply_char_filters {
+            let reader = self
+                .search_reader
+                .as_ref()
+                .expect("search reader should be initialized");
+            let tantivy_field = reader
+                .schema()
+                .search_field(field)
+                .expect("field {field} should be indexed")
+                .field();
+            let tokenizer = reader
+                .searcher()
+                .index()
+                .tokenizer_for_field(tantivy_field)
+                .expect("tokenizer for {field} should be initialized");
             let char_filters = tokenizer.char_filters();
             result.map(|r| char_filters.iter().fold(r, |r, filter| filter.filter(&r)))
-
-            // let field_type = search_field.field_entry().field_type();
-            // let indexing_options_opt = match field_type {
-            //     FieldType::JsonObject(options) => options.get_text_indexing_options(),
-            //     FieldType::Str(options) => options.get_indexing_options(),
-            //     _ => panic!("field {field} is not a text or json field"),
-            // };
-
-            // pgrx::info!("indexing_options_opt: {:?}", indexing_options_opt);
-
-            // result.map(|r| HtmlStripCharacterFilter::default().filter(&r))
         } else {
             result
-        };
-        pgrx::info!("result: {:?}", result);
-        result
+        }
     }
 }
 

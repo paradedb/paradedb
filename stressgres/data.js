@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762128745271,
+  "lastUpdate": 1762129547933,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26962,6 +26962,42 @@ window.BENCHMARK_DATA = {
             "value": 5.457375223673623,
             "unit": "median tps",
             "extra": "avg tps: 4.919586378674722, max tps: 6.034919624658138, count: 57587"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfcaa44ff7746207f59fa357c4c2b4432f7a30ae",
+          "message": "feat: Add `pdb.parse` (#3460)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds `parse` to the new `pdb` schema\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-02T18:55:54-05:00",
+          "tree_id": "b3bfd2a1cef3653c78e0e97dbb5c1a8f06e127f3",
+          "url": "https://github.com/paradedb/paradedb/commit/bfcaa44ff7746207f59fa357c4c2b4432f7a30ae"
+        },
+        "date": 1762129545478,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.127245230929509,
+            "unit": "median tps",
+            "extra": "avg tps: 6.947402706013884, max tps: 10.728628325944094, count: 57757"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.517760290236612,
+            "unit": "median tps",
+            "extra": "avg tps: 4.978121179028117, max tps: 6.136822434004346, count: 57757"
           }
         ]
       }

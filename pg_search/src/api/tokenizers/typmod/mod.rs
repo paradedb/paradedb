@@ -330,7 +330,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                         "swedish" => Language::Swedish,
                         "tamil" => Language::Tamil,
                         "turkish" => Language::Turkish,
-                        other => panic!("Unknown stemmer: {other}"),
+                        other => panic!("unknown stemmer: {other}"),
                     }
                 }),
             stopwords_language: value

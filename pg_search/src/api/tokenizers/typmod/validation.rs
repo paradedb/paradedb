@@ -18,26 +18,26 @@
 use crate::api::tokenizers::typmod::{ParsedTypmod, Property};
 use std::collections::HashSet;
 use thiserror::Error;
-use tokenizers::manager::SearchTokenizerFilters;
 
-#[derive(Debug, Error, Clone)]
-pub enum ValidationError {
-    #[error("Invalid option: '{0}'. Allowed options: {1}.")]
-    InvalidKey(String, String),
-
-    #[error("Missing required option: '{0}'")]
-    MissingRequiredKey(String),
-
-    #[error("Invalid value for option '{key}': {message}")]
-    InvalidValue { key: String, message: String },
-
-    #[error("Value for option '{key}' must be of type {expected_type}, got {actual_type}")]
-    TypeMismatch {
-        key: String,
-        expected_type: String,
-        actual_type: String,
-    },
-}
+const LANGUAGES: [&str; 17] = [
+    "arabic",
+    "danish",
+    "dutch",
+    "english",
+    "finnish",
+    "french",
+    "german",
+    "greek",
+    "hungarian",
+    "italian",
+    "norwegian",
+    "portuguese",
+    "romanian",
+    "russian",
+    "spanish",
+    "swedish",
+    "turkish",
+];
 
 #[derive(Debug, Clone)]
 pub enum ValueConstraint {
@@ -186,31 +186,54 @@ impl PropertyRule {
 #[derive(Debug, Clone)]
 pub struct TypmodSchema {
     rules: Vec<PropertyRule>,
-    /// Additional allowed keys that don't have explicit rules
-    /// (e.g., filter properties that are shared across tokenizers)
-    pub additional_allowed_keys: Vec<&'static str>,
 }
 
 impl TypmodSchema {
     pub fn new(rules: Vec<PropertyRule>) -> Self {
-        let mut additional_allowed_keys = SearchTokenizerFilters::filter_keys()
-            .iter()
-            .copied()
-            .collect::<Vec<_>>();
-        additional_allowed_keys.push("alias");
+        let search_tokenizer_filters_rules: [PropertyRule; 9] = [
+            PropertyRule::new(
+                "remove_short",
+                ValueConstraint::Integer {
+                    min: Some(1),
+                    max: None,
+                },
+            ),
+            PropertyRule::new(
+                "remove_long",
+                ValueConstraint::Integer {
+                    min: Some(1),
+                    max: None,
+                },
+            ),
+            PropertyRule::new("lowercase", ValueConstraint::Boolean),
+            PropertyRule::new("stemmer", ValueConstraint::StringChoice(LANGUAGES.to_vec())),
+            PropertyRule::new(
+                "stopwords_language",
+                ValueConstraint::StringChoice(LANGUAGES.to_vec()),
+            ),
+            PropertyRule::new("stopwords", ValueConstraint::String),
+            PropertyRule::new("alpha_num_only", ValueConstraint::Boolean),
+            PropertyRule::new("ascii_folding", ValueConstraint::Boolean),
+            PropertyRule::new(
+                "normalizer",
+                ValueConstraint::StringChoice(vec!["raw", "lowercase"]),
+            ),
+        ];
 
-        Self {
-            rules,
-            additional_allowed_keys,
-        }
+        let alias_rules: [PropertyRule; 1] = [PropertyRule::new("alias", ValueConstraint::String)];
+
+        let rules = [
+            rules.as_slice(),
+            &search_tokenizer_filters_rules,
+            &alias_rules,
+        ]
+        .concat();
+        Self { rules }
     }
 
     /// Validates a ParsedTypmod against this schema
     pub fn validate(&self, parsed: &ParsedTypmod) -> Result<(), ValidationError> {
-        let mut allowed_keys: HashSet<String> =
-            self.rules.iter().map(|r| r.key.to_string()).collect();
-        allowed_keys.extend(self.additional_allowed_keys.iter().map(|k| k.to_string()));
-
+        let allowed_keys: HashSet<String> = self.rules.iter().map(|r| r.key.to_string()).collect();
         let mut seen_keys: HashSet<String> = HashSet::new();
 
         // validate all properties
@@ -227,16 +250,11 @@ impl TypmodSchema {
                 if let Some(rule) = self.rules.iter().find(|r| r.key == key) {
                     rule.constraint.validate(prop, Some(key))?;
                 }
+            } else if let Some(rule) = self.rules.iter().find(|r| r.positional_index == Some(idx)) {
+                rule.constraint.validate(prop, Some(rule.key))?;
+                seen_keys.insert(rule.key.to_string());
             } else {
-                if let Some(rule) = self.rules.iter().find(|r| r.positional_index == Some(idx)) {
-                    rule.constraint.validate(prop, Some(rule.key))?;
-                    seen_keys.insert(rule.key.to_string());
-                } else {
-                    return Err(ValidationError::InvalidKey(
-                        format!("<position {idx}>"),
-                        format_allowed_keys(&allowed_keys),
-                    ));
-                }
+                return Err(ValidationError::NotAllowedAtPosition(prop.clone(), idx));
             }
         }
 
@@ -261,6 +279,28 @@ fn format_allowed_keys(keys: &HashSet<String>) -> String {
     let mut sorted_keys: Vec<String> = keys.iter().cloned().collect();
     sorted_keys.sort();
     sorted_keys.join(", ")
+}
+
+#[derive(Debug, Error, Clone)]
+pub enum ValidationError {
+    #[error("Invalid option: '{0}'. Allowed options: {1}.")]
+    InvalidKey(String, String),
+
+    #[error("Missing required option: '{0}'")]
+    MissingRequiredKey(String),
+
+    #[error("Invalid value for option '{key}': {message}")]
+    InvalidValue { key: String, message: String },
+
+    #[error("Option '{0}' is not allowed at position {1}")]
+    NotAllowedAtPosition(Property, usize),
+
+    #[error("Value for option '{key}' must be of type {expected_type}, got {actual_type}")]
+    TypeMismatch {
+        key: String,
+        expected_type: String,
+        actual_type: String,
+    },
 }
 
 #[cfg(test)]
@@ -321,7 +361,7 @@ mod tests {
         )
         .required()]);
 
-        let mut parsed = ParsedTypmod::new();
+        let parsed = ParsedTypmod::new();
         assert!(schema.validate(&parsed).is_err());
 
         let mut parsed = ParsedTypmod::new();

@@ -77,3 +77,6 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('min=english')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=foo')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=f')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple(ascii_folding)::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_short=0')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_long=0')::text[];

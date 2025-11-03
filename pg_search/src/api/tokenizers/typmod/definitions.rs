@@ -21,10 +21,7 @@ use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchNormalizer;
 
-pub struct AliasTypmod {
-    parsed: ParsedTypmod,
-    filters: SearchTokenizerFilters,
-}
+pub struct AliasTypmod(Option<String>);
 
 pub struct UncheckedTypmod {
     parsed: ParsedTypmod,
@@ -32,7 +29,6 @@ pub struct UncheckedTypmod {
 }
 
 pub struct GenericTypmod {
-    parsed: ParsedTypmod,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -58,25 +54,27 @@ pub struct UnicodeWordsTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
-trait Typmod {
-    fn schema() -> TypmodSchema;
+trait TypmodRules {
+    fn rules() -> Vec<PropertyRule>;
 
     fn parsed(typmod: i32) -> typmod::Result<ParsedTypmod> {
         let parsed = load_typmod(typmod)?;
-        Self::schema().validate(&parsed)?;
+        let schema = TypmodSchema::new(Self::rules());
+        schema.validate(&parsed)?;
+
         Ok(parsed)
     }
 }
 
-impl Typmod for GenericTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![])
+impl TypmodRules for GenericTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![]
     }
 }
 
-impl Typmod for NgramTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![
+impl TypmodRules for NgramTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![
             PropertyRule::new(
                 "min",
                 ValueConstraint::Integer {
@@ -96,44 +94,40 @@ impl Typmod for NgramTypmod {
             .required()
             .positional(1),
             PropertyRule::new("prefix_only", ValueConstraint::Boolean),
-        ])
+        ]
     }
 }
 
-impl Typmod for RegexTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![PropertyRule::new("pattern", ValueConstraint::Regex)
+impl TypmodRules for RegexTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![PropertyRule::new("pattern", ValueConstraint::Regex)
             .required()
-            .positional(0)])
+            .positional(0)]
     }
 }
 
-impl Typmod for LinderaTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![PropertyRule::new(
+impl TypmodRules for LinderaTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![PropertyRule::new(
             "language",
             ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
         )
         .required()
-        .positional(0)])
+        .positional(0)]
     }
 }
 
-impl Typmod for UnicodeWordsTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![PropertyRule::new(
-            "remove_emojis",
-            ValueConstraint::Boolean,
-        )
-        .positional(0)])
+impl TypmodRules for UnicodeWordsTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![PropertyRule::new("remove_emojis", ValueConstraint::Boolean).positional(0)]
     }
 }
 
-impl Typmod for AliasTypmod {
-    fn schema() -> TypmodSchema {
-        TypmodSchema::new(vec![PropertyRule::new("alias", ValueConstraint::String)
+impl TypmodRules for AliasTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![PropertyRule::new("alias", ValueConstraint::String)
             .required()
-            .positional(0)])
+            .positional(0)]
     }
 }
 
@@ -142,7 +136,7 @@ impl TryFrom<i32> for GenericTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
-        Ok(GenericTypmod { parsed, filters })
+        Ok(GenericTypmod { filters })
     }
 }
 
@@ -237,8 +231,11 @@ impl TryFrom<i32> for AliasTypmod {
     type Error = typmod::Error;
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
-        let filters = SearchTokenizerFilters::from(&parsed);
-        Ok(AliasTypmod { parsed, filters })
+        let alias = parsed
+            .try_get("alias", 0)
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string());
+        Ok(AliasTypmod(alias))
     }
 }
 
@@ -256,9 +253,6 @@ impl UncheckedTypmod {
 
 impl AliasTypmod {
     pub fn alias(&self) -> Option<String> {
-        self.parsed
-            .try_get("alias", 0)
-            .and_then(|p| p.as_str())
-            .map(|s| s.to_string())
+        self.0.clone()
     }
 }

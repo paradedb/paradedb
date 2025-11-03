@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762130368856,
+  "lastUpdate": 1762131138337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -56740,6 +56740,60 @@ window.BENCHMARK_DATA = {
             "value": 18.65072409849385,
             "unit": "median tps",
             "extra": "avg tps: 18.598789174864574, max tps: 20.954580025792573, count: 55453"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfcaa44ff7746207f59fa357c4c2b4432f7a30ae",
+          "message": "feat: Add `pdb.parse` (#3460)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds `parse` to the new `pdb` schema\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-02T18:55:54-05:00",
+          "tree_id": "b3bfd2a1cef3653c78e0e97dbb5c1a8f06e127f3",
+          "url": "https://github.com/paradedb/paradedb/commit/bfcaa44ff7746207f59fa357c4c2b4432f7a30ae"
+        },
+        "date": 1762131135798,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.05627591877871,
+            "unit": "median tps",
+            "extra": "avg tps: 39.0842598959264, max tps: 39.43471802454461, count: 55461"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.0630722033995,
+            "unit": "median tps",
+            "extra": "avg tps: 272.51290405542113, max tps: 2801.0615513995886, count: 55461"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 999.5674944152728,
+            "unit": "median tps",
+            "extra": "avg tps: 997.3029870653571, max tps: 1005.3485627735754, count: 55461"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 117.47308596635652,
+            "unit": "median tps",
+            "extra": "avg tps: 154.33899658903724, max tps: 815.3075984795174, count: 110922"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.568331122749115,
+            "unit": "median tps",
+            "extra": "avg tps: 18.73185792381425, max tps: 20.115589695811018, count: 55461"
           }
         ]
       }

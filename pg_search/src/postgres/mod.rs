@@ -435,7 +435,12 @@ impl ParallelScanState {
         let buffer_full = watermark + std::mem::size_of::<usize>() + result_len
             > (agg.agg_data.len() - agg.serialized_aggregations_len);
 
-        if !buffer_full {
+        agg.received_count += segment_count;
+        let all_received = agg.received_count == self.nsegments;
+
+        // If there is a room in the buffer, and we have not received all of the requests,
+        // serialize it.
+        if !buffer_full && !all_received {
             let buffer = &mut agg.agg_data[agg.serialized_aggregations_len..];
             // Write length prefix
             let len_bytes = result_len.to_le_bytes();
@@ -445,15 +450,12 @@ impl ParallelScanState {
             buffer[data_start..data_start + result_len].copy_from_slice(&serialized_result);
             // Update watermark
             agg.watermark += len_bytes.len() + result_len;
-        }
 
-        agg.received_count += segment_count;
-        let all_received = agg.received_count == self.nsegments;
-
-        if !buffer_full && !all_received {
             return Ok(());
         }
 
+        // The buffer is full, or we are receiving the final result value: aggregate them down to a single
+        // result, in place.
         let mut current_offset = 0;
         let buffer = &agg.agg_data[agg.serialized_aggregations_len..];
         let watermark = agg.watermark;

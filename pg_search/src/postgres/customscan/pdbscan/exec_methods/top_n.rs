@@ -354,7 +354,6 @@ impl ExecMethod for TopNScanExecState {
             let window_aggregate_results =
                 self.finalize_aggregates(aggregations, agg_limits, intermediate_results);
 
-            pgrx::log!(">>> final aggregation result: {window_aggregate_results:?}");
             state.window_aggregate_results = Some(window_aggregate_results);
         }
 

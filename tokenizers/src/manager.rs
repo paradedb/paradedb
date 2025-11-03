@@ -32,8 +32,8 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
-    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, HtmlStripCharacterFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
+    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer, CharacterFilter,
 };
 use tantivy_jieba;
 
@@ -48,6 +48,7 @@ pub struct SearchTokenizerFilters {
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
+    pub html_strip: Option<bool>,
 }
 
 impl SearchTokenizerFilters {
@@ -67,6 +68,7 @@ impl SearchTokenizerFilters {
             ascii_folding: None,
             alpha_num_only: None,
             normalizer: Some(SearchNormalizer::Raw),
+            html_strip: None,
         }
     }
 
@@ -81,6 +83,7 @@ impl SearchTokenizerFilters {
             ascii_folding: None,
             alpha_num_only: None,
             normalizer: Some(SearchNormalizer::Raw),
+            html_strip: None,
         }
     }
 
@@ -140,7 +143,11 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
             })?);
         }
-
+        if let Some(html_strip) = value.get("html_strip") {
+            filters.html_strip = Some(html_strip.as_bool().ok_or_else(|| {
+                anyhow::anyhow!("html_strip tokenizer requires a valid 'html_strip' field")
+            })?);
+        }
         Ok(filters)
     }
 
@@ -192,7 +199,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
-
+        if let Some(value) = self.html_strip {
+            write!(buffer, "{}html_strip={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
         if is_empty {
             "".into()
         } else {
@@ -245,6 +255,13 @@ impl SearchTokenizerFilters {
         }
     }
 
+    fn html_strip(&self) -> Option<HtmlStripCharacterFilter> {
+        match self.html_strip {
+            Some(true) => Some(HtmlStripCharacterFilter::default()),
+            _ => None,
+        }
+    }
+
     fn normalizer(&self) -> Option<SearchNormalizer> {
         self.normalizer
     }
@@ -253,6 +270,7 @@ impl SearchTokenizerFilters {
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
+            .char_filter($filters.html_strip())
             .filter($filters.token_length_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())

@@ -35,7 +35,9 @@ use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::tokenizer::{CharacterFilter, HtmlStripCharacterFilter};
 use tantivy::SegmentReader;
+use tantivy::schema::FieldType;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -253,7 +255,7 @@ impl PdbScanState {
     }
 
     pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
-        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field(), true)? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
         if let SnippetType::SingleText(_, config, _) = snippet_type {
@@ -269,7 +271,7 @@ impl PdbScanState {
     }
 
     pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
-        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field(), true)? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippets: Vec<_> = generator
             .snippets(&text)
@@ -295,7 +297,7 @@ impl PdbScanState {
         ctid: u64,
         snippet_type: &SnippetType,
     ) -> Option<Vec<Vec<i32>>> {
-        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field(), true)? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippet = generator.snippet(&text);
         let highlighted = snippet.highlighted();
@@ -363,7 +365,12 @@ impl PdbScanState {
     /// Given a ctid and field name, get the corresponding value from the heap
     ///
     /// This function supports text, text[], and json/jsonb fields
-    unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
+    unsafe fn doc_from_heap(
+        &self,
+        ctid: u64,
+        field: &FieldName,
+        apply_char_filters: bool,
+    ) -> Option<String> {
         let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
@@ -460,6 +467,28 @@ impl PdbScanState {
         if should_free {
             pg_sys::heap_freetuple(htup);
         }
+
+        let result = if apply_char_filters {
+            let reader = self.search_reader.as_ref().expect("search reader should be initialized");
+            let search_field = reader.schema().search_field(field).expect("field {field} should be indexed");
+            let tokenizer = reader.searcher().index().tokenizer_for_field(tantivy_field).expect("tokenizer for {field} should be initialized");
+            let char_filters = tokenizer.char_filters();
+            result.map(|r| char_filters.iter().fold(r, |r, filter| filter.filter(&r)))
+
+            // let field_type = search_field.field_entry().field_type();
+            // let indexing_options_opt = match field_type {
+            //     FieldType::JsonObject(options) => options.get_text_indexing_options(),
+            //     FieldType::Str(options) => options.get_indexing_options(),
+            //     _ => panic!("field {field} is not a text or json field"),
+            // };
+
+            // pgrx::info!("indexing_options_opt: {:?}", indexing_options_opt);
+
+            // result.map(|r| HtmlStripCharacterFilter::default().filter(&r))
+        } else {
+            result
+        };
+        pgrx::info!("result: {:?}", result);
         result
     }
 }

@@ -1923,6 +1923,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "html-escape"
+version = "0.2.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d1ad449764d627e22bfd7cd5e8868264fc9236e07c752972b4080cd351cb476"
+dependencies = [
+ "utf8-width",
+]
+
+[[package]]
 name = "htmlescape"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3014,7 +3023,6 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -4919,7 +4927,6 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4937,6 +4944,7 @@ dependencies = [
  "fnv",
  "futures-channel",
  "futures-util",
+ "html-escape",
  "htmlescape",
  "hyperloglogplus",
  "itertools 0.14.0",
@@ -4974,7 +4982,6 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "bitpacking",
 ]
@@ -4982,7 +4989,6 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4997,7 +5003,6 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -5030,7 +5035,6 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "nom",
 ]
@@ -5038,7 +5042,6 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -5051,7 +5054,6 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -5064,7 +5066,6 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=cbda1a82649e65147e3778cba8cfdb27cf7312eb#cbda1a82649e65147e3778cba8cfdb27cf7312eb"
 dependencies = [
  "serde",
 ]
@@ -5617,6 +5618,12 @@ name = "utf8-ranges"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcfc827f90e53a02eaef5e535ee14266c1d569214c6aa70133a624d8a3164ba"
+
+[[package]]
+name = "utf8-width"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86bd8d4e895da8537e5315b8254664e6b769c4ff3db18321b297a1e7004392e3"
 
 [[package]]
 name = "utf8_iter"

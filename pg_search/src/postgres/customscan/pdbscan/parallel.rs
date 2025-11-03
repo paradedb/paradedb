@@ -79,7 +79,9 @@ impl ParallelQueryCapable for PdbScan {
                 .query()
                 .expect("should be able to deserialize the query from the ParallelScanState")
             {
-                Some(query) => state.custom_state_mut().set_base_search_query_input(query),
+                Some(_query) => {
+                    //state.custom_state_mut().set_base_search_query_input(query)
+                }
                 None => panic!("no query in ParallelScanState"),
             }
         }

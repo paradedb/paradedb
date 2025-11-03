@@ -34,7 +34,7 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
+    AliasTypmod, GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
     UnicodeWordsTypmod,
 };
 

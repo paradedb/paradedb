@@ -21,6 +21,11 @@ use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchNormalizer;
 
+pub struct AliasTypmod {
+    parsed: ParsedTypmod,
+    filters: SearchTokenizerFilters,
+}
+
 pub struct UncheckedTypmod {
     parsed: ParsedTypmod,
     filters: SearchTokenizerFilters,
@@ -124,6 +129,14 @@ impl Typmod for UnicodeWordsTypmod {
     }
 }
 
+impl Typmod for AliasTypmod {
+    fn schema() -> TypmodSchema {
+        TypmodSchema::new(vec![PropertyRule::new("alias", ValueConstraint::String)
+            .required()
+            .positional(0)])
+    }
+}
+
 impl TryFrom<i32> for GenericTypmod {
     type Error = typmod::Error;
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
@@ -220,15 +233,32 @@ impl TryFrom<i32> for UncheckedTypmod {
     }
 }
 
+impl TryFrom<i32> for AliasTypmod {
+    type Error = typmod::Error;
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        Ok(AliasTypmod { parsed, filters })
+    }
+}
+
 impl UncheckedTypmod {
     pub fn alias(&self) -> Option<String> {
         self.parsed
             .get("alias")
-            .and_then(|p| p.as_str())
-            .map(|s| s.to_string())
+            .map(|p| p.as_str().unwrap().to_string())
     }
 
     pub fn normalizer(&self) -> Option<SearchNormalizer> {
         self.filters.normalizer
+    }
+}
+
+impl AliasTypmod {
+    pub fn alias(&self) -> Option<String> {
+        self.parsed
+            .try_get("alias", 0)
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string())
     }
 }

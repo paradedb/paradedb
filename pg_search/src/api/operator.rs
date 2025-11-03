@@ -30,7 +30,7 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -285,8 +285,8 @@ unsafe fn field_name_from_node(
     // just directly reach in and pluck out the alias if the type is cast to it
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
         if type_is_alias((*relabel).resulttype) {
-            let typmod = UncheckedTypmod::try_from((*relabel).resulttypmod)
-                .unwrap_or_else(|e| panic!("{e}"));
+            let typmod =
+                AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
             if let Some(alias) = typmod.alias() {
                 return Some(FieldName::from(alias));
             }

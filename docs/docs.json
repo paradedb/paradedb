@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new query syntax. The old syntax is still supported and we have preserved the [legacy docs here](/documentation/getting-started/install).",
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new query syntax. The old syntax is still supported and we have preserved the [legacy docs here](/documentation).",
     "dismissible": false
   },
   "navigation": {
@@ -151,154 +151,102 @@
                 "group": "Legacy Docs",
                 "pages": [
                   {
-                    "group": "Getting Started",
+                    "group": "Indexing",
                     "pages": [
-                      "documentation/getting-started/install",
-                      "documentation/getting-started/quickstart",
-                      "documentation/getting-started/load"
+                      "documentation/indexing/create-index",
+                      "documentation/indexing/inspect-index",
+                      {
+                        "group": "Feature Flags",
+                        "pages": ["documentation/configuration/custom-scan"]
+                      }
                     ]
                   },
                   {
-                    "group": "Reference",
+                    "group": "Field Configuration",
                     "pages": [
-                      "documentation/overview",
+                      "documentation/indexing/field-options",
+                      "documentation/indexing/tokenizers",
+                      "documentation/indexing/token-filters",
+                      "documentation/indexing/fast-fields",
+                      "documentation/indexing/record"
+                    ]
+                  },
+                  {
+                    "group": "Full Text Search",
+                    "pages": [
+                      "documentation/full-text/overview",
+                      "documentation/full-text/boolean",
+                      "documentation/full-text/phrase",
+                      "documentation/full-text/filtering",
+                      "documentation/full-text/pagination",
+                      "documentation/full-text/scoring",
+                      "documentation/full-text/highlighting",
+                      "documentation/full-text/sorting",
+                      "documentation/full-text/boosting"
+                    ]
+                  },
+                  {
+                    "group": "Query Builder",
+                    "pages": [
+                      "documentation/advanced/overview",
                       {
-                        "group": "Indexing",
+                        "group": "Full Text Queries",
+                        "pages": ["documentation/advanced/full-text/match"]
+                      },
+                      {
+                        "group": "Term-Level Queries",
                         "pages": [
-                          "documentation/indexing/create-index",
-                          "documentation/indexing/inspect-index",
-                          {
-                            "group": "Index Tuning",
-                            "pages": [
-                              "documentation/configuration/overview",
-                              "documentation/configuration/index-build",
-                              "documentation/configuration/write-throughput",
-                              "documentation/configuration/read-throughput"
-                            ]
-                          },
-                          {
-                            "group": "Feature Flags",
-                            "pages": ["documentation/configuration/custom-scan"]
-                          }
+                          "documentation/advanced/term/exists",
+                          "documentation/advanced/term/fuzzy-term",
+                          "documentation/advanced/term/range",
+                          "documentation/advanced/term/range-term",
+                          "documentation/advanced/term/regex",
+                          "documentation/advanced/term/term",
+                          "documentation/advanced/term/term-set"
                         ]
                       },
                       {
-                        "group": "Field Configuration",
+                        "group": "Phrase-Level Queries",
                         "pages": [
-                          "documentation/indexing/field-options",
-                          "documentation/indexing/tokenizers",
-                          "documentation/indexing/token-filters",
-                          "documentation/indexing/fast-fields",
-                          "documentation/indexing/record"
+                          "documentation/advanced/phrase/phrase",
+                          "documentation/advanced/phrase/phrase-prefix"
                         ]
                       },
                       {
-                        "group": "Full Text Search",
+                        "group": "JSON Queries",
                         "pages": [
-                          "documentation/full-text/overview",
-                          "documentation/full-text/boolean",
-                          "documentation/full-text/phrase",
-                          "documentation/full-text/filtering",
-                          "documentation/full-text/pagination",
-                          "documentation/full-text/scoring",
-                          "documentation/full-text/highlighting",
-                          "documentation/full-text/sorting",
-                          "documentation/full-text/boosting"
+                          "documentation/advanced/json/overview",
+                          "documentation/advanced/json/arrays",
+                          "documentation/advanced/json/range"
                         ]
                       },
                       {
-                        "group": "Query Builder",
+                        "group": "Compound Queries",
                         "pages": [
-                          "documentation/advanced/overview",
-                          {
-                            "group": "Full Text Queries",
-                            "pages": ["documentation/advanced/full-text/match"]
-                          },
-                          {
-                            "group": "Term-Level Queries",
-                            "pages": [
-                              "documentation/advanced/term/exists",
-                              "documentation/advanced/term/fuzzy-term",
-                              "documentation/advanced/term/range",
-                              "documentation/advanced/term/range-term",
-                              "documentation/advanced/term/regex",
-                              "documentation/advanced/term/term",
-                              "documentation/advanced/term/term-set"
-                            ]
-                          },
-                          {
-                            "group": "Phrase-Level Queries",
-                            "pages": [
-                              "documentation/advanced/phrase/phrase",
-                              "documentation/advanced/phrase/phrase-prefix"
-                            ]
-                          },
-                          {
-                            "group": "JSON Queries",
-                            "pages": [
-                              "documentation/advanced/json/overview",
-                              "documentation/advanced/json/arrays",
-                              "documentation/advanced/json/range"
-                            ]
-                          },
-                          {
-                            "group": "Compound Queries",
-                            "pages": [
-                              "documentation/advanced/compound/overview",
-                              "documentation/advanced/compound/all",
-                              "documentation/advanced/compound/boolean",
-                              "documentation/advanced/compound/boost",
-                              "documentation/advanced/compound/const",
-                              "documentation/advanced/compound/disjunction-max",
-                              "documentation/advanced/compound/empty",
-                              "documentation/advanced/compound/parse"
-                            ]
-                          },
-                          {
-                            "group": "Specialized Queries",
-                            "pages": [
-                              "documentation/advanced/specialized/more-like-this"
-                            ]
-                          }
+                          "documentation/advanced/compound/overview",
+                          "documentation/advanced/compound/all",
+                          "documentation/advanced/compound/boolean",
+                          "documentation/advanced/compound/boost",
+                          "documentation/advanced/compound/const",
+                          "documentation/advanced/compound/disjunction-max",
+                          "documentation/advanced/compound/empty",
+                          "documentation/advanced/compound/parse"
                         ]
                       },
                       {
-                        "group": "Aggregates",
+                        "group": "Specialized Queries",
                         "pages": [
-                          "documentation/aggregates/overview",
-                          {
-                            "group": "Bucket",
-                            "pages": ["documentation/aggregates/bucket/terms"]
-                          },
-                          {
-                            "group": "Metrics",
-                            "pages": [
-                              "documentation/aggregates/metrics/count",
-                              "documentation/aggregates/metrics/sum",
-                              "documentation/aggregates/metrics/minmax",
-                              "documentation/aggregates/metrics/average"
-                            ]
-                          },
-                          "documentation/aggregates/tuning",
-                          "documentation/aggregates/limitations"
-                        ]
-                      },
-                      {
-                        "group": "Similarity Search",
-                        "pages": [
-                          "documentation/similarity/overview",
-                          "documentation/similarity/index",
-                          "documentation/similarity/search"
+                          "documentation/advanced/specialized/more-like-this"
                         ]
                       }
                     ]
                   },
                   {
-                    "group": "Tutorials",
+                    "group": "Similarity Search",
                     "pages": [
-                      "documentation/guides/overview",
-                      "documentation/guides/autocomplete",
-                      "documentation/guides/hybrid"
+                      "documentation/similarity/overview",
+                      "documentation/similarity/index",
+                      "documentation/similarity/search"
                     ]
                   }
                 ]

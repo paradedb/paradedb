@@ -1,0 +1,39 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX on mock_items
+USING bm25 (id, description, rating, category, metadata)
+WITH (key_field='id');
+SELECT id, description, category FROM mock_items
+WHERE id @@@ pdb.parse('description:(running shoes) AND category:footwear');
+ id |     description     | category 
+----+---------------------+----------
+  3 | Sleek running shoes | Footwear
+  4 | White jogging shoes | Footwear
+  5 | Generic shoes       | Footwear
+(3 rows)
+
+SELECT id, description, category FROM mock_items
+WHERE id @@@ pdb.parse('description:(running shoes) AND category:footwear', conjunction_mode => true);
+ id |     description     | category 
+----+---------------------+----------
+  3 | Sleek running shoes | Footwear
+(1 row)
+
+SELECT id, description, category FROM mock_items
+WHERE description @@@ pdb.parse_with_field('(running shoes)', lenient => true);
+ id |     description     | category 
+----+---------------------+----------
+  3 | Sleek running shoes | Footwear
+  4 | White jogging shoes | Footwear
+  5 | Generic shoes       | Footwear
+(3 rows)
+
+DROP TABLE mock_items;

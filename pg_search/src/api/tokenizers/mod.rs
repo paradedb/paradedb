@@ -15,9 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::typmod::{
-    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod, lookup_unicode_words_typmod,
-};
 use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -35,7 +32,11 @@ pub(crate) mod definitions;
 mod typmod;
 
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
-pub use typmod::{lookup_alias_typmod, lookup_generic_typmod, Typmod};
+
+pub use crate::api::tokenizers::typmod::{
+    GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
+    UnicodeWordsTypmod,
+};
 
 #[inline]
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
@@ -137,21 +138,26 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             prefix_only,
             filters,
         } => {
-            let ngram_typmod = lookup_ngram_typmod(typmod).expect("typmod lookup should not fail");
+            let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
             *filters = ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
-            let regex_typmod = lookup_regex_typmod(typmod).expect("typmod lookup should not fail");
+            let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *pattern = regex_typmod.pattern.to_string();
             *filters = regex_typmod.filters;
         }
 
         SearchTokenizer::Lindera(style, filters) => {
-            let lindera_typmod =
-                lookup_lindera_typmod(typmod).expect("typmod lookup should not fail");
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
@@ -167,15 +173,17 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::JapaneseLindera(filters)
         | SearchTokenizer::KoreanLindera(filters)
         | SearchTokenizer::Jieba(filters) => {
-            let generic_typmod =
-                lookup_generic_typmod(typmod).expect("typmod lookup should not fail");
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *filters = generic_typmod.filters;
         }
 
         #[cfg(feature = "icu")]
         SearchTokenizer::ICUTokenizer(filters) => {
-            let generic_typmod =
-                lookup_generic_typmod(typmod).expect("typmod lookup should not fail");
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *filters = generic_typmod.filters;
         }
 
@@ -183,8 +191,9 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             remove_emojis,
             filters,
         } => {
-            let unicode_typmod =
-                lookup_unicode_words_typmod(typmod).expect("typmod lookup should not fail");
+            let unicode_typmod = UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *remove_emojis = unicode_typmod.remove_emojis;
             *filters = unicode_typmod.filters;
         }

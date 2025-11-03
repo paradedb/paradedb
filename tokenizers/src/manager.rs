@@ -51,6 +51,21 @@ pub struct SearchTokenizerFilters {
 }
 
 impl SearchTokenizerFilters {
+    /// Returns a list of all valid filter property keys that can be used in typmod configurations.
+    pub fn filter_keys() -> &'static [&'static str] {
+        &[
+            "remove_long",
+            "remove_short",
+            "lowercase",
+            "stemmer",
+            "stopwords_language",
+            "stopwords",
+            "alpha_num_only",
+            "ascii_folding",
+            "normalizer",
+        ]
+    }
+
     /// Returns a [`SearchTokenizerFilter`] instance that effectively does not filter, or otherwise
     /// mutate tokens.
     ///

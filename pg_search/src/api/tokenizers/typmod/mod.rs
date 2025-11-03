@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod definitions;
+mod validation;
 
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
@@ -34,8 +35,8 @@ use std::sync::OnceLock;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
+pub use validation::{TypmodSchema, ValidationError};
 
-pub use definitions::lookup_generic_typmod;
 pub use definitions::*;
 use tokenizers::SearchNormalizer;
 
@@ -83,6 +84,15 @@ pub enum Error {
 
     #[error("paradedb._typmod_cache table is missing")]
     MissingTypmodCache,
+
+    #[error("{0}")]
+    Validation(ValidationError),
+}
+
+impl From<ValidationError> for Error {
+    fn from(err: ValidationError) -> Self {
+        Error::Validation(err)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -320,7 +330,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                         "swedish" => Language::Swedish,
                         "tamil" => Language::Tamil,
                         "turkish" => Language::Turkish,
-                        other => panic!("unknown stemmer: {other}"),
+                        other => panic!("Unknown stemmer: {other}"),
                     }
                 }),
             stopwords_language: value

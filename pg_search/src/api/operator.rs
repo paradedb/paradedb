@@ -30,9 +30,7 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::{
-    lookup_alias_typmod, lookup_generic_typmod, type_is_alias, type_is_tokenizer,
-};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -287,8 +285,10 @@ unsafe fn field_name_from_node(
     // just directly reach in and pluck out the alias if the type is cast to it
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
         if type_is_alias((*relabel).resulttype) {
-            if let Ok(alias) = lookup_alias_typmod((*relabel).resulttypmod) {
-                return Some(FieldName::from(alias.alias));
+            let typmod = UncheckedTypmod::try_from((*relabel).resulttypmod)
+                .unwrap_or_else(|e| panic!("{e}"));
+            if let Some(alias) = typmod.alias() {
+                return Some(FieldName::from(alias));
             }
         }
     }
@@ -331,9 +331,10 @@ unsafe fn field_name_from_node(
                         // we pick the first un-aliased custom tokenizer expression that uses the
                         // Var as the matching indexed expression
                         let typmod = pg_sys::exprTypmod(expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-                        if parsed.alias().is_none() {
+                        let alias = UncheckedTypmod::try_from(typmod)
+                            .unwrap_or_else(|e| panic!("{e}"))
+                            .alias();
+                        if alias.is_none() {
                             return attname_from_var(heaprel, var);
                         }
                     }
@@ -341,13 +342,7 @@ unsafe fn field_name_from_node(
                 }
             }
         }
-
-        return None;
     }
-
-    //
-    // we're looking for a more complex expression
-    //
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
     let mut expressions_iter = expressions.iter_ptr();
@@ -374,10 +369,10 @@ unsafe fn field_name_from_node(
                         indexed_expression.cast(),
                     )) {
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
+                        let typmod =
+                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
 
-                        parsed.alias().map(FieldName::from).or_else(|| {
+                        typmod.alias().map(FieldName::from).or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })

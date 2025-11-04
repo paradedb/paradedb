@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762279023477,
+  "lastUpdate": 1762279820568,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27184,6 +27184,42 @@ window.BENCHMARK_DATA = {
             "value": 5.517760290236612,
             "unit": "median tps",
             "extra": "avg tps: 4.978121179028117, max tps: 6.136822434004346, count: 57757"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60aff971219c7d0991a1fbc677b2529f125e1a7e",
+          "message": "perf: Pipeline the execution of window aggregates (#3450)\n\n## What\n\nPipeline the execution of window aggregates so that they are computed in\nthe same query pass with TopDocs/TopN.\n\n## Why\n\n#3312 added support for executing aggregate queries in window functions,\nbut the implementation there executed aggregates _after_ executing TopN,\nin each worker.\n\n## How\n\nAdd space in the `ParallelScanState` for aggregate responses (if\naggregations are requested), and collect aggregate responses there.\nAfter a TopN query, wait for all workers to have produced their\nresponses, and then finalize the aggregate.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-04T09:38:52-08:00",
+          "tree_id": "accfdf39394adedbeee0157684b031b9d9d2a289",
+          "url": "https://github.com/paradedb/paradedb/commit/60aff971219c7d0991a1fbc677b2529f125e1a7e"
+        },
+        "date": 1762279818103,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.367037779512778,
+            "unit": "median tps",
+            "extra": "avg tps: 7.146341869741499, max tps: 11.114530117555896, count: 57822"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.462381472992951,
+            "unit": "median tps",
+            "extra": "avg tps: 4.93848872458067, max tps: 6.059774604943032, count: 57822"
           }
         ]
       }

@@ -17,11 +17,12 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
-use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{
+    SearchIndexReader, TopNAuxiliaryCollector, TopNSearchResults, MAX_TOPN_FEATURES,
+};
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -170,7 +171,8 @@ impl TopNScanExecState {
     }
 
     fn prepare_aggregations(&self, state: &mut PdbScanState) -> Option<PreparedAggregations> {
-        if self.window_aggregates.is_empty() {
+        if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
+            // There are no aggregates, or we already executed them.
             return None;
         }
 
@@ -271,7 +273,6 @@ impl ExecMethod for TopNScanExecState {
             (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        // TODO: only execute aggregations on our first query.
         let aggregations = self.prepare_aggregations(state);
         let agg_limits = AggregationLimitsGuard::new(
             Some(gucs::adjust_work_mem().get().try_into().unwrap()),
@@ -281,22 +282,22 @@ impl ExecMethod for TopNScanExecState {
 
         // Run the TopN (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
-            let maybe_aggregation_collector = aggregations.as_ref().map(|aggregations| {
+            let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Wrap the aggregation collector with MVCC filtering to respect transaction visibility.
                 // This ensures that aggregations only include documents visible to the current transaction,
                 // matching the behavior of the TopN results.
-                let base_collector = DistributedAggregationCollector::from_aggs(
-                    aggregations.aggregations.clone(),
-                    agg_limits.clone(),
-                );
-
                 let heaprel = state.heaprel();
-                MVCCFilterCollector::new(
-                    base_collector,
-                    TSVisibilityChecker::with_rel_and_snap(heaprel.as_ptr(), unsafe {
-                        pg_sys::GetActiveSnapshot()
-                    }),
-                )
+                TopNAuxiliaryCollector {
+                    aggregation_collector: DistributedAggregationCollector::from_aggs(
+                        aggregations.aggregations.clone(),
+                        agg_limits.clone(),
+                    ),
+                    // TODO: Expose an option to disable this.
+                    vischeck: Some(TSVisibilityChecker::with_rel_and_snap(
+                        heaprel.as_ptr(),
+                        unsafe { pg_sys::GetActiveSnapshot() },
+                    )),
+                }
             });
             self.search_reader
                 .as_ref()
@@ -309,7 +310,7 @@ impl ExecMethod for TopNScanExecState {
                     orderby_info,
                     local_limit,
                     self.offset,
-                    maybe_aggregation_collector,
+                    maybe_aux_collector,
                 )
         } else {
             self.search_reader

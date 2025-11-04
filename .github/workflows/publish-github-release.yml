@@ -140,9 +140,6 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Fail
-        run: exit 1
-
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release

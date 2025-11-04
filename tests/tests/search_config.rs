@@ -22,10 +22,10 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
 use tantivy::tokenizer::Language;
-use tokenizers::manager::language_to_str;
+use tokenizers::manager::LANGUAGES;
 
 // Define languages and corresponding test data
-static LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
+static MOCK_LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
     (
         Language::Arabic,
         "('محمد','رحلة إلى السوق مع أبي', 'مرحباً بك في المقالة الأولى. أتمنى أن تجد المحتوى مفيدًا ومثيرًا للاهتمام'),
@@ -357,8 +357,8 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn language_stem_filter(mut conn: PgConnection) {
-    for (language, data, author_query, title_query, message_query) in LANGUAGES {
-        let language_str = language_to_str(language);
+    for (language, data, author_query, title_query, message_query) in MOCK_LANGUAGES {
+        let language_str = LANGUAGES.get(language).unwrap();
         let setup_query = format!(
             r#"
             DROP TABLE IF EXISTS test_table;

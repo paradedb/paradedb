@@ -27,9 +27,12 @@ use crate::{
     token_length::TokenLengthFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
+
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
@@ -522,28 +525,28 @@ impl SearchTokenizer {
     }
 }
 
-pub fn language_to_str(lang: &Language) -> &str {
-    match lang {
-        Language::Arabic => "Arabic",
-        Language::Danish => "Danish",
-        Language::Dutch => "Dutch",
-        Language::English => "English",
-        Language::Finnish => "Finnish",
-        Language::French => "French",
-        Language::German => "German",
-        Language::Greek => "Greek",
-        Language::Hungarian => "Hungarian",
-        Language::Italian => "Italian",
-        Language::Norwegian => "Norwegian",
-        Language::Portuguese => "Portuguese",
-        Language::Romanian => "Romanian",
-        Language::Russian => "Russian",
-        Language::Spanish => "Spanish",
-        Language::Swedish => "Swedish",
-        Language::Tamil => "Tamil",
-        Language::Turkish => "Turkish",
-    }
-}
+pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(Language::Arabic, "Arabic");
+    map.insert(Language::Danish, "Danish");
+    map.insert(Language::Dutch, "Dutch");
+    map.insert(Language::English, "English");
+    map.insert(Language::Finnish, "Finnish");
+    map.insert(Language::French, "French");
+    map.insert(Language::German, "German");
+    map.insert(Language::Greek, "Greek");
+    map.insert(Language::Hungarian, "Hungarian");
+    map.insert(Language::Italian, "Italian");
+    map.insert(Language::Norwegian, "Norwegian");
+    map.insert(Language::Portuguese, "Portuguese");
+    map.insert(Language::Romanian, "Romanian");
+    map.insert(Language::Russian, "Russian");
+    map.insert(Language::Spanish, "Spanish");
+    map.insert(Language::Swedish, "Swedish");
+    map.insert(Language::Tamil, "Tamil");
+    map.insert(Language::Turkish, "Turkish");
+    map
+});
 
 impl SearchTokenizer {
     pub fn name(&self) -> String {

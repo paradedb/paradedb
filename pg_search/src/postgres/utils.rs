@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{lookup_generic_typmod, type_is_alias, type_is_tokenizer};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -281,10 +281,10 @@ pub unsafe fn extract_field_attributes(
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
-                        lookup_generic_typmod(typmod).expect("typmod should be valid");
+                        UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
                     let vars = find_vars(node);
 
-                    normalizer = parsed_typmod.filters.normalizer;
+                    normalizer = parsed_typmod.normalizer();
 
                     attname = parsed_typmod.alias();
                     if attname.is_none() && vars.len() == 1 {

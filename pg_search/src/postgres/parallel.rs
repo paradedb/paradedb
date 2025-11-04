@@ -33,7 +33,7 @@ pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
-    ParallelScanState::size_of(u16::MAX as usize, &[])
+    ParallelScanState::size_of(u16::MAX as usize, &[], false)
 }
 
 #[cfg(feature = "pg17")]
@@ -45,7 +45,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     // NB:  in this function, we have no idea how many segments we have.  We don't even know which
     // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
     // TODO: This will result in a ~1MB allocation.
-    ParallelScanState::size_of(u16::MAX as usize, &[])
+    ParallelScanState::size_of(u16::MAX as usize, &[], false)
 }
 
 unsafe fn bm25_shared_state(
@@ -78,7 +78,7 @@ pub unsafe fn maybe_init_parallel_scan(
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
         // `aminitparallelscan()`
-        state.init_without_mutex(searcher.segment_readers(), &[]);
+        state.init_without_mutex(searcher.segment_readers(), &[], false);
     }
     Some(worker_number)
 }

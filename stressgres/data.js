@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762279019137,
+  "lastUpdate": 1762279023477,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22930,6 +22930,126 @@ window.BENCHMARK_DATA = {
             "value": 148.6015625,
             "unit": "median mem",
             "extra": "avg mem: 130.37717342400828, max mem: 152.0703125, count: 55358"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60aff971219c7d0991a1fbc677b2529f125e1a7e",
+          "message": "perf: Pipeline the execution of window aggregates (#3450)\n\n## What\n\nPipeline the execution of window aggregates so that they are computed in\nthe same query pass with TopDocs/TopN.\n\n## Why\n\n#3312 added support for executing aggregate queries in window functions,\nbut the implementation there executed aggregates _after_ executing TopN,\nin each worker.\n\n## How\n\nAdd space in the `ParallelScanState` for aggregate responses (if\naggregations are requested), and collect aggregate responses there.\nAfter a TopN query, wait for all workers to have produced their\nresponses, and then finalize the aggregate.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-04T09:38:52-08:00",
+          "tree_id": "accfdf39394adedbeee0157684b031b9d9d2a289",
+          "url": "https://github.com/paradedb/paradedb/commit/60aff971219c7d0991a1fbc677b2529f125e1a7e"
+        },
+        "date": 1762279021110,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.958416941787665, max cpu: 14.0214205, count: 55314"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 157.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.9829433297854, max mem: 157.87109375, count: 55314"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611017285599591, max cpu: 9.275363, count: 55314"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 29.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.271200696252304, max mem: 32.61328125, count: 55314"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963199698485823, max cpu: 14.486921, count: 55314"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 157.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.94348896188126, max mem: 158.6953125, count: 55314"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.466518054735745, max cpu: 4.7151275, count: 55314"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 158.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.31773869974148, max mem: 159.08984375, count: 55314"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652907077286224, max cpu: 9.448819, count: 110628"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.0213005876112, max mem: 159.703125, count: 110628"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27658,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27528.98788733413, max block_count: 53403.0, count: 55314"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.47407527931446, max segment_count: 58.0, count: 55314"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569864163460494, max cpu: 4.7571855, count: 55314"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.2192424301488, max mem: 161.0, count: 55314"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.278778231769267, max cpu: 9.29332, count: 55314"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 149.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 130.56542590935388, max mem: 154.0859375, count: 55314"
           }
         ]
       }

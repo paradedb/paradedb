@@ -12,9 +12,6 @@
 name: SchemaBot Post Comment
 
 on:
-  push:
-    branches:
-      - phil/schemabot-comment-pissed
   workflow_run:
     workflows: ["SchemaBot Generate Diff"]
     types: [completed]

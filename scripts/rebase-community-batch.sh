@@ -21,7 +21,8 @@ error_handler() {
 
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAX_COMMITS=5
+# TODO: Remove this limit.
+MAX_COMMITS=500
 # shellcheck source=./rebase-community-helpers.sh
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/rebase-community-helpers.sh"

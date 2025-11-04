@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762281437565,
+  "lastUpdate": 1762282218858,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -70968,6 +70968,54 @@ window.BENCHMARK_DATA = {
             "value": 111.77755316067493,
             "unit": "median tps",
             "extra": "avg tps: 110.42817227052076, max tps: 122.97253400090958, count: 107272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60aff971219c7d0991a1fbc677b2529f125e1a7e",
+          "message": "perf: Pipeline the execution of window aggregates (#3450)\n\n## What\n\nPipeline the execution of window aggregates so that they are computed in\nthe same query pass with TopDocs/TopN.\n\n## Why\n\n#3312 added support for executing aggregate queries in window functions,\nbut the implementation there executed aggregates _after_ executing TopN,\nin each worker.\n\n## How\n\nAdd space in the `ParallelScanState` for aggregate responses (if\naggregations are requested), and collect aggregate responses there.\nAfter a TopN query, wait for all workers to have produced their\nresponses, and then finalize the aggregate.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-04T09:38:52-08:00",
+          "tree_id": "accfdf39394adedbeee0157684b031b9d9d2a289",
+          "url": "https://github.com/paradedb/paradedb/commit/60aff971219c7d0991a1fbc677b2529f125e1a7e"
+        },
+        "date": 1762282216311,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 657.1117605130873,
+            "unit": "median tps",
+            "extra": "avg tps: 657.4579276321894, max tps: 1001.0698028295046, count: 53660"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 766.4884652022431,
+            "unit": "median tps",
+            "extra": "avg tps: 765.4769452004118, max tps: 1014.335021150256, count: 53660"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 111.04373983882371,
+            "unit": "median tps",
+            "extra": "avg tps: 111.20654111964893, max tps: 118.53733239742441, count: 53660"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.65674468086597,
+            "unit": "median tps",
+            "extra": "avg tps: 110.94793575123114, max tps: 122.03306748741444, count: 107320"
           }
         ]
       }

@@ -23,15 +23,19 @@ use tokenizers::SearchNormalizer;
 
 pub struct AliasTypmod(Option<String>);
 
+// extract typmod values without validating them
+// this is meant to be called outside of the `CREATE INDEX` path
 pub struct UncheckedTypmod {
     parsed: ParsedTypmod,
     filters: SearchTokenizerFilters,
 }
 
+// for typmods that do not have special parameters, like `pdb.simple`
 pub struct GenericTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.ngram
 pub struct NgramTypmod {
     pub min_gram: usize,
     pub max_gram: usize,
@@ -39,16 +43,19 @@ pub struct NgramTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.regex_pattern
 pub struct RegexTypmod {
     pub pattern: regex::Regex,
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.lindera
 pub struct LinderaTypmod {
     pub language: LinderaLanguage,
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.unicode_words
 pub struct UnicodeWordsTypmod {
     pub remove_emojis: bool,
     pub filters: SearchTokenizerFilters,

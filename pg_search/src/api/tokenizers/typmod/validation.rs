@@ -37,7 +37,7 @@ impl ValueConstraint {
                     if let Some(min_val) = min {
                         if i < *min_val {
                             return Err(ValidationError::InvalidValue {
-                                key: key.unwrap_or("<positional>").to_string(),
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be >= {min_val}, got {i}"),
                             });
                         }
@@ -45,7 +45,7 @@ impl ValueConstraint {
                     if let Some(max_val) = max {
                         if i > *max_val {
                             return Err(ValidationError::InvalidValue {
-                                key: key.unwrap_or("<positional>").to_string(),
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
                                 message: format!("must be <= {max_val}, got {i}"),
                             });
                         }
@@ -53,8 +53,6 @@ impl ValueConstraint {
                     Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
-                        key: key.unwrap_or("<positional>").to_string(),
-                        expected_type: "integer".to_string(),
                         actual_type: prop.to_string(),
                     })
                 }
@@ -69,8 +67,6 @@ impl ValueConstraint {
                 }
 
                 Err(ValidationError::TypeMismatch {
-                    key: key.unwrap_or("<positional>").to_string(),
-                    expected_type: "boolean".to_string(),
                     actual_type: prop.to_string(),
                 })
             }
@@ -79,8 +75,6 @@ impl ValueConstraint {
                     Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
-                        key: key.unwrap_or("<positional>").to_string(),
-                        expected_type: "string".to_string(),
                         actual_type: prop.to_string(),
                     })
                 }
@@ -95,14 +89,16 @@ impl ValueConstraint {
                         Ok(())
                     } else {
                         Err(ValidationError::InvalidValue {
-                            key: key.unwrap_or("<positional>").to_string(),
-                            message: format!("must be one of: {}, got '{}'", allowed.join(", "), s),
+                            key: key.unwrap_or(&prop.to_string()).to_string(),
+                            message: format!(
+                                "must be one of: {}, got '{}'",
+                                format_allowed_keys(allowed),
+                                s
+                            ),
                         })
                     }
                 } else {
                     Err(ValidationError::TypeMismatch {
-                        key: key.unwrap_or("<positional>").to_string(),
-                        expected_type: "string".to_string(),
                         actual_type: prop.to_string(),
                     })
                 }
@@ -112,8 +108,6 @@ impl ValueConstraint {
                     Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
-                        key: key.unwrap_or("<positional>").to_string(),
-                        expected_type: "regex".to_string(),
                         actual_type: prop.to_string(),
                     })
                 }
@@ -151,7 +145,6 @@ impl PropertyRule {
     }
 }
 
-/// Defines the validation schema for a tokenizer typmod
 #[derive(Debug, Clone)]
 pub struct TypmodSchema {
     rules: Vec<PropertyRule>,
@@ -159,7 +152,7 @@ pub struct TypmodSchema {
 
 impl TypmodSchema {
     pub fn new(rules: Vec<PropertyRule>) -> Self {
-        let search_tokenizer_filters_rules: [PropertyRule; 9] = [
+        let shared_rules: [PropertyRule; 10] = [
             PropertyRule::new(
                 "remove_short",
                 ValueConstraint::Integer {
@@ -190,20 +183,14 @@ impl TypmodSchema {
                 "normalizer",
                 ValueConstraint::StringChoice(vec!["raw", "lowercase"]),
             ),
+            PropertyRule::new("alias", ValueConstraint::String),
         ];
 
-        let alias_rules: [PropertyRule; 1] = [PropertyRule::new("alias", ValueConstraint::String)];
-
-        let rules = [
-            rules.as_slice(),
-            &search_tokenizer_filters_rules,
-            &alias_rules,
-        ]
-        .concat();
-        Self { rules }
+        Self {
+            rules: [rules.as_slice(), &shared_rules].concat(),
+        }
     }
 
-    /// Validates a ParsedTypmod against this schema
     pub fn validate(&self, parsed: &ParsedTypmod) -> Result<(), ValidationError> {
         let allowed_keys: HashSet<String> = self.rules.iter().map(|r| r.key.to_string()).collect();
         let mut seen_keys: HashSet<String> = HashSet::new();
@@ -214,7 +201,9 @@ impl TypmodSchema {
                 if !allowed_keys.contains(key) {
                     return Err(ValidationError::InvalidKey(
                         key.to_string(),
-                        format_allowed_keys(&allowed_keys),
+                        format_allowed_keys(
+                            &allowed_keys.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
+                        ),
                     ));
                 }
                 seen_keys.insert(key.to_string());
@@ -233,7 +222,6 @@ impl TypmodSchema {
         // check for missing required keys
         for rule in &self.rules {
             if rule.required && !seen_keys.contains(rule.key) {
-                // check if it's a positional property - if so, it should have been seen above
                 if let Some(pos_idx) = rule.positional_index {
                     if pos_idx >= parsed.properties.len() {
                         return Err(ValidationError::MissingRequiredKey(rule.key.to_string()));
@@ -247,8 +235,8 @@ impl TypmodSchema {
     }
 }
 
-fn format_allowed_keys(keys: &HashSet<String>) -> String {
-    let mut sorted_keys: Vec<String> = keys.iter().cloned().collect();
+fn format_allowed_keys(keys: &[&str]) -> String {
+    let mut sorted_keys = keys.to_owned();
     sorted_keys.sort();
     sorted_keys.join(", ")
 }
@@ -267,12 +255,8 @@ pub enum ValidationError {
     #[error("Option '{0}' is not allowed at position {1}")]
     NotAllowedAtPosition(Property, usize),
 
-    #[error("Value for option '{key}' must be of type {expected_type}, got {actual_type}")]
-    TypeMismatch {
-        key: String,
-        expected_type: String,
-        actual_type: String,
-    },
+    #[error("Cannot parse value for {actual_type}")]
+    TypeMismatch { actual_type: String },
 }
 
 #[cfg(test)]

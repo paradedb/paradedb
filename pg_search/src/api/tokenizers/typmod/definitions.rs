@@ -140,6 +140,7 @@ impl TypmodRules for AliasTypmod {
 
 impl TryFrom<i32> for GenericTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -149,6 +150,7 @@ impl TryFrom<i32> for GenericTypmod {
 
 impl TryFrom<i32> for NgramTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -176,6 +178,7 @@ impl TryFrom<i32> for NgramTypmod {
 
 impl TryFrom<i32> for RegexTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -190,6 +193,7 @@ impl TryFrom<i32> for RegexTypmod {
 
 impl TryFrom<i32> for LinderaTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -214,6 +218,7 @@ impl TryFrom<i32> for LinderaTypmod {
 
 impl TryFrom<i32> for UnicodeWordsTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -227,6 +232,7 @@ impl TryFrom<i32> for UnicodeWordsTypmod {
 
 impl TryFrom<i32> for UncheckedTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = load_typmod(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
@@ -236,6 +242,7 @@ impl TryFrom<i32> for UncheckedTypmod {
 
 impl TryFrom<i32> for AliasTypmod {
     type Error = typmod::Error;
+
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let alias = parsed

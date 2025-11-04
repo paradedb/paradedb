@@ -17,6 +17,7 @@
 
 use crate::api::tokenizers::typmod::{ParsedTypmod, Property};
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use thiserror::Error;
 use tokenizers::manager::LANGUAGES;
 
@@ -152,42 +153,49 @@ pub struct TypmodSchema {
 
 impl TypmodSchema {
     pub fn new(rules: Vec<PropertyRule>) -> Self {
-        let shared_rules: [PropertyRule; 10] = [
-            PropertyRule::new(
-                "remove_short",
-                ValueConstraint::Integer {
-                    min: Some(1),
-                    max: None,
-                },
-            ),
-            PropertyRule::new(
-                "remove_long",
-                ValueConstraint::Integer {
-                    min: Some(1),
-                    max: None,
-                },
-            ),
-            PropertyRule::new("lowercase", ValueConstraint::Boolean),
-            PropertyRule::new(
-                "stemmer",
-                ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
-            ),
-            PropertyRule::new(
-                "stopwords_language",
-                ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
-            ),
-            PropertyRule::new("stopwords", ValueConstraint::String),
-            PropertyRule::new("alpha_num_only", ValueConstraint::Boolean),
-            PropertyRule::new("ascii_folding", ValueConstraint::Boolean),
-            PropertyRule::new(
-                "normalizer",
-                ValueConstraint::StringChoice(vec!["raw", "lowercase"]),
-            ),
-            PropertyRule::new("alias", ValueConstraint::String),
-        ];
+        static SHARED_RULES: OnceLock<Vec<PropertyRule>> = OnceLock::new();
+
+        let shared_rules = SHARED_RULES.get_or_init(|| {
+            vec![
+                PropertyRule::new(
+                    "remove_short",
+                    ValueConstraint::Integer {
+                        min: Some(1),
+                        max: None,
+                    },
+                ),
+                PropertyRule::new(
+                    "remove_long",
+                    ValueConstraint::Integer {
+                        min: Some(1),
+                        max: None,
+                    },
+                ),
+                PropertyRule::new("lowercase", ValueConstraint::Boolean),
+                PropertyRule::new(
+                    "stemmer",
+                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
+                ),
+                PropertyRule::new(
+                    "stopwords_language",
+                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
+                ),
+                PropertyRule::new("stopwords", ValueConstraint::String),
+                PropertyRule::new("alpha_num_only", ValueConstraint::Boolean),
+                PropertyRule::new("ascii_folding", ValueConstraint::Boolean),
+                PropertyRule::new(
+                    "normalizer",
+                    ValueConstraint::StringChoice(vec!["raw", "lowercase"]),
+                ),
+                PropertyRule::new("alias", ValueConstraint::String),
+            ]
+        });
 
         Self {
-            rules: [rules.as_slice(), &shared_rules].concat(),
+            rules: rules
+                .into_iter()
+                .chain(shared_rules.iter().cloned())
+                .collect(),
         }
     }
 
@@ -195,10 +203,10 @@ impl TypmodSchema {
         let allowed_keys: HashSet<String> = self.rules.iter().map(|r| r.key.to_string()).collect();
         let mut seen_keys: HashSet<String> = HashSet::new();
 
-        // validate all properties
+        // validate provided typmod properties
         for (idx, prop) in parsed.properties.iter().enumerate() {
             if let Some(key) = prop.key() {
-                if !allowed_keys.contains(key) {
+                if !self.rules.iter().any(|r| r.key == key) {
                     return Err(ValidationError::InvalidKey(
                         key.to_string(),
                         format_allowed_keys(
@@ -219,7 +227,7 @@ impl TypmodSchema {
             }
         }
 
-        // check for missing required keys
+        // check that all required properties were provided
         for rule in &self.rules {
             if rule.required && !seen_keys.contains(rule.key) {
                 if let Some(pos_idx) = rule.positional_index {
@@ -255,7 +263,7 @@ pub enum ValidationError {
     #[error("Option '{0}' is not allowed at position {1}")]
     NotAllowedAtPosition(Property, usize),
 
-    #[error("Cannot parse value for {actual_type}")]
+    #[error("Cannot parse value of '{actual_type}'")]
     TypeMismatch { actual_type: String },
 }
 

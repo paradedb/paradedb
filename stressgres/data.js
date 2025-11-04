@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762293056531,
+  "lastUpdate": 1762293269500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -58198,6 +58198,60 @@ window.BENCHMARK_DATA = {
             "value": 18.913769643700903,
             "unit": "median tps",
             "extra": "avg tps: 18.96301091445652, max tps: 22.108054916526324, count: 55456"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3d9c7f409a17e28fc71293a795565be8327d656",
+          "message": "feat: add support for fast sorting by JSON key (#3479)\n\n# Ticket(s) Closed\n\n- Closes #1917 \n- Also closes #2952 \n\n## What\n\nAdd support for fast ordering by JSON key\n\n## Why\n\n## How\n\nDetect the type of a field that we are sorting by in the JSON object,\nthen try to perform the sorting on this type as it was implemented (I64,\nU64,F64, etc.)\n\n## Tests\n\ncreated a new test `topn-json-orderby`\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-11-04T12:55:59-08:00",
+          "tree_id": "1c371ec6d6b3d205beb790f2cf468ecac60abad1",
+          "url": "https://github.com/paradedb/paradedb/commit/f3d9c7f409a17e28fc71293a795565be8327d656"
+        },
+        "date": 1762293266854,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.50554205906145,
+            "unit": "median tps",
+            "extra": "avg tps: 38.61527456351936, max tps: 39.1890711334331, count: 55505"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.1387956780096,
+            "unit": "median tps",
+            "extra": "avg tps: 270.8569028468378, max tps: 2930.6329102576847, count: 55505"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1039.9479335322699,
+            "unit": "median tps",
+            "extra": "avg tps: 1040.5015003113365, max tps: 1062.9414598158787, count: 55505"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 116.63976260667658,
+            "unit": "median tps",
+            "extra": "avg tps: 153.76137268451586, max tps: 827.6855119257535, count: 111010"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.817421666902263,
+            "unit": "median tps",
+            "extra": "avg tps: 18.909950440467078, max tps: 22.618639400476575, count: 55505"
           }
         ]
       }

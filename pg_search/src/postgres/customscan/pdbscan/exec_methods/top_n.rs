@@ -176,7 +176,7 @@ impl TopNScanExecState {
 
         // Combine all window aggregates from all TargetLists
         // This allows us to execute all aggregations in a single Tantivy pass
-        // TODO: This could also be done via a multi-collector.
+        // NOTE: This could also be done via a multi-collector.
         let mut combined_agg_types = Vec::new();
         let mut agg_index_to_te_index = Vec::new();
         for agg_info in &self.window_aggregates {

@@ -476,13 +476,13 @@ impl PdbScanState {
             let tantivy_field = reader
                 .schema()
                 .search_field(field)
-                .expect("field {field} should be indexed")
+                .unwrap_or_else(|| panic!("field {field} should be indexed"))
                 .field();
             let tokenizer = reader
                 .searcher()
                 .index()
                 .tokenizer_for_field(tantivy_field)
-                .expect("tokenizer for {field} should be initialized");
+                .unwrap_or_else(|_| panic!("tokenizer for {field} should be initialized"));
             let char_filters = tokenizer.char_filters();
             result.map(|r| char_filters.iter().fold(r, |r, filter| filter.filter(&r)))
         } else {

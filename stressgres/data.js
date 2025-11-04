@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762282223049,
+  "lastUpdate": 1762290615618,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8176,6 +8176,72 @@ window.BENCHMARK_DATA = {
             "value": 111.34304087100764,
             "unit": "median tps",
             "extra": "avg tps: 164.86366816091845, max tps: 457.9129882897912, count: 55314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5a68fe2205fa78de879c4d248f0070a7293e6bd",
+          "message": "feat: Add a validator for tokenizer typmods (#3488)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds validation for tokenizer typmod properties:\n\n- Checks for invalid configuration keys/values\n- Checks for missing required properties\n\nDepends on https://github.com/paradedb/tantivy/pull/79\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests.",
+          "timestamp": "2025-11-04T15:52:10-05:00",
+          "tree_id": "65bf87fd8513df68530d0fda4ae41516d239b328",
+          "url": "https://github.com/paradedb/paradedb/commit/f5a68fe2205fa78de879c4d248f0070a7293e6bd"
+        },
+        "date": 1762290613324,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 773.99918816217,
+            "unit": "median tps",
+            "extra": "avg tps: 767.2666759535117, max tps: 796.7152492560174, count: 55038"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3153.6257107907268,
+            "unit": "median tps",
+            "extra": "avg tps: 3140.9400192908897, max tps: 3235.9343434942048, count: 55038"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 780.9753603074835,
+            "unit": "median tps",
+            "extra": "avg tps: 779.8460253514709, max tps: 792.1457071689841, count: 55038"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 665.7110679373316,
+            "unit": "median tps",
+            "extra": "avg tps: 661.1247052409071, max tps: 667.9180821997473, count: 55038"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1683.5249143216843,
+            "unit": "median tps",
+            "extra": "avg tps: 1675.839428567044, max tps: 1689.5153882079549, count: 110076"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1250.4507298506132,
+            "unit": "median tps",
+            "extra": "avg tps: 1239.495675537778, max tps: 1257.5308888076995, count: 55038"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 162.12858412876602,
+            "unit": "median tps",
+            "extra": "avg tps: 177.69938026143674, max tps: 595.2086890945269, count: 55038"
           }
         ]
       }

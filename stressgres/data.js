@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762279824540,
+  "lastUpdate": 1762280642429,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39640,6 +39640,54 @@ window.BENCHMARK_DATA = {
             "value": 5.913644315078769,
             "unit": "median tps",
             "extra": "avg tps: 5.928503886184992, max tps: 7.340779178637428, count: 56038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60aff971219c7d0991a1fbc677b2529f125e1a7e",
+          "message": "perf: Pipeline the execution of window aggregates (#3450)\n\n## What\n\nPipeline the execution of window aggregates so that they are computed in\nthe same query pass with TopDocs/TopN.\n\n## Why\n\n#3312 added support for executing aggregate queries in window functions,\nbut the implementation there executed aggregates _after_ executing TopN,\nin each worker.\n\n## How\n\nAdd space in the `ParallelScanState` for aggregate responses (if\naggregations are requested), and collect aggregate responses there.\nAfter a TopN query, wait for all workers to have produced their\nresponses, and then finalize the aggregate.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-04T09:38:52-08:00",
+          "tree_id": "accfdf39394adedbeee0157684b031b9d9d2a289",
+          "url": "https://github.com/paradedb/paradedb/commit/60aff971219c7d0991a1fbc677b2529f125e1a7e"
+        },
+        "date": 1762280639917,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 802.1430293377097,
+            "unit": "median tps",
+            "extra": "avg tps: 737.2592850600312, max tps: 997.3885461187419, count: 56244"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1204.205086365651,
+            "unit": "median tps",
+            "extra": "avg tps: 1178.0200276790113, max tps: 1256.59743992271, count: 56244"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1841.260973467804,
+            "unit": "median tps",
+            "extra": "avg tps: 1776.1122895463268, max tps: 2014.8643828821241, count: 56244"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.984911361177262,
+            "unit": "median tps",
+            "extra": "avg tps: 5.993926570178633, max tps: 7.47240828186737, count: 56244"
           }
         ]
       }

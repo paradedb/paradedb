@@ -611,7 +611,7 @@ pub mod mvcc_collector {
     }
 }
 
-mod vischeck {
+pub mod vischeck {
     use crate::postgres::utils;
     use pgrx::itemptr::item_pointer_get_block_number;
     use pgrx::pg_sys;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762291431655,
+  "lastUpdate": 1762291652562,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27628,6 +27628,42 @@ window.BENCHMARK_DATA = {
             "value": 5.46420798057707,
             "unit": "median tps",
             "extra": "avg tps: 4.9309091811585155, max tps: 6.09416863126236, count: 57368"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3d9c7f409a17e28fc71293a795565be8327d656",
+          "message": "feat: add support for fast sorting by JSON key (#3479)\n\n# Ticket(s) Closed\n\n- Closes #1917 \n- Also closes #2952 \n\n## What\n\nAdd support for fast ordering by JSON key\n\n## Why\n\n## How\n\nDetect the type of a field that we are sorting by in the JSON object,\nthen try to perform the sorting on this type as it was implemented (I64,\nU64,F64, etc.)\n\n## Tests\n\ncreated a new test `topn-json-orderby`\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-11-04T12:55:59-08:00",
+          "tree_id": "1c371ec6d6b3d205beb790f2cf468ecac60abad1",
+          "url": "https://github.com/paradedb/paradedb/commit/f3d9c7f409a17e28fc71293a795565be8327d656"
+        },
+        "date": 1762291650061,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.514041264500987,
+            "unit": "median tps",
+            "extra": "avg tps: 7.271117810539592, max tps: 11.355190901969372, count: 57768"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.260174960668937,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7569597266049595, max tps: 5.8297737709454776, count: 57768"
           }
         ]
       }

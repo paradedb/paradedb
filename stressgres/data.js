@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762291427646,
+  "lastUpdate": 1762291431655,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34582,6 +34582,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.42354121268721, max segment_count: 104.0, count: 57822"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5a68fe2205fa78de879c4d248f0070a7293e6bd",
+          "message": "feat: Add a validator for tokenizer typmods (#3488)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds validation for tokenizer typmod properties:\n\n- Checks for invalid configuration keys/values\n- Checks for missing required properties\n\nDepends on https://github.com/paradedb/tantivy/pull/79\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests.",
+          "timestamp": "2025-11-04T15:52:10-05:00",
+          "tree_id": "65bf87fd8513df68530d0fda4ae41516d239b328",
+          "url": "https://github.com/paradedb/paradedb/commit/f5a68fe2205fa78de879c4d248f0070a7293e6bd"
+        },
+        "date": 1762291429202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.770164657342317, max cpu: 42.60355, count: 57368"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 228.10772699120153, max mem: 230.91015625, count: 57368"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.29468507753828, max cpu: 33.168808, count: 57368"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.13281297663767, max mem: 165.07421875, count: 57368"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24224,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23096.216671315018, max block_count: 25720.0, count: 57368"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.13451750104588, max segment_count: 105.0, count: 57368"
           }
         ]
       }

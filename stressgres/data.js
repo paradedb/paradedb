@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762293842396,
+  "lastUpdate": 1762294064120,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -72252,6 +72252,54 @@ window.BENCHMARK_DATA = {
             "value": 116.6910443609884,
             "unit": "median tps",
             "extra": "avg tps: 116.70273676847418, max tps: 140.7647785610416, count: 107310"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3d9c7f409a17e28fc71293a795565be8327d656",
+          "message": "feat: add support for fast sorting by JSON key (#3479)\n\n# Ticket(s) Closed\n\n- Closes #1917 \n- Also closes #2952 \n\n## What\n\nAdd support for fast ordering by JSON key\n\n## Why\n\n## How\n\nDetect the type of a field that we are sorting by in the JSON object,\nthen try to perform the sorting on this type as it was implemented (I64,\nU64,F64, etc.)\n\n## Tests\n\ncreated a new test `topn-json-orderby`\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-11-04T12:55:59-08:00",
+          "tree_id": "1c371ec6d6b3d205beb790f2cf468ecac60abad1",
+          "url": "https://github.com/paradedb/paradedb/commit/f3d9c7f409a17e28fc71293a795565be8327d656"
+        },
+        "date": 1762294061392,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 679.6834298023789,
+            "unit": "median tps",
+            "extra": "avg tps: 679.8060975244986, max tps: 969.9919107917839, count: 53470"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 784.1066443768202,
+            "unit": "median tps",
+            "extra": "avg tps: 782.5684943534459, max tps: 1188.7725734195085, count: 53470"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 110.04670282978958,
+            "unit": "median tps",
+            "extra": "avg tps: 110.17723450708588, max tps: 124.2739074077153, count: 53470"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.71545389894473,
+            "unit": "median tps",
+            "extra": "avg tps: 109.82102229681146, max tps: 141.56557138894118, count: 106940"
           }
         ]
       }

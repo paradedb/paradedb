@@ -288,7 +288,7 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=turkish')::text[];
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=foo')::text[]; -- error
-ERROR:  Invalid value for option 'stemmer': must be one of: Arabic, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian, Italian, Norwegian, Portuguese, Romanian, Russian, Spanish, Swedish, Tamil, Turkish, got 'foo'
+ERROR:  Invalid value for option 'stemmer': must be one of: [Arabic, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian, Italian, Norwegian, Portuguese, Romanian, Russian, Spanish, Swedish, Tamil, Turkish], got 'foo'
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 'ascii_folding=true')::text[];
       text      
 ----------------

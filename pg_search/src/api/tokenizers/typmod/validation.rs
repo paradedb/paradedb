@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::typmod::{ParsedTypmod, Property};
-use std::collections::HashSet;
+use crate::api::HashSet;
 use std::sync::OnceLock;
 use thiserror::Error;
 use tokenizers::manager::LANGUAGES;
@@ -92,7 +92,7 @@ impl ValueConstraint {
                         Err(ValidationError::InvalidValue {
                             key: key.unwrap_or(&prop.to_string()).to_string(),
                             message: format!(
-                                "must be one of: {}, got '{}'",
+                                "must be one of: [{}], got '{}'",
                                 format_allowed_keys(allowed),
                                 s
                             ),
@@ -224,8 +224,8 @@ impl TypmodSchema {
     }
 
     pub fn validate(&self, parsed: &ParsedTypmod) -> Result<(), ValidationError> {
-        let allowed_keys: HashSet<String> = self.rules.iter().map(|r| r.key.to_string()).collect();
-        let mut seen_keys: HashSet<String> = HashSet::new();
+        let allowed_keys: HashSet<&str> = self.rules.iter().map(|r| r.key).collect();
+        let mut seen_keys: HashSet<&str> = HashSet::default();
 
         // validate provided typmod properties
         for (idx, prop) in parsed.properties.iter().enumerate() {
@@ -233,19 +233,17 @@ impl TypmodSchema {
                 if !self.rules.iter().any(|r| r.key == key) {
                     return Err(ValidationError::InvalidKey(
                         key.to_string(),
-                        format_allowed_keys(
-                            &allowed_keys.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
-                        ),
+                        format_allowed_keys(&allowed_keys.iter().copied().collect::<Vec<_>>()),
                     ));
                 }
-                seen_keys.insert(key.to_string());
+                seen_keys.insert(key);
 
                 if let Some(rule) = self.rules.iter().find(|r| r.key == key) {
                     rule.constraint.validate(prop, Some(key))?;
                 }
             } else if let Some(rule) = self.rules.iter().find(|r| r.positional_index == Some(idx)) {
                 rule.constraint.validate(prop, Some(rule.key))?;
-                seen_keys.insert(rule.key.to_string());
+                seen_keys.insert(rule.key);
             } else {
                 return Err(ValidationError::NotAllowedAtPosition(prop.clone(), idx));
             }

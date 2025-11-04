@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762293273730,
+  "lastUpdate": 1762293838199,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -72204,6 +72204,54 @@ window.BENCHMARK_DATA = {
             "value": 111.65674468086597,
             "unit": "median tps",
             "extra": "avg tps: 110.94793575123114, max tps: 122.03306748741444, count: 107320"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5a68fe2205fa78de879c4d248f0070a7293e6bd",
+          "message": "feat: Add a validator for tokenizer typmods (#3488)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds validation for tokenizer typmod properties:\n\n- Checks for invalid configuration keys/values\n- Checks for missing required properties\n\nDepends on https://github.com/paradedb/tantivy/pull/79\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests.",
+          "timestamp": "2025-11-04T15:52:10-05:00",
+          "tree_id": "65bf87fd8513df68530d0fda4ae41516d239b328",
+          "url": "https://github.com/paradedb/paradedb/commit/f5a68fe2205fa78de879c4d248f0070a7293e6bd"
+        },
+        "date": 1762293835534,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 610.1621324513244,
+            "unit": "median tps",
+            "extra": "avg tps: 612.4664432364342, max tps: 897.889815271741, count: 53655"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 709.5293604484974,
+            "unit": "median tps",
+            "extra": "avg tps: 712.1219822968053, max tps: 1223.9833983342699, count: 53655"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 115.15641878744995,
+            "unit": "median tps",
+            "extra": "avg tps: 115.17396890048585, max tps: 126.1527110341783, count: 53655"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 116.6910443609884,
+            "unit": "median tps",
+            "extra": "avg tps: 116.70273676847418, max tps: 140.7647785610416, count: 107310"
           }
         ]
       }

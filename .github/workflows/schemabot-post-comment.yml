@@ -42,10 +42,35 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const prs = context.payload?.workflow_run?.pull_requests || [];
-            if (!prs.length) core.setFailed('No associated PR found for this run.');
-            core.setOutput('number', String(prs[0].number));
-            core.info(`Found PR #${prs[0].number}`);
+            const run = context.payload.workflow_run;
+
+            // Try #1: official API to list PRs for this workflow run (works when GH links them)
+            const { data: prsForRun } = await github.rest.actions.listWorkflowRunPullRequests({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+            });
+
+            let prs = prsForRun;
+
+            // Try #2: fall back to PRs associated with the HEAD SHA (works for forks reliably)
+            if (!prs?.length) {
+              const { data: prsForSha } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: run.head_sha,
+              });
+              prs = prsForSha;
+            }
+
+            if (!prs?.length) {
+              core.setFailed(`No associated PR found for run ${run.id} (event=${run.event}, head_sha=${run.head_sha}).`);
+              return;
+            }
+
+            const pr = prs[0];
+            core.setOutput('number', String(pr.number));
+            core.info(`Found PR #${pr.number} from ${pr.head.repo.full_name}@${pr.head.ref}`);
 
       - name: Locate SchemaBot Comment Artifact
         id: artifact

@@ -25,6 +25,27 @@ CREATE INDEX jsonsort_idx ON mock_items_jsonsort
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
 -- Order by JSON key (price) in DESC using fast ordering
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'price' AS price FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY price DESC
+LIMIT 5;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: description, ((metadata ->> 'price'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.mock_items_jsonsort
+         Output: description, (metadata ->> 'price'::text)
+         Table: mock_items_jsonsort
+         Index: jsonsort_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: metadata.price desc
+            TopN Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
 SELECT description, metadata->>'price' AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
@@ -39,6 +60,27 @@ LIMIT 5;
 (5 rows)
 
 -- Order by JSON key (color) ASC using fast ordering
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'color' AS color FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY color ASC, id ASC
+LIMIT 5;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: description, ((metadata ->> 'color'::text)), id
+   ->  Custom Scan (ParadeDB Scan) on public.mock_items_jsonsort
+         Output: description, (metadata ->> 'color'::text), id
+         Table: mock_items_jsonsort
+         Index: jsonsort_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: metadata.color asc, id asc
+            TopN Limit: 5
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
 SELECT description, metadata->>'color' AS color FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY color ASC, id ASC

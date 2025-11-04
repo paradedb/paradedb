@@ -24,12 +24,24 @@ USING bm25 (id, description, category, rating, in_stock, created_at, metadata, w
 WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
 
 -- Order by JSON key (price) in DESC using fast ordering
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'price' AS price FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY price DESC
+LIMIT 5;
+
 SELECT description, metadata->>'price' AS price FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY price DESC
 LIMIT 5;
 
 -- Order by JSON key (color) ASC using fast ordering
+EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'color' AS color FROM mock_items_jsonsort
+WHERE id @@@ paradedb.all()
+ORDER BY color ASC, id ASC
+LIMIT 5;
+
 SELECT description, metadata->>'color' AS color FROM mock_items_jsonsort
 WHERE id @@@ paradedb.all()
 ORDER BY color ASC, id ASC

@@ -18,26 +18,7 @@
 use crate::api::tokenizers::typmod::{ParsedTypmod, Property};
 use std::collections::HashSet;
 use thiserror::Error;
-
-const LANGUAGES: [&str; 17] = [
-    "arabic",
-    "danish",
-    "dutch",
-    "english",
-    "finnish",
-    "french",
-    "german",
-    "greek",
-    "hungarian",
-    "italian",
-    "norwegian",
-    "portuguese",
-    "romanian",
-    "russian",
-    "spanish",
-    "swedish",
-    "turkish",
-];
+use tokenizers::manager::LANGUAGES;
 
 #[derive(Debug, Clone)]
 pub enum ValueConstraint {
@@ -74,7 +55,7 @@ impl ValueConstraint {
                     Err(ValidationError::TypeMismatch {
                         key: key.unwrap_or("<positional>").to_string(),
                         expected_type: "integer".to_string(),
-                        actual_type: prop_type_name(prop),
+                        actual_type: prop.to_string(),
                     })
                 }
             }
@@ -90,7 +71,7 @@ impl ValueConstraint {
                 Err(ValidationError::TypeMismatch {
                     key: key.unwrap_or("<positional>").to_string(),
                     expected_type: "boolean".to_string(),
-                    actual_type: prop_type_name(prop),
+                    actual_type: prop.to_string(),
                 })
             }
             ValueConstraint::String => {
@@ -100,7 +81,7 @@ impl ValueConstraint {
                     Err(ValidationError::TypeMismatch {
                         key: key.unwrap_or("<positional>").to_string(),
                         expected_type: "string".to_string(),
-                        actual_type: prop_type_name(prop),
+                        actual_type: prop.to_string(),
                     })
                 }
             }
@@ -122,7 +103,7 @@ impl ValueConstraint {
                     Err(ValidationError::TypeMismatch {
                         key: key.unwrap_or("<positional>").to_string(),
                         expected_type: "string".to_string(),
-                        actual_type: prop_type_name(prop),
+                        actual_type: prop.to_string(),
                     })
                 }
             }
@@ -133,7 +114,7 @@ impl ValueConstraint {
                     Err(ValidationError::TypeMismatch {
                         key: key.unwrap_or("<positional>").to_string(),
                         expected_type: "regex".to_string(),
-                        actual_type: prop_type_name(prop),
+                        actual_type: prop.to_string(),
                     })
                 }
             }
@@ -141,18 +122,6 @@ impl ValueConstraint {
     }
 }
 
-fn prop_type_name(prop: &Property) -> String {
-    match prop {
-        Property::NoSuchProperty => "no such property".to_string(),
-        Property::None(_) => "none".to_string(),
-        Property::String(_, _) => "string".to_string(),
-        Property::Regex(_, _) => "regex".to_string(),
-        Property::Integer(_, _) => "integer".to_string(),
-        Property::Boolean(_, _) => "boolean".to_string(),
-    }
-}
-
-/// Defines a validation rule for a property key
 #[derive(Debug, Clone)]
 pub struct PropertyRule {
     pub key: &'static str,
@@ -206,10 +175,13 @@ impl TypmodSchema {
                 },
             ),
             PropertyRule::new("lowercase", ValueConstraint::Boolean),
-            PropertyRule::new("stemmer", ValueConstraint::StringChoice(LANGUAGES.to_vec())),
+            PropertyRule::new(
+                "stemmer",
+                ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
+            ),
             PropertyRule::new(
                 "stopwords_language",
-                ValueConstraint::StringChoice(LANGUAGES.to_vec()),
+                ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
             ),
             PropertyRule::new("stopwords", ValueConstraint::String),
             PropertyRule::new("alpha_num_only", ValueConstraint::Boolean),

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762280646910,
+  "lastUpdate": 1762281433454,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -57226,6 +57226,60 @@ window.BENCHMARK_DATA = {
             "value": 18.568331122749115,
             "unit": "median tps",
             "extra": "avg tps: 18.73185792381425, max tps: 20.115589695811018, count: 55461"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60aff971219c7d0991a1fbc677b2529f125e1a7e",
+          "message": "perf: Pipeline the execution of window aggregates (#3450)\n\n## What\n\nPipeline the execution of window aggregates so that they are computed in\nthe same query pass with TopDocs/TopN.\n\n## Why\n\n#3312 added support for executing aggregate queries in window functions,\nbut the implementation there executed aggregates _after_ executing TopN,\nin each worker.\n\n## How\n\nAdd space in the `ParallelScanState` for aggregate responses (if\naggregations are requested), and collect aggregate responses there.\nAfter a TopN query, wait for all workers to have produced their\nresponses, and then finalize the aggregate.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-04T09:38:52-08:00",
+          "tree_id": "accfdf39394adedbeee0157684b031b9d9d2a289",
+          "url": "https://github.com/paradedb/paradedb/commit/60aff971219c7d0991a1fbc677b2529f125e1a7e"
+        },
+        "date": 1762281430930,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.703661597047976,
+            "unit": "median tps",
+            "extra": "avg tps: 37.75114836304144, max tps: 40.842466147641325, count: 55397"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.44614611387306,
+            "unit": "median tps",
+            "extra": "avg tps: 276.9440518250402, max tps: 2715.676721660621, count: 55397"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1015.4582484431796,
+            "unit": "median tps",
+            "extra": "avg tps: 1012.45934399596, max tps: 1021.9248658408976, count: 55397"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.08722017431477,
+            "unit": "median tps",
+            "extra": "avg tps: 155.01543854976669, max tps: 840.5902306216577, count: 110794"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.73984650143325,
+            "unit": "median tps",
+            "extra": "avg tps: 18.798839635119922, max tps: 21.4926853370854, count: 55397"
           }
         ]
       }

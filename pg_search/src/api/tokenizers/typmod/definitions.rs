@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::tokenizers::typmod;
-use crate::api::tokenizers::typmod::validation::{PropertyRule, ValueConstraint};
+use crate::api::tokenizers::typmod::validation::{rule, PropertyRule, ValueConstraint};
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchNormalizer;
@@ -82,59 +82,69 @@ impl TypmodRules for GenericTypmod {
 impl TypmodRules for NgramTypmod {
     fn rules() -> Vec<PropertyRule> {
         vec![
-            PropertyRule::new(
+            rule!(
                 "min",
                 ValueConstraint::Integer {
                     min: Some(1),
                     max: None,
                 },
-            )
-            .required()
-            .positional(0),
-            PropertyRule::new(
+                required,
+                positional = 0
+            ),
+            rule!(
                 "max",
                 ValueConstraint::Integer {
                     min: Some(1),
                     max: None,
                 },
-            )
-            .required()
-            .positional(1),
-            PropertyRule::new("prefix_only", ValueConstraint::Boolean),
+                required,
+                positional = 1
+            ),
+            rule!("prefix_only", ValueConstraint::Boolean),
         ]
     }
 }
 
 impl TypmodRules for RegexTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![PropertyRule::new("pattern", ValueConstraint::Regex)
-            .required()
-            .positional(0)]
+        vec![rule!(
+            "pattern",
+            ValueConstraint::Regex,
+            required,
+            positional = 0
+        )]
     }
 }
 
 impl TypmodRules for LinderaTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![PropertyRule::new(
+        vec![rule!(
             "language",
             ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
-        )
-        .required()
-        .positional(0)]
+            required,
+            positional = 0
+        )]
     }
 }
 
 impl TypmodRules for UnicodeWordsTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![PropertyRule::new("remove_emojis", ValueConstraint::Boolean).positional(0)]
+        vec![rule!(
+            "remove_emojis",
+            ValueConstraint::Boolean,
+            positional = 0
+        )]
     }
 }
 
 impl TypmodRules for AliasTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![PropertyRule::new("alias", ValueConstraint::String)
-            .required()
-            .positional(0)]
+        vec![rule!(
+            "alias",
+            ValueConstraint::String,
+            required,
+            positional = 0
+        )]
     }
 }
 

@@ -146,6 +146,30 @@ impl PropertyRule {
     }
 }
 
+macro_rules! rule {
+    ($key:literal, $constraint:expr) => {
+        PropertyRule::new($key, $constraint)
+    };
+    ($key:literal, $constraint:expr, required) => {
+        PropertyRule::new($key, $constraint).required()
+    };
+    ($key:literal, $constraint:expr, positional = $pos:expr) => {
+        PropertyRule::new($key, $constraint).positional($pos)
+    };
+    ($key:literal, $constraint:expr, required, positional = $pos:expr) => {
+        PropertyRule::new($key, $constraint)
+            .required()
+            .positional($pos)
+    };
+    ($key:literal, $constraint:expr, positional = $pos:expr, required) => {
+        PropertyRule::new($key, $constraint)
+            .required()
+            .positional($pos)
+    };
+}
+
+pub(crate) use rule;
+
 #[derive(Debug, Clone)]
 pub struct TypmodSchema {
     rules: Vec<PropertyRule>,
@@ -157,37 +181,37 @@ impl TypmodSchema {
 
         let shared_rules = SHARED_RULES.get_or_init(|| {
             vec![
-                PropertyRule::new(
+                rule!(
                     "remove_short",
                     ValueConstraint::Integer {
                         min: Some(1),
-                        max: None,
-                    },
+                        max: None
+                    }
                 ),
-                PropertyRule::new(
+                rule!(
                     "remove_long",
                     ValueConstraint::Integer {
                         min: Some(1),
-                        max: None,
-                    },
+                        max: None
+                    }
                 ),
-                PropertyRule::new("lowercase", ValueConstraint::Boolean),
-                PropertyRule::new(
+                rule!("lowercase", ValueConstraint::Boolean),
+                rule!(
                     "stemmer",
-                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
+                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect())
                 ),
-                PropertyRule::new(
+                rule!(
                     "stopwords_language",
-                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect()),
+                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect())
                 ),
-                PropertyRule::new("stopwords", ValueConstraint::String),
-                PropertyRule::new("alpha_num_only", ValueConstraint::Boolean),
-                PropertyRule::new("ascii_folding", ValueConstraint::Boolean),
-                PropertyRule::new(
+                rule!("stopwords", ValueConstraint::String),
+                rule!("alpha_num_only", ValueConstraint::Boolean),
+                rule!("ascii_folding", ValueConstraint::Boolean),
+                rule!(
                     "normalizer",
-                    ValueConstraint::StringChoice(vec!["raw", "lowercase"]),
+                    ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
-                PropertyRule::new("alias", ValueConstraint::String),
+                rule!("alias", ValueConstraint::String),
             ]
         });
 

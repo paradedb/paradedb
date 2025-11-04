@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762294064120,
+  "lastUpdate": 1762294068324,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -77522,6 +77522,186 @@ window.BENCHMARK_DATA = {
             "value": 24.109375,
             "unit": "median mem",
             "extra": "avg mem: 23.927646246854906, max mem: 24.109375, count: 53655"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "92638932+idkwhttsay@users.noreply.github.com",
+            "name": "Daniil Tatarinov",
+            "username": "idkwhttsay"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3d9c7f409a17e28fc71293a795565be8327d656",
+          "message": "feat: add support for fast sorting by JSON key (#3479)\n\n# Ticket(s) Closed\n\n- Closes #1917 \n- Also closes #2952 \n\n## What\n\nAdd support for fast ordering by JSON key\n\n## Why\n\n## How\n\nDetect the type of a field that we are sorting by in the JSON object,\nthen try to perform the sorting on this type as it was implemented (I64,\nU64,F64, etc.)\n\n## Tests\n\ncreated a new test `topn-json-orderby`\n\n---------\n\nSigned-off-by: idkwhttsay <danil.tatarinov.00@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-11-04T12:55:59-08:00",
+          "tree_id": "1c371ec6d6b3d205beb790f2cf468ecac60abad1",
+          "url": "https://github.com/paradedb/paradedb/commit/f3d9c7f409a17e28fc71293a795565be8327d656"
+        },
+        "date": 1762294065646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.763935116711574, max cpu: 9.230769, count: 53470"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 134.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.47180537860015, max mem: 151.87109375, count: 53470"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8207959440975494, max cpu: 4.6065254, count: 53470"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 23.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 23.30364456704694, max mem: 23.390625, count: 53470"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.055251605608369, max cpu: 18.303146, count: 53470"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 137.25,
+            "unit": "median mem",
+            "extra": "avg mem: 119.10590795656442, max mem: 151.2578125, count: 53470"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669532003036616, max cpu: 9.221902, count: 53470"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 132.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 117.41538939767626, max mem: 149.984375, count: 53470"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.631655334209107, max cpu: 9.17782, count: 53470"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 120.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 104.31476938002618, max mem: 139.1484375, count: 53470"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 14240,
+            "unit": "median pages",
+            "extra": "avg pages: 14449.946904806433, max pages: 27602.0, count: 53470"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 111.25,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 112.89021223933982, max relation_size:MB: 215.640625, count: 53470"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 62,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 60.19334206096877, max segment_count: 99.0, count: 53470"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1205186603060833, max cpu: 4.5933013, count: 53470"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.050573262460258, max mem: 21.48046875, count: 53470"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4109676365851005, max cpu: 4.5801525, count: 53470"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.90173198756312, max mem: 21.05078125, count: 53470"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 9.048068,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.13190760997725, max cpu: 13.899614, count: 53470"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 141.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 123.97009260449785, max mem: 160.62890625, count: 53470"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003151794627646051, max replication_lag:MB: 0.1801300048828125, count: 53470"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.924447413915593, max cpu: 9.266409, count: 106940"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 146.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.0323974746353, max mem: 162.6171875, count: 106940"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.13180889224123, max cpu: 9.108159, count: 53470"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 24.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.383307374462316, max mem: 24.63671875, count: 53470"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.095438216081035, max cpu: 4.58891, count: 53470"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 24.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.464043067374227, max mem: 24.51171875, count: 53470"
           }
         ]
       }

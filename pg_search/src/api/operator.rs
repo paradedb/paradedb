@@ -342,7 +342,13 @@ unsafe fn field_name_from_node(
                 }
             }
         }
+
+        return None;
     }
+
+    //
+    // we're looking for a more complex expression
+    //
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
     let mut expressions_iter = expressions.iter_ptr();

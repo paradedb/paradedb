@@ -92,6 +92,30 @@ jobs:
           fi
           echo "Version check passed!"
 
+      - name: Validate the SQL Upgrade Script Exists
+        working-directory: pg_search/sql/
+        run: |
+          set -euo pipefail
+
+          target_version="${{ github.event.inputs.version }}"
+          echo "Looking for SQL upgrade scripts targeting version: ${target_version}"
+
+          # Enable nullglob so an empty glob expands to nothing (lets us count matches safely)
+          shopt -s nullglob
+
+          matches=(pg_search--*--"${target_version}".sql)
+
+          if (( ${#matches[@]} == 0 )); then
+            echo "❌ No SQL upgrade script found for version ${target_version} in $(pwd)."
+            echo "Expected at least one file named: pg_search--<past-version>--${target_version}.sql"
+            exit 1
+          fi
+
+          echo "✅ Found SQL upgrade script(s):"
+          for f in "${matches[@]}"; do
+            echo " - ${f}"
+          done
+
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:

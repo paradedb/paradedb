@@ -271,46 +271,6 @@ impl Clone for SearchIndexReader {
 }
 
 impl SearchIndexReader {
-    /// Detect fast-field type for a JSON path by probing segment fast fields.
-    fn detect_json_fastfield_type(&self, name: &str) -> Option<tantivy::schema::Type> {
-        for reader in self.searcher.segment_readers().iter() {
-            let ffr = reader.fast_fields();
-            if ffr.i64(name).is_ok() {
-                return Some(tantivy::schema::Type::I64);
-            }
-            if ffr.u64(name).is_ok() {
-                return Some(tantivy::schema::Type::U64);
-            }
-            if ffr.f64(name).is_ok() {
-                return Some(tantivy::schema::Type::F64);
-            }
-            if ffr.bool(name).is_ok() {
-                return Some(tantivy::schema::Type::Bool);
-            }
-            if ffr.date(name).is_ok() {
-                return Some(tantivy::schema::Type::Date);
-            }
-            if let Ok(Some(_)) = ffr.str(name) {
-                return Some(tantivy::schema::Type::Str);
-            }
-        }
-        None
-    }
-    /// If the given tantivy value type is `Json`, probe segment fast fields to map it to the
-    /// actual underlying fast-field type (I64/U64/F64/Bool/Date/Str). Otherwise, return the
-    /// provided `value_type` unchanged.
-    fn normalize_json_underlying_type(
-        &self,
-        value_type: tantivy::schema::Type,
-        name: &str,
-    ) -> tantivy::schema::Type {
-        match value_type {
-            tantivy::schema::Type::Json => self
-                .detect_json_fastfield_type(name)
-                .unwrap_or(tantivy::schema::Type::Str),
-            other => other,
-        }
-    }
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
@@ -1092,6 +1052,48 @@ impl SearchIndexReader {
         }
 
         (first_orderby_info, erased_features)
+    }
+
+    /// Detect fast-field type for a JSON path by probing segment fast fields.
+    fn detect_json_fastfield_type(&self, name: &str) -> Option<tantivy::schema::Type> {
+        for reader in self.searcher.segment_readers().iter() {
+            let ffr = reader.fast_fields();
+            if ffr.i64(name).is_ok() {
+                return Some(tantivy::schema::Type::I64);
+            }
+            if ffr.u64(name).is_ok() {
+                return Some(tantivy::schema::Type::U64);
+            }
+            if ffr.f64(name).is_ok() {
+                return Some(tantivy::schema::Type::F64);
+            }
+            if ffr.bool(name).is_ok() {
+                return Some(tantivy::schema::Type::Bool);
+            }
+            if ffr.date(name).is_ok() {
+                return Some(tantivy::schema::Type::Date);
+            }
+            if let Ok(Some(_)) = ffr.str(name) {
+                return Some(tantivy::schema::Type::Str);
+            }
+        }
+        None
+    }
+
+    /// If the given tantivy value type is `Json`, probe segment fast fields to map it to the
+    /// actual underlying fast-field type (I64/U64/F64/Bool/Date/Str). Otherwise, return the
+    /// provided `value_type` unchanged.
+    fn normalize_json_underlying_type(
+        &self,
+        value_type: tantivy::schema::Type,
+        name: &str,
+    ) -> tantivy::schema::Type {
+        match value_type {
+            tantivy::schema::Type::Json => self
+                .detect_json_fastfield_type(name)
+                .unwrap_or(tantivy::schema::Type::Str),
+            other => other,
+        }
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because

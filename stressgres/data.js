@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762290854425,
+  "lastUpdate": 1762291427646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27592,6 +27592,42 @@ window.BENCHMARK_DATA = {
             "value": 5.462381472992951,
             "unit": "median tps",
             "extra": "avg tps: 4.93848872458067, max tps: 6.059774604943032, count: 57822"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5a68fe2205fa78de879c4d248f0070a7293e6bd",
+          "message": "feat: Add a validator for tokenizer typmods (#3488)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds validation for tokenizer typmod properties:\n\n- Checks for invalid configuration keys/values\n- Checks for missing required properties\n\nDepends on https://github.com/paradedb/tantivy/pull/79\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests.",
+          "timestamp": "2025-11-04T15:52:10-05:00",
+          "tree_id": "65bf87fd8513df68530d0fda4ae41516d239b328",
+          "url": "https://github.com/paradedb/paradedb/commit/f5a68fe2205fa78de879c4d248f0070a7293e6bd"
+        },
+        "date": 1762291425195,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.227116927785413,
+            "unit": "median tps",
+            "extra": "avg tps: 7.021177278385618, max tps: 10.821612736974524, count: 57368"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.46420798057707,
+            "unit": "median tps",
+            "extra": "avg tps: 4.9309091811585155, max tps: 6.09416863126236, count: 57368"
           }
         ]
       }

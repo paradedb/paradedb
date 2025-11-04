@@ -277,7 +277,7 @@ macro_rules! add_filters {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
-    Default(SearchTokenizerFilters),
+    Simple(SearchTokenizerFilters),
     Keyword,
     #[deprecated(
         since = "0.19.0",
@@ -350,7 +350,7 @@ impl SearchTokenizer {
         let filters = SearchTokenizerFilters::from_json_value(value)?;
 
         match tokenizer_type {
-            "default" => Ok(SearchTokenizer::Default(filters)),
+            "default" => Ok(SearchTokenizer::Simple(filters)),
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
@@ -413,7 +413,7 @@ impl SearchTokenizer {
 
     pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
         let analyzer = match self {
-            SearchTokenizer::Default(filters) => {
+            SearchTokenizer::Simple(filters) => {
                 add_filters!(SimpleTokenizer::default(), filters)
             }
             // the keyword tokenizer is a special case that does not have filters
@@ -497,7 +497,7 @@ impl SearchTokenizer {
 
     fn filters(&self) -> &SearchTokenizerFilters {
         match self {
-            SearchTokenizer::Default(filters) => filters,
+            SearchTokenizer::Simple(filters) => filters,
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => SearchTokenizerFilters::keyword_deprecated(),
@@ -552,7 +552,7 @@ impl SearchTokenizer {
     pub fn name(&self) -> String {
         let filters_suffix = self.filters().name_suffix();
         match self {
-            SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
+            SearchTokenizer::Simple(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
@@ -626,7 +626,7 @@ mod tests {
 
     #[rstest]
     fn test_search_tokenizer() {
-        let tokenizer = SearchTokenizer::Default(SearchTokenizerFilters::default());
+        let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
         assert_eq!(tokenizer.name(), "default".to_string());
 
         let json = r#"{

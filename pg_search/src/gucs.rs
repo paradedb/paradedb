@@ -56,6 +56,9 @@ static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
+/// The maximum response size in bytes for a window aggregate.
+static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
+
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -213,6 +216,17 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.max_window_aggregate_response_bytes",
+        c"Maximum response size in bytes for a window aggregate.",
+        c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
+        &MAX_WINDOW_AGGREGATE_RESPONSE_BYTES,
+        1024,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.global_target_segment_count",
         c"a global target segment count override",
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
@@ -355,6 +369,10 @@ pub fn limit_fetch_multiplier() -> f64 {
 
 pub fn max_term_agg_buckets() -> i32 {
     MAX_TERM_AGG_BUCKETS.get()
+}
+
+pub fn max_window_aggregate_response_bytes() -> usize {
+    MAX_WINDOW_AGGREGATE_RESPONSE_BYTES.get() as usize
 }
 
 pub fn topn_retry_scale_factor() -> i32 {

@@ -277,6 +277,7 @@ macro_rules! add_filters {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
+    #[strum(serialize = "default")]
     Simple(SearchTokenizerFilters),
     Keyword,
     #[deprecated(

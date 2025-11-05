@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762380259420,
+  "lastUpdate": 1762380263576,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -72220,6 +72220,114 @@ window.BENCHMARK_DATA = {
             "value": 160.6328125,
             "unit": "median mem",
             "extra": "avg mem: 158.59670118316637, max mem: 161.921875, count: 55698"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b779db1ab7b1394265c44325c2008fecedfea2f8",
+          "message": "fix: fixed WHERE clause handling for `pdb.agg()` window functions (#3497)\n\n# Ticket(s) Closed\n\n- Fixes critical bug where WHERE clause predicates were silently dropped\nwhen using `pdb.agg()` as a window function\n\n## What\n\nFixed a critical bug where `pdb.agg()` window functions would silently\nignore WHERE clause predicates, returning incorrect results. Now queries\neither work correctly or error early with a helpful message.\n\n## Why\n\nWhen you used `pdb.agg()` with a WHERE clause like `WHERE field =\n'value'`, the predicate was being dropped silently. The query would scan\nall documents and return wrong results without any error. This was a\ndata correctness issue.\n\n## How\n\n- Added `PlannerContext` enum so `extract_quals()` can work in both\nplanner hook (early validation) and custom scan (execution) contexts\n- Added early validation in the planner hook - if we can't handle the\nWHERE clause and `filter_pushdown` is off, we error immediately with a\nhelpful message\n- Made `extract_quals()` work in Query context by recognizing the `@@@`\noperator and creating `HeapExpr` when appropriate\n- Added safety checks in the custom scan to prevent the `Qual::All`\nfallback that caused silent data loss\n\n## Tests\n\nAdded 5 new test cases covering:\n- WHERE clauses with `filter_pushdown` on/off\n- Mixed predicates (`@@@` AND `=`)\n- Queries with/without WHERE clauses\n- All tests verify queries either work correctly or error early - no\nsilent failures",
+          "timestamp": "2025-11-05T13:02:01-08:00",
+          "tree_id": "1225e27c3eb3a62461d425fd60523e0d3bc9b724",
+          "url": "https://github.com/paradedb/paradedb/commit/b779db1ab7b1394265c44325c2008fecedfea2f8"
+        },
+        "date": 1762380260898,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.41575446082064, max cpu: 42.064266, count: 55515"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 156.72491317098982, max mem: 158.078125, count: 55515"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.597973651523551, max cpu: 36.816875, count: 55515"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 114.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 113.56855396627037, max mem: 114.99609375, count: 55515"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.936425671483091, max cpu: 13.953489, count: 55515"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 143.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 123.31688352810052, max mem: 144.75390625, count: 55515"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 31024,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31475.72895613798, max block_count: 63985.0, count: 55515"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.111752342429881, max cpu: 4.6421666, count: 55515"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.40900045314329, max mem: 128.63671875, count: 55515"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.82658740880843, max segment_count: 56.0, count: 55515"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.91870863631302, max cpu: 32.40116, count: 111030"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.47558419599432, max mem: 158.38671875, count: 111030"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.766731,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.633895187440224, max cpu: 23.27837, count: 55515"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 158.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 156.64089203087005, max mem: 159.53515625, count: 55515"
           }
         ]
       }

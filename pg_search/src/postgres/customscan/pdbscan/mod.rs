@@ -42,7 +42,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
-use crate::postgres::customscan::pdbscan::privdat::PrivateData;
+use crate::postgres::customscan::pdbscan::privdat::{PrivateData, SegmentDocStats};
 use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
@@ -464,6 +464,15 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
+
+            let mut segment_doc_stats = SegmentDocStats::default();
+            if let Ok(reader) = index.reader() {
+                let searcher = reader.searcher();
+                for segment_reader in searcher.segment_readers() {
+                    segment_doc_stats.record(segment_reader.num_docs() as usize);
+                }
+            }
+
             let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = bm25_index
                 .schema()
@@ -555,6 +564,7 @@ impl CustomScan for PdbScan {
             custom_private.set_query(query);
             custom_private.set_limit(limit);
             custom_private.set_segment_count(segment_count);
+            custom_private.set_segment_doc_stats(segment_doc_stats);
 
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
@@ -594,6 +604,7 @@ impl CustomScan for PdbScan {
                     total_rows,
                     segment_count,
                     quals.contains_external_var(),
+                    custom_private.segment_doc_stats(),
                 )
             } else {
                 0

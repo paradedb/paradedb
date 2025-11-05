@@ -26,6 +26,8 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
+pub const TINY_SEGMENT_MAX_DOCS: usize = 1024;
+
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
@@ -38,6 +40,8 @@ pub struct PrivateData {
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>>,
     segment_count: usize,
+    #[serde(default)]
+    segment_doc_stats: SegmentDocStats,
     // The fast fields which were identified during planning time as potentially being
     // needed at execution time. In order for our planning-time-chosen ExecMethodType to be
     // accurate, this must always be a superset of the fields extracted from the execution
@@ -53,6 +57,68 @@ pub struct PrivateData {
     ambulkdelete_epoch: u32,
     // Window aggregates to compute during TopN execution
     window_aggregates: Vec<WindowAggregateInfo>,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct SegmentDocStats {
+    observed_segments: usize,
+    tiny_segments: usize,
+    min_docs: Option<usize>,
+    max_docs: Option<usize>,
+    total_docs: usize,
+}
+
+impl SegmentDocStats {
+    pub fn record(&mut self, doc_count: usize) {
+        self.observed_segments += 1;
+        self.total_docs = self.total_docs.saturating_add(doc_count);
+
+        self.min_docs = Some(match self.min_docs {
+            Some(existing) => existing.min(doc_count),
+            None => doc_count,
+        });
+
+        self.max_docs = Some(match self.max_docs {
+            Some(existing) => existing.max(doc_count),
+            None => doc_count,
+        });
+
+        if doc_count <= TINY_SEGMENT_MAX_DOCS {
+            self.tiny_segments += 1;
+        }
+    }
+
+    pub fn observed_segments(&self) -> usize {
+        self.observed_segments
+    }
+
+    pub fn non_tiny_segment_count(&self) -> Option<usize> {
+        if self.observed_segments == 0 {
+            None
+        } else {
+            Some(self.observed_segments.saturating_sub(self.tiny_segments))
+        }
+    }
+
+    pub fn tiny_segment_count(&self) -> Option<usize> {
+        if self.observed_segments == 0 {
+            None
+        } else {
+            Some(self.tiny_segments)
+        }
+    }
+
+    pub fn min_docs(&self) -> Option<usize> {
+        self.min_docs
+    }
+
+    pub fn max_docs(&self) -> Option<usize> {
+        self.max_docs
+    }
+
+    pub fn total_docs(&self) -> usize {
+        self.total_docs
+    }
 }
 
 mod var_attname_lookup_serializer {
@@ -196,6 +262,10 @@ impl PrivateData {
         self.segment_count = segment_count;
     }
 
+    pub fn set_segment_doc_stats(&mut self, segment_doc_stats: SegmentDocStats) {
+        self.segment_doc_stats = segment_doc_stats;
+    }
+
     pub fn set_planned_which_fast_fields(
         &mut self,
         planned_which_fast_fields: HashSet<WhichFastField>,
@@ -268,6 +338,10 @@ impl PrivateData {
 
     pub fn segment_count(&self) -> usize {
         self.segment_count
+    }
+
+    pub fn segment_doc_stats(&self) -> &SegmentDocStats {
+        &self.segment_doc_stats
     }
 
     pub fn planned_which_fast_fields(&self) -> &Option<HashSet<WhichFastField>> {

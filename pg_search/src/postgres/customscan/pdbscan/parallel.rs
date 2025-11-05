@@ -22,6 +22,7 @@ use crate::api::HashSet;
 use crate::customscan::pdbscan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::postgres::customscan::pdbscan::privdat::SegmentDocStats;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
 
@@ -101,6 +102,7 @@ pub fn compute_nworkers(
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
+    segment_doc_stats: &SegmentDocStats,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -130,6 +132,25 @@ pub fn compute_nworkers(
         // Don't attempt to parallelize during a join.
         // TODO: Re-evaluate.
         nworkers = 0;
+    }
+
+    if nworkers > 0 {
+        if let Some(non_tiny) = segment_doc_stats.non_tiny_segment_count() {
+            if non_tiny <= 1 {
+                // At most one non-trivial shard -> eliminating the parallel worker spin-up
+                nworkers = 0;
+            }
+        }
+
+        if let Some(tiny_segments) = segment_doc_stats.tiny_segment_count() {
+            if segment_doc_stats.observed_segments() > 0
+                && tiny_segments == segment_doc_stats.observed_segments()
+                && segment_doc_stats.total_docs() <= 10_000
+            {
+                // Every segment is tiny and the total doc count is small -> eliminating the parallel worker spin-up
+                nworkers = 0;
+            }
+        }
     }
 
     #[cfg(not(any(feature = "pg14", feature = "pg15")))]

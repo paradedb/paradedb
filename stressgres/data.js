@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762380988020,
+  "lastUpdate": 1762381100942,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -73968,6 +73968,54 @@ window.BENCHMARK_DATA = {
             "value": 111.69462913401664,
             "unit": "median tps",
             "extra": "avg tps: 111.30224409859277, max tps: 125.46659130237046, count: 107094"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b779db1ab7b1394265c44325c2008fecedfea2f8",
+          "message": "fix: fixed WHERE clause handling for `pdb.agg()` window functions (#3497)\n\n# Ticket(s) Closed\n\n- Fixes critical bug where WHERE clause predicates were silently dropped\nwhen using `pdb.agg()` as a window function\n\n## What\n\nFixed a critical bug where `pdb.agg()` window functions would silently\nignore WHERE clause predicates, returning incorrect results. Now queries\neither work correctly or error early with a helpful message.\n\n## Why\n\nWhen you used `pdb.agg()` with a WHERE clause like `WHERE field =\n'value'`, the predicate was being dropped silently. The query would scan\nall documents and return wrong results without any error. This was a\ndata correctness issue.\n\n## How\n\n- Added `PlannerContext` enum so `extract_quals()` can work in both\nplanner hook (early validation) and custom scan (execution) contexts\n- Added early validation in the planner hook - if we can't handle the\nWHERE clause and `filter_pushdown` is off, we error immediately with a\nhelpful message\n- Made `extract_quals()` work in Query context by recognizing the `@@@`\noperator and creating `HeapExpr` when appropriate\n- Added safety checks in the custom scan to prevent the `Qual::All`\nfallback that caused silent data loss\n\n## Tests\n\nAdded 5 new test cases covering:\n- WHERE clauses with `filter_pushdown` on/off\n- Mixed predicates (`@@@` AND `=`)\n- Queries with/without WHERE clauses\n- All tests verify queries either work correctly or error early - no\nsilent failures",
+          "timestamp": "2025-11-05T13:02:01-08:00",
+          "tree_id": "1225e27c3eb3a62461d425fd60523e0d3bc9b724",
+          "url": "https://github.com/paradedb/paradedb/commit/b779db1ab7b1394265c44325c2008fecedfea2f8"
+        },
+        "date": 1762381098046,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 630.3699672239745,
+            "unit": "median tps",
+            "extra": "avg tps: 631.4096255808787, max tps: 844.118660269616, count: 53662"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 781.3271247760703,
+            "unit": "median tps",
+            "extra": "avg tps: 779.922478736984, max tps: 1218.9790510613782, count: 53662"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 106.47531985058723,
+            "unit": "median tps",
+            "extra": "avg tps: 106.68319889071552, max tps: 120.18272100170215, count: 53662"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.48877501161202,
+            "unit": "median tps",
+            "extra": "avg tps: 107.20635886701905, max tps: 120.95655889382994, count: 107324"
           }
         ]
       }

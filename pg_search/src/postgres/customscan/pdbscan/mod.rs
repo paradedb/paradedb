@@ -466,10 +466,12 @@ impl CustomScan for PdbScan {
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
 
             let mut segment_doc_stats = SegmentDocStats::default();
-            if let Ok(reader) = index
-                .reader_builder()
-                .reload_policy(ReloadPolicy::Manual)
-                .try_into()
+            if let Ok(reader) = Index::open(MvccSatisfies::Snapshot.directory(&bm25_index))
+                .and_then(|idx| {
+                    idx.reader_builder()
+                        .reload_policy(ReloadPolicy::Manual)
+                        .try_into()
+                })
             {
                 let searcher = reader.searcher();
                 for segment_reader in searcher.segment_readers() {

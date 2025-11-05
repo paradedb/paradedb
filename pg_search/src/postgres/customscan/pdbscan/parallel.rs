@@ -136,7 +136,7 @@ pub fn compute_nworkers(
 
     if nworkers > 0 {
         if let Some(non_tiny) = segment_doc_stats.non_tiny_segment_count() {
-            if non_tiny <= 1 {
+            if non_tiny <= 1 && !exec_method.is_sorted_topn() {
                 // At most one non-trivial shard -> eliminating the parallel worker spin-up
                 nworkers = 0;
             }
@@ -146,6 +146,7 @@ pub fn compute_nworkers(
             if segment_doc_stats.observed_segments() > 0
                 && tiny_segments == segment_doc_stats.observed_segments()
                 && segment_doc_stats.total_docs() <= 10_000
+                && !exec_method.is_sorted_topn()
             {
                 // Every segment is tiny and the total doc count is small -> eliminating the parallel worker spin-up
                 nworkers = 0;

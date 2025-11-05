@@ -172,7 +172,7 @@ impl TopNScanExecState {
 
     fn prepare_aggregations(&self, state: &mut PdbScanState) -> Option<PreparedAggregations> {
         if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
-            // There are no aggregates, or we already executed them.
+            // There are no aggregates, or we already executed them and stashed their results.
             return None;
         }
 
@@ -292,7 +292,9 @@ impl ExecMethod for TopNScanExecState {
                         aggregations.aggregations.clone(),
                         agg_limits.clone(),
                     ),
-                    // TODO: Expose an option to disable this.
+                    // TODO: Expose a query-time GUC or function parameter to disable MVCC filtering
+                    // for performance in cases where accuracy is less important than speed.
+                    // https://github.com/paradedb/paradedb/issues/3500
                     vischeck: Some(TSVisibilityChecker::with_rel_and_snap(
                         heaprel.as_ptr(),
                         unsafe { pg_sys::GetActiveSnapshot() },

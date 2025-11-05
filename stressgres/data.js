@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762378506230,
+  "lastUpdate": 1762378510322,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35242,6 +35242,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.51051061528531, max segment_count: 105.0, count: 57323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b779db1ab7b1394265c44325c2008fecedfea2f8",
+          "message": "fix: fixed WHERE clause handling for `pdb.agg()` window functions (#3497)\n\n# Ticket(s) Closed\n\n- Fixes critical bug where WHERE clause predicates were silently dropped\nwhen using `pdb.agg()` as a window function\n\n## What\n\nFixed a critical bug where `pdb.agg()` window functions would silently\nignore WHERE clause predicates, returning incorrect results. Now queries\neither work correctly or error early with a helpful message.\n\n## Why\n\nWhen you used `pdb.agg()` with a WHERE clause like `WHERE field =\n'value'`, the predicate was being dropped silently. The query would scan\nall documents and return wrong results without any error. This was a\ndata correctness issue.\n\n## How\n\n- Added `PlannerContext` enum so `extract_quals()` can work in both\nplanner hook (early validation) and custom scan (execution) contexts\n- Added early validation in the planner hook - if we can't handle the\nWHERE clause and `filter_pushdown` is off, we error immediately with a\nhelpful message\n- Made `extract_quals()` work in Query context by recognizing the `@@@`\noperator and creating `HeapExpr` when appropriate\n- Added safety checks in the custom scan to prevent the `Qual::All`\nfallback that caused silent data loss\n\n## Tests\n\nAdded 5 new test cases covering:\n- WHERE clauses with `filter_pushdown` on/off\n- Mixed predicates (`@@@` AND `=`)\n- Queries with/without WHERE clauses\n- All tests verify queries either work correctly or error early - no\nsilent failures",
+          "timestamp": "2025-11-05T13:02:01-08:00",
+          "tree_id": "1225e27c3eb3a62461d425fd60523e0d3bc9b724",
+          "url": "https://github.com/paradedb/paradedb/commit/b779db1ab7b1394265c44325c2008fecedfea2f8"
+        },
+        "date": 1762378507750,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.786430878635546, max cpu: 42.64561, count: 57920"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.98825966850828, max mem: 229.2265625, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39841999201443, max cpu: 33.20158, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.67666480975916, max mem: 167.09765625, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24283,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23203.251156767958, max block_count: 26048.0, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.32330801104972, max segment_count: 104.0, count: 57920"
           }
         ]
       }

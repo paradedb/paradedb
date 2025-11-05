@@ -330,7 +330,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             "sum",            // Metric aggregation
             "min",            // Metric aggregation
             "max",            // Metric aggregation
-            "count",          // Metric aggregation
+            "value_count",    // Metric aggregation
             "stats",          // Metric aggregation
             "percentiles",    // Metric aggregation
         ];

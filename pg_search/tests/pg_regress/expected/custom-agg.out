@@ -325,7 +325,7 @@ SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  pdb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
+ERROR:  pdb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, value_count, stats, percentiles. Example: {"terms": {"field": "country"}}
 -- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs

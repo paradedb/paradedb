@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762379394769,
+  "lastUpdate": 1762379399417,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -52888,6 +52888,108 @@ window.BENCHMARK_DATA = {
             "value": 156.21875,
             "unit": "median mem",
             "extra": "avg mem: 176.17677204448816, max mem: 216.83203125, count: 56678"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b779db1ab7b1394265c44325c2008fecedfea2f8",
+          "message": "fix: fixed WHERE clause handling for `pdb.agg()` window functions (#3497)\n\n# Ticket(s) Closed\n\n- Fixes critical bug where WHERE clause predicates were silently dropped\nwhen using `pdb.agg()` as a window function\n\n## What\n\nFixed a critical bug where `pdb.agg()` window functions would silently\nignore WHERE clause predicates, returning incorrect results. Now queries\neither work correctly or error early with a helpful message.\n\n## Why\n\nWhen you used `pdb.agg()` with a WHERE clause like `WHERE field =\n'value'`, the predicate was being dropped silently. The query would scan\nall documents and return wrong results without any error. This was a\ndata correctness issue.\n\n## How\n\n- Added `PlannerContext` enum so `extract_quals()` can work in both\nplanner hook (early validation) and custom scan (execution) contexts\n- Added early validation in the planner hook - if we can't handle the\nWHERE clause and `filter_pushdown` is off, we error immediately with a\nhelpful message\n- Made `extract_quals()` work in Query context by recognizing the `@@@`\noperator and creating `HeapExpr` when appropriate\n- Added safety checks in the custom scan to prevent the `Qual::All`\nfallback that caused silent data loss\n\n## Tests\n\nAdded 5 new test cases covering:\n- WHERE clauses with `filter_pushdown` on/off\n- Mixed predicates (`@@@` AND `=`)\n- Queries with/without WHERE clauses\n- All tests verify queries either work correctly or error early - no\nsilent failures",
+          "timestamp": "2025-11-05T13:02:01-08:00",
+          "tree_id": "1225e27c3eb3a62461d425fd60523e0d3bc9b724",
+          "url": "https://github.com/paradedb/paradedb/commit/b779db1ab7b1394265c44325c2008fecedfea2f8"
+        },
+        "date": 1762379396767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.068466920778082, max background_merging: 1.0, count: 55881"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7765177747287995, max cpu: 9.67742, count: 55881"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 20.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.387815108780266, max mem: 22.8984375, count: 55881"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.97355640943796, max cpu: 18.640776, count: 55881"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 165.14718763421376, max mem: 167.03125, count: 55881"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51459,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51316.455736296775, max block_count: 51459.0, count: 55881"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.888477299976735, max segment_count: 56.0, count: 55881"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.542486364596677, max cpu: 28.015566, count: 55881"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 140.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 131.15276372727314, max mem: 151.1953125, count: 55881"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.812027065885067, max cpu: 27.988338, count: 55881"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 173.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.85770459771658, max mem: 173.546875, count: 55881"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.99593399212823, max cpu: 33.73494, count: 55881"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.86373359236592, max mem: 217.07421875, count: 55881"
           }
         ]
       }

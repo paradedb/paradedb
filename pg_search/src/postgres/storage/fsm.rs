@@ -783,6 +783,10 @@ pub mod v2 {
                 let mut cnt = 0;
 
                 while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
+                    // OPTIMIZATION: We first get a read-only buffer to check if we need to modify the page.
+                    // This avoids triggering WAL generation (via GenericXLogRegisterBuffer) for pages
+                    // we only examine but don't modify. WAL is only generated when we call page_mut().
+                    //
                     // we drop the "root" buffer after getting the head buffer.
                     // this ensures that the `head_blockno` (the root entry's "tag" value)
                     // is what it says it is
@@ -815,7 +819,13 @@ pub mod v2 {
                     let needs_modification = contents.len > 0 && blocks.len() < many;
                     let is_empty_head = contents.len == 0 && head_blockno == blockno;
 
-                    if !needs_modification && !is_empty_head {
+                    // Skip empty head pages - we never modify them
+                    if is_empty_head {
+                        blockno = next_blockno;
+                        continue;
+                    }
+
+                    if !needs_modification {
                         // Nothing to do with this page, move to the next one
                         blockno = next_blockno;
                         continue;
@@ -835,27 +845,19 @@ pub mod v2 {
                     let contents = page.contents_mut::<AvlLeaf>();
                     let mut modified = false;
 
-                    let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
-                        // this is the first page in the list and it's empty
-                        //
-                        // we unlink initial empty pages when they *become* empty, not when the *are* empty
-                        //
-                        // this means a concurrent backend is in the process of recycling this page
-                        false
-                    } else {
-                        // get all that we can/need from this page
-                        while contents.len > 0 && blocks.len() < many {
-                            contents.len -= 1;
-                            blocks.push(contents.entries[contents.len as usize]);
-                            modified = true;
-                        }
-                        cnt += contents.len as usize;
+                    // We've already skipped empty head pages, so we can safely drain from this page
+                    // get all that we can/need from this page
+                    while contents.len > 0 && blocks.len() < many {
+                        contents.len -= 1;
+                        blocks.push(contents.entries[contents.len as usize]);
+                        modified = true;
+                    }
+                    cnt += contents.len as usize;
 
-                        // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
-                        blockno == head_blockno
-                            && contents.len == 0
-                            && next_blockno != pg_sys::InvalidBlockNumber
-                    };
+                    // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
+                    let should_unlink_head = blockno == head_blockno
+                        && contents.len == 0
+                        && next_blockno != pg_sys::InvalidBlockNumber;
 
                     if !modified {
                         // we didn't change anything

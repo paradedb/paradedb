@@ -364,31 +364,67 @@ pub unsafe fn try_extract_quals_from_query(
     false
 }
 
+/// Check if we should replace window functions in this query.
+///
+/// Returns `true` if:
+/// - Query has window functions AND is a TopN query (ORDER BY + LIMIT)
+/// - Query uses `pdb.agg()` OR the `@@@` search operator
+/// - WHERE clause can be handled (or no WHERE clause)
+///
+/// Errors if `pdb.agg()` is used but requirements aren't met.
+unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+    // Early return: not a SELECT query
+    if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
+        return false;
+    }
+
+    // Early return: no window functions
+    if !query_has_window_func_nodes(parse) {
+        return false;
+    }
+
+    let has_paradedb_agg = query_has_paradedb_agg(parse);
+
+    // Check if this is a TopN query
+    if !query_is_topn(parse) {
+        // pdb.agg() requires TopN
+        if has_paradedb_agg {
+            pgrx::error!(
+                "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
+            );
+        }
+        return false;
+    }
+
+    // Check if we should handle this query (has pdb.agg or search operator)
+    let has_search_operator = query_has_search_operator(parse);
+    if !has_paradedb_agg && !has_search_operator {
+        return false;
+    }
+
+    // Check if WHERE clause can be handled
+    if !can_handle_where_clause(parse) {
+        if has_paradedb_agg {
+            // pdb.agg() requires that we handle the query, but we can't handle the WHERE clause
+            pgrx::error!(
+                "pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. \
+                 To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. \
+                 Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates."
+            );
+        }
+        // For non-pdb.agg queries, just don't replace - let PostgreSQL handle them
+        return false;
+    }
+
+    true
+}
+
 /// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
 ///
 /// This hook runs at the very start of query planning, before `grouping_planner()`
 /// and before any path generation. It performs a one-time replacement of window
 /// functions with placeholder function calls that our custom scans can detect
 /// and handle during execution.
-///
-/// ## Replacement Logic
-///
-/// Only replaces window functions if:
-/// 1. The query is a TopN query (has ORDER BY and LIMIT), AND
-/// 2. The query contains window functions, AND
-/// 3. Either:
-///    - The query uses `pdb.agg()` (which MUST be handled by us), OR
-///    - The query uses the `@@@` search operator (indicating custom scan usage)
-/// 4. AND the WHERE clause can be handled (either uses @@@, or filter_pushdown is enabled, or no WHERE clause)
-///
-/// ## Validation
-///
-/// If `pdb.agg()` is used, it MUST be:
-/// - Inside a window function (OVER clause)
-/// - In a TopN query (ORDER BY + LIMIT)
-/// - With a WHERE clause that can be handled (uses @@@, or filter_pushdown enabled, or no WHERE clause)
-///
-/// Otherwise, the query is rejected with an error.
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,
@@ -396,40 +432,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
-    // Check if this is a SELECT query with window functions that we can handle
-    if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
-        // Note: it's important to check for window functions first, then search operator,
-        // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
-        // would cause a panic.
-
-        // Only replace window functions in TopN queries
-        if query_has_window_func_nodes(parse) {
-            let has_paradedb_agg = query_has_paradedb_agg(parse);
-            if query_is_topn(parse) {
-                let has_search_operator = query_has_search_operator(parse);
-                if has_paradedb_agg || has_search_operator {
-                    // Before replacing window functions, check if WHERE clause can be handled
-                    if !can_handle_where_clause(parse) {
-                        if has_paradedb_agg {
-                            // pdb.agg() requires that we handle the query, but we can't guarantee all WHERE predicates can be handled
-                            pgrx::error!(
-                                "pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. \
-                                 To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. \
-                                 Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates."
-                            );
-                        }
-                        // Otherwise, don't replace window functions - let PostgreSQL handle them
-                    } else {
-                        // Extract and replace window functions recursively (including subqueries)
-                        replace_windowfuncs_recursively(parse);
-                    }
-                }
-            } else if has_paradedb_agg {
-                pgrx::error!(
-                    "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
-                );
-            }
-        }
+    // Check if we should replace window functions and do so if needed
+    if should_replace_window_functions(parse) {
+        replace_windowfuncs_recursively(parse);
     }
 
     // Call the previous planner hook or standard planner
@@ -592,6 +597,10 @@ unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)
 /// If it does, we MUST handle it (even without @@@ operator)
 /// Uses expression_tree_walker for complete traversal
+///
+/// NOTE: This logic is duplicated with similar checks in other parts of the codebase.
+/// Both need to identify pdb.agg() calls, so changes to one should be reflected in the other.
+/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
     use crate::api::agg_funcoid;
 

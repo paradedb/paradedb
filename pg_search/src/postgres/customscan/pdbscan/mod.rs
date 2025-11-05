@@ -438,19 +438,26 @@ impl CustomScan for PdbScan {
                 q
             } else if has_window_aggs {
                 // We have window aggregates but couldn't extract quals.
-                // Check if there's actually a WHERE clause - if so, we can only handle it if filter_pushdown is enabled
+                // This can happen in two cases:
+                // 1. No WHERE clause at all -> safe to use Qual::All
+                // 2. WHERE clause exists but couldn't be extracted:
+                //    a. filter_pushdown enabled -> HeapExpr was created during extraction, safe to use Qual::All
+                //    b. filter_pushdown disabled -> unsafe, reject the query
                 let has_where_clause = !(*root).parse.is_null()
                     && !(*(*root).parse).jointree.is_null()
                     && !(*(*(*root).parse).jointree).quals.is_null();
 
                 if has_where_clause && !crate::gucs::enable_filter_pushdown() {
                     // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
-                    // We cannot handle this query safely - reject it.
+                    // This means qual extraction failed without creating HeapExpr, so we cannot handle
+                    // this query safely - the WHERE clause would be silently ignored.
                     return None;
                 }
 
-                // Either no WHERE clause, or filter_pushdown is enabled (so HeapExpr should handle it)
-                // Use All query and let PostgreSQL/HeapExpr handle the filtering
+                // Safe to use Qual::All because:
+                // - Either there's no WHERE clause (nothing to filter), OR
+                // - filter_pushdown is enabled, meaning HeapExpr was created during qual extraction
+                //   and will be evaluated by PostgreSQL's executor after we return results
                 Qual::All
             } else {
                 // No quals and no window aggregates - we can't help

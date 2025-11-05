@@ -647,6 +647,9 @@ pub unsafe fn extract_quals(
                     return None;
                 }
 
+                // We're creating a HeapExpr here - this is a "guess" that it will be needed,
+                // but it's safe because filter_pushdown is enabled, which means PostgreSQL's
+                // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
@@ -691,6 +694,9 @@ pub unsafe fn extract_quals(
                     return None;
                 }
 
+                // We're creating a HeapExpr here - this is a "guess" that it will be needed,
+                // but it's safe because filter_pushdown is enabled, which means PostgreSQL's
+                // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {

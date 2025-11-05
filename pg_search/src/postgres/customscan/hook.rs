@@ -20,9 +20,13 @@ use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::builders::custom_path::{
+    CustomPathBuilder, Flags, RestrictInfoType,
+};
 use crate::postgres::customscan::pdbscan::projections::window_agg;
+use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
+use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
@@ -255,29 +259,172 @@ pub unsafe fn register_window_aggregate_hook() {
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
 
+/// Check if the WHERE clause can be handled by our custom scan.
+///
+/// This function attempts to extract quals the same way `extract_quals` does to determine
+/// if WHERE clause predicates can be pushed down to the index or handled via heap filtering.
+///
+/// Returns:
+/// - `true` if the WHERE clause can be handled
+/// - `false` if the WHERE clause has predicates that cannot be handled
+unsafe fn can_handle_where_clause(parse: *mut pg_sys::Query) -> bool {
+    // If filter_pushdown is enabled, we can handle any WHERE clause via HeapExpr or Qual::All
+    if crate::gucs::enable_filter_pushdown() {
+        return true;
+    }
+
+    // Check if there's a WHERE clause at all
+    if (*parse).jointree.is_null() {
+        return true; // No WHERE clause
+    }
+
+    let jointree = (*parse).jointree;
+    if (*jointree).quals.is_null() {
+        return true; // No WHERE clause predicates
+    }
+
+    // Use the shared helper to check if we can extract quals from the WHERE clause
+    // If we can't extract quals (either no index found or extraction failed), we can't handle it
+    try_extract_quals_from_query(parse, (*jointree).quals)
+}
+
+/// Shared helper function to check if quals can be extracted from a Query's WHERE clause.
+///
+/// This function encapsulates the common logic of:
+/// 1. Finding a relation with a BM25 index in the query's range table
+/// 2. Attempting to extract quals using Query context
+///
+/// Used by `can_handle_where_clause` in the planner hook (to decide if we should replace window functions)
+///
+/// Returns:
+/// - `true` if a BM25 index was found AND quals were successfully extracted
+/// - `false` if no BM25 index was found OR quals couldn't be extracted
+pub unsafe fn try_extract_quals_from_query(
+    parse: *mut pg_sys::Query,
+    quals_node: *mut pg_sys::Node,
+) -> bool {
+    // Get the range table
+    let rtable = (*parse).rtable;
+    if rtable.is_null() {
+        return false;
+    }
+
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+    if rtable_list.is_empty() {
+        return false;
+    }
+
+    // Find the first relation RTE with a BM25 index
+    for (idx, rte_ptr) in rtable_list.iter_ptr().enumerate() {
+        let rte = rte_ptr;
+        if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+            continue;
+        }
+
+        let relid = (*rte).relid;
+        let relkind = pg_sys::get_rel_relkind(relid) as u8;
+        if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
+            continue;
+        }
+
+        // Check if this relation has a BM25 index
+        let Some((_, bm25_index)) = rel_get_bm25_index(relid) else {
+            continue;
+        };
+
+        // We found a relation with a BM25 index - try to extract quals
+        // Use Query context since we don't have PlannerInfo yet
+        let rti = (idx + 1) as pg_sys::Index; // RTI is 1-indexed
+        let mut state = QualExtractState::default();
+        let context = PlannerContext::from_query(parse);
+
+        let quals = extract_quals(
+            &context,
+            rti,
+            quals_node,
+            anyelement_query_input_opoid(),
+            RestrictInfoType::BaseRelation,
+            &bm25_index,
+            false, // Don't convert external to special qual
+            &mut state,
+            true, // Attempt pushdown
+        );
+
+        // CRITICAL: In Query context, if we created HeapExpr but filter_pushdown is disabled,
+        // we must return false to prevent accepting queries we can't handle correctly.
+        // This prevents silent data loss when WHERE clauses can't be fully pushed down.
+        if state.uses_heap_expr && !crate::gucs::enable_filter_pushdown() {
+            return false;
+        }
+
+        return quals.is_some();
+    }
+
+    // No BM25 index found
+    false
+}
+
+/// Check if we should replace window functions in this query.
+///
+/// Returns `true` if:
+/// - Query has window functions AND is a TopN query (ORDER BY + LIMIT)
+/// - Query uses `pdb.agg()` OR the `@@@` search operator
+/// - WHERE clause can be handled (or no WHERE clause)
+///
+/// Errors if `pdb.agg()` is used but requirements aren't met.
+unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+    // Early return: not a SELECT query
+    if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
+        return false;
+    }
+
+    // Early return: no window functions
+    if !query_has_window_func_nodes(parse) {
+        return false;
+    }
+
+    let has_paradedb_agg = query_has_paradedb_agg(parse);
+
+    // Check if this is a TopN query
+    if !query_is_topn(parse) {
+        // pdb.agg() requires TopN
+        if has_paradedb_agg {
+            pgrx::error!(
+                "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
+            );
+        }
+        return false;
+    }
+
+    // Check if we should handle this query (has pdb.agg or search operator)
+    let has_search_operator = query_has_search_operator(parse);
+    if !has_paradedb_agg && !has_search_operator {
+        return false;
+    }
+
+    // Check if WHERE clause can be handled
+    if !can_handle_where_clause(parse) {
+        if has_paradedb_agg {
+            // pdb.agg() requires that we handle the query, but we can't handle the WHERE clause
+            pgrx::error!(
+                "pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. \
+                 To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. \
+                 Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates."
+            );
+        }
+        // For non-pdb.agg queries, just don't replace - let PostgreSQL handle them
+        return false;
+    }
+
+    true
+}
+
 /// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
 ///
 /// This hook runs at the very start of query planning, before `grouping_planner()`
 /// and before any path generation. It performs a one-time replacement of window
 /// functions with placeholder function calls that our custom scans can detect
 /// and handle during execution.
-///
-/// ## Replacement Logic
-///
-/// Only replaces window functions if:
-/// 1. The query is a TopN query (has ORDER BY and LIMIT), AND
-/// 2. The query contains window functions, AND
-/// 3. Either:
-///    - The query uses `pdb.agg()` (which MUST be handled by us), OR
-///    - The query uses the `@@@` search operator (indicating custom scan usage)
-///
-/// ## Validation
-///
-/// If `pdb.agg()` is used, it MUST be:
-/// - Inside a window function (OVER clause)
-/// - In a TopN query (ORDER BY + LIMIT)
-///
-/// Otherwise, the query is rejected with an error.
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,
@@ -285,26 +432,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
-    // Check if this is a SELECT query with window functions that we can handle
-    if !parse.is_null() && (*parse).commandType == pg_sys::CmdType::CMD_SELECT {
-        // Note: it's important to check for window functions first, then search operator,
-        // otherwise we'd call query_has_search_operator() during the DROP EXTENSION, which
-        // would cause a panic.
-
-        // Only replace window functions in TopN queries
-        if query_has_window_func_nodes(parse) {
-            let has_paradedb_agg = query_has_paradedb_agg(parse);
-            if query_is_topn(parse) {
-                if has_paradedb_agg || query_has_search_operator(parse) {
-                    // Extract and replace window functions recursively (including subqueries)
-                    replace_windowfuncs_recursively(parse);
-                }
-            } else if has_paradedb_agg {
-                pgrx::error!(
-                    "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
-                );
-            }
-        }
+    // Check if we should replace window functions and do so if needed
+    if should_replace_window_functions(parse) {
+        replace_windowfuncs_recursively(parse);
     }
 
     // Call the previous planner hook or standard planner
@@ -391,13 +521,16 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
-/// Check if the query contains the @@@ search operator
-/// This indicates that our custom scans will likely handle this query
-/// Uses expression_tree_walker via expr_contains_any_operator for complete traversal
+/// Check if the query contains the @@@ search operator.
 ///
-/// NOTE: This logic is duplicated with `extract_quals` in qual_inspect.rs.
-/// Both need to identify the same operators, so changes to one should be reflected in the other.
-/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
+/// This indicates that our custom scans will likely handle this query.
+/// Uses expression_tree_walker via expr_contains_any_operator for complete traversal.
+///
+/// Note: This function checks for the *presence* of search operators anywhere in the query,
+/// while `extract_quals` in qual_inspect.rs attempts to *extract and convert* those operators
+/// into executable quals. They serve different purposes:
+/// - This function: Quick boolean check for planner decisions
+/// - extract_quals: Detailed extraction and validation for execution
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     let searchqueryinput_opno = anyelement_query_input_opoid();
     let text_opno = anyelement_text_opoid();
@@ -465,7 +598,7 @@ unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
 /// If it does, we MUST handle it (even without @@@ operator)
 /// Uses expression_tree_walker for complete traversal
 ///
-/// NOTE: This logic is duplicated with `maybe_needs_const_projections` in pdbscan/projections/mod.rs.
+/// NOTE: This logic is duplicated with similar checks in other parts of the codebase.
 /// Both need to identify pdb.agg() calls, so changes to one should be reflected in the other.
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {

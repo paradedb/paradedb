@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762380263576,
+  "lastUpdate": 1762380688210,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41290,6 +41290,54 @@ window.BENCHMARK_DATA = {
             "value": 5.9555509543748775,
             "unit": "median tps",
             "extra": "avg tps: 5.951713664698921, max tps: 7.5090813139868064, count: 55881"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a34aa2a00a214b363c9738a07d709c266dbc831",
+          "message": "chore: Allow for optional MVCC filtering of window aggregates (#3494)\n\n## What\n\nThis change adds infrastructure necessary to toggle the use of MVCC\nfiltering at query time. It does not yet actually add an argument to do\nso.\n\n## Why\n\nMVCC filtering can cost anywhere between 2-10x performance for\naggregations: we will reduce this over time by more tightly integrating\nwith the visibility map, but in cases where the visibility map is\nnot/less up to date, there is not much we can do other than accessing\nthe heap.\n\n## How\n\nIntroduce a wrapper type `TopNAuxiliaryCollector` which carries an\naggregation collector, and an optional visibility checker. The wrapper\nis necessary because iff an aggregation will be executed, we want to\napply MVCC filtering before _both_ of the collectors, and so a\n`MVCCFilterCollector` needs to be wrapped around the compound collector.",
+          "timestamp": "2025-11-05T13:24:58-08:00",
+          "tree_id": "b5e1eea1f46887a3bc4ac0ae79de4ba8bd92bf9b",
+          "url": "https://github.com/paradedb/paradedb/commit/8a34aa2a00a214b363c9738a07d709c266dbc831"
+        },
+        "date": 1762380685323,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1085.7482923220778,
+            "unit": "median tps",
+            "extra": "avg tps: 1076.032492813624, max tps: 1157.6651569390153, count: 56459"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1267.991600069619,
+            "unit": "median tps",
+            "extra": "avg tps: 1250.0390490636557, max tps: 1281.4996093900054, count: 56459"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1041.1418960305714,
+            "unit": "median tps",
+            "extra": "avg tps: 960.147164879648, max tps: 1409.7516662906198, count: 56459"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.263958353042946,
+            "unit": "median tps",
+            "extra": "avg tps: 6.235079328112591, max tps: 7.557783563277891, count: 56459"
           }
         ]
       }

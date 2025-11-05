@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762378464005,
+  "lastUpdate": 1762378467965,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35146,6 +35146,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.89634399667636, max segment_count: 107.0, count: 57768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0391e7ea66f19fd711cd2332ae283b1ae2a93b48",
+          "message": "fix: Revert: add support for fast sorting by JSON key (#3479) (#3496)\n\nThis reverts commit f3d9c7f409a17e28fc71293a795565be8327d656.\n\nSee new details added to\nhttps://github.com/paradedb/paradedb/issues/1917#issuecomment-3488427193:\ntl;dr: rather than numerical sort orders, we need to align with\nPostgres's default sort order for JSON, which (without a cast) will be a\nstring sort.",
+          "timestamp": "2025-11-05T13:04:14-08:00",
+          "tree_id": "a6297c6fc02d162600cb6aaea52c0140ccfd86f8",
+          "url": "https://github.com/paradedb/paradedb/commit/0391e7ea66f19fd711cd2332ae283b1ae2a93b48"
+        },
+        "date": 1762378465455,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.649147995198458, max cpu: 42.814667, count: 57323"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 228.37932125030528, max mem: 231.37109375, count: 57323"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.20016752088216, max cpu: 33.366436, count: 57323"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.23657859029097, max mem: 166.73046875, count: 57323"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24288,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23172.138024876578, max block_count: 26002.0, count: 57323"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.51051061528531, max segment_count: 105.0, count: 57323"
           }
         ]
       }

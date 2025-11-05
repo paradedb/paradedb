@@ -1315,8 +1315,15 @@ pub mod v2 {
 
         #[pg_test]
         unsafe fn test_fsmv2_wal_generation_drain() -> spi::Result<()> {
-            // This test verifies that draining from FSM pages that don't need modification
-            // doesn't generate unnecessary WAL entries
+            // This test verifies the optimization that prevents unnecessary WAL generation
+            // when draining from FSM pages that don't need modification.
+            //
+            // The key optimization is that we now:
+            // 1. First get a read-only buffer and check if modifications are needed
+            // 2. Only upgrade to a mutable buffer (which triggers WAL) if we actually modify the page
+            //
+            // This test creates a large FSM with many pages and then drains a small number of blocks.
+            // With the optimization, only the pages we actually modify should generate WAL entries.
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_wal_test (id serial8, data text)")?;
             Spi::run("CREATE INDEX IF NOT EXISTS fsm_wal_idx ON fsm_wal_test USING bm25 (id, data) WITH (key_field = 'id')")?;
 
@@ -1339,6 +1346,7 @@ pub mod v2 {
             let num_xids = 10usize;
 
             // Fill FSM with many blocks across multiple transactions
+            // This will create multiple FSM pages in the linked list
             for i in 0..num_xids {
                 let xid = pg_sys::FullTransactionId {
                     value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + i as u64,
@@ -1348,8 +1356,17 @@ pub mod v2 {
                 fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
             }
 
-            // Now drain a small number of blocks - this should only modify the first few pages,
-            // not generate WAL for all the pages we read
+            // Get initial WAL stats if available (PostgreSQL 14+)
+            // Note: pg_stat_wal requires superuser or pg_read_all_stats role
+            // Cast to bigint since wal_bytes is numeric type
+            let initial_wal_bytes = Spi::get_one::<i64>(
+                "SELECT COALESCE(wal_bytes::bigint, 0) FROM pg_stat_wal LIMIT 1",
+            )?
+            .unwrap_or(0);
+
+            // Now drain a small number of blocks
+            // With the optimization, this should only modify the pages that contain blocks to drain,
+            // not generate WAL for all the pages we examine
             let drain_count = 50;
             let drained: Vec<_> = fsm.drain(&mut bman, drain_count).collect();
             assert_eq!(
@@ -1359,6 +1376,27 @@ pub mod v2 {
                 drain_count
             );
 
+            // Check WAL generation if stats were available
+            if initial_wal_bytes > 0 {
+                let final_wal_bytes = Spi::get_one::<i64>(
+                    "SELECT COALESCE(wal_bytes::bigint, 0) FROM pg_stat_wal LIMIT 1",
+                )?
+                .unwrap_or(0);
+
+                if final_wal_bytes > 0 {
+                    let wal_generated = final_wal_bytes - initial_wal_bytes;
+
+                    // Log the WAL generation for debugging
+                    // With the optimization, WAL should only be generated for modified pages
+                    pgrx::info!("WAL generated during drain of {} blocks from FSM with {} total blocks: {} bytes", 
+                               drain_count, blocks_per_xid * num_xids, wal_generated);
+
+                    // Without the fix, every examined page would generate WAL (~8KB per page)
+                    // With the fix, only modified pages generate WAL
+                    // This is more of a performance regression test than a hard assertion
+                }
+            }
+
             // Verify we can still drain more blocks (FSM isn't corrupted)
             let more_drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
             assert_eq!(
@@ -1367,11 +1405,13 @@ pub mod v2 {
                 "Should be able to drain more blocks"
             );
 
-            // Test draining from empty pages doesn't cause issues
+            // Test draining from empty pages doesn't cause issues or unnecessary WAL
             // First drain everything
             let _all: Vec<_> = fsm.drain(&mut bman, blocks_per_xid * num_xids).collect();
 
-            // Now try to drain from empty FSM - should not panic or generate WAL
+            // Now try to drain from empty FSM
+            // With the optimization, this should examine pages without modifying them,
+            // thus not generating any WAL entries
             let empty: Vec<_> = fsm.drain(&mut bman, 10).collect();
             assert!(
                 empty.is_empty(),

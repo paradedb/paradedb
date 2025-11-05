@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762294068324,
+  "lastUpdate": 1762377651433,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8308,6 +8308,72 @@ window.BENCHMARK_DATA = {
             "value": 144.6901972433167,
             "unit": "median tps",
             "extra": "avg tps: 181.2270261548445, max tps: 930.3762255380831, count: 55301"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0391e7ea66f19fd711cd2332ae283b1ae2a93b48",
+          "message": "fix: Revert: add support for fast sorting by JSON key (#3479) (#3496)\n\nThis reverts commit f3d9c7f409a17e28fc71293a795565be8327d656.\n\nSee new details added to\nhttps://github.com/paradedb/paradedb/issues/1917#issuecomment-3488427193:\ntl;dr: rather than numerical sort orders, we need to align with\nPostgres's default sort order for JSON, which (without a cast) will be a\nstring sort.",
+          "timestamp": "2025-11-05T13:04:14-08:00",
+          "tree_id": "a6297c6fc02d162600cb6aaea52c0140ccfd86f8",
+          "url": "https://github.com/paradedb/paradedb/commit/0391e7ea66f19fd711cd2332ae283b1ae2a93b48"
+        },
+        "date": 1762377649107,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 776.6707853769034,
+            "unit": "median tps",
+            "extra": "avg tps: 774.7047886503708, max tps: 808.8813903668619, count: 55257"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3255.139989094392,
+            "unit": "median tps",
+            "extra": "avg tps: 3237.372559856037, max tps: 3277.259881521577, count: 55257"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 764.1713031555835,
+            "unit": "median tps",
+            "extra": "avg tps: 762.6796998680244, max tps: 832.9156482663368, count: 55257"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 667.2160322205432,
+            "unit": "median tps",
+            "extra": "avg tps: 665.4874238797139, max tps: 670.5196261563256, count: 55257"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1720.6818893567058,
+            "unit": "median tps",
+            "extra": "avg tps: 1709.1511038136334, max tps: 1739.0250790329637, count: 110514"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1253.8907653205158,
+            "unit": "median tps",
+            "extra": "avg tps: 1247.0806473651114, max tps: 1265.7133263872045, count: 55257"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 121.2182157012444,
+            "unit": "median tps",
+            "extra": "avg tps: 127.2875630743847, max tps: 644.5666256292582, count: 55257"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762380688210,
+  "lastUpdate": 1762380693429,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -53134,6 +53134,108 @@ window.BENCHMARK_DATA = {
             "value": 157.20703125,
             "unit": "median mem",
             "extra": "avg mem: 175.86373359236592, max mem: 217.07421875, count: 55881"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a34aa2a00a214b363c9738a07d709c266dbc831",
+          "message": "chore: Allow for optional MVCC filtering of window aggregates (#3494)\n\n## What\n\nThis change adds infrastructure necessary to toggle the use of MVCC\nfiltering at query time. It does not yet actually add an argument to do\nso.\n\n## Why\n\nMVCC filtering can cost anywhere between 2-10x performance for\naggregations: we will reduce this over time by more tightly integrating\nwith the visibility map, but in cases where the visibility map is\nnot/less up to date, there is not much we can do other than accessing\nthe heap.\n\n## How\n\nIntroduce a wrapper type `TopNAuxiliaryCollector` which carries an\naggregation collector, and an optional visibility checker. The wrapper\nis necessary because iff an aggregation will be executed, we want to\napply MVCC filtering before _both_ of the collectors, and so a\n`MVCCFilterCollector` needs to be wrapped around the compound collector.",
+          "timestamp": "2025-11-05T13:24:58-08:00",
+          "tree_id": "b5e1eea1f46887a3bc4ac0ae79de4ba8bd92bf9b",
+          "url": "https://github.com/paradedb/paradedb/commit/8a34aa2a00a214b363c9738a07d709c266dbc831"
+        },
+        "date": 1762380690503,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04994774969446855, max background_merging: 1.0, count: 56459"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.807049228945976, max cpu: 9.638554, count: 56459"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.719151494336597, max mem: 25.2265625, count: 56459"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.993029957520227, max cpu: 28.263002, count: 56459"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 169.35630218111817, max mem: 170.8359375, count: 56459"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59497,
+            "unit": "median block_count",
+            "extra": "avg block_count: 59255.068881843465, max block_count: 59497.0, count: 56459"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.996918117572044, max segment_count: 60.0, count: 56459"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6060290859014845, max cpu: 27.745665, count: 56459"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 130.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 120.30830731426788, max mem: 143.9765625, count: 56459"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.183596556475843, max cpu: 32.214767, count: 56459"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 180.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.7928846873395, max mem: 204.55078125, count: 56459"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.956373613572115, max cpu: 33.168808, count: 56459"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.18207031319187, max mem: 217.359375, count: 56459"
           }
         ]
       }

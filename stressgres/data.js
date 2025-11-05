@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762377655639,
+  "lastUpdate": 1762377659397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8374,6 +8374,72 @@ window.BENCHMARK_DATA = {
             "value": 121.2182157012444,
             "unit": "median tps",
             "extra": "avg tps: 127.2875630743847, max tps: 644.5666256292582, count: 55257"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b779db1ab7b1394265c44325c2008fecedfea2f8",
+          "message": "fix: fixed WHERE clause handling for `pdb.agg()` window functions (#3497)\n\n# Ticket(s) Closed\n\n- Fixes critical bug where WHERE clause predicates were silently dropped\nwhen using `pdb.agg()` as a window function\n\n## What\n\nFixed a critical bug where `pdb.agg()` window functions would silently\nignore WHERE clause predicates, returning incorrect results. Now queries\neither work correctly or error early with a helpful message.\n\n## Why\n\nWhen you used `pdb.agg()` with a WHERE clause like `WHERE field =\n'value'`, the predicate was being dropped silently. The query would scan\nall documents and return wrong results without any error. This was a\ndata correctness issue.\n\n## How\n\n- Added `PlannerContext` enum so `extract_quals()` can work in both\nplanner hook (early validation) and custom scan (execution) contexts\n- Added early validation in the planner hook - if we can't handle the\nWHERE clause and `filter_pushdown` is off, we error immediately with a\nhelpful message\n- Made `extract_quals()` work in Query context by recognizing the `@@@`\noperator and creating `HeapExpr` when appropriate\n- Added safety checks in the custom scan to prevent the `Qual::All`\nfallback that caused silent data loss\n\n## Tests\n\nAdded 5 new test cases covering:\n- WHERE clauses with `filter_pushdown` on/off\n- Mixed predicates (`@@@` AND `=`)\n- Queries with/without WHERE clauses\n- All tests verify queries either work correctly or error early - no\nsilent failures",
+          "timestamp": "2025-11-05T13:02:01-08:00",
+          "tree_id": "1225e27c3eb3a62461d425fd60523e0d3bc9b724",
+          "url": "https://github.com/paradedb/paradedb/commit/b779db1ab7b1394265c44325c2008fecedfea2f8"
+        },
+        "date": 1762377649644,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 772.346464278208,
+            "unit": "median tps",
+            "extra": "avg tps: 770.8071817016317, max tps: 835.504724103439, count: 55270"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3099.138606917427,
+            "unit": "median tps",
+            "extra": "avg tps: 3073.9807108309215, max tps: 3171.377509585644, count: 55270"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 775.3222348312028,
+            "unit": "median tps",
+            "extra": "avg tps: 771.8109150975091, max tps: 794.5733816328006, count: 55270"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 607.9347372180239,
+            "unit": "median tps",
+            "extra": "avg tps: 605.7978541927415, max tps: 667.3771563873566, count: 55270"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1701.7510345744095,
+            "unit": "median tps",
+            "extra": "avg tps: 1699.5172006989758, max tps: 1745.9395626720545, count: 110540"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1237.2761516152418,
+            "unit": "median tps",
+            "extra": "avg tps: 1226.9164240061884, max tps: 1249.9626257611542, count: 55270"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 194.15711596955742,
+            "unit": "median tps",
+            "extra": "avg tps: 233.53544296577562, max tps: 609.5119211389095, count: 55270"
           }
         ]
       }

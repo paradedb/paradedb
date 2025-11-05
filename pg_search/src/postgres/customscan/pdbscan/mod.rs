@@ -79,7 +79,7 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::Index;
+use tantivy::{Index, ReloadPolicy};
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -466,7 +466,11 @@ impl CustomScan for PdbScan {
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
 
             let mut segment_doc_stats = SegmentDocStats::default();
-            if let Ok(reader) = index.reader() {
+            if let Ok(reader) = index
+                .reader_builder()
+                .reload_policy(ReloadPolicy::Manual)
+                .try_into()
+            {
                 let searcher = reader.searcher();
                 for segment_reader in searcher.segment_readers() {
                     segment_doc_stats.record(segment_reader.num_docs() as usize);

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762377651433,
+  "lastUpdate": 1762377655639,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23488,6 +23488,126 @@ window.BENCHMARK_DATA = {
             "value": 149.98828125,
             "unit": "median mem",
             "extra": "avg mem: 130.2774820555912, max mem: 152.86328125, count: 55301"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0391e7ea66f19fd711cd2332ae283b1ae2a93b48",
+          "message": "fix: Revert: add support for fast sorting by JSON key (#3479) (#3496)\n\nThis reverts commit f3d9c7f409a17e28fc71293a795565be8327d656.\n\nSee new details added to\nhttps://github.com/paradedb/paradedb/issues/1917#issuecomment-3488427193:\ntl;dr: rather than numerical sort orders, we need to align with\nPostgres's default sort order for JSON, which (without a cast) will be a\nstring sort.",
+          "timestamp": "2025-11-05T13:04:14-08:00",
+          "tree_id": "a6297c6fc02d162600cb6aaea52c0140ccfd86f8",
+          "url": "https://github.com/paradedb/paradedb/commit/0391e7ea66f19fd711cd2332ae283b1ae2a93b48"
+        },
+        "date": 1762377653295,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.958672103233724, max cpu: 13.994169, count: 55257"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.73656010211377, max mem: 156.39453125, count: 55257"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.637170050053744, max cpu: 9.486166, count: 55257"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.60895430952187, max mem: 31.6953125, count: 55257"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.979802099118512, max cpu: 14.10382, count: 55257"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 158.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.41182565104873, max mem: 158.8125, count: 55257"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.406955966975366, max cpu: 4.7524753, count: 55257"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 156.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.7509544181054, max mem: 157.20703125, count: 55257"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671768092105203, max cpu: 9.533267, count: 110514"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.60633642852943, max mem: 159.98046875, count: 110514"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26149,
+            "unit": "median block_count",
+            "extra": "avg block_count: 26289.57484119659, max block_count: 51693.0, count: 55257"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.896664675968655, max segment_count: 58.0, count: 55257"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605420974274326, max cpu: 9.638554, count: 55257"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.61396166435927, max mem: 161.53515625, count: 55257"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.675899374041586, max cpu: 4.655674, count: 55257"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 146.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.3610120946215, max mem: 152.1953125, count: 55257"
           }
         ]
       }

@@ -821,6 +821,21 @@ impl BufferManager {
         }
     }
 
+    /// Get a buffer with a conditional lock, returning a non-mutable Buffer.
+    /// This is useful when you want to read the buffer first and only upgrade to mutable if needed.
+    pub fn get_buffer_conditional_readonly(&self, blockno: pg_sys::BlockNumber) -> Option<Buffer> {
+        unsafe {
+            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            if pg_sys::ConditionalLockBuffer(pg_buffer) {
+                block_tracker::track!(Read, blockno);
+                Some(Buffer::new(pg_buffer))
+            } else {
+                pg_sys::ReleaseBuffer(pg_buffer);
+                None
+            }
+        }
+    }
+
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);

@@ -789,7 +789,7 @@ pub mod v2 {
                     //
                     // the conditional lock here also ensures we're the only backend to start
                     // draining the xid's freelist from its the head
-                    let mut buffer = match bman.get_buffer_conditional(blockno) {
+                    let buffer = match bman.get_buffer_conditional_readonly(blockno) {
                         Some(buffer) => {
                             drop(root.take());
                             buffer
@@ -806,11 +806,35 @@ pub mod v2 {
                         }
                     };
 
+                    // First, read the page immutably to check if we can/need to drain
+                    let page = buffer.page();
+                    let contents = page.contents_ref::<AvlLeaf>();
+                    let next_blockno = page.next_blockno();
+
+                    // Check if we need to modify this page
+                    let needs_modification = contents.len > 0 && blocks.len() < many;
+                    let is_empty_head = contents.len == 0 && head_blockno == blockno;
+
+                    if !needs_modification && !is_empty_head {
+                        // Nothing to do with this page, move to the next one
+                        blockno = next_blockno;
+                        continue;
+                    }
+
+                    // Now we need to modify, so upgrade to mutable buffer
+                    let Some(mut buffer) = buffer.upgrade_conditional(bman) else {
+                        // Someone else got the exclusive lock, restart with next XID
+                        xid = found_xid - 1;
+                        if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                            break 'outer;
+                        }
+                        continue 'outer;
+                    };
+
                     let mut page = buffer.page_mut();
                     let contents = page.contents_mut::<AvlLeaf>();
                     let mut modified = false;
 
-                    let next_blockno = page.next_blockno();
                     let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
                         // this is the first page in the list and it's empty
                         //
@@ -888,16 +912,9 @@ pub mod v2 {
                         // ok if another backend already removed it.
                         let _ = tree.remove(&found_xid);
                         drop(root);
-
-                        // move to the next candidate XID below this one.
-                        xid = found_xid - 1;
-                        if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
-                            break;
-                        }
-                        continue 'outer;
                     }
 
-                    // advance to the next block in the chain.
+                    // move to the next block
                     blockno = next_blockno;
                 }
 
@@ -1292,6 +1309,74 @@ pub mod v2 {
 
             let empty = fsm.drain(&mut bman, 1).next().is_none();
             assert!(empty);
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_wal_generation_drain() -> spi::Result<()> {
+            // This test verifies that draining from FSM pages that don't need modification
+            // doesn't generate unnecessary WAL entries
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_wal_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_wal_idx ON fsm_wal_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_wal_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            assert_ne!(index_oid, pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Add many blocks to create multiple FSM pages
+            let blocks_per_xid = 1000usize;
+            let num_xids = 10usize;
+
+            // Fill FSM with many blocks across multiple transactions
+            for i in 0..num_xids {
+                let xid = pg_sys::FullTransactionId {
+                    value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + i as u64,
+                };
+                let start = (i * blocks_per_xid) as u32;
+                let end = start + blocks_per_xid as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            // Now drain a small number of blocks - this should only modify the first few pages,
+            // not generate WAL for all the pages we read
+            let drain_count = 50;
+            let drained: Vec<_> = fsm.drain(&mut bman, drain_count).collect();
+            assert_eq!(
+                drained.len(),
+                drain_count,
+                "Should drain exactly {} blocks",
+                drain_count
+            );
+
+            // Verify we can still drain more blocks (FSM isn't corrupted)
+            let more_drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert_eq!(
+                more_drained.len(),
+                10,
+                "Should be able to drain more blocks"
+            );
+
+            // Test draining from empty pages doesn't cause issues
+            // First drain everything
+            let _all: Vec<_> = fsm.drain(&mut bman, blocks_per_xid * num_xids).collect();
+
+            // Now try to drain from empty FSM - should not panic or generate WAL
+            let empty: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert!(
+                empty.is_empty(),
+                "Draining from empty FSM should return no blocks"
+            );
 
             Ok(())
         }

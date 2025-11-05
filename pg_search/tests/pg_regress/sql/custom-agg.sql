@@ -730,7 +730,80 @@ GROUP BY category;
 -- Re-enable for cleanup
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
+-- The custom scan will reject queries where quals can't be extracted
+-- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
+-- This is SAFE behavior - WHERE clause is applied correctly, no silent data loss
+SET paradedb.enable_filter_pushdown TO off;
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE response_time = 150
+ORDER BY timestamp DESC
+LIMIT 1;
+
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE response_time = 150
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
+-- With filter_pushdown ON, the custom scan should handle this via Qual::All + PostgreSQL filtering
+-- Result: Custom scan uses Qual::All, PostgreSQL applies WHERE clause filter, returns correct results
+SET paradedb.enable_filter_pushdown TO on;
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+SET paradedb.enable_filter_pushdown TO off;
+
+-- Test 50: pdb.agg() as window function with no WHERE clause should work
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC
+LIMIT 1;
+
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 51: pdb.agg() with @@@ AND non-indexed field equality (filter_pushdown OFF)
+-- This demonstrates the limitation: mixing @@@ with non-pushable predicates will error
+-- when filter_pushdown is disabled
+SET paradedb.enable_filter_pushdown TO off;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error' AND description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+
+-- Test 52: Same query works with filter_pushdown enabled
+SET paradedb.enable_filter_pushdown TO on;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error' AND description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+SET paradedb.enable_filter_pushdown TO off;
+
+-- Test 51: pdb.agg() as window function with @@@ WHERE clause
+-- Currently requires filter_pushdown because we can't determine at planner time
+-- if ALL predicates are pushable (conservative approach to prevent silent data loss)
+SET paradedb.enable_filter_pushdown TO on;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC
+LIMIT 1;
+
 -- Cleanup
 DROP TABLE logs CASCADE;
-
-
+RESET paradedb.enable_filter_pushdown;

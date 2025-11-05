@@ -56,7 +56,8 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
+    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, PlannerContext, Qual,
+    QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -198,8 +199,9 @@ impl PdbScan {
         attempt_pushdown: bool,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
+        let context = PlannerContext::from_planner(root);
         let mut quals = extract_quals(
-            root,
+            &context,
             rti,
             restrict_info.as_ptr().cast(),
             anyelement_query_input_opoid(),
@@ -216,7 +218,7 @@ impl PdbScan {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
             let mut quals = extract_quals(
-                root,
+                &context,
                 rti,
                 joinri.as_ptr().cast(),
                 anyelement_query_input_opoid(),
@@ -435,7 +437,20 @@ impl CustomScan for PdbScan {
             let quals = if let Some(q) = quals {
                 q
             } else if has_window_aggs {
-                // No WHERE clause, but we have window aggregates - use All query
+                // We have window aggregates but couldn't extract quals.
+                // Check if there's actually a WHERE clause - if so, we can only handle it if filter_pushdown is enabled
+                let has_where_clause = !(*root).parse.is_null()
+                    && !(*(*root).parse).jointree.is_null()
+                    && !(*(*(*root).parse).jointree).quals.is_null();
+
+                if has_where_clause && !crate::gucs::enable_filter_pushdown() {
+                    // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
+                    // We cannot handle this query safely - reject it.
+                    return None;
+                }
+
+                // Either no WHERE clause, or filter_pushdown is enabled (so HeapExpr should handle it)
+                // Use All query and let PostgreSQL/HeapExpr handle the filtering
                 Qual::All
             } else {
                 // No quals and no window aggregates - we can't help
@@ -739,7 +754,7 @@ impl CustomScan for PdbScan {
                 .clone()
                 .expect("should have a SearchQueryInput");
             let join_predicates = extract_join_predicates(
-                builder.args().root,
+                &PlannerContext::from_planner(builder.args().root),
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
                 &indexrel,

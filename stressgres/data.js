@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762379025209,
+  "lastUpdate": 1762379032432,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23860,6 +23860,126 @@ window.BENCHMARK_DATA = {
             "value": 149.41015625,
             "unit": "median mem",
             "extra": "avg mem: 129.2870798325267, max mem: 152.84765625, count: 55270"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a34aa2a00a214b363c9738a07d709c266dbc831",
+          "message": "chore: Allow for optional MVCC filtering of window aggregates (#3494)\n\n## What\n\nThis change adds infrastructure necessary to toggle the use of MVCC\nfiltering at query time. It does not yet actually add an argument to do\nso.\n\n## Why\n\nMVCC filtering can cost anywhere between 2-10x performance for\naggregations: we will reduce this over time by more tightly integrating\nwith the visibility map, but in cases where the visibility map is\nnot/less up to date, there is not much we can do other than accessing\nthe heap.\n\n## How\n\nIntroduce a wrapper type `TopNAuxiliaryCollector` which carries an\naggregation collector, and an optional visibility checker. The wrapper\nis necessary because iff an aggregation will be executed, we want to\napply MVCC filtering before _both_ of the collectors, and so a\n`MVCCFilterCollector` needs to be wrapped around the compound collector.",
+          "timestamp": "2025-11-05T13:24:58-08:00",
+          "tree_id": "b5e1eea1f46887a3bc4ac0ae79de4ba8bd92bf9b",
+          "url": "https://github.com/paradedb/paradedb/commit/8a34aa2a00a214b363c9738a07d709c266dbc831"
+        },
+        "date": 1762379029881,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.920452646113365, max cpu: 14.10382, count: 55216"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 157.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.5247649571682, max mem: 157.5859375, count: 55216"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6013827041306525, max cpu: 9.311348, count: 55216"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 29.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.006759674505577, max mem: 33.75390625, count: 55216"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.997111630398888, max cpu: 14.51613, count: 55216"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 157.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.2184843529276, max mem: 158.1875, count: 55216"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.678523421235251, max cpu: 9.448819, count: 55216"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 157.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.6017184217437, max mem: 158.421875, count: 55216"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6666427771099235, max cpu: 9.67742, count: 110432"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154,
+            "unit": "median mem",
+            "extra": "avg mem: 138.20147261153923, max mem: 159.25, count: 110432"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27202,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27327.74232106636, max block_count: 52843.0, count: 55216"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.283088235294116, max segment_count: 57.0, count: 55216"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569721176111619, max cpu: 9.29332, count: 55216"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.36626456212872, max mem: 158.08984375, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.535215678162876, max cpu: 4.733728, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 150.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 130.81594004115655, max mem: 153.4375, count: 55216"
           }
         ]
       }

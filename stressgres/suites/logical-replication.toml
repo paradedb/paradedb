@@ -106,6 +106,26 @@ FROM paradedb.index_info('idxtest', true)
 ORDER BY byte_size DESC;
 """
 
+[[server]]
+name = "WalReceiver"
+[server.style.Automatic]
+postgresql_conf = "WalReceiver"
+
+[server.setup]
+sql = "SELECT pg_sleep(25)"
+
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+
 [[jobs]]
 refresh_ms = 5
 title = "Index Size Info"
@@ -121,10 +141,10 @@ SELECT count(*) FILTER (WHERE visible)         AS visible,
        pg_size_pretty(pg_relation_size('idxtest'))
 FROM paradedb.index_info('idxtest', true);
 """
-destinations = ["Subscriber"]
+destinations = ["Subscriber", "WalReceiver"]
 
 [[jobs]]
-refresh_ms = 5
+refresh_ms = 0
 title = "Top N"
 on_connect = """
 SET enable_indexonlyscan to OFF;
@@ -133,34 +153,38 @@ SET max_parallel_workers = 32;
 """
 sql = "SELECT * FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
 assert = "11"
-destinations = ["Subscriber"]
+destinations = ["WalReceiver"]
 
 [[jobs]]
-refresh_ms = 5
-title = "Custom Scan"
-on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
-"""
-sql = """
-SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:beer';
-"""
-destinations = ["Subscriber"]
-
-
-[[jobs]]
-refresh_ms = 5
-title = "Parallel Custom Scan"
+refresh_ms = 0
+title = "Parallel Aggregate Custom Scan"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
 SET debug_parallel_query TO ON;
+SET max_parallel_workers_per_gather TO 8;
+SET paradedb.enable_aggregate_custom_scan TO on;
 """
 sql = """
 SELECT count(*) FROM test WHERE id @@@ 'message:beer';
 """
 assert = "8"
-destinations = ["Subscriber"]
+destinations = ["WalReceiver"]
+
+[[jobs]]
+refresh_ms = 0
+title = "Parallel Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET debug_parallel_query TO ON;
+SET max_parallel_workers_per_gather TO 8;
+"""
+sql = """
+SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+"""
+assert = "8"
+destinations = ["WalReceiver"]
 
 
 [[jobs]]
@@ -173,15 +197,19 @@ set paradedb.enable_custom_scan to off;
 sql = """
 SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
 """
-destinations = ["Subscriber"]
+destinations = ["WalReceiver"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top N"
-sql = """
-SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5;
+title = "Parallel Index Only Scan"
+on_connect = """
+set max_parallel_workers = 8;
+set paradedb.enable_custom_scan to off;
 """
-destinations = ["Subscriber"]
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
+"""
+destinations = ["WalReceiver"]
 
 [[jobs]]
 refresh_ms = 5
@@ -248,3 +276,12 @@ sql = """
 DELETE FROM test WHERE id > 14;
 """
 destinations = ["Publisher"]
+
+[[jobs]]
+refresh_ms = 10
+log_tps = false
+title = "Vacuum"
+sql = """
+VACUUM;
+"""
+destinations = ["Subscriber"]

@@ -1248,7 +1248,34 @@ impl CustomScan for PdbScan {
 
                             // a custom scan does not necessarily have a parallel state
                             if let Some(parallel_state) = custom_state.parallel_state {
-                                check_for_concurrent_vacuum(indexrel, (*parallel_state).segments());
+                                let worker_number = pg_sys::ParallelWorkerNumber;
+                                let worker_segments = match (*parallel_state)
+                                    .explain_data()
+                                    .workers
+                                    .get(&worker_number)
+                                {
+                                    Some(worker) => {
+                                        let filter_by = worker
+                                            .claimed_segments
+                                            .iter()
+                                            .map(|s| s.id.clone())
+                                            .collect::<HashSet<_>>();
+                                        (*parallel_state)
+                                            .segments()
+                                            .into_iter()
+                                            .filter(|(id, _)| {
+                                                filter_by.contains(&id.short_uuid_string())
+                                            })
+                                            .collect::<HashMap<_, _>>()
+                                    }
+                                    None => (*parallel_state).segments(),
+                                };
+                                check_for_concurrent_vacuum(
+                                    indexrel,
+                                    // todo: this returns all segments, not just the ones that this worker scanned
+                                    worker_segments,
+                                    custom_state.ambulkdelete_epoch,
+                                );
                             } else {
                                 let segments = custom_state
                                     .search_reader
@@ -1258,7 +1285,11 @@ impl CustomScan for PdbScan {
                                     .iter()
                                     .map(|r| (r.segment_id(), r.num_deleted_docs()))
                                     .collect::<HashMap<_, _>>();
-                                check_for_concurrent_vacuum(indexrel, segments);
+                                check_for_concurrent_vacuum(
+                                    indexrel,
+                                    segments,
+                                    custom_state.ambulkdelete_epoch,
+                                );
                             }
                         };
                     }

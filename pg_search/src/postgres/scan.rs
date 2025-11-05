@@ -336,6 +336,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                             check_for_concurrent_vacuum(
                                 &PgSearchRelation::from_pg((*scan).indexRelation),
                                 (*pscan_state).segments(),
+                                state.ambulkdelete_epoch,
                             )
                         };
                     } else if (*scan).xs_want_itup {
@@ -348,6 +349,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                                     .iter()
                                     .map(|r| (r.segment_id(), r.num_deleted_docs()))
                                     .collect::<FxHashMap<_, _>>(),
+                                state.ambulkdelete_epoch,
                             )
                         }
                     }

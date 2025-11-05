@@ -29,6 +29,7 @@ use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::hot_standby::check_for_concurrent_vacuum;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
@@ -304,6 +305,18 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
+
+        if unsafe { pgrx::pg_sys::HotStandbyActive() } {
+            check_for_concurrent_vacuum(
+                &PgSearchRelation::open(self.config.indexrelid),
+                self.segment_ids
+                    .iter()
+                    .filter(|(segment_id, _)| segment_ids.contains(segment_id))
+                    .map(|(segment_id, deleted_docs)| (*segment_id, *deleted_docs))
+                    .collect(),
+                self.ambulkdelete_epoch,
+            );
+        }
         Ok(Some(intermediate_results))
     }
 }
@@ -504,7 +517,7 @@ pub fn execute_aggregate(
             let mut worker = ParallelAggregationWorker::new_local(
                 agg_req.clone(),
                 query,
-                segment_ids,
+                segment_ids.clone(),
                 ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,
@@ -512,12 +525,13 @@ pub fn execute_aggregate(
                 bucket_limit as _,
                 &mut state,
             );
+
             if let Some(agg_results) = worker.execute_aggregate(
                 QueryWorkerStyle::NonParallel,
                 Some(expr_context),
                 Some(planstate),
             )? {
-                Ok(agg_results.into_final_result(
+                let result = agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
                         if agg_from_sql {
@@ -531,7 +545,20 @@ pub fn execute_aggregate(
                         aggregations
                     },
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?)
+                )?;
+
+                if pgrx::pg_sys::HotStandbyActive() {
+                    check_for_concurrent_vacuum(
+                        index,
+                        segment_ids
+                            .iter()
+                            .map(|(segment_id, deleted_docs)| (*segment_id, *deleted_docs))
+                            .collect(),
+                        ambulkdelete_epoch,
+                    );
+                }
+
+                Ok(result)
             } else {
                 Ok(AggregationResults::default())
             }

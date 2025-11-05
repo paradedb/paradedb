@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(static_mut_refs)]
-use crate::api::HashSet;
+use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::merge::free_entries;
 use crate::postgres::rel::PgSearchRelation;
@@ -165,10 +165,18 @@ pub fn feedback_xmin() -> Option<pg_sys::FullTransactionId> {
 /// was updated. We need to cancel the current query to prevent deleted ctids that this query is about to return
 // from showing up as visible, leading to incorrect results.
 ///
-pub unsafe fn check_for_concurrent_vacuum(
+pub fn check_for_concurrent_vacuum(
     indexrel: &PgSearchRelation,
-    old_segments: FxHashMap<SegmentId, u32>,
+    old_segments: HashMap<SegmentId, u32>,
+    old_ambulkdelete_epoch: u32,
 ) {
+    let new_ambulkdelete_epoch = MetaPage::open(indexrel).ambulkdelete_epoch();
+    // if the ambulkdelete_epoch hasn't changed, that guarantees that the visibility map has not changed
+    // while the segments were being scanned
+    if old_ambulkdelete_epoch == new_ambulkdelete_epoch {
+        return;
+    }
+
     let directory =
         MVCCDirectory::parallel_worker(indexrel, old_segments.keys().cloned().collect());
     let index = Index::open(directory).expect("end_custom_scan: should be able to open index");

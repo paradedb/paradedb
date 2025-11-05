@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762380693429,
+  "lastUpdate": 1762380983691,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -73920,6 +73920,54 @@ window.BENCHMARK_DATA = {
             "value": 110.71545389894473,
             "unit": "median tps",
             "extra": "avg tps: 109.82102229681146, max tps: 141.56557138894118, count: 106940"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0391e7ea66f19fd711cd2332ae283b1ae2a93b48",
+          "message": "fix: Revert: add support for fast sorting by JSON key (#3479) (#3496)\n\nThis reverts commit f3d9c7f409a17e28fc71293a795565be8327d656.\n\nSee new details added to\nhttps://github.com/paradedb/paradedb/issues/1917#issuecomment-3488427193:\ntl;dr: rather than numerical sort orders, we need to align with\nPostgres's default sort order for JSON, which (without a cast) will be a\nstring sort.",
+          "timestamp": "2025-11-05T13:04:14-08:00",
+          "tree_id": "a6297c6fc02d162600cb6aaea52c0140ccfd86f8",
+          "url": "https://github.com/paradedb/paradedb/commit/0391e7ea66f19fd711cd2332ae283b1ae2a93b48"
+        },
+        "date": 1762380980899,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 655.1228923900046,
+            "unit": "median tps",
+            "extra": "avg tps: 655.9915761234207, max tps: 966.6639314680568, count: 53547"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 759.1467759886142,
+            "unit": "median tps",
+            "extra": "avg tps: 759.7096042079128, max tps: 1151.6909414324848, count: 53547"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 110.79173471291463,
+            "unit": "median tps",
+            "extra": "avg tps: 110.9771306831555, max tps: 127.16665439969199, count: 53547"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.69462913401664,
+            "unit": "median tps",
+            "extra": "avg tps: 111.30224409859277, max tps: 125.46659130237046, count: 107094"
           }
         ]
       }

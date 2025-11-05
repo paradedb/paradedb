@@ -22,7 +22,6 @@ use crate::api::HashSet;
 use crate::customscan::pdbscan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
-use crate::postgres::customscan::pdbscan::privdat::SegmentDocStats;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
 
@@ -96,13 +95,14 @@ impl ParallelQueryCapable for PdbScan {
 /// presence of external vars (indicating a join), or return 0 if workers cannot or should not be
 /// used.
 ///
+const TINY_SEGMENT_MAX_DOCS: f64 = 1024.0;
+
 pub fn compute_nworkers(
     exec_method: &ExecMethodType,
     limit: Option<Cardinality>,
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
-    segment_doc_stats: &SegmentDocStats,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -135,20 +135,27 @@ pub fn compute_nworkers(
     }
 
     if nworkers > 0 {
-        if let Some(non_tiny) = segment_doc_stats.non_tiny_segment_count() {
-            if non_tiny <= 1 && !exec_method.is_sorted_topn() {
-                // At most one non-trivial shard -> eliminating the parallel worker spin-up
+        // - If effective rows per segment are tiny, skip parallel.
+        // - If only one or fewer segments are expected to contribute materially, skip parallel.
+        let rows_per_segment = if segment_count > 0 {
+            estimated_total_rows / segment_count as f64
+        } else {
+            estimated_total_rows
+        };
+
+        // For sorted TopN we need to touch all segments anyway; keep parallel available.
+        if !exec_method.is_sorted_topn() {
+            // All segments are effectively tiny (based on estimates) and total rows small.
+            if rows_per_segment <= TINY_SEGMENT_MAX_DOCS && estimated_total_rows <= 10_000.0 {
                 nworkers = 0;
             }
         }
 
-        if let Some(tiny_segments) = segment_doc_stats.tiny_segment_count() {
-            if segment_doc_stats.observed_segments() > 0
-                && tiny_segments == segment_doc_stats.observed_segments()
-                && segment_doc_stats.total_docs() <= 10_000
-                && !exec_method.is_sorted_topn()
-            {
-                // Every segment is tiny and the total doc count is small -> eliminating the parallel worker spin-up
+        // If we only expect to need one segment to satisfy the limit (for unsorted scans),
+        // the leader can handle it cheaper than spinning workers.
+        if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
+            let segments_to_reach_limit = (limit / rows_per_segment.max(1.0)).ceil() as usize;
+            if segments_to_reach_limit <= 1 {
                 nworkers = 0;
             }
         }

@@ -98,16 +98,22 @@ jobs:
           set -euo pipefail
 
           target_version="${{ github.event.inputs.version }}"
-          echo "Looking for SQL upgrade scripts targeting version: ${target_version}"
+          echo "Original target version: ${target_version}"
 
-          # Enable nullglob so an empty glob expands to nothing (lets us count matches safely)
+          # Strip prerelease suffixes like -rc.1, -beta.2, etc.
+          stripped_version="${target_version%%-*}"
+
+          echo "Normalized target version (without prerelease tag): ${stripped_version}"
+          echo "Looking for SQL upgrade scripts targeting version: ${stripped_version}"
+
+          # Enable nullglob so an empty glob expands to nothing
           shopt -s nullglob
 
-          matches=(pg_search--*--"${target_version}".sql)
+          matches=(pg_search--*--"${stripped_version}".sql)
 
           if (( ${#matches[@]} == 0 )); then
-            echo "❌ No SQL upgrade script found for version ${target_version} in $(pwd)."
-            echo "Expected at least one file named: pg_search--<past-version>--${target_version}.sql"
+            echo "❌ No SQL upgrade script found for version ${stripped_version} in $(pwd)."
+            echo "Expected at least one file named: pg_search--<past-version>--${stripped_version}.sql"
             exit 1
           fi
 

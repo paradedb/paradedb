@@ -719,6 +719,108 @@ pub mod v2 {
         }
     }
 
+    /// Global FSM performance metrics
+    /// These track cumulative performance across all FSM operations
+    #[derive(Debug)]
+    pub struct FsmMetrics {
+        /// Total number of drain calls
+        pub total_drains: std::sync::atomic::AtomicU64,
+        /// Total blocks drained across all operations
+        pub total_blocks_drained: std::sync::atomic::AtomicU64,
+        /// Total empty pages skipped
+        pub total_empty_pages_skipped: std::sync::atomic::AtomicU64,
+        /// Total head pages unlinked
+        pub total_heads_unlinked: std::sync::atomic::AtomicU64,
+        /// Total XIDs processed
+        pub total_xids_processed: std::sync::atomic::AtomicU64,
+        /// Maximum chain length seen
+        pub max_chain_length_seen: std::sync::atomic::AtomicUsize,
+        /// Sum of all chain lengths (for averaging)
+        pub sum_chain_lengths: std::sync::atomic::AtomicU64,
+        /// Number of chains processed (for averaging)
+        pub chain_count: std::sync::atomic::AtomicU64,
+    }
+
+    impl FsmMetrics {
+        const fn new() -> Self {
+            Self {
+                total_drains: std::sync::atomic::AtomicU64::new(0),
+                total_blocks_drained: std::sync::atomic::AtomicU64::new(0),
+                total_empty_pages_skipped: std::sync::atomic::AtomicU64::new(0),
+                total_heads_unlinked: std::sync::atomic::AtomicU64::new(0),
+                total_xids_processed: std::sync::atomic::AtomicU64::new(0),
+                max_chain_length_seen: std::sync::atomic::AtomicUsize::new(0),
+                sum_chain_lengths: std::sync::atomic::AtomicU64::new(0),
+                chain_count: std::sync::atomic::AtomicU64::new(0),
+            }
+        }
+
+        /// Get a snapshot of current metrics
+        #[allow(dead_code)]
+        pub fn snapshot(&self) -> FsmMetricsSnapshot {
+            use std::sync::atomic::Ordering;
+            FsmMetricsSnapshot {
+                total_drains: self.total_drains.load(Ordering::Relaxed),
+                total_blocks_drained: self.total_blocks_drained.load(Ordering::Relaxed),
+                total_empty_pages_skipped: self.total_empty_pages_skipped.load(Ordering::Relaxed),
+                total_heads_unlinked: self.total_heads_unlinked.load(Ordering::Relaxed),
+                total_xids_processed: self.total_xids_processed.load(Ordering::Relaxed),
+                max_chain_length_seen: self.max_chain_length_seen.load(Ordering::Relaxed),
+                avg_chain_length: {
+                    let sum = self.sum_chain_lengths.load(Ordering::Relaxed);
+                    let count = self.chain_count.load(Ordering::Relaxed);
+                    if count > 0 {
+                        sum as f64 / count as f64
+                    } else {
+                        0.0
+                    }
+                },
+            }
+        }
+
+        /// Reset all metrics (useful for testing)
+        #[cfg(any(test, feature = "pg_test"))]
+        pub fn reset(&self) {
+            use std::sync::atomic::Ordering;
+            self.total_drains.store(0, Ordering::Relaxed);
+            self.total_blocks_drained.store(0, Ordering::Relaxed);
+            self.total_empty_pages_skipped.store(0, Ordering::Relaxed);
+            self.total_heads_unlinked.store(0, Ordering::Relaxed);
+            self.total_xids_processed.store(0, Ordering::Relaxed);
+            self.max_chain_length_seen.store(0, Ordering::Relaxed);
+            self.sum_chain_lengths.store(0, Ordering::Relaxed);
+            self.chain_count.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// Snapshot of FSM metrics at a point in time
+    #[derive(Debug, Clone, Copy)]
+    #[allow(dead_code)]
+    pub struct FsmMetricsSnapshot {
+        pub total_drains: u64,
+        pub total_blocks_drained: u64,
+        pub total_empty_pages_skipped: u64,
+        pub total_heads_unlinked: u64,
+        pub total_xids_processed: u64,
+        pub max_chain_length_seen: usize,
+        pub avg_chain_length: f64,
+    }
+
+    /// Global FSM metrics instance
+    static FSM_METRICS: FsmMetrics = FsmMetrics::new();
+
+    /// Get a snapshot of the global FSM metrics
+    #[allow(dead_code)]
+    pub fn get_fsm_metrics() -> FsmMetricsSnapshot {
+        FSM_METRICS.snapshot()
+    }
+
+    /// Reset global FSM metrics (useful for testing)
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn reset_fsm_metrics() {
+        FSM_METRICS.reset();
+    }
+
     pub struct V2FSM {
         start_blockno: pg_sys::BlockNumber,
     }
@@ -768,6 +870,11 @@ pub mod v2 {
 
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
+
+            // Update global metrics
+            FSM_METRICS
+                .total_drains
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             // Production monitoring metrics
             let mut empty_pages_skipped = 0usize;
@@ -982,6 +1089,41 @@ pub mod v2 {
                 xid = found_xid - 1;
                 if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
                     break;
+                }
+            }
+
+            // Update global metrics with this drain's stats
+            use std::sync::atomic::Ordering;
+            FSM_METRICS
+                .total_blocks_drained
+                .fetch_add(blocks.len() as u64, Ordering::Relaxed);
+            FSM_METRICS
+                .total_empty_pages_skipped
+                .fetch_add(empty_pages_skipped as u64, Ordering::Relaxed);
+            FSM_METRICS
+                .total_heads_unlinked
+                .fetch_add(head_pages_unlinked as u64, Ordering::Relaxed);
+            FSM_METRICS
+                .total_xids_processed
+                .fetch_add(xids_processed as u64, Ordering::Relaxed);
+            FSM_METRICS
+                .sum_chain_lengths
+                .fetch_add(total_chain_length as u64, Ordering::Relaxed);
+            FSM_METRICS
+                .chain_count
+                .fetch_add(xids_processed as u64, Ordering::Relaxed);
+
+            // Update max chain length if this drain saw a longer one
+            let mut current_max = FSM_METRICS.max_chain_length_seen.load(Ordering::Relaxed);
+            while max_chain_length > current_max {
+                match FSM_METRICS.max_chain_length_seen.compare_exchange_weak(
+                    current_max,
+                    max_chain_length,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(x) => current_max = x,
                 }
             }
 
@@ -1408,6 +1550,68 @@ pub mod v2 {
 
             // The monitoring will log to debug1/debug2, which we can't easily assert on
             // but this test ensures the code runs without panicking
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_metrics_collection() -> spi::Result<()> {
+            // Test that global metrics are properly collected
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_metrics_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_metrics_idx ON fsm_metrics_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_metrics_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Reset metrics for clean test
+            super::reset_fsm_metrics();
+
+            // Get baseline
+            let metrics_before = super::get_fsm_metrics();
+            assert_eq!(metrics_before.total_drains, 0);
+            assert_eq!(metrics_before.total_blocks_drained, 0);
+
+            // Create some blocks
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+            fsm.extend_with_when_recyclable(&mut bman, xid, 10000..10100);
+
+            // Drain some blocks
+            let drained: Vec<_> = fsm.drain(&mut bman, 50).collect();
+            assert_eq!(drained.len(), 50);
+
+            // Check metrics were updated
+            let metrics_after = super::get_fsm_metrics();
+            assert_eq!(metrics_after.total_drains, 1, "Should have 1 drain");
+            assert_eq!(
+                metrics_after.total_blocks_drained, 50,
+                "Should have drained 50 blocks"
+            );
+            assert!(
+                metrics_after.total_xids_processed > 0,
+                "Should have processed at least 1 XID"
+            );
+
+            // Drain more and check accumulation
+            let drained2: Vec<_> = fsm.drain(&mut bman, 30).collect();
+            assert_eq!(drained2.len(), 30);
+
+            let metrics_final = super::get_fsm_metrics();
+            assert_eq!(metrics_final.total_drains, 2, "Should have 2 drains");
+            assert_eq!(
+                metrics_final.total_blocks_drained, 80,
+                "Should have drained 80 blocks total"
+            );
 
             Ok(())
         }

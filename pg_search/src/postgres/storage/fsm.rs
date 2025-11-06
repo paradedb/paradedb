@@ -760,6 +760,25 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
+            // The FSM drain operation has a two-level structure:
+            //
+            // Level 1: AVL Tree (root page)
+            //   - Contains up to N XIDs as keys
+            //   - Each XID's value is the head block number of its freelist
+            //
+            // Level 2: Linked Lists (freelist pages)
+            //   - Each XID has a linked list of pages containing free blocks
+            //   - Pages are linked via next_blockno in the page special data
+            //   - Each page can hold up to MAX_ENTRIES blocks
+            //
+            // The drain algorithm:
+            // 1. Acquire root buffer (AVL tree)
+            // 2. Find XIDs <= current XID that might have usable blocks
+            // 3. Try to acquire the head of an XID's freelist (FIRST buffer acquisition)
+            // 4. If successful, traverse the linked list (SECOND buffer acquisition for each page)
+            // 5. Drain blocks from pages that need modification
+            // 6. If we can't get a lock, try next XID (with optimization to avoid re-acquiring root)
+
             let current_xid = unsafe {
                 pg_sys::GetCurrentFullTransactionIdIfAny()
                     .value
@@ -769,167 +788,240 @@ pub mod v2 {
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
+            // Debug counters for performance monitoring
+            #[cfg(debug_assertions)]
+            let mut debug_root_acquisitions = 0usize;
+            #[cfg(debug_assertions)]
+            let mut debug_lock_failures = 0usize;
+
             'outer: while blocks.len() < many {
+                // OPTIMIZATION: Keep root buffer across multiple XID retry attempts to avoid
+                // re-acquiring it many times when the FSM tree is full and contended.
+                //
+                // Previously, when we couldn't get a lock on an XID's freelist, we would:
+                // 1. Drop the root buffer
+                // 2. Decrement to next XID
+                // 3. Re-acquire the root buffer
+                // This could happen many times with a full FSM tree!
+                //
+                // Now we keep the root buffer and try up to MAX_XID_RETRIES XIDs before
+                // dropping and re-acquiring, reducing root acquisitions.
                 let mut root = Some(bman.get_buffer(self.start_blockno));
-                let page = root.as_ref().unwrap().page();
-                let tree = self.avl_ref(&page);
+                #[cfg(debug_assertions)]
+                {
+                    debug_root_acquisitions += 1;
+                }
+                const MAX_XID_RETRIES: usize = 10;
+                let mut retry_count = 0;
 
-                let Some((found_xid, _unit, tag)) = tree.get_lte(&xid) else {
-                    break;
-                };
+                'retry: while retry_count < MAX_XID_RETRIES && blocks.len() < many {
+                    let page = root.as_ref().unwrap().page();
+                    let tree = self.avl_ref(&page);
 
-                let mut head_blockno = tag as pg_sys::BlockNumber;
-                let mut blockno = head_blockno;
-                let mut cnt = 0;
+                    let Some((found_xid, _unit, tag)) = tree.get_lte(&xid) else {
+                        drop(root);
+                        break 'outer;
+                    };
 
-                while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
-                    // OPTIMIZATION: We first get a read-only buffer to check if we need to modify the page.
-                    // This avoids triggering WAL generation (via GenericXLogRegisterBuffer) for pages
-                    // we only examine but don't modify. WAL is only generated when we call page_mut().
-                    //
-                    // we drop the "root" buffer after getting the head buffer.
-                    // this ensures that the `head_blockno` (the root entry's "tag" value)
-                    // is what it says it is
-                    //
-                    // the conditional lock here also ensures we're the only backend to start
-                    // draining the xid's freelist from its the head
+                    let mut head_blockno = tag as pg_sys::BlockNumber;
+                    let mut blockno = head_blockno;
+                    let mut cnt = 0;
+
+                    // FIRST BUFFER ACQUISITION: Try to acquire the HEAD of this XID's freelist
+                    // Each XID in the tree has a linked list of pages containing free blocks.
+                    // We need to get the head of that list first.
                     let buffer = match bman.get_buffer_conditional_readonly(blockno) {
                         Some(buffer) => {
+                            // Successfully got the lock on the HEAD, now we can drop root and proceed
+                            // to traverse this XID's freelist
                             drop(root.take());
                             buffer
                         }
                         None => {
-                            drop(root.take());
+                            // Couldn't get lock on this XID's freelist HEAD
+                            // This means another backend is using this XID's blocks
+                            retry_count += 1;
+                            #[cfg(debug_assertions)]
+                            {
+                                debug_lock_failures += 1;
+                            }
 
-                            // move to the next candidate XID below this one.
+                            // Try next XID WITHOUT dropping root
+                            xid = found_xid - 1;
+                            if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                drop(root);
+                                break 'outer;
+                            }
+                            continue 'retry;
+                        }
+                    };
+
+                    // From here on, we have successfully acquired the head buffer and dropped root
+                    // Now we traverse the linked list of pages for this XID's freelist
+                    let mut first_buffer = Some(buffer);
+
+                    while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
+                        // SECOND BUFFER ACQUISITION: Get buffers for traversing the linked list
+                        // The freelist for each XID can span multiple pages linked together.
+                        // We need to walk through this chain to find blocks to drain.
+                        let buffer = if let Some(b) = first_buffer.take() {
+                            // First iteration: use the HEAD buffer we already acquired above
+                            b
+                        } else {
+                            // Subsequent iterations: get the NEXT buffer in the linked list
+                            // OPTIMIZATION: We use read-only buffers to check if we need to modify the page.
+                            // This avoids triggering WAL generation (via GenericXLogRegisterBuffer) for pages
+                            // we only examine but don't modify. WAL is only generated when we call page_mut().
+                            match bman.get_buffer_conditional_readonly(blockno) {
+                                Some(b) => b,
+                                None => {
+                                    // Couldn't get this buffer in the chain, give up on this XID
+                                    xid = found_xid - 1;
+                                    if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                        break 'outer;
+                                    }
+                                    continue 'outer;
+                                }
+                            }
+                        };
+
+                        // Read the page immutably to check if we can/need to drain
+                        let page = buffer.page();
+                        let contents = page.contents_ref::<AvlLeaf>();
+                        let next_blockno = page.next_blockno();
+
+                        // Check if we need to modify this page
+                        let needs_modification = contents.len > 0 && blocks.len() < many;
+                        let is_empty_head = contents.len == 0 && head_blockno == blockno;
+
+                        // Skip empty head pages - we never modify them
+                        if is_empty_head {
+                            blockno = next_blockno;
+                            continue;
+                        }
+
+                        if !needs_modification {
+                            // Nothing to do with this page, move to the next one
+                            blockno = next_blockno;
+                            continue;
+                        }
+
+                        // Now we need to modify, so upgrade to mutable buffer
+                        let Some(mut buffer) = buffer.upgrade_conditional(bman) else {
+                            // Someone else got the exclusive lock, restart with next XID
                             xid = found_xid - 1;
                             if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
                                 break 'outer;
                             }
                             continue 'outer;
+                        };
+
+                        let mut page = buffer.page_mut();
+                        let contents = page.contents_mut::<AvlLeaf>();
+                        let mut modified = false;
+
+                        // We've already skipped empty head pages, so we can safely drain from this page
+                        // get all that we can/need from this page
+                        while contents.len > 0 && blocks.len() < many {
+                            contents.len -= 1;
+                            blocks.push(contents.entries[contents.len as usize]);
+                            modified = true;
                         }
-                    };
+                        cnt += contents.len as usize;
 
-                    // First, read the page immutably to check if we can/need to drain
-                    let page = buffer.page();
-                    let contents = page.contents_ref::<AvlLeaf>();
-                    let next_blockno = page.next_blockno();
+                        // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
+                        let should_unlink_head = blockno == head_blockno
+                            && contents.len == 0
+                            && next_blockno != pg_sys::InvalidBlockNumber;
 
-                    // Check if we need to modify this page
-                    let needs_modification = contents.len > 0 && blocks.len() < many;
-                    let is_empty_head = contents.len == 0 && head_blockno == blockno;
-
-                    // Skip empty head pages - we never modify them
-                    if is_empty_head {
-                        blockno = next_blockno;
-                        continue;
-                    }
-
-                    if !needs_modification {
-                        // Nothing to do with this page, move to the next one
-                        blockno = next_blockno;
-                        continue;
-                    }
-
-                    // Now we need to modify, so upgrade to mutable buffer
-                    let Some(mut buffer) = buffer.upgrade_conditional(bman) else {
-                        // Someone else got the exclusive lock, restart with next XID
-                        xid = found_xid - 1;
-                        if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
-                            break 'outer;
+                        if !modified {
+                            // we didn't change anything
+                            buffer.set_dirty(false);
                         }
-                        continue 'outer;
-                    };
 
-                    let mut page = buffer.page_mut();
-                    let contents = page.contents_mut::<AvlLeaf>();
-                    let mut modified = false;
+                        // drop the leaf buffer -- we're done with it and it's possible we'll need to
+                        // unlink it from the list and that requires an exclusive lock on the tree
+                        // and we can't have both at the same time
+                        drop(buffer);
 
-                    // We've already skipped empty head pages, so we can safely drain from this page
-                    // get all that we can/need from this page
-                    while contents.len > 0 && blocks.len() < many {
-                        contents.len -= 1;
-                        blocks.push(contents.entries[contents.len as usize]);
-                        modified = true;
-                    }
-                    cnt += contents.len as usize;
+                        if should_unlink_head {
+                            let old_head = head_blockno;
 
-                    // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
-                    let should_unlink_head = blockno == head_blockno
-                        && contents.len == 0
-                        && next_blockno != pg_sys::InvalidBlockNumber;
+                            // get mutable tree without holding any other locks
+                            let mut root = bman.get_buffer_mut(self.start_blockno);
+                            let mut page = root.page_mut();
+                            let mut tree = self.avl_mut(&mut page);
 
-                    if !modified {
-                        // we didn't change anything
-                        buffer.set_dirty(false);
-                    }
+                            let mut did_update_head = false;
+                            if let Some(slot) = tree.get_slot_mut(&found_xid) {
+                                if slot.tag as pg_sys::BlockNumber == head_blockno {
+                                    // we are the process that actually unlinked the head
+                                    did_update_head = true;
+                                    slot.tag = next_blockno;
 
-                    // drop the leaf buffer -- we're done with it and it's possible we'll need to
-                    // unlink it from the list and that requires an exclusive lock on the tree
-                    // and we can't have both at the same time
-                    drop(buffer);
-
-                    if should_unlink_head {
-                        let old_head = head_blockno;
-
-                        // get mutable tree without holding any other locks
-                        let mut root = bman.get_buffer_mut(self.start_blockno);
-                        let mut page = root.page_mut();
-                        let mut tree = self.avl_mut(&mut page);
-
-                        let mut did_update_head = false;
-                        if let Some(slot) = tree.get_slot_mut(&found_xid) {
-                            if slot.tag as pg_sys::BlockNumber == head_blockno {
-                                // we are the process that actually unlinked the head
-                                did_update_head = true;
-                                slot.tag = next_blockno;
-
-                                // and keep local state in sync
-                                head_blockno = next_blockno;
+                                    // and keep local state in sync
+                                    head_blockno = next_blockno;
+                                }
+                                // else: someone else already moved the head, we do nothing
                             }
-                            // else: someone else already moved the head, we do nothing
-                        }
-                        drop(root);
+                            drop(root);
 
-                        if did_update_head {
-                            self.extend_with_when_recyclable(
-                                bman,
-                                unsafe { pg_sys::ReadNextFullTransactionId() },
-                                std::iter::once(old_head),
-                            );
+                            if did_update_head {
+                                self.extend_with_when_recyclable(
+                                    bman,
+                                    unsafe { pg_sys::ReadNextFullTransactionId() },
+                                    std::iter::once(old_head),
+                                );
+                            }
+
+                            // Continue with the new head
+                            blockno = next_blockno;
+                            continue;
                         }
 
-                        // Continue with the new head
+                        // if this was the last block in the list *and* the entire list is empty,
+                        // remove the XID entry from the tree. We must hold no other locks while doing this
+                        if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
+                            let mut root = bman.get_buffer_mut(self.start_blockno);
+                            let mut page = root.page_mut();
+                            let mut tree = self.avl_mut(&mut page);
+
+                            // ok if another backend already removed it.
+                            let _ = tree.remove(&found_xid);
+                            drop(root);
+                        }
+
+                        // move to the next block
                         blockno = next_blockno;
-                        continue;
                     }
 
-                    // if this was the last block in the list *and* the entire list is empty,
-                    // remove the XID entry from the tree. We must hold no other locks while doing this
-                    if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
-                        let mut root = bman.get_buffer_mut(self.start_blockno);
-                        let mut page = root.page_mut();
-                        let mut tree = self.avl_mut(&mut page);
+                    // Successfully drained from this XID, exit retry loop
+                    break 'retry;
+                }
 
-                        // ok if another backend already removed it.
-                        let _ = tree.remove(&found_xid);
-                        drop(root);
+                // If we've tried too many XIDs without success, drop root and start over
+                if retry_count >= MAX_XID_RETRIES {
+                    drop(root);
+                    // Note: xid has already been decremented during retries
+                    if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                        break 'outer;
                     }
-
-                    // move to the next block
-                    blockno = next_blockno;
                 }
 
                 if blocks.len() == many {
                     break;
                 }
+            }
 
-                // exhausted this list
-                // move to the next candidate XID below this one.
-                xid = found_xid - 1;
-                if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
-                    break;
-                }
+            #[cfg(debug_assertions)]
+            if debug_lock_failures > 0 || debug_root_acquisitions > 1 {
+                pgrx::debug2!(
+                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}",
+                    many,
+                    blocks.len(),
+                    debug_root_acquisitions,
+                    debug_lock_failures
+                );
             }
 
             blocks.into_iter()

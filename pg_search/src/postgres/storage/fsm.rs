@@ -1214,9 +1214,31 @@ pub mod v2 {
             } else {
                 when_recyclable
             };
-            let mut extend_with = extend_with.peekable();
-            if extend_with.peek().is_none() {
+
+            // Collect blocks to count and detect merge-like behavior
+            let blocks: Vec<_> = extend_with.collect();
+            let block_count = blocks.len();
+
+            if block_count == 0 {
                 // caller didn't give us anything to do
+                return;
+            }
+
+            // Merge detection: Large block counts indicate segment merge operations
+            const MERGE_THRESHOLD: usize = 1000;
+            let is_likely_merge = block_count >= MERGE_THRESHOLD;
+
+            if is_likely_merge {
+                pgrx::info!(
+                    "FSM: Detected merge-like operation adding {} blocks to XID {} (threshold: {})",
+                    block_count,
+                    when_recyclable.value,
+                    MERGE_THRESHOLD
+                );
+            }
+
+            let mut extend_with = blocks.into_iter().peekable();
+            if extend_with.peek().is_none() {
                 return;
             }
 
@@ -1247,7 +1269,33 @@ pub mod v2 {
                 }
             };
 
+            let start_time = if is_likely_merge {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+
             Self::extend_freelist(bman, start_block, extend_with);
+
+            if let Some(start) = start_time {
+                let duration = start.elapsed();
+                pgrx::info!(
+                    "FSM: Completed merge operation for XID {} - added {} blocks in {:?}",
+                    when_recyclable.value,
+                    block_count,
+                    duration
+                );
+
+                // Warn if this creates an extremely long chain
+                let approx_pages = block_count.div_ceil(MAX_ENTRIES);
+                if approx_pages > 20 {
+                    pgrx::warning!(
+                        "FSM: Merge created long freelist chain (~{} pages) for XID {} - may impact drain performance",
+                        approx_pages,
+                        when_recyclable.value
+                    );
+                }
+            }
         }
     }
 
@@ -1712,6 +1760,48 @@ pub mod v2 {
             // with a single root acquisition (or at least fewer than 10)
             // We can't directly assert on root acquisitions here, but the test
             // ensures the code path works without panicking
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_merge_detection() -> spi::Result<()> {
+            // Test that merge-like operations are detected and logged
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_merge_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_merge_idx ON fsm_merge_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_merge_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Simulate a merge by adding a large number of blocks at once
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Add 2000 blocks - this should trigger merge detection (threshold is 1000)
+            let start_block = 100000u32;
+            let block_count = 2000u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid, start_block..start_block + block_count);
+
+            // Verify blocks were added
+            let drained: Vec<_> = fsm.drain(&mut bman, block_count as usize).collect();
+            assert_eq!(
+                drained.len(),
+                block_count as usize,
+                "Should drain all blocks added"
+            );
+
+            // The merge detection should have logged INFO messages
+            // (we can't directly assert on log output, but this verifies the code path works)
 
             Ok(())
         }

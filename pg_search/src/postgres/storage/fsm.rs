@@ -718,6 +718,10 @@ pub mod v2 {
         pub xids_examined: AtomicUsize,
         /// Total number of XIDs removed
         pub xids_removed: AtomicUsize,
+        /// Total number of empty pages encountered in freelists
+        pub empty_pages_traversed: AtomicUsize,
+        /// Total number of empty pages unlinked from freelists
+        pub empty_pages_unlinked: AtomicUsize,
     }
 
     impl FsmStats {
@@ -732,6 +736,8 @@ pub mod v2 {
                 max_tree_fullness: AtomicUsize::new(0),
                 xids_examined: AtomicUsize::new(0),
                 xids_removed: AtomicUsize::new(0),
+                empty_pages_traversed: AtomicUsize::new(0),
+                empty_pages_unlinked: AtomicUsize::new(0),
             }
         }
 
@@ -745,6 +751,8 @@ pub mod v2 {
             self.max_tree_fullness.store(0, Ordering::Relaxed);
             self.xids_examined.store(0, Ordering::Relaxed);
             self.xids_removed.store(0, Ordering::Relaxed);
+            self.empty_pages_traversed.store(0, Ordering::Relaxed);
+            self.empty_pages_unlinked.store(0, Ordering::Relaxed);
         }
 
         pub fn get_summary(&self) -> String {
@@ -755,10 +763,13 @@ pub mod v2 {
                 0
             };
 
+            let empty_pages = self.empty_pages_traversed.load(Ordering::Relaxed);
+            let unlinked = self.empty_pages_unlinked.load(Ordering::Relaxed);
+
             format!(
                 "FSM Stats: drain_calls={}, blocks_drained={}, empty_xid_hits={}, lock_failures={}, \
                  root_acquisitions={}, avg_tree_fullness={}, max_tree_fullness={}, \
-                 xids_examined={}, xids_removed={}",
+                 xids_examined={}, xids_removed={}, empty_pages_traversed={}, empty_pages_unlinked={}",
                 total_calls,
                 self.total_blocks_drained.load(Ordering::Relaxed),
                 self.empty_xid_hits.load(Ordering::Relaxed),
@@ -767,7 +778,9 @@ pub mod v2 {
                 avg_tree_fullness,
                 self.max_tree_fullness.load(Ordering::Relaxed),
                 self.xids_examined.load(Ordering::Relaxed),
-                self.xids_removed.load(Ordering::Relaxed)
+                self.xids_removed.load(Ordering::Relaxed),
+                empty_pages,
+                unlinked
             )
         }
     }
@@ -1275,17 +1288,71 @@ pub mod v2 {
 
                         // Check if we need to modify this page
                         let needs_modification = contents.len > 0 && blocks.len() < many;
-                        let is_empty_head = contents.len == 0 && head_blockno == blockno;
+                        let is_empty_page = contents.len == 0;
 
-                        // Skip empty head pages - we never modify them
-                        if is_empty_head {
+                        // Handle empty pages - they should be unlinked from the chain
+                        if is_empty_page {
+                            FSM_STATS
+                                .empty_pages_traversed
+                                .fetch_add(1, Ordering::Relaxed);
+
+                            // If this is an empty HEAD page with a next page, unlink it
+                            if blockno == head_blockno && next_blockno != pg_sys::InvalidBlockNumber
+                            {
+                                // Need to get exclusive access to update the tree
+                                let Some(buffer) = buffer.upgrade_conditional(bman) else {
+                                    // Someone else is using it, skip for now
+                                    blockno = next_blockno;
+                                    continue;
+                                };
+                                drop(buffer); // Release before getting tree lock
+
+                                // Update the tree to point to the next block
+                                let mut root = bman.get_buffer_mut(self.start_blockno);
+                                let mut page = root.page_mut();
+                                let mut tree = self.avl_mut(&mut page);
+
+                                if let Some(slot) = tree.get_slot_mut(&found_xid) {
+                                    if slot.tag as pg_sys::BlockNumber == head_blockno {
+                                        slot.tag = next_blockno;
+                                        head_blockno = next_blockno;
+
+                                        // Recycle the empty head page
+                                        drop(root);
+                                        self.extend_with_when_recyclable(
+                                            bman,
+                                            unsafe { pg_sys::ReadNextFullTransactionId() },
+                                            std::iter::once(blockno),
+                                        );
+
+                                        FSM_STATS
+                                            .empty_pages_unlinked
+                                            .fetch_add(1, Ordering::Relaxed);
+                                        pgrx::debug2!(
+                                            "Unlinked empty head page {} from XID {}",
+                                            blockno,
+                                            found_xid
+                                        );
+                                        blockno = next_blockno;
+                                        continue;
+                                    }
+                                }
+                                drop(root);
+                            }
+                            // For empty middle/tail pages, just skip them but note the chain is problematic
+                            // TODO: In future, we could unlink middle pages too with more complex logic
+                            if next_blockno != pg_sys::InvalidBlockNumber {
+                                pgrx::debug2!(
+                                    "Empty page {} in middle of freelist chain for XID {} - potential performance issue",
+                                    blockno, found_xid
+                                );
+                            }
                             blockno = next_blockno;
                             continue;
                         }
 
                         if !needs_modification {
-                            // This page either has no blocks or we already have enough
-                            // If it has blocks, mark that the freelist is not empty
+                            // This page has blocks but we already have enough
                             if contents.len > 0 {
                                 freelist_has_blocks = true;
                             }

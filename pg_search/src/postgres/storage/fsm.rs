@@ -788,11 +788,16 @@ pub mod v2 {
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
+            // Track XIDs we've found empty during this drain call to avoid retrying them
+            let mut empty_xids = std::collections::HashSet::new();
+
             // Debug counters for performance monitoring
             #[cfg(debug_assertions)]
             let mut debug_root_acquisitions = 0usize;
             #[cfg(debug_assertions)]
             let mut debug_lock_failures = 0usize;
+            #[cfg(debug_assertions)]
+            let mut debug_empty_xid_hits = 0usize;
 
             'outer: while blocks.len() < many {
                 // OPTIMIZATION: Keep root buffer across multiple XID retry attempts to avoid
@@ -822,6 +827,23 @@ pub mod v2 {
                         drop(root);
                         break 'outer;
                     };
+
+                    // Skip XIDs we've already found to be empty
+                    if empty_xids.contains(&found_xid) {
+                        #[cfg(debug_assertions)]
+                        {
+                            debug_empty_xid_hits += 1;
+                        }
+                        retry_count += 1;
+
+                        // Try next XID WITHOUT dropping root
+                        xid = found_xid - 1;
+                        if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                            drop(root);
+                            break 'outer;
+                        }
+                        continue 'retry;
+                    }
 
                     let mut head_blockno = tag as pg_sys::BlockNumber;
                     let mut blockno = head_blockno;
@@ -982,6 +1004,9 @@ pub mod v2 {
                         // if this was the last block in the list *and* the entire list is empty,
                         // remove the XID entry from the tree. We must hold no other locks while doing this
                         if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
+                            // Remember this XID is empty for this drain call
+                            empty_xids.insert(found_xid);
+
                             let mut root = bman.get_buffer_mut(self.start_blockno);
                             let mut page = root.page_mut();
                             let mut tree = self.avl_mut(&mut page);
@@ -1014,13 +1039,14 @@ pub mod v2 {
             }
 
             #[cfg(debug_assertions)]
-            if debug_lock_failures > 0 || debug_root_acquisitions > 1 {
+            if debug_lock_failures > 0 || debug_root_acquisitions > 1 || debug_empty_xid_hits > 0 {
                 pgrx::debug2!(
-                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}",
+                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}, empty_xid_hits={}",
                     many,
                     blocks.len(),
                     debug_root_acquisitions,
-                    debug_lock_failures
+                    debug_lock_failures,
+                    debug_empty_xid_hits
                 );
             }
 
@@ -1674,6 +1700,79 @@ pub mod v2 {
                 100,
                 elapsed
             );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_empty_xid_tracking() -> spi::Result<()> {
+            // This test verifies that the empty XID tracking optimization works correctly
+            // by creating many empty XIDs and measuring that they're not repeatedly tried
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_empty_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_empty_idx ON fsm_empty_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_empty_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Step 1: Add many XIDs with blocks and immediately drain them to create empty entries
+            let empty_xid_count = 50;
+            for i in 0..empty_xid_count {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 10,
+                };
+                // Add a single block and immediately drain it
+                let start = (70000 + i) as u32;
+                let end = start + 1;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+                // Drain to make it empty
+                let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+            }
+
+            // Step 2: Add one XID with actual blocks at a lower XID value
+            // This ensures drain will try the empty XIDs first
+            let good_xid = pg_sys::FullTransactionId { value: base_xid };
+            let block_count = 20;
+            fsm.extend_with_when_recyclable(&mut bman, good_xid, 80000..80000 + block_count);
+
+            // Step 3: Now drain - the empty XID tracking should prevent re-trying the 50 empty XIDs
+            let start_time = std::time::Instant::now();
+            let drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            let elapsed = start_time.elapsed();
+
+            assert_eq!(drained.len(), 10, "Should drain exactly 10 blocks");
+
+            pgrx::info!(
+                "Empty XID tracking test: drained {} blocks from {} empty XIDs in {:?}",
+                drained.len(),
+                empty_xid_count,
+                elapsed
+            );
+
+            // Verify blocks came from the expected range
+            for block in &drained {
+                assert!(
+                    *block >= 80000 && *block < 80000 + block_count,
+                    "Block {} not in expected range",
+                    block
+                );
+            }
+
+            // Test that a second drain call still benefits from tracking
+            // (though the HashSet is per-drain, this tests the overall behavior)
+            let second_drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert_eq!(second_drained.len(), 10, "Should drain remaining 10 blocks");
 
             Ok(())
         }

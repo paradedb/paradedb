@@ -806,18 +806,56 @@ pub mod v2 {
                         }
                     };
 
+                    // OPTIMIZATION: First check if the page is empty without modifying it
+                    // This avoids WAL generation for empty pages we're just traversing
+                    let (is_empty, next_blockno) = {
+                        let page = buffer.page();
+                        let contents = page.contents_ref::<AvlLeaf>();
+                        (contents.len == 0, page.next_blockno())
+                    };
+
+                    // If the page is empty and it's not the head, skip it without modifying
+                    if is_empty && blockno != head_blockno {
+                        drop(buffer);
+
+                        if next_blockno != pg_sys::InvalidBlockNumber {
+                            pgrx::debug2!(
+                                "Skipping empty page {} in freelist chain for XID {}",
+                                blockno,
+                                found_xid
+                            );
+                        }
+
+                        blockno = next_blockno;
+                        continue;
+                    }
+
                     let mut page = buffer.page_mut();
                     let contents = page.contents_mut::<AvlLeaf>();
                     let mut modified = false;
 
-                    let next_blockno = page.next_blockno();
-                    let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
-                        // this is the first page in the list and it's empty
-                        //
-                        // we unlink initial empty pages when they *become* empty, not when the *are* empty
-                        //
-                        // this means a concurrent backend is in the process of recycling this page
-                        false
+                    // At this point, we're either:
+                    // 1. On a non-empty page (head or middle)
+                    // 2. On an empty head page that needs unlinking
+                    let should_unlink_head = if is_empty && head_blockno == blockno {
+                        // Unlink empty head pages immediately to prevent chains of empty pages accumulating.
+                        // This fixes the issue where freelists are increasingly long chains of empty blocks.
+
+                        if next_blockno != pg_sys::InvalidBlockNumber {
+                            // This is an empty head page with more pages in the chain
+                            // We should unlink it to prevent repeated traversals
+                            pgrx::debug2!(
+                                "Unlinking empty head page {} from XID {}, next is {}",
+                                blockno,
+                                found_xid,
+                                next_blockno
+                            );
+                            true
+                        } else {
+                            // This is an empty head page with no next page
+                            // The entire freelist is empty and will be removed below (cnt == 0)
+                            false
+                        }
                     } else {
                         // get all that we can/need from this page
                         while contents.len > 0 && blocks.len() < many {
@@ -1176,6 +1214,152 @@ pub mod v2 {
             assert!(
                 fsm.drain(&mut bman, 1).next().is_none(),
                 "fsm should be empty"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_empty_page_unlinking() -> spi::Result<()> {
+            // This test verifies that empty pages in freelist chains are properly handled
+            // to prevent the issue where "freelists are increasingly long chains of empty blocks"
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_empty_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_empty_idx ON fsm_empty_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_empty_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Test scenario: Create a freelist that will have empty pages after partial drains
+            let xid = pg_sys::FullTransactionId { value: 100 };
+
+            // Add enough blocks to span multiple pages (assuming MAX_ENTRIES is around 678)
+            // This creates a multi-page freelist chain
+            let total_blocks = 2000u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid, 10000..10000 + total_blocks);
+
+            // First drain: take some blocks from the head page
+            let first_drain = 100usize;
+            let drained1: Vec<_> = fsm.drain(&mut bman, first_drain).collect();
+            assert_eq!(drained1.len(), first_drain, "Should drain first batch");
+
+            // Second drain: take more blocks, potentially emptying the head page
+            let second_drain = 600usize; // This should empty the first page (678 capacity)
+            let drained2: Vec<_> = fsm.drain(&mut bman, second_drain).collect();
+            assert_eq!(drained2.len(), second_drain, "Should drain second batch");
+
+            // At this point, the first page in the chain should be empty or nearly empty
+            // The fix should unlink it if it's empty
+
+            // Third drain: This would previously traverse the empty first page
+            // With our fix, the empty head page should have been unlinked
+            let third_drain = 100usize;
+            let drained3: Vec<_> = fsm.drain(&mut bman, third_drain).collect();
+            assert_eq!(drained3.len(), third_drain, "Should drain third batch");
+
+            // Verify the remaining blocks can still be drained
+            let remaining = (total_blocks as usize) - first_drain - second_drain - third_drain;
+            let drained_rest: Vec<_> = fsm.drain(&mut bman, remaining).collect();
+            assert_eq!(
+                drained_rest.len(),
+                remaining,
+                "Should drain all remaining blocks"
+            );
+
+            // After draining everything, the XID should be removed from the tree
+            let final_drain: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert!(
+                final_drain.is_empty(),
+                "No blocks should remain after draining all"
+            );
+
+            // Test multiple XIDs to ensure empty page handling works across different freelists
+            for i in 0..5 {
+                let xid = pg_sys::FullTransactionId { value: 200 + i };
+                fsm.extend_with_when_recyclable(
+                    &mut bman,
+                    xid,
+                    (20000 + i * 1000) as u32..(20000 + i * 1000 + 500) as u32,
+                );
+            }
+
+            // Drain from each XID partially to create empty pages
+            for _ in 0..5 {
+                let drained: Vec<_> = fsm.drain(&mut bman, 100).collect();
+                assert_eq!(drained.len(), 100, "Should drain 100 blocks each time");
+            }
+
+            // Now drain the rest - this tests that empty pages don't accumulate
+            let final_drain_all: Vec<_> = fsm.drain(&mut bman, 5000).collect();
+            assert_eq!(
+                final_drain_all.len(),
+                5 * 500 - 5 * 100,
+                "Should drain all remaining blocks"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_empty_chain_performance() -> spi::Result<()> {
+            // This test specifically targets the performance issue where chains of empty pages
+            // accumulate and cause repeated traversals
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_chain_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_chain_idx ON fsm_chain_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_chain_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Create a worst-case scenario: a long chain where we drain from the head repeatedly
+            // This mimics the production issue with blocks 61478825-61478794
+            let xid = pg_sys::FullTransactionId { value: 300 };
+
+            // Create a chain of 10 pages worth of blocks
+            let blocks_per_page = 678u32; // Approximate MAX_ENTRIES
+            let num_pages = 10u32;
+            let total_blocks = blocks_per_page * num_pages;
+
+            fsm.extend_with_when_recyclable(&mut bman, xid, 30000..30000 + total_blocks);
+
+            // Repeatedly drain small amounts from the head
+            // Without the fix, this would create a chain: Empty -> Empty -> Empty -> ... -> Page-with-blocks
+            // With the fix, empty head pages are unlinked immediately
+            for i in 0..num_pages {
+                // Drain exactly one page worth of blocks
+                let drained: Vec<_> = fsm.drain(&mut bman, blocks_per_page as usize).collect();
+                assert_eq!(
+                    drained.len(),
+                    blocks_per_page as usize,
+                    "Should drain one page worth of blocks on iteration {}",
+                    i
+                );
+
+                // After each drain, the head page should be empty and unlinked
+                // The next drain should NOT traverse empty pages
+            }
+
+            // All blocks should be drained, and the XID should be removed
+            let final_check: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert!(
+                final_check.is_empty(),
+                "All blocks should have been drained"
             );
 
             Ok(())

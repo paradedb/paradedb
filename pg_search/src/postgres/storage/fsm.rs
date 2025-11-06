@@ -643,6 +643,86 @@ pub mod v2 {
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
     use pgrx::pg_sys;
     use std::iter::Peekable;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Global FSM statistics for monitoring and debugging
+    pub struct FsmStats {
+        /// Total number of drain calls
+        pub total_drain_calls: AtomicUsize,
+        /// Total number of blocks drained
+        pub total_blocks_drained: AtomicUsize,
+        /// Total number of empty XIDs encountered
+        pub empty_xid_hits: AtomicUsize,
+        /// Total number of lock failures
+        pub lock_failures: AtomicUsize,
+        /// Total number of root buffer acquisitions
+        pub root_acquisitions: AtomicUsize,
+        /// Sum of tree fullness across all drain calls (for averaging)
+        pub tree_fullness_sum: AtomicUsize,
+        /// Maximum tree fullness seen
+        pub max_tree_fullness: AtomicUsize,
+        /// Total number of XIDs examined
+        pub xids_examined: AtomicUsize,
+        /// Total number of XIDs removed
+        pub xids_removed: AtomicUsize,
+    }
+
+    impl FsmStats {
+        const fn new() -> Self {
+            Self {
+                total_drain_calls: AtomicUsize::new(0),
+                total_blocks_drained: AtomicUsize::new(0),
+                empty_xid_hits: AtomicUsize::new(0),
+                lock_failures: AtomicUsize::new(0),
+                root_acquisitions: AtomicUsize::new(0),
+                tree_fullness_sum: AtomicUsize::new(0),
+                max_tree_fullness: AtomicUsize::new(0),
+                xids_examined: AtomicUsize::new(0),
+                xids_removed: AtomicUsize::new(0),
+            }
+        }
+
+        #[allow(dead_code)]
+        pub fn reset(&self) {
+            self.total_drain_calls.store(0, Ordering::Relaxed);
+            self.total_blocks_drained.store(0, Ordering::Relaxed);
+            self.empty_xid_hits.store(0, Ordering::Relaxed);
+            self.lock_failures.store(0, Ordering::Relaxed);
+            self.root_acquisitions.store(0, Ordering::Relaxed);
+            self.tree_fullness_sum.store(0, Ordering::Relaxed);
+            self.max_tree_fullness.store(0, Ordering::Relaxed);
+            self.xids_examined.store(0, Ordering::Relaxed);
+            self.xids_removed.store(0, Ordering::Relaxed);
+        }
+
+        #[allow(dead_code)]
+        pub fn get_summary(&self) -> String {
+            let total_calls = self.total_drain_calls.load(Ordering::Relaxed);
+            let avg_tree_fullness = if total_calls > 0 {
+                self.tree_fullness_sum.load(Ordering::Relaxed) / total_calls
+            } else {
+                0
+            };
+
+            format!(
+                "FSM Stats: drain_calls={}, blocks_drained={}, empty_xid_hits={}, lock_failures={}, \
+                 root_acquisitions={}, avg_tree_fullness={}, max_tree_fullness={}, \
+                 xids_examined={}, xids_removed={}",
+                total_calls,
+                self.total_blocks_drained.load(Ordering::Relaxed),
+                self.empty_xid_hits.load(Ordering::Relaxed),
+                self.lock_failures.load(Ordering::Relaxed),
+                self.root_acquisitions.load(Ordering::Relaxed),
+                avg_tree_fullness,
+                self.max_tree_fullness.load(Ordering::Relaxed),
+                self.xids_examined.load(Ordering::Relaxed),
+                self.xids_removed.load(Ordering::Relaxed)
+            )
+        }
+    }
+
+    /// Global FSM statistics instance
+    static FSM_STATS: FsmStats = FsmStats::new();
 
     #[derive(Debug, Copy, Clone)]
     #[repr(C)]
@@ -723,6 +803,14 @@ pub mod v2 {
         start_blockno: pg_sys::BlockNumber,
     }
 
+    impl V2FSM {
+        /// Get a reference to the global FSM statistics
+        #[allow(dead_code)]
+        pub fn stats() -> &'static FsmStats {
+            &FSM_STATS
+        }
+    }
+
     impl FreeSpaceManager for V2FSM {
         unsafe fn create(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
             let mut root = init_new_buffer(indexrel);
@@ -785,6 +873,9 @@ pub mod v2 {
                     .max(pg_sys::FirstNormalTransactionId.into_inner() as u64)
             };
 
+            // Update global stats for this drain call
+            FSM_STATS.total_drain_calls.fetch_add(1, Ordering::Relaxed);
+
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
@@ -814,6 +905,7 @@ pub mod v2 {
                 // Now we keep the root buffer and try up to max_xid_retries XIDs before
                 // dropping and re-acquiring, reducing root acquisitions.
                 let mut root = Some(bman.get_buffer(self.start_blockno));
+                FSM_STATS.root_acquisitions.fetch_add(1, Ordering::Relaxed);
                 #[cfg(debug_assertions)]
                 {
                     debug_root_acquisitions += 1;
@@ -826,6 +918,14 @@ pub mod v2 {
                     let tree = self.avl_ref(&page);
                     tree.len()
                 };
+
+                // Update tree fullness stats
+                FSM_STATS
+                    .tree_fullness_sum
+                    .fetch_add(tree_size, Ordering::Relaxed);
+                FSM_STATS
+                    .max_tree_fullness
+                    .fetch_max(tree_size, Ordering::Relaxed);
 
                 let max_xid_retries = if tree_size > 300 {
                     // Nearly full tree
@@ -856,6 +956,7 @@ pub mod v2 {
 
                     // Skip XIDs we've already found to be empty
                     if empty_xids.contains(&found_xid) {
+                        FSM_STATS.empty_xid_hits.fetch_add(1, Ordering::Relaxed);
                         #[cfg(debug_assertions)]
                         {
                             debug_empty_xid_hits += 1;
@@ -870,6 +971,8 @@ pub mod v2 {
                         }
                         continue 'retry;
                     }
+
+                    FSM_STATS.xids_examined.fetch_add(1, Ordering::Relaxed);
 
                     let mut head_blockno = tag as pg_sys::BlockNumber;
                     let mut blockno = head_blockno;
@@ -889,6 +992,7 @@ pub mod v2 {
                             // Couldn't get lock on this XID's freelist HEAD
                             // This means another backend is using this XID's blocks
                             retry_count += 1;
+                            FSM_STATS.lock_failures.fetch_add(1, Ordering::Relaxed);
                             #[cfg(debug_assertions)]
                             {
                                 debug_lock_failures += 1;
@@ -1038,7 +1142,9 @@ pub mod v2 {
                             let mut tree = self.avl_mut(&mut page);
 
                             // ok if another backend already removed it.
-                            let _ = tree.remove(&found_xid);
+                            if tree.remove(&found_xid).is_some() {
+                                FSM_STATS.xids_removed.fetch_add(1, Ordering::Relaxed);
+                            }
                             drop(root);
                         }
 
@@ -1063,6 +1169,11 @@ pub mod v2 {
                     break;
                 }
             }
+
+            // Update global stats with blocks drained
+            FSM_STATS
+                .total_blocks_drained
+                .fetch_add(blocks.len(), Ordering::Relaxed);
 
             #[cfg(debug_assertions)]
             if debug_lock_failures > 0 || debug_root_acquisitions > 1 || debug_empty_xid_hits > 0 {
@@ -1258,6 +1369,7 @@ pub mod v2 {
         use crate::postgres::storage::buffer::BufferManager;
         use crate::postgres::storage::fsm::FreeSpaceManager;
         use crate::postgres::storage::metadata::MetaPage;
+        use std::sync::atomic::Ordering;
 
         #[pg_test]
         unsafe fn test_fsmv2_basics() -> spi::Result<()> {
@@ -1898,6 +2010,99 @@ pub mod v2 {
             // even with a nearly full tree. With 320 XIDs and adaptive retries:
             // - Old behavior: potentially 320 root acquisitions
             // - New behavior: ~16 root acquisitions (320/20)
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_statistics_tracking() -> spi::Result<()> {
+            // This test verifies that FSM statistics are properly tracked during operations
+
+            // Reset stats to start fresh
+            V2FSM::stats().reset();
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_stats_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_stats_idx ON fsm_stats_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_stats_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Initial stats should be zero
+            let stats = V2FSM::stats();
+            assert_eq!(stats.total_drain_calls.load(Ordering::Relaxed), 0);
+            assert_eq!(stats.total_blocks_drained.load(Ordering::Relaxed), 0);
+
+            // Add some XIDs with blocks
+            for i in 0..10 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 100,
+                };
+                let start = (95000 + i * 10) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 5);
+            }
+
+            // First drain - should update stats
+            let drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            assert_eq!(drained.len(), 10);
+
+            // Check stats after first drain
+            assert_eq!(stats.total_drain_calls.load(Ordering::Relaxed), 1);
+            assert_eq!(stats.total_blocks_drained.load(Ordering::Relaxed), 10);
+            assert!(stats.root_acquisitions.load(Ordering::Relaxed) >= 1);
+            assert!(stats.xids_examined.load(Ordering::Relaxed) >= 1);
+
+            // Create some empty XIDs to test empty_xid_hits
+            for i in 10..20 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 100,
+                };
+                let start = (96000 + i) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 1);
+                // Drain immediately to make empty
+                let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+            }
+
+            let prev_empty_hits = stats.empty_xid_hits.load(Ordering::Relaxed);
+
+            // Second drain - should encounter empty XIDs
+            let drained2: Vec<_> = fsm.drain(&mut bman, 15).collect();
+
+            // Check updated stats
+            assert_eq!(stats.total_drain_calls.load(Ordering::Relaxed), 12); // 1 + 10 (from emptying) + 1
+            assert!(
+                stats.empty_xid_hits.load(Ordering::Relaxed) > prev_empty_hits
+                    || drained2.len() == 15
+            );
+
+            // Test tree fullness tracking
+            let avg_tree_fullness = if stats.total_drain_calls.load(Ordering::Relaxed) > 0 {
+                stats.tree_fullness_sum.load(Ordering::Relaxed)
+                    / stats.total_drain_calls.load(Ordering::Relaxed)
+            } else {
+                0
+            };
+
+            pgrx::info!("FSM Stats Summary: {}", stats.get_summary());
+
+            pgrx::info!(
+                "Average tree fullness: {}, Max tree fullness: {}",
+                avg_tree_fullness,
+                stats.max_tree_fullness.load(Ordering::Relaxed)
+            );
+
+            // Verify max tree fullness is reasonable
+            assert!(stats.max_tree_fullness.load(Ordering::Relaxed) <= 338); // Max possible slots
 
             Ok(())
         }

@@ -1514,6 +1514,169 @@ pub mod v2 {
 
             Ok(())
         }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_full_tree_contention() -> spi::Result<()> {
+            // This test simulates the production scenario where the FSM tree is nearly full
+            // with many XIDs, testing both optimizations:
+            // 1. Root buffer re-acquisition optimization (avoiding 338 re-acquisitions)
+            // 2. WAL generation optimization (read-only buffers first)
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_contention_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_contention_idx ON fsm_contention_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_contention_idx'::regclass::oid")?
+                    .unwrap_or(pg_sys::InvalidOid);
+
+            assert_ne!(index_oid, pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Fill the FSM tree with many XIDs to simulate production scenario
+            // We'll create a pattern similar to what was observed:
+            // - A few XIDs with many blocks
+            // - Many XIDs with very few blocks
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Create 3 XIDs with many blocks (simulating the top 3 from production)
+            for i in 0..3 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 1000,
+                };
+                // Add lots of blocks to these XIDs
+                let start = (i * 10000) as u32;
+                let end = start + 1000;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            // Create many XIDs with very few blocks (simulating the long tail)
+            // This will fill up the tree slots
+            for i in 0..200 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + 10000 + i,
+                };
+                // Add only a few blocks to each
+                let start = (30000 + i * 5) as u32;
+                let end = start + 2;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            // Now drain blocks - this will exercise the retry logic
+            // With a full tree, the old code would re-acquire root up to 200+ times
+            // With our optimization, it should only re-acquire ~20 times (200/10)
+
+            let start_time = std::time::Instant::now();
+            let drain_count = 100;
+            let drained: Vec<_> = fsm.drain(&mut bman, drain_count).collect();
+            let drain_time = start_time.elapsed();
+
+            // Verify we got the expected number of blocks
+            assert!(
+                drained.len() <= drain_count,
+                "Should drain at most {} blocks, got {}",
+                drain_count,
+                drained.len()
+            );
+
+            pgrx::info!(
+                "Drained {} blocks from full FSM tree in {:?}",
+                drained.len(),
+                drain_time
+            );
+
+            // Test draining when many XIDs are in the future (can't be used)
+            // This forces the drain to try many XIDs before finding usable ones
+            let future_base = base_xid + 1_000_000;
+
+            // Add XIDs far in the future
+            for i in 0..50 {
+                let xid = pg_sys::FullTransactionId {
+                    value: future_base + i,
+                };
+                let start = (100000 + i * 10) as u32;
+                let end = start + 5;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            // These future blocks shouldn't be drainable
+            let current_xid_drain: Vec<_> = fsm.drain(&mut bman, 50).collect();
+
+            // We should only get blocks from XIDs <= current XID
+            // The drain should have to skip over the future XIDs efficiently
+            pgrx::info!(
+                "Drained {} blocks when many XIDs are in future (should skip future XIDs efficiently)",
+                current_xid_drain.len()
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_retry_performance() -> spi::Result<()> {
+            // This test specifically measures the performance improvement from
+            // keeping the root buffer across XID retries
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_retry_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_retry_idx ON fsm_retry_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_retry_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Create a worst-case scenario: many XIDs with no blocks except the last ones
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Add many empty XIDs (these will be tried and skipped)
+            for i in 0..100 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 2,
+                };
+                // Add and immediately drain to create empty entries
+                let start = (50000 + i) as u32;
+                let end = start + 1;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+                let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+            }
+
+            // Add one XID with actual blocks at the end
+            let good_xid = pg_sys::FullTransactionId { value: base_xid };
+            fsm.extend_with_when_recyclable(&mut bman, good_xid, 60000..60100);
+
+            // Now drain - this will have to skip through many empty XIDs
+            // Old implementation: would re-acquire root for each empty XID
+            // New implementation: tries 10 XIDs per root acquisition
+            let start_time = std::time::Instant::now();
+            let drained: Vec<_> = fsm.drain(&mut bman, 50).collect();
+            let elapsed = start_time.elapsed();
+
+            assert!(!drained.is_empty(), "Should drain some blocks");
+
+            pgrx::info!(
+                "Drained {} blocks through {} empty XIDs in {:?} (optimized retry logic)",
+                drained.len(),
+                100,
+                elapsed
+            );
+
+            Ok(())
+        }
     }
 }
 

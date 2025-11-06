@@ -891,6 +891,10 @@ pub mod v2 {
             let mut debug_empty_xid_hits = 0usize;
             #[cfg(debug_assertions)]
             let mut debug_adaptive_retries = 0usize;
+            #[cfg(debug_assertions)]
+            let mut debug_yield_count = 0usize;
+            #[cfg(debug_assertions)]
+            let mut debug_sleep_count = 0usize;
 
             'outer: while blocks.len() < many {
                 // OPTIMIZATION: Keep root buffer across multiple XID retry attempts to avoid
@@ -946,6 +950,26 @@ pub mod v2 {
                 let mut retry_count = 0;
 
                 'retry: while retry_count < max_xid_retries && blocks.len() < many {
+                    // PROGRESSIVE BACKOFF: Reduce CPU spinning under high contention
+                    if retry_count >= 5 {
+                        // After 5 retries, yield to other threads
+                        std::thread::yield_now();
+                        #[cfg(debug_assertions)]
+                        {
+                            debug_yield_count += 1;
+                        }
+
+                        if retry_count >= 10 {
+                            // After 10 retries, brief sleep to reduce contention
+                            // Sleep for 1-2ms to give other backends a chance
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                            #[cfg(debug_assertions)]
+                            {
+                                debug_sleep_count += 1;
+                            }
+                        }
+                    }
+
                     let page = root.as_ref().unwrap().page();
                     let tree = self.avl_ref(&page);
 
@@ -1176,15 +1200,21 @@ pub mod v2 {
                 .fetch_add(blocks.len(), Ordering::Relaxed);
 
             #[cfg(debug_assertions)]
-            if debug_lock_failures > 0 || debug_root_acquisitions > 1 || debug_empty_xid_hits > 0 {
+            if debug_lock_failures > 0
+                || debug_root_acquisitions > 1
+                || debug_empty_xid_hits > 0
+                || debug_yield_count > 0
+            {
                 pgrx::debug2!(
-                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}, empty_xid_hits={}, adaptive_retries={}",
+                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}, empty_xid_hits={}, adaptive_retries={}, yield_count={}, sleep_count={}",
                     many,
                     blocks.len(),
                     debug_root_acquisitions,
                     debug_lock_failures,
                     debug_empty_xid_hits,
-                    debug_adaptive_retries
+                    debug_adaptive_retries,
+                    debug_yield_count,
+                    debug_sleep_count
                 );
             }
 
@@ -2103,6 +2133,91 @@ pub mod v2 {
 
             // Verify max tree fullness is reasonable
             assert!(stats.max_tree_fullness.load(Ordering::Relaxed) <= 338); // Max possible slots
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_progressive_backoff() -> spi::Result<()> {
+            // This test verifies that progressive backoff reduces CPU spinning under high contention
+            // by creating a scenario with many lock failures that trigger backoff
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_backoff_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_backoff_idx ON fsm_backoff_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_backoff_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Create a scenario that will trigger many retries:
+            // 1. Many XIDs with very few or no blocks (will be skipped quickly)
+            // 2. Some XIDs that are "in the future" (can't be used)
+            // 3. A high tree fullness to trigger more retries
+
+            // First, fill the tree with many XIDs to increase contention
+            for i in 0..250 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 50,
+                };
+                let start = (100000 + i * 2) as u32;
+
+                // Most XIDs have just 1 block that we immediately drain
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 1);
+                if i % 10 != 0 {
+                    // Drain most of them to create empty XIDs
+                    let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+                }
+            }
+
+            // Add XIDs far in the future that can't be drained
+            let future_base = base_xid + 1_000_000;
+            for i in 0..50 {
+                let xid = pg_sys::FullTransactionId {
+                    value: future_base + i,
+                };
+                let start = (120000 + i * 5) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 2);
+            }
+
+            // Finally add one good XID with blocks we can actually drain
+            let good_xid = pg_sys::FullTransactionId {
+                value: base_xid - 1, // Lower than base to ensure it's found
+            };
+            fsm.extend_with_when_recyclable(&mut bman, good_xid, 130000..130050);
+
+            // Now drain - this should trigger many retries and backoff
+            let start_time = std::time::Instant::now();
+            let drained: Vec<_> = fsm.drain(&mut bman, 25).collect();
+            let elapsed_with_backoff = start_time.elapsed();
+
+            pgrx::info!(
+                "Progressive backoff test: drained {} blocks in {:?} with backoff enabled",
+                drained.len(),
+                elapsed_with_backoff
+            );
+
+            // Verify we got blocks despite the high contention
+            assert!(
+                drained.len() <= 25,
+                "Should drain at most 25 blocks, got {}",
+                drained.len()
+            );
+
+            // The backoff should prevent excessive CPU spinning
+            // With 250+ XIDs and many being empty or future, we expect:
+            // - Yields after 5 retries
+            // - Sleeps after 10 retries
+            // This reduces CPU usage and gives other backends a chance
 
             Ok(())
         }

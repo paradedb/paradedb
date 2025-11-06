@@ -1269,6 +1269,19 @@ pub mod v2 {
                 }
             };
 
+            // Check if we should compact before adding more blocks
+            // This is especially important for merges that will add many XIDs
+            if self.should_compact(bman) {
+                pgrx::debug1!("Running FSM compaction before extending freelist");
+                let removed = self.compact(bman);
+                if removed > 0 {
+                    pgrx::info!(
+                        "FSM compaction freed {} slots before merge operation",
+                        removed
+                    );
+                }
+            }
+
             let start_time = if is_likely_merge {
                 Some(std::time::Instant::now())
             } else {
@@ -1321,6 +1334,111 @@ pub mod v2 {
             }
 
             max_slot.tag
+        }
+
+        /// Compact the FSM by removing empty XIDs from the tree
+        /// Returns the number of XIDs removed
+        fn compact(&mut self, bman: &mut BufferManager) -> usize {
+            let mut removed_count = 0;
+            let mut xids_to_remove = Vec::new();
+
+            // First pass: identify empty XIDs
+            {
+                let root = bman.get_buffer(self.start_blockno);
+                let page = root.page();
+                let tree = self.avl_ref(&page);
+
+                // Collect all XIDs with their head block numbers
+                // Note: iter() returns (K, V) so we need to look up the tag separately
+                let all_xids: Vec<_> = tree.iter().map(|(xid, _)| xid).collect();
+
+                let mut all_entries = Vec::new();
+                for xid in all_xids {
+                    if let Some((_, tag)) = tree.get(&xid) {
+                        all_entries.push((xid, tag as pg_sys::BlockNumber));
+                    }
+                }
+
+                drop(root);
+
+                // Check each XID's freelist to see if it's empty
+                for (xid, head_blockno) in all_entries {
+                    let mut is_empty = true;
+                    let mut blockno = head_blockno;
+
+                    // Traverse the freelist chain
+                    while blockno != pg_sys::InvalidBlockNumber && is_empty {
+                        if let Some(buffer) = bman.get_buffer_conditional(blockno) {
+                            let page = buffer.page();
+                            let contents = page.contents_ref::<AvlLeaf>();
+
+                            if contents.len > 0 {
+                                is_empty = false;
+                            }
+
+                            blockno = page.next_blockno();
+                        } else {
+                            // Can't acquire lock, assume not empty to be safe
+                            is_empty = false;
+                            break;
+                        }
+                    }
+
+                    if is_empty {
+                        xids_to_remove.push(xid);
+                    }
+                }
+            }
+
+            // Second pass: remove empty XIDs
+            if !xids_to_remove.is_empty() {
+                let mut root = bman.get_buffer_mut(self.start_blockno);
+                let mut page = root.page_mut();
+                let mut tree = self.avl_mut(&mut page);
+
+                for xid in &xids_to_remove {
+                    if tree.remove(xid).is_some() {
+                        removed_count += 1;
+                        pgrx::debug2!("FSM compact: removed empty XID {}", xid);
+                    }
+                }
+            }
+
+            if removed_count > 0 {
+                pgrx::info!(
+                    "FSM compaction removed {} empty XIDs from tree",
+                    removed_count
+                );
+            }
+
+            removed_count
+        }
+
+        /// Check if the FSM would benefit from compaction
+        /// Returns true if compaction is recommended
+        fn should_compact(&self, bman: &mut BufferManager) -> bool {
+            let root = bman.get_buffer(self.start_blockno);
+            let page = root.page();
+            let tree = self.avl_ref(&page);
+
+            let tree_size = tree.len();
+            drop(root);
+
+            // Recommend compaction if tree is >80% full
+            // The tree has a maximum of 338 slots
+            const MAX_TREE_SIZE: usize = 338;
+            const COMPACT_THRESHOLD: usize = (MAX_TREE_SIZE * 80) / 100; // 80% = 270 slots
+
+            if tree_size >= COMPACT_THRESHOLD {
+                pgrx::debug1!(
+                    "FSM compaction recommended: tree size {} >= threshold {}",
+                    tree_size,
+                    COMPACT_THRESHOLD
+                );
+                return true;
+            }
+
+            false
         }
 
         fn extend_freelist(
@@ -1802,6 +1920,119 @@ pub mod v2 {
 
             // The merge detection should have logged INFO messages
             // (we can't directly assert on log output, but this verifies the code path works)
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_compaction() -> spi::Result<()> {
+            // Test that compaction removes empty XIDs from the tree
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_compact_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_compact_idx ON fsm_compact_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_compact_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Create several XIDs with small numbers of blocks
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+            for i in 0..5u32 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i as u64,
+                };
+                fsm.extend_with_when_recyclable(
+                    &mut bman,
+                    xid,
+                    (10000 + i * 100)..(10000 + i * 100 + 10),
+                );
+            }
+
+            // Manually empty the freelists without using drain (which auto-removes empty XIDs)
+            // This simulates XIDs that have become empty but haven't been cleaned up yet
+            // First collect all the head block numbers
+            let mut head_blocks = Vec::new();
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+
+                for i in 0..5u32 {
+                    let xid = base_xid + i as u64;
+                    if let Some((_, tag)) = tree.get(&xid) {
+                        head_blocks.push(tag as pg_sys::BlockNumber);
+                    }
+                }
+            }
+
+            // Now empty all pages for each XID
+            for head_blockno in head_blocks {
+                let mut blockno = head_blockno;
+                while blockno != pg_sys::InvalidBlockNumber {
+                    let mut buf = bman.get_buffer_mut(blockno);
+                    let mut p = buf.page_mut();
+                    let leaf = p.contents_mut::<AvlLeaf>();
+                    leaf.len = 0;
+
+                    let next = p.next_blockno();
+                    drop(buf);
+                    blockno = next;
+                }
+            }
+
+            // Now run compaction - should remove all empty XIDs
+            let removed = fsm.compact(&mut bman);
+            assert!(
+                removed > 0,
+                "Should have removed at least one empty XID, got {}",
+                removed
+            );
+            assert!(
+                removed <= 5,
+                "Should not remove more than 5 XIDs, got {}",
+                removed
+            );
+
+            pgrx::info!("Compaction test removed {} XIDs", removed);
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_should_compact() -> spi::Result<()> {
+            // Test the should_compact logic
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_should_compact_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_should_compact_idx ON fsm_should_compact_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_should_compact_idx'::regclass::oid")?
+                    .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let fsm = V2FSM::open(metapage.fsm());
+
+            // Initially should not need compaction
+            assert!(
+                !fsm.should_compact(&mut bman),
+                "Empty tree should not need compaction"
+            );
+
+            // The threshold is 270 XIDs (80% of 338)
+            // We can't easily test this without creating 270+ XIDs which is expensive
+            // But we can verify the logic doesn't panic
 
             Ok(())
         }

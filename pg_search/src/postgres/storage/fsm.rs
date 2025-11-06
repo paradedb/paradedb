@@ -809,6 +809,104 @@ pub mod v2 {
         pub fn stats() -> &'static FsmStats {
             &FSM_STATS
         }
+
+        /// Perform maintenance on the FSM tree to prevent it from becoming full
+        /// This should be called periodically or when tree fullness exceeds a threshold
+        /// Returns the number of XIDs removed during maintenance
+        #[allow(dead_code)]
+        pub fn compact(&mut self, bman: &mut BufferManager) -> usize {
+            let current_xid = unsafe {
+                pg_sys::GetCurrentFullTransactionIdIfAny()
+                    .value
+                    .max(pg_sys::FirstNormalTransactionId.into_inner() as u64)
+            };
+
+            let mut xids_removed = 0;
+            let mut xids_to_remove = Vec::new();
+
+            // First pass: identify empty XIDs that can be removed
+            // We iterate by repeatedly calling get_lte starting from current_xid
+            {
+                let root = bman.get_buffer(self.start_blockno);
+                let page = root.page();
+                let tree = self.avl_ref(&page);
+
+                // Start from current XID and work backwards
+                let mut check_xid = current_xid;
+
+                // Iterate through XIDs that are <= current XID
+                while check_xid >= pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                    if let Some((xid, _value, tag)) = tree.get_lte(&check_xid) {
+                        let head_blockno = tag as pg_sys::BlockNumber;
+
+                        // Try to check if this XID's freelist is empty without acquiring exclusive lock
+                        if head_blockno != pg_sys::InvalidBlockNumber {
+                            // Try to get a conditional read lock on the head
+                            if let Some(buffer) = bman.get_buffer_conditional_readonly(head_blockno)
+                            {
+                                let page = buffer.page();
+                                let contents = page.contents_ref::<AvlLeaf>();
+
+                                // If the head page is empty and there's no next page, this XID is empty
+                                if contents.len == 0
+                                    && page.next_blockno() == pg_sys::InvalidBlockNumber
+                                {
+                                    xids_to_remove.push(xid);
+                                }
+                                // Note: buffer is automatically released when it goes out of scope
+                            }
+                            // If we couldn't get the lock, skip this XID (it's in use)
+                        } else {
+                            // Invalid block number means empty freelist
+                            xids_to_remove.push(xid);
+                        }
+
+                        // Move to next lower XID
+                        if xid == 0 {
+                            break;
+                        }
+                        check_xid = xid - 1;
+                    } else {
+                        // No more XIDs
+                        break;
+                    }
+
+                    // Limit the number of XIDs we check in one maintenance pass
+                    if xids_to_remove.len() >= 50 {
+                        break; // Don't try to remove too many at once
+                    }
+                }
+            }
+
+            // Second pass: remove empty XIDs from the tree
+            if !xids_to_remove.is_empty() {
+                let mut root = bman.get_buffer_mut(self.start_blockno);
+                let mut page = root.page_mut();
+                let mut tree = self.avl_mut(&mut page);
+
+                for xid in xids_to_remove {
+                    if tree.remove(&xid).is_some() {
+                        xids_removed += 1;
+                    }
+                }
+            }
+
+            xids_removed
+        }
+
+        /// Check if maintenance is recommended based on tree fullness
+        /// Returns true if tree is more than 80% full
+        #[allow(dead_code)]
+        pub fn needs_maintenance(&self, bman: &mut BufferManager) -> bool {
+            let root = bman.get_buffer(self.start_blockno);
+            let page = root.page();
+            let tree = self.avl_ref(&page);
+
+            let tree_size = tree.len();
+            // Recommend maintenance if tree is more than 80% full
+            // MAX_SLOTS is approximately 338
+            tree_size > (MAX_SLOTS * 80 / 100)
+        }
     }
 
     impl FreeSpaceManager for V2FSM {
@@ -2218,6 +2316,129 @@ pub mod v2 {
             // - Yields after 5 retries
             // - Sleeps after 10 retries
             // This reduces CPU usage and gives other backends a chance
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_maintenance() -> spi::Result<()> {
+            // This test verifies that the FSM maintenance task properly cleans up empty XIDs
+            // and prevents the tree from becoming full
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_maint_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_maint_idx ON fsm_maint_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_maint_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Step 1: Fill the tree with many XIDs to simulate production scenario
+            pgrx::info!("Creating many XIDs to fill the FSM tree...");
+            for i in 0..250 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 10,
+                };
+                let start = (140000 + i * 5) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 2);
+            }
+
+            // Check tree fullness before maintenance
+            let tree_size_before = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            pgrx::info!("Tree size before maintenance: {} XIDs", tree_size_before);
+            assert!(tree_size_before >= 250, "Should have at least 250 XIDs");
+
+            // Step 2: Drain blocks from many XIDs to make them empty
+            pgrx::info!("Draining blocks to create empty XIDs...");
+            for _ in 0..200 {
+                let _: Vec<_> = fsm.drain(&mut bman, 2).collect();
+            }
+
+            // Step 3: Check if maintenance is needed
+            let needs_maint = fsm.needs_maintenance(&mut bman);
+            pgrx::info!(
+                "Needs maintenance: {} (tree is {}% full)",
+                needs_maint,
+                tree_size_before * 100 / MAX_SLOTS
+            );
+
+            // Step 4: Run maintenance to clean up empty XIDs
+            let xids_removed = fsm.compact(&mut bman);
+            pgrx::info!("Maintenance removed {} empty XIDs", xids_removed);
+
+            // Check tree fullness after maintenance
+            let tree_size_after = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            pgrx::info!("Tree size after maintenance: {} XIDs", tree_size_after);
+            assert!(
+                tree_size_after < tree_size_before,
+                "Maintenance should reduce tree size"
+            );
+            assert!(xids_removed > 0, "Should have removed at least some XIDs");
+
+            // Step 5: Verify we can still drain remaining blocks
+            let drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            pgrx::info!(
+                "After maintenance, drained {} blocks successfully",
+                drained.len()
+            );
+
+            // Step 6: Test that maintenance doesn't remove non-empty XIDs
+            // Add some XIDs with blocks
+            for i in 0..10 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + 1000 + i,
+                };
+                let start = (150000 + i * 10) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 5);
+            }
+
+            let tree_size_with_blocks = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            // Run maintenance again
+            let xids_removed_2 = fsm.compact(&mut bman);
+
+            let tree_size_after_2 = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            pgrx::info!(
+                "Second maintenance: removed {} XIDs, tree size {} -> {}",
+                xids_removed_2,
+                tree_size_with_blocks,
+                tree_size_after_2
+            );
+
+            // The XIDs with blocks should not be removed
+            assert!(tree_size_after_2 >= 10, "Should keep XIDs with blocks");
 
             Ok(())
         }

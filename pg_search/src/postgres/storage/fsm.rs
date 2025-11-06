@@ -769,6 +769,13 @@ pub mod v2 {
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
+            // Production monitoring metrics
+            let mut empty_pages_skipped = 0usize;
+            let mut head_pages_unlinked = 0usize;
+            let mut xids_processed = 0usize;
+            let mut max_chain_length = 0usize;
+            let mut total_chain_length = 0usize;
+
             'outer: while blocks.len() < many {
                 let mut root = Some(bman.get_buffer(self.start_blockno));
                 let page = root.as_ref().unwrap().page();
@@ -782,7 +789,12 @@ pub mod v2 {
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
 
+                // Track chain length for this XID
+                let mut chain_length = 0usize;
+                xids_processed += 1;
+
                 while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
+                    chain_length += 1;
                     // we drop the "root" buffer after getting the head buffer.
                     // this ensures that the `head_blockno` (the root entry's "tag" value)
                     // is what it says it is
@@ -818,6 +830,7 @@ pub mod v2 {
                     if is_empty && blockno != head_blockno {
                         drop(buffer);
 
+                        empty_pages_skipped += 1;
                         if next_blockno != pg_sys::InvalidBlockNumber {
                             pgrx::debug2!(
                                 "Skipping empty page {} in freelist chain for XID {}",
@@ -904,6 +917,12 @@ pub mod v2 {
                         drop(root);
 
                         if did_update_head {
+                            head_pages_unlinked += 1;
+                            pgrx::debug2!(
+                                "Unlinked head block {}, total unlinked heads: {}",
+                                old_head,
+                                head_pages_unlinked
+                            );
                             self.extend_with_when_recyclable(
                                 bman,
                                 unsafe { pg_sys::ReadNextFullTransactionId() },
@@ -939,6 +958,21 @@ pub mod v2 {
                     blockno = next_blockno;
                 }
 
+                // Track chain length for this XID
+                total_chain_length += chain_length;
+                if chain_length > max_chain_length {
+                    max_chain_length = chain_length;
+                }
+
+                // Log warning for unusually long chains
+                if chain_length > 20 {
+                    pgrx::warning!(
+                        "FSM: Long chain detected for XID {} - {} pages in chain",
+                        found_xid,
+                        chain_length
+                    );
+                }
+
                 if blocks.len() == many {
                     break;
                 }
@@ -949,6 +983,25 @@ pub mod v2 {
                 if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
                     break;
                 }
+            }
+
+            // Log summary of drain operation if significant activity occurred
+            if xids_processed > 0 || empty_pages_skipped > 0 || head_pages_unlinked > 0 {
+                let avg_chain_length = if xids_processed > 0 {
+                    total_chain_length as f64 / xids_processed as f64
+                } else {
+                    0.0
+                };
+
+                pgrx::debug1!(
+                    "FSM drain summary: drained {} blocks from {} XIDs, skipped {} empty pages, unlinked {} heads, max chain: {}, avg chain: {:.1}",
+                    blocks.len(),
+                    xids_processed,
+                    empty_pages_skipped,
+                    head_pages_unlinked,
+                    max_chain_length,
+                    avg_chain_length
+                );
             }
 
             blocks.into_iter()
@@ -1303,6 +1356,58 @@ pub mod v2 {
                     );
                 }
             }
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_monitoring() -> spi::Result<()> {
+            // Test that monitoring metrics are properly tracked
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_monitor_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_monitor_idx ON fsm_monitor_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_monitor_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Create a scenario that will trigger monitoring output:
+            // Multiple XIDs with chains of varying lengths
+            let xid1 = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+            let xid2 = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + 1,
+            };
+
+            // Create multi-page chain for xid1 (will have empty pages after partial drain)
+            let blocks_per_page = MAX_ENTRIES as u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid1, 10000..10000 + blocks_per_page * 3);
+
+            // Create single page for xid2
+            fsm.extend_with_when_recyclable(&mut bman, xid2, 20000..20000 + 100);
+
+            // Drain exactly one page from xid1 to create an empty head
+            let _drained1: Vec<_> = fsm.drain(&mut bman, blocks_per_page as usize).collect();
+
+            // Now drain more - this should trigger monitoring output showing:
+            // - Empty pages skipped (the now-empty first page)
+            // - Head pages unlinked
+            // - Chain lengths
+            let drained2: Vec<_> = fsm.drain(&mut bman, 200).collect();
+
+            // Verify we got blocks
+            assert!(!drained2.is_empty(), "Should have drained some blocks");
+
+            // The monitoring will log to debug1/debug2, which we can't easily assert on
+            // but this test ensures the code runs without panicking
 
             Ok(())
         }

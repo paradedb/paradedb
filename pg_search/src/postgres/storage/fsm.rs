@@ -1220,14 +1220,11 @@ pub mod v2 {
         }
 
         #[pg_test]
-        unsafe fn test_fsmv2_empty_head_page_not_unlinked_bug() -> spi::Result<()> {
-            // This test demonstrates the bug where empty head pages are never unlinked
-            // when they're already empty when drain encounters them.
+        unsafe fn test_fsmv2_empty_page_chains_not_traversed() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
 
-            Spi::run("CREATE TABLE IF NOT EXISTS fsm_bug_test (id serial8, data text)")?;
-            Spi::run("CREATE INDEX IF NOT EXISTS fsm_bug_idx ON fsm_bug_test USING bm25 (id, data) WITH (key_field = 'id')")?;
-
-            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_bug_idx'::regclass::oid")?
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
                 .unwrap_or(pg_sys::InvalidOid);
 
             let indexrel = PgSearchRelation::with_lock(
@@ -1239,102 +1236,73 @@ pub mod v2 {
             let metapage = MetaPage::open(&indexrel);
             let mut fsm = V2FSM::open(metapage.fsm());
 
-            // Create a freelist with exactly 2 pages worth of blocks
-            let xid = pg_sys::FullTransactionId { value: 100 };
-            // Use the MAX_ENTRIES constant which is the max blocks per FSM page
-            let blocks_per_page = MAX_ENTRIES as u32;
-            let total_blocks = blocks_per_page * 2;
-
-            fsm.extend_with_when_recyclable(&mut bman, xid, 10000..10000 + total_blocks);
-
-            // Get the initial head block
-            let initial_head = {
-                let root = bman.get_buffer(fsm.start_blockno);
-                let page = root.page();
-                let tree = fsm.avl_ref(&page);
-                tree.get(&xid.value)
-                    .map(|(_, tag)| tag as pg_sys::BlockNumber)
-            }
-            .expect("XID should exist");
-
-            pgrx::info!(
-                "Initial head block (should be first page): {}",
-                initial_head
-            );
-
-            // Drain exactly one page worth - this empties the first page completely
-            let drained1: Vec<_> = fsm.drain(&mut bman, blocks_per_page as usize).collect();
-            assert_eq!(
-                drained1.len(),
-                blocks_per_page as usize,
-                "Should drain entire first page"
-            );
-
-            // Get the head block for this XID after first drain but before the second drain
-            let head_block_before = {
-                let root = bman.get_buffer(fsm.start_blockno);
-                let page = root.page();
-                let tree = fsm.avl_ref(&page);
-                tree.get(&xid.value)
-                    .map(|(_, tag)| tag as pg_sys::BlockNumber)
-            }
-            .expect("XID should exist");
-
-            pgrx::info!(
-                "Head block after first drain (before second): {}",
-                head_block_before
-            );
-
-            // Check if the first drain already unlinked the empty head
-            if head_block_before != initial_head {
-                pgrx::info!(
-                    "First drain already unlinked the empty head page! {} -> {}",
-                    initial_head,
-                    head_block_before
-                );
-                // It SHOULD have been unlinked after making it empty
-                // So this is correct behavior, not a bug
-                return Ok(());
-            }
-
-            // Now drain just 1 more block from the second page
-            let drained2: Vec<_> = fsm.drain(&mut bman, 1).collect();
-            assert_eq!(drained2.len(), 1, "Should drain one block");
-
-            // Get the head block after draining
-            let head_block_after = {
-                let root = bman.get_buffer(fsm.start_blockno);
-                let page = root.page();
-                let tree = fsm.avl_ref(&page);
-                tree.get(&xid.value)
-                    .map(|(_, tag)| tag as pg_sys::BlockNumber)
-            }
-            .expect("XID should still exist");
-
-            // Let's also check if the empty page is truly empty
-            let is_first_page_empty = {
-                if let Some(buffer) = bman.get_buffer_conditional(head_block_before) {
-                    let page = buffer.page();
-                    let contents = page.contents_ref::<AvlLeaf>();
-                    contents.len == 0
-                } else {
-                    panic!("Could not get buffer for block {}", head_block_before);
-                }
+            // Create a freelist chain with 3 pages, where the first page is empty
+            // but the second and third have blocks
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
             };
+            let entries = (MAX_ENTRIES * 3) as u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
 
-            pgrx::info!(
-                "First page (block {}) is empty: {}",
-                head_block_before,
-                is_first_page_empty
-            );
-            pgrx::info!("Head before drain: {}", head_block_before);
-            pgrx::info!("Head after drain: {}", head_block_after);
+            // Make only the first (head) page empty, leave others with blocks
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                let (_, tag) = tree.get(&xid.value).expect("xid should still exist");
+                let head_blockno = tag as pg_sys::BlockNumber;
+                drop(root);
 
-            assert_ne!(
-                head_block_after, head_block_before,
-                "BUG: Empty head page was not unlinked! Still pointing to block {} instead of moving to next page. First page empty: {}",
-                head_block_before, is_first_page_empty
+                // Empty only the head page
+                let mut buf = bman.get_buffer_mut(head_blockno);
+                let mut p = buf.page_mut();
+                let leaf = p.contents_mut::<AvlLeaf>();
+                let next_blockno = p.next_blockno();
+                leaf.len = 0; // Head is now empty
+                drop(buf);
+
+                // Verify the next page still has blocks
+                if next_blockno != pg_sys::InvalidBlockNumber {
+                    let buf = bman.get_buffer(next_blockno);
+                    let p = buf.page();
+                    let contents = p.contents_ref::<AvlLeaf>();
+                    assert!(contents.len > 0, "Second page should have blocks");
+                }
+            }
+
+            // First drain - should skip the empty head and get blocks from subsequent pages
+            let drained = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(
+                drained.len(),
+                MAX_ENTRIES,
+                "Should get blocks from second page"
             );
+
+            // Check if the empty head page was unlinked
+            // Without the fix: the empty head remains, causing future drains to traverse it
+            // With the fix: the empty head should be unlinked
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+
+                if let Some((_, tag)) = tree.get(&xid.value) {
+                    let head_blockno = tag as pg_sys::BlockNumber;
+                    drop(root);
+
+                    // Check if the new head still has blocks (should not be the empty page)
+                    let buf = bman.get_buffer(head_blockno);
+                    let p = buf.page();
+                    let contents = p.contents_ref::<AvlLeaf>();
+
+                    // Without fix: this would be 0 (the empty page is still the head)
+                    // With fix: this should be > 0 (empty page was unlinked, next page is head)
+                    assert!(
+                        contents.len > 0,
+                        "Head page should not be empty after draining - empty pages should be unlinked"
+                    );
+                }
+            }
 
             Ok(())
         }

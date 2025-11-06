@@ -735,7 +735,6 @@ pub mod v2 {
             }
         }
 
-        #[allow(dead_code)]
         pub fn reset(&self) {
             self.total_drain_calls.store(0, Ordering::Relaxed);
             self.total_blocks_drained.store(0, Ordering::Relaxed);
@@ -748,7 +747,6 @@ pub mod v2 {
             self.xids_removed.store(0, Ordering::Relaxed);
         }
 
-        #[allow(dead_code)]
         pub fn get_summary(&self) -> String {
             let total_calls = self.total_drain_calls.load(Ordering::Relaxed);
             let avg_tree_fullness = if total_calls > 0 {
@@ -858,13 +856,11 @@ pub mod v2 {
 
     impl V2FSM {
         /// Get a reference to the global FSM statistics
-        #[allow(dead_code)]
         pub fn stats() -> &'static FsmStats {
             &FSM_STATS
         }
 
         /// Get a copy of the current FSM configuration
-        #[allow(dead_code)]
         pub fn get_config() -> FsmConfig {
             unsafe {
                 FsmConfig {
@@ -892,7 +888,6 @@ pub mod v2 {
         /// Perform maintenance on the FSM tree to prevent it from becoming full
         /// This should be called periodically or when tree fullness exceeds a threshold
         /// Returns the number of XIDs removed during maintenance
-        #[allow(dead_code)]
         pub fn compact(&mut self, bman: &mut BufferManager) -> usize {
             let current_xid = unsafe {
                 pg_sys::GetCurrentFullTransactionIdIfAny()
@@ -971,12 +966,21 @@ pub mod v2 {
                 }
             }
 
+            // Log maintenance activity if significant work was done
+            if xids_removed > 0 {
+                let stats = V2FSM::stats();
+                pgrx::info!(
+                    "FSM maintenance completed: removed {} XIDs. Current stats: {}",
+                    xids_removed,
+                    stats.get_summary()
+                );
+            }
+
             xids_removed
         }
 
-        /// Check if maintenance is recommended based on tree fullness
-        /// Returns true if tree exceeds the configured threshold
-        #[allow(dead_code)]
+        /// Check if maintenance is recommended based on tree fullness or contention
+        /// Returns true if tree exceeds the configured threshold or high contention is detected
         pub fn needs_maintenance(&self, bman: &mut BufferManager) -> bool {
             let root = bman.get_buffer(self.start_blockno);
             let page = root.page();
@@ -984,9 +988,31 @@ pub mod v2 {
 
             let tree_size = tree.len();
             let config = V2FSM::get_config();
-            // Recommend maintenance if tree exceeds configured threshold
-            // MAX_SLOTS is approximately 338
-            tree_size > (MAX_SLOTS * config.maintenance_threshold_percent / 100)
+
+            // Check tree fullness threshold
+            let exceeds_size_threshold =
+                tree_size > (MAX_SLOTS * config.maintenance_threshold_percent / 100);
+
+            // Also check for high contention as a trigger for maintenance
+            let stats = V2FSM::stats();
+            let total_calls = stats.total_drain_calls.load(Ordering::Relaxed);
+            let lock_failure_rate = if total_calls > 0 {
+                stats.lock_failures.load(Ordering::Relaxed) * 100 / total_calls
+            } else {
+                0
+            };
+
+            // Recommend maintenance if tree is full OR experiencing high contention (>10% lock failure rate)
+            let high_contention = lock_failure_rate > 10;
+
+            if high_contention {
+                pgrx::debug1!(
+                    "FSM maintenance recommended due to high contention: {}% lock failure rate",
+                    lock_failure_rate
+                );
+            }
+
+            exceeds_size_threshold || high_contention
         }
     }
 
@@ -1399,6 +1425,37 @@ pub mod v2 {
                 );
             }
 
+            // Log comprehensive stats when experiencing high contention
+            let stats = V2FSM::stats();
+            if stats.lock_failures.load(Ordering::Relaxed) > 100 {
+                pgrx::warning!("FSM high contention detected: {}", stats.get_summary());
+
+                // Consider resetting stats periodically to avoid overflow and track recent behavior
+                if stats.total_drain_calls.load(Ordering::Relaxed) > 10000 {
+                    pgrx::debug1!("Resetting FSM stats after 10000 drain calls");
+                    stats.reset();
+                }
+            }
+
+            // Check if maintenance is recommended after this drain operation
+            // If we couldn't get all requested blocks AND maintenance is needed, run compact
+            if blocks.len() < many && self.needs_maintenance(bman) {
+                pgrx::info!(
+                    "FSM maintenance triggered: tree approaching capacity or experiencing high contention. Running compact..."
+                );
+
+                // Run maintenance to free up space
+                let xids_removed = self.compact(bman);
+                if xids_removed > 0 {
+                    pgrx::info!(
+                        "FSM maintenance completed: removed {} empty XIDs, freed space for new transactions",
+                        xids_removed
+                    );
+                } else {
+                    pgrx::debug1!("FSM maintenance completed but no empty XIDs found to remove");
+                }
+            }
+
             blocks.into_iter()
         }
 
@@ -1441,8 +1498,44 @@ pub mod v2 {
                         match tree.insert(when_recyclable.value, ()) {
                             Ok((_, tag)) => bman.get_buffer_mut(tag as pg_sys::BlockNumber),
                             Err(Error::Full) => {
-                                let tag = self.handle_full_tree(root, when_recyclable);
-                                bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                // Tree is full - try to compact first before handling full tree
+                                pgrx::debug1!("FSM tree is full (338 XIDs). Attempting automatic maintenance...");
+                                drop(root); // Release lock before running compact
+
+                                let xids_removed = self.compact(bman);
+                                if xids_removed > 0 {
+                                    pgrx::debug1!(
+                                        "FSM auto-maintenance freed {} XIDs. Retrying insertion...",
+                                        xids_removed
+                                    );
+
+                                    // Re-acquire root and try insertion again
+                                    let mut root = bman.get_buffer_mut(self.start_blockno);
+                                    let mut page = root.page_mut();
+                                    let mut tree = self.avl_mut(&mut page);
+
+                                    match tree.insert(when_recyclable.value, ()) {
+                                        Ok((_, tag)) => {
+                                            bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                        }
+                                        Err(Error::Full) => {
+                                            // Still full even after compact, use the overflow mechanism
+                                            pgrx::warning!(
+                                                "FSM tree still full after maintenance. Using overflow handling."
+                                            );
+                                            let tag = self.handle_full_tree(root, when_recyclable);
+                                            bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                        }
+                                    }
+                                } else {
+                                    // No XIDs could be removed, tree is genuinely full
+                                    pgrx::warning!(
+                                        "FSM tree full with no empty XIDs to remove. Using overflow handling."
+                                    );
+                                    let root = bman.get_buffer_mut(self.start_blockno);
+                                    let tag = self.handle_full_tree(root, when_recyclable);
+                                    bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                                }
                             }
                         }
                     }

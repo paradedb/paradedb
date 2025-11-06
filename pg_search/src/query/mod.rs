@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod builder;
+pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
 pub mod pdb_query;
@@ -22,6 +24,8 @@ pub(crate) mod proximity;
 mod range;
 mod score;
 
+use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
+use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
 use crate::api::operator::searchqueryinput_typoid;
@@ -614,127 +618,232 @@ impl SearchQueryInput {
         expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
         planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
     ) -> Result<Box<dyn TantivyQuery>> {
+        self.into_tantivy_query_generic(
+            &QueryOnlyBuilder,
+            schema,
+            parser,
+            searcher,
+            index_oid,
+            relation_oid,
+            expr_context,
+            planstate,
+        )
+    }
+
+    /// Convert SearchQueryInput using the provided builder pattern.
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_tantivy_query_generic<B: QueryBuilder, QueryParserCtor: Fn() -> QueryParser>(
+        self,
+        builder: &B,
+        schema: &SearchIndexSchema,
+        parser: &QueryParserCtor,
+        searcher: &Searcher,
+        index_oid: pg_sys::Oid,
+        relation_oid: Option<pg_sys::Oid>,
+        expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
+        planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
+    ) -> Result<B::Output> {
+        let recurse = |input: SearchQueryInput| {
+            input.into_tantivy_query_generic(
+                builder,
+                schema,
+                parser,
+                searcher,
+                index_oid,
+                relation_oid,
+                expr_context,
+                planstate,
+            )
+        };
+
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")
             }
-            SearchQueryInput::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
+            SearchQueryInput::All => {
+                let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
+                Ok(builder.build_leaf(SearchQueryInput::All, query, "All Query".to_string()))
+            }
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
             } => {
                 let mut subqueries = vec![];
+                let mut must_children = vec![];
+
                 for input in must {
-                    subqueries.push((
-                        Occur::Must,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let query = B::clone_query(&output);
+                    subqueries.push((Occur::Must, query));
+                    must_children.push(output);
                 }
+
+                let mut should_children = vec![];
                 for input in should {
-                    subqueries.push((
-                        Occur::Should,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let query = B::clone_query(&output);
+                    subqueries.push((Occur::Should, query));
+                    should_children.push(output);
                 }
+
+                let mut must_not_children = vec![];
                 for input in must_not {
-                    subqueries.push((
-                        Occur::MustNot,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let query = B::clone_query(&output);
+                    subqueries.push((Occur::MustNot, query));
+                    must_not_children.push(output);
                 }
-                Ok(Box::new(BooleanQuery::new(subqueries)))
+
+                let query = Box::new(BooleanQuery::new(subqueries));
+
+                // Create children in order: must, should, must_not
+                let mut children = Vec::new();
+                for (idx, child) in must_children.into_iter().enumerate() {
+                    let child_query = B::extract_query(&child);
+                    let wrapped = builder.build_with_children(
+                        SearchQueryInput::Empty,
+                        child_query.box_clone(),
+                        format!("Must Clause [{}]", idx),
+                        vec![child],
+                    );
+                    children.push(wrapped);
+                }
+                for (idx, child) in should_children.into_iter().enumerate() {
+                    let child_query = B::extract_query(&child);
+                    let wrapped = builder.build_with_children(
+                        SearchQueryInput::Empty,
+                        child_query.box_clone(),
+                        format!("Should Clause [{}]", idx),
+                        vec![child],
+                    );
+                    children.push(wrapped);
+                }
+                for (idx, child) in must_not_children.into_iter().enumerate() {
+                    let child_query = B::extract_query(&child);
+                    let wrapped = builder.build_with_children(
+                        SearchQueryInput::Empty,
+                        child_query.box_clone(),
+                        format!("MustNot Clause [{}]", idx),
+                        vec![child],
+                    );
+                    children.push(wrapped);
+                }
+
+                Ok(builder.build_with_children(
+                    SearchQueryInput::Boolean {
+                        must: Vec::new(),
+                        should: Vec::new(),
+                        must_not: Vec::new(),
+                    },
+                    query,
+                    "Boolean Query".to_string(),
+                    children,
+                ))
             }
-            SearchQueryInput::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?,
+            SearchQueryInput::Boost {
+                query: inner_query,
                 factor,
-            ))),
-            SearchQueryInput::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?,
+            } => {
+                let inner_output = recurse(*inner_query)?;
+                let inner_tantivy = B::clone_query(&inner_output);
+                let query = Box::new(BoostQuery::new(inner_tantivy, factor));
+                Ok(builder.build_with_children(
+                    SearchQueryInput::Boost {
+                        query: Box::new(SearchQueryInput::Uninitialized),
+                        factor,
+                    },
+                    query,
+                    format!("Boost Query (factor: {})", factor),
+                    vec![inner_output],
+                ))
+            }
+            SearchQueryInput::ConstScore {
+                query: inner_query,
                 score,
-            ))),
-            SearchQueryInput::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
+            } => {
+                let inner_output = recurse(*inner_query)?;
+                let inner_tantivy = B::clone_query(&inner_output);
+                let query = Box::new(ConstScoreQuery::new(inner_tantivy, score));
+                Ok(builder.build_with_children(
+                    SearchQueryInput::ConstScore {
+                        query: Box::new(SearchQueryInput::Uninitialized),
+                        score,
+                    },
+                    query,
+                    format!("ConstScore Query (score: {})", score),
+                    vec![inner_output],
+                ))
+            }
+            SearchQueryInput::ScoreFilter {
                 bounds,
-                query
-                    .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(
-                        schema,
-                        parser,
-                        searcher,
-                        index_oid,
-                        relation_oid,
-                        expr_context,
-                        planstate,
-                    )?,
-            ))),
+                query: inner_query,
+            } => {
+                let inner_output =
+                    recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
+                let inner_tantivy = B::clone_query(&inner_output);
+                let query = Box::new(ScoreFilter::new(bounds.clone(), inner_tantivy));
+                Ok(builder.build_with_children(
+                    SearchQueryInput::ScoreFilter {
+                        bounds: bounds.clone(),
+                        query: Some(Box::new(SearchQueryInput::Uninitialized)),
+                    },
+                    query,
+                    "ScoreFilter Query".to_string(),
+                    vec![inner_output],
+                ))
+            }
             SearchQueryInput::DisjunctionMax {
                 disjuncts,
                 tie_breaker,
             } => {
-                let disjuncts = disjuncts
-                    .into_iter()
-                    .map(|query| {
-                        query.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )
-                    })
-                    .collect::<Result<_, _>>()?;
-                if let Some(tie_breaker) = tie_breaker {
-                    Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
-                        disjuncts,
-                        tie_breaker,
-                    )))
-                } else {
-                    Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
+                let mut tantivy_disjuncts = vec![];
+                let mut children = vec![];
+
+                for (idx, disjunct) in disjuncts.into_iter().enumerate() {
+                    let output = recurse(disjunct)?;
+                    let query = B::clone_query(&output);
+                    tantivy_disjuncts.push(query);
+
+                    let child_query = B::extract_query(&output);
+                    let wrapped = builder.build_with_children(
+                        SearchQueryInput::All, // Placeholder
+                        child_query.box_clone(),
+                        format!("Disjunct [{}]", idx),
+                        vec![output],
+                    );
+                    children.push(wrapped);
                 }
+
+                let query = if let Some(tie_breaker) = tie_breaker {
+                    Box::new(DisjunctionMaxQuery::with_tie_breaker(
+                        tantivy_disjuncts,
+                        tie_breaker,
+                    ))
+                } else {
+                    Box::new(DisjunctionMaxQuery::new(tantivy_disjuncts))
+                };
+
+                let tree_type = if let Some(tb) = tie_breaker {
+                    format!("DisjunctionMax Query (tie_breaker: {})", tb)
+                } else {
+                    "DisjunctionMax Query".to_string()
+                };
+
+                Ok(builder.build_with_children(
+                    SearchQueryInput::DisjunctionMax {
+                        disjuncts: Vec::new(),
+                        tie_breaker,
+                    },
+                    query,
+                    tree_type,
+                    children,
+                ))
             }
-            SearchQueryInput::Empty => Ok(Box::new(EmptyQuery)),
+            SearchQueryInput::Empty => {
+                let query = Box::new(EmptyQuery);
+                Ok(builder.build_leaf(SearchQueryInput::Empty, query, "Empty Query".to_string()))
+            }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
                 max_doc_frequency,
@@ -748,49 +857,53 @@ impl SearchQueryInput {
                 key_value,
                 fields,
             } => {
-                let mut builder = MoreLikeThisQuery::builder();
+                let mut mlt_builder = MoreLikeThisQuery::builder();
 
                 // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {
-                    builder = builder.with_min_doc_frequency(min_doc_frequency);
+                    mlt_builder = mlt_builder.with_min_doc_frequency(min_doc_frequency);
                 } else {
-                    builder = builder.with_min_doc_frequency(1);
+                    mlt_builder = mlt_builder.with_min_doc_frequency(1);
                 }
                 // default min_term_frequency to 1, Tantivy's default is 2
                 if let Some(min_term_frequency) = min_term_frequency {
-                    builder = builder.with_min_term_frequency(min_term_frequency);
+                    mlt_builder = mlt_builder.with_min_term_frequency(min_term_frequency);
                 } else {
-                    builder = builder.with_min_term_frequency(1);
+                    mlt_builder = mlt_builder.with_min_term_frequency(1);
                 }
                 if let Some(max_doc_frequency) = max_doc_frequency {
-                    builder = builder.with_max_doc_frequency(max_doc_frequency);
+                    mlt_builder = mlt_builder.with_max_doc_frequency(max_doc_frequency);
                 }
                 if let Some(max_query_terms) = max_query_terms {
-                    builder = builder.with_max_query_terms(max_query_terms);
+                    mlt_builder = mlt_builder.with_max_query_terms(max_query_terms);
                 }
                 if let Some(min_work_length) = min_word_length {
-                    builder = builder.with_min_word_length(min_work_length);
+                    mlt_builder = mlt_builder.with_min_word_length(min_work_length);
                 }
                 if let Some(max_work_length) = max_word_length {
-                    builder = builder.with_max_word_length(max_work_length);
+                    mlt_builder = mlt_builder.with_max_word_length(max_work_length);
                 }
                 if let Some(boost_factor) = boost_factor {
-                    builder = builder.with_boost_factor(boost_factor);
+                    mlt_builder = mlt_builder.with_boost_factor(boost_factor);
                 }
-                if let Some(stopwords) = stopwords {
-                    builder = builder.with_stop_words(stopwords);
+                if let Some(stopwords_clone) = &stopwords {
+                    mlt_builder = mlt_builder.with_stop_words(stopwords_clone.clone());
                 }
 
-                match (key_value, fields, document) {
-                    (Some(key_value), fields, None) => {
-                        Ok(match builder.with_key_value(key_value, fields, index_oid) {
-                            Some(query) => Box::new(query),
-                            None => Box::new(EmptyQuery),
-                        })
+                let query = match (&key_value, &fields, &document) {
+                    (Some(key_value_clone), fields_ref, None) => {
+                        match mlt_builder.with_key_value(
+                            key_value_clone.clone(),
+                            fields_ref.clone(),
+                            index_oid,
+                        ) {
+                            Some(query) => Box::new(query) as Box<dyn TantivyQuery>,
+                            None => Box::new(EmptyQuery) as Box<dyn TantivyQuery>,
+                        }
                     }
                     (None, None, Some(doc)) => {
                         let mut fields_map = HashMap::default();
-                        for (field, mut value) in doc {
+                        for (field, mut value) in doc.clone() {
                             let search_field = schema
                                 .search_field(&field)
                                 .ok_or(QueryError::NonIndexedField(field.into()))?;
@@ -803,39 +916,66 @@ impl SearchQueryInput {
                                 vec.push(value)
                             }
                         }
-                        Ok(Box::new(
-                            builder.with_document(fields_map.into_iter().collect()),
-                        ))
+                        Box::new(mlt_builder.with_document(fields_map.into_iter().collect()))
+                            as Box<dyn TantivyQuery>
                     }
                     _ => {
                         panic!("more_like_this must be called with either key_value or document")
                     }
-                }
+                };
+
+                Ok(builder.build_leaf(
+                    SearchQueryInput::MoreLikeThis {
+                        min_doc_frequency,
+                        max_doc_frequency,
+                        min_term_frequency,
+                        max_query_terms,
+                        min_word_length,
+                        max_word_length,
+                        boost_factor,
+                        stopwords,
+                        document,
+                        key_value,
+                        fields,
+                    },
+                    query,
+                    "MoreLikeThis Query".to_string(),
+                ))
             }
             SearchQueryInput::Parse {
                 query_string,
                 lenient,
                 conjunction_mode,
             } => {
-                let mut parser = parser();
+                let mut query_parser = parser();
                 if let Some(true) = conjunction_mode {
-                    parser.set_conjunction_by_default();
+                    query_parser.set_conjunction_by_default();
                 }
 
-                match lenient {
+                let query = match lenient {
                     Some(true) => {
-                        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-                        Ok(Box::new(parsed_query))
+                        let (parsed_query, _) = query_parser.parse_query_lenient(&query_string);
+                        Box::new(parsed_query) as Box<dyn TantivyQuery>
                     }
-                    _ => {
-                        Ok(Box::new(parser.parse_query(&query_string).map_err(
-                            |err| QueryError::ParseError(err, query_string),
-                        )?))
-                    }
-                }
+                    _ => Box::new(
+                        query_parser
+                            .parse_query(&query_string)
+                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?,
+                    ) as Box<dyn TantivyQuery>,
+                };
+
+                Ok(builder.build_leaf(
+                    SearchQueryInput::Parse {
+                        query_string,
+                        lenient,
+                        conjunction_mode,
+                    },
+                    query,
+                    "Parse Query".to_string(),
+                ))
             }
-            SearchQueryInput::TermSet { terms: fields } => {
-                Ok(Box::new(TermSetQuery::new(fields.into_iter().map(
+            SearchQueryInput::TermSet { terms } => {
+                let query = Box::new(TermSetQuery::new(terms.iter().map(
                     |TermInput {
                          field,
                          value,
@@ -846,62 +986,124 @@ impl SearchQueryInput {
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
-                        let is_datetime = search_field.is_datetime() || is_datetime;
+                        let is_datetime = search_field.is_datetime() || *is_datetime;
                         value_to_term(
                             search_field.field(),
-                            &value,
+                            value,
                             field_type,
                             field.path().as_deref(),
                             is_datetime,
                         )
                         .expect("could not convert argument to search term")
                     },
-                ))))
+                )));
+
+                Ok(builder.build_leaf(
+                    SearchQueryInput::TermSet { terms },
+                    query,
+                    "TermSet Query".to_string(),
+                ))
             }
-            SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
-                schema,
-                parser,
-                searcher,
-                index_oid,
-                relation_oid,
-                expr_context,
-                planstate,
-            ),
+            SearchQueryInput::WithIndex {
+                oid,
+                query: inner_query,
+            } => {
+                // Store the inner query before consuming it
+                let inner_query_copy = inner_query.clone();
+                let inner_output = recurse(*inner_query)?;
+                let inner_tantivy = B::clone_query(&inner_output);
+                Ok(builder.build_with_children(
+                    SearchQueryInput::WithIndex {
+                        oid,
+                        query: inner_query_copy,
+                    },
+                    inner_tantivy,
+                    "WithIndex Query".to_string(),
+                    vec![inner_output],
+                ))
+            }
             SearchQueryInput::HeapFilter {
                 indexed_query,
                 field_filters,
             } => {
+                // Store the indexed query before consuming it
+                let indexed_query_copy = indexed_query.clone();
                 // Convert indexed query first
-                let indexed_tantivy_query = indexed_query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?;
+                let inner_output = recurse(*indexed_query)?;
+                let indexed_tantivy_query = B::clone_query(&inner_output);
 
                 // Is initialized in `begin_custom_scan` if `has_heap_filters`.
                 let expr_context = expr_context
                     .expect("An expression context must be provided when heap filtering.");
 
                 // Create combined query with heap field filters
-                Ok(Box::new(heap_field_filter::HeapFilterQuery::new(
+                let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
-                    field_filters,
+                    field_filters.clone(),
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                     expr_context,
                     planstate,
-                )))
+                ));
+
+                Ok(builder.build_with_children(
+                    SearchQueryInput::HeapFilter {
+                        indexed_query: indexed_query_copy,
+                        field_filters: field_filters.clone(),
+                    },
+                    query,
+                    "HeapFilter Query".to_string(),
+                    vec![inner_output],
+                ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
                 panic!("postgres expressions have not been solved")
             }
-            SearchQueryInput::FieldedQuery { field, query } => {
-                query.into_tantivy_query(field, schema, parser, searcher)
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb_query,
+            } => {
+                let query = pdb_query.clone().into_tantivy_query(
+                    field.clone(),
+                    schema,
+                    parser,
+                    searcher,
+                )?;
+                Ok(builder.build_leaf(
+                    SearchQueryInput::FieldedQuery {
+                        field: field.clone(),
+                        query: pdb_query,
+                    },
+                    Box::new(query),
+                    format!("FieldedQuery (field: {})", field),
+                ))
             }
         }
+    }
+
+    /// Convert SearchQueryInput into both a Tantivy Query and a QueryWithEstimates tree.
+    /// This is used for EXPLAIN ANALYZE VERBOSE to show recursive cost estimates.
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_tantivy_query_with_tree<QueryParserCtor: Fn() -> QueryParser>(
+        self,
+        schema: &SearchIndexSchema,
+        parser: &QueryParserCtor,
+        searcher: &Searcher,
+        index_oid: pg_sys::Oid,
+        relation_oid: Option<pg_sys::Oid>,
+        expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
+        planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
+    ) -> Result<(Box<dyn TantivyQuery>, QueryWithEstimates)> {
+        // Use the generic method with QueryTreeBuilder to get both query and tree
+        self.into_tantivy_query_generic(
+            &QueryTreeBuilder,
+            schema,
+            parser,
+            searcher,
+            index_oid,
+            relation_oid,
+            expr_context,
+            planstate,
+        )
     }
 }
 

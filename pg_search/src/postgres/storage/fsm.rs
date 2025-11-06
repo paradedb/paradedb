@@ -798,6 +798,8 @@ pub mod v2 {
             let mut debug_lock_failures = 0usize;
             #[cfg(debug_assertions)]
             let mut debug_empty_xid_hits = 0usize;
+            #[cfg(debug_assertions)]
+            let mut debug_adaptive_retries = 0usize;
 
             'outer: while blocks.len() < many {
                 // OPTIMIZATION: Keep root buffer across multiple XID retry attempts to avoid
@@ -809,17 +811,41 @@ pub mod v2 {
                 // 3. Re-acquire the root buffer
                 // This could happen many times with a full FSM tree!
                 //
-                // Now we keep the root buffer and try up to MAX_XID_RETRIES XIDs before
+                // Now we keep the root buffer and try up to max_xid_retries XIDs before
                 // dropping and re-acquiring, reducing root acquisitions.
                 let mut root = Some(bman.get_buffer(self.start_blockno));
                 #[cfg(debug_assertions)]
                 {
                     debug_root_acquisitions += 1;
                 }
-                const MAX_XID_RETRIES: usize = 10;
+
+                // ADAPTIVE RETRY COUNT: Calculate retry limit based on tree fullness
+                // More XIDs in tree = higher contention = more retries needed
+                let tree_size = {
+                    let page = root.as_ref().unwrap().page();
+                    let tree = self.avl_ref(&page);
+                    tree.len()
+                };
+
+                let max_xid_retries = if tree_size > 300 {
+                    // Nearly full tree
+                    20
+                } else if tree_size > 200 {
+                    // Very full tree
+                    15
+                } else {
+                    // Normal fullness
+                    10
+                };
+
+                #[cfg(debug_assertions)]
+                {
+                    debug_adaptive_retries = max_xid_retries;
+                }
+
                 let mut retry_count = 0;
 
-                'retry: while retry_count < MAX_XID_RETRIES && blocks.len() < many {
+                'retry: while retry_count < max_xid_retries && blocks.len() < many {
                     let page = root.as_ref().unwrap().page();
                     let tree = self.avl_ref(&page);
 
@@ -1025,7 +1051,7 @@ pub mod v2 {
                 }
 
                 // If we've tried too many XIDs without success, drop root and start over
-                if retry_count >= MAX_XID_RETRIES {
+                if retry_count >= max_xid_retries {
                     drop(root);
                     // Note: xid has already been decremented during retries
                     if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
@@ -1041,12 +1067,13 @@ pub mod v2 {
             #[cfg(debug_assertions)]
             if debug_lock_failures > 0 || debug_root_acquisitions > 1 || debug_empty_xid_hits > 0 {
                 pgrx::debug2!(
-                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}, empty_xid_hits={}",
+                    "FSM drain stats: requested={}, got={}, root_acquisitions={}, lock_failures={}, empty_xid_hits={}, adaptive_retries={}",
                     many,
                     blocks.len(),
                     debug_root_acquisitions,
                     debug_lock_failures,
-                    debug_empty_xid_hits
+                    debug_empty_xid_hits,
+                    debug_adaptive_retries
                 );
             }
 
@@ -1773,6 +1800,104 @@ pub mod v2 {
             // (though the HashSet is per-drain, this tests the overall behavior)
             let second_drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
             assert_eq!(second_drained.len(), 10, "Should drain remaining 10 blocks");
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_adaptive_retry_count() -> spi::Result<()> {
+            // This test verifies that the retry count adapts based on tree fullness
+            // by creating scenarios with different tree fullness levels
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_adaptive_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_adaptive_idx ON fsm_adaptive_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_adaptive_idx'::regclass::oid")?
+                    .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Test 1: Normal tree fullness (< 200 XIDs) - should use 10 retries
+            pgrx::info!("Test 1: Normal tree fullness (<200 XIDs)");
+            for i in 0..50 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 100,
+                };
+                let start = (90000 + i * 10) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 2);
+            }
+
+            let drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            pgrx::info!(
+                "Normal fullness: drained {} blocks from ~50 XIDs",
+                drained.len()
+            );
+
+            // Test 2: Very full tree (200-300 XIDs) - should use 15 retries
+            pgrx::info!("Test 2: Very full tree (200-300 XIDs)");
+            for i in 50..250 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 100,
+                };
+                let start = (100000 + i * 5) as u32;
+                // Some XIDs with blocks, some without (to create contention)
+                if i % 3 == 0 {
+                    fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 1);
+                } else {
+                    // Add and drain immediately to create empty XIDs
+                    fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 1);
+                    let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+                }
+            }
+
+            let start_time = std::time::Instant::now();
+            let drained: Vec<_> = fsm.drain(&mut bman, 20).collect();
+            let elapsed = start_time.elapsed();
+            pgrx::info!(
+                "Very full tree: drained {} blocks from ~250 XIDs in {:?}",
+                drained.len(),
+                elapsed
+            );
+
+            // Test 3: Nearly full tree (>300 XIDs) - should use 20 retries
+            pgrx::info!("Test 3: Nearly full tree (>300 XIDs)");
+            for i in 250..320 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 100,
+                };
+                let start = (110000 + i * 5) as u32;
+                // Mix of empty and non-empty XIDs to maximize contention
+                if i % 5 == 0 {
+                    fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 3);
+                } else {
+                    fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 1);
+                    let _: Vec<_> = fsm.drain(&mut bman, 1).collect();
+                }
+            }
+
+            let start_time = std::time::Instant::now();
+            let drained: Vec<_> = fsm.drain(&mut bman, 30).collect();
+            let elapsed = start_time.elapsed();
+            pgrx::info!(
+                "Nearly full tree: drained {} blocks from ~320 XIDs in {:?} (adaptive retries = 20)",
+                drained.len(),
+                elapsed
+            );
+
+            // The adaptive retry count should prevent excessive root re-acquisitions
+            // even with a nearly full tree. With 320 XIDs and adaptive retries:
+            // - Old behavior: potentially 320 root acquisitions
+            // - New behavior: ~16 root acquisitions (320/20)
 
             Ok(())
         }

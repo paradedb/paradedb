@@ -1207,7 +1207,7 @@ pub mod v2 {
 
                     let mut head_blockno = tag as pg_sys::BlockNumber;
                     let mut blockno = head_blockno;
-                    let mut cnt = 0;
+                    let mut freelist_has_blocks = false; // Track if ANY blocks remain in the freelist
 
                     // FIRST BUFFER ACQUISITION: Try to acquire the HEAD of this XID's freelist
                     // Each XID in the tree has a linked list of pages containing free blocks.
@@ -1284,7 +1284,11 @@ pub mod v2 {
                         }
 
                         if !needs_modification {
-                            // Nothing to do with this page, move to the next one
+                            // This page either has no blocks or we already have enough
+                            // If it has blocks, mark that the freelist is not empty
+                            if contents.len > 0 {
+                                freelist_has_blocks = true;
+                            }
                             blockno = next_blockno;
                             continue;
                         }
@@ -1310,7 +1314,11 @@ pub mod v2 {
                             blocks.push(contents.entries[contents.len as usize]);
                             modified = true;
                         }
-                        cnt += contents.len as usize;
+
+                        // Track if any blocks remain after draining
+                        if contents.len > 0 {
+                            freelist_has_blocks = true;
+                        }
 
                         // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
                         let should_unlink_head = blockno == head_blockno
@@ -1362,21 +1370,40 @@ pub mod v2 {
                             continue;
                         }
 
-                        // if this was the last block in the list *and* the entire list is empty,
-                        // remove the XID entry from the tree. We must hold no other locks while doing this
-                        if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
-                            // Remember this XID is empty for this drain call
-                            empty_xids.insert(found_xid);
+                        // if this was the last block in the list, check if the entire freelist is empty
+                        // and remove the XID entry from the tree if so
+                        if next_blockno == pg_sys::InvalidBlockNumber {
+                            // We've reached the end of the freelist chain
+                            if !freelist_has_blocks {
+                                // The entire freelist is empty, remove this XID from the tree
+                                // Remember this XID is empty for this drain call
+                                empty_xids.insert(found_xid);
 
-                            let mut root = bman.get_buffer_mut(self.start_blockno);
-                            let mut page = root.page_mut();
-                            let mut tree = self.avl_mut(&mut page);
+                                pgrx::debug1!("Removing empty XID {} from FSM tree", found_xid);
+                                let mut root = bman.get_buffer_mut(self.start_blockno);
+                                let mut page = root.page_mut();
+                                let mut tree = self.avl_mut(&mut page);
 
-                            // ok if another backend already removed it.
-                            if tree.remove(&found_xid).is_some() {
-                                FSM_STATS.xids_removed.fetch_add(1, Ordering::Relaxed);
+                                // ok if another backend already removed it.
+                                if tree.remove(&found_xid).is_some() {
+                                    FSM_STATS.xids_removed.fetch_add(1, Ordering::Relaxed);
+                                    pgrx::debug1!(
+                                        "Successfully removed empty XID {} from FSM tree. This prevents repeated checks of empty freelists.",
+                                        found_xid
+                                    );
+                                } else {
+                                    pgrx::debug2!(
+                                        "XID {} already removed by another backend",
+                                        found_xid
+                                    );
+                                }
+                                drop(root);
+                            } else {
+                                pgrx::debug2!(
+                                    "XID {} still has blocks in freelist, keeping in tree",
+                                    found_xid
+                                );
                             }
-                            drop(root);
                         }
 
                         // move to the next block
@@ -2754,6 +2781,144 @@ pub mod v2 {
             // Restore original configuration
             V2FSM::set_config(original_config);
             pgrx::info!("Restored original configuration");
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_empty_xid_removal() -> spi::Result<()> {
+            // This test specifically verifies that empty XIDs are properly removed from the tree
+            // This seems to be the root cause of the production issue where empty XIDs accumulated
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_removal_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_removal_idx ON fsm_removal_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_removal_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Test 1: Single-page freelist - should be removed when empty
+            let xid1 = pg_sys::FullTransactionId {
+                value: base_xid + 100,
+            };
+            fsm.extend_with_when_recyclable(&mut bman, xid1, 100000..100005);
+
+            // Check tree size before draining
+            let tree_size_before = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            // Drain all blocks from this XID
+            let drained: Vec<_> = fsm.drain(&mut bman, 5).collect();
+            assert_eq!(drained.len(), 5, "Should drain all 5 blocks");
+
+            // Check tree size after draining - XID should be removed
+            let tree_size_after = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            assert_eq!(
+                tree_size_after,
+                tree_size_before - 1,
+                "XID should be removed from tree after draining all blocks"
+            );
+
+            // Test 2: Multi-page freelist - should be removed when ALL pages are empty
+            let xid2 = pg_sys::FullTransactionId {
+                value: base_xid + 200,
+            };
+            // Add enough blocks to span multiple pages (MAX_ENTRIES per page)
+            fsm.extend_with_when_recyclable(&mut bman, xid2, 200000..200100);
+
+            // Partially drain - XID should remain
+            let partial_drain: Vec<_> = fsm.drain(&mut bman, 50).collect();
+            assert_eq!(partial_drain.len(), 50);
+
+            let tree_has_xid2 = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.get(&xid2.value).is_some()
+            };
+
+            assert!(
+                tree_has_xid2,
+                "XID should remain in tree after partial drain"
+            );
+
+            // Drain remaining blocks - XID should now be removed
+            let remaining: Vec<_> = fsm.drain(&mut bman, 50).collect();
+            assert_eq!(remaining.len(), 50);
+
+            let tree_has_xid2_after = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.get(&xid2.value).is_some()
+            };
+
+            assert!(
+                !tree_has_xid2_after,
+                "XID should be removed after draining all blocks"
+            );
+
+            // Test 3: Multiple XIDs - each should be removed independently when empty
+            for i in 0..10 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + 300 + i,
+                };
+                fsm.extend_with_when_recyclable(
+                    &mut bman,
+                    xid,
+                    (300000 + i * 10) as u32..(300000 + i * 10 + 3) as u32,
+                );
+            }
+
+            // Drain multiple times - XIDs should be removed as they become empty
+            let initial_tree_size = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            // Each drain should remove XIDs that become empty
+            for _ in 0..10 {
+                let _: Vec<_> = fsm.drain(&mut bman, 3).collect();
+            }
+
+            let final_tree_size = {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                tree.len()
+            };
+
+            assert_eq!(
+                final_tree_size,
+                initial_tree_size - 10,
+                "All 10 XIDs should be removed after draining all their blocks"
+            );
+
+            pgrx::info!(
+                "Empty XID removal test passed: XIDs are correctly removed when freelists become empty"
+            );
 
             Ok(())
         }

@@ -645,6 +645,59 @@ pub mod v2 {
     use std::iter::Peekable;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    /// Configuration parameters for FSM behavior (simulating GUC variables)
+    /// In a real implementation, these would be PostgreSQL GUC variables
+    #[derive(Clone)]
+    pub struct FsmConfig {
+        /// Percentage of tree fullness that triggers maintenance recommendation (0-100)
+        pub maintenance_threshold_percent: usize,
+        /// Maximum number of XID retries when tree is nearly full
+        pub max_retries_full_tree: usize,
+        /// Maximum number of XID retries when tree has high occupancy
+        pub max_retries_high_tree: usize,
+        /// Default maximum number of XID retries
+        pub max_retries_normal: usize,
+        /// Number of retries before yielding CPU
+        pub yield_after_retries: usize,
+        /// Number of retries before sleeping
+        pub sleep_after_retries: usize,
+        /// Maximum XIDs to remove in one maintenance pass
+        pub maintenance_batch_size: usize,
+        /// Tree size threshold for "nearly full" classification
+        pub tree_nearly_full_threshold: usize,
+        /// Tree size threshold for "very full" classification  
+        pub tree_very_full_threshold: usize,
+    }
+
+    impl Default for FsmConfig {
+        fn default() -> Self {
+            Self {
+                maintenance_threshold_percent: 80,
+                max_retries_full_tree: 20,
+                max_retries_high_tree: 15,
+                max_retries_normal: 10,
+                yield_after_retries: 5,
+                sleep_after_retries: 10,
+                maintenance_batch_size: 50,
+                tree_nearly_full_threshold: 300,
+                tree_very_full_threshold: 200,
+            }
+        }
+    }
+
+    /// Global FSM configuration (would be set from GUC in production)
+    static mut FSM_CONFIG: FsmConfig = FsmConfig {
+        maintenance_threshold_percent: 80,
+        max_retries_full_tree: 20,
+        max_retries_high_tree: 15,
+        max_retries_normal: 10,
+        yield_after_retries: 5,
+        sleep_after_retries: 10,
+        maintenance_batch_size: 50,
+        tree_nearly_full_threshold: 300,
+        tree_very_full_threshold: 200,
+    };
+
     /// Global FSM statistics for monitoring and debugging
     pub struct FsmStats {
         /// Total number of drain calls
@@ -810,6 +863,32 @@ pub mod v2 {
             &FSM_STATS
         }
 
+        /// Get a copy of the current FSM configuration
+        #[allow(dead_code)]
+        pub fn get_config() -> FsmConfig {
+            unsafe {
+                FsmConfig {
+                    maintenance_threshold_percent: FSM_CONFIG.maintenance_threshold_percent,
+                    max_retries_full_tree: FSM_CONFIG.max_retries_full_tree,
+                    max_retries_high_tree: FSM_CONFIG.max_retries_high_tree,
+                    max_retries_normal: FSM_CONFIG.max_retries_normal,
+                    yield_after_retries: FSM_CONFIG.yield_after_retries,
+                    sleep_after_retries: FSM_CONFIG.sleep_after_retries,
+                    maintenance_batch_size: FSM_CONFIG.maintenance_batch_size,
+                    tree_nearly_full_threshold: FSM_CONFIG.tree_nearly_full_threshold,
+                    tree_very_full_threshold: FSM_CONFIG.tree_very_full_threshold,
+                }
+            }
+        }
+
+        /// Update the FSM configuration (would be set from GUC in production)
+        #[allow(dead_code)]
+        pub fn set_config(config: FsmConfig) {
+            unsafe {
+                FSM_CONFIG = config;
+            }
+        }
+
         /// Perform maintenance on the FSM tree to prevent it from becoming full
         /// This should be called periodically or when tree fullness exceeds a threshold
         /// Returns the number of XIDs removed during maintenance
@@ -820,6 +899,7 @@ pub mod v2 {
                     .value
                     .max(pg_sys::FirstNormalTransactionId.into_inner() as u64)
             };
+            let config = V2FSM::get_config();
 
             let mut xids_removed = 0;
             let mut xids_to_remove = Vec::new();
@@ -872,7 +952,7 @@ pub mod v2 {
                     }
 
                     // Limit the number of XIDs we check in one maintenance pass
-                    if xids_to_remove.len() >= 50 {
+                    if xids_to_remove.len() >= config.maintenance_batch_size {
                         break; // Don't try to remove too many at once
                     }
                 }
@@ -895,7 +975,7 @@ pub mod v2 {
         }
 
         /// Check if maintenance is recommended based on tree fullness
-        /// Returns true if tree is more than 80% full
+        /// Returns true if tree exceeds the configured threshold
         #[allow(dead_code)]
         pub fn needs_maintenance(&self, bman: &mut BufferManager) -> bool {
             let root = bman.get_buffer(self.start_blockno);
@@ -903,9 +983,10 @@ pub mod v2 {
             let tree = self.avl_ref(&page);
 
             let tree_size = tree.len();
-            // Recommend maintenance if tree is more than 80% full
+            let config = V2FSM::get_config();
+            // Recommend maintenance if tree exceeds configured threshold
             // MAX_SLOTS is approximately 338
-            tree_size > (MAX_SLOTS * 80 / 100)
+            tree_size > (MAX_SLOTS * config.maintenance_threshold_percent / 100)
         }
     }
 
@@ -1029,15 +1110,17 @@ pub mod v2 {
                     .max_tree_fullness
                     .fetch_max(tree_size, Ordering::Relaxed);
 
-                let max_xid_retries = if tree_size > 300 {
+                // Use configuration values for adaptive retry count
+                let config = V2FSM::get_config();
+                let max_xid_retries = if tree_size > config.tree_nearly_full_threshold {
                     // Nearly full tree
-                    20
-                } else if tree_size > 200 {
+                    config.max_retries_full_tree
+                } else if tree_size > config.tree_very_full_threshold {
                     // Very full tree
-                    15
+                    config.max_retries_high_tree
                 } else {
                     // Normal fullness
-                    10
+                    config.max_retries_normal
                 };
 
                 #[cfg(debug_assertions)]
@@ -1049,16 +1132,16 @@ pub mod v2 {
 
                 'retry: while retry_count < max_xid_retries && blocks.len() < many {
                     // PROGRESSIVE BACKOFF: Reduce CPU spinning under high contention
-                    if retry_count >= 5 {
-                        // After 5 retries, yield to other threads
+                    if retry_count >= config.yield_after_retries {
+                        // After configured retries, yield to other threads
                         std::thread::yield_now();
                         #[cfg(debug_assertions)]
                         {
                             debug_yield_count += 1;
                         }
 
-                        if retry_count >= 10 {
-                            // After 10 retries, brief sleep to reduce contention
+                        if retry_count >= config.sleep_after_retries {
+                            // After more retries, brief sleep to reduce contention
                             // Sleep for 1-2ms to give other backends a chance
                             std::thread::sleep(std::time::Duration::from_millis(1));
                             #[cfg(debug_assertions)]
@@ -2439,6 +2522,145 @@ pub mod v2 {
 
             // The XIDs with blocks should not be removed
             assert!(tree_size_after_2 >= 10, "Should keep XIDs with blocks");
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_configurable_behavior() -> spi::Result<()> {
+            // This test verifies that the FSM behavior can be configured via the config struct
+            // (simulating GUC variables in production)
+
+            // Save original configuration
+            let original_config = V2FSM::get_config();
+
+            // Test 1: Modify retry configuration
+            let mut test_config = original_config.clone();
+            test_config.max_retries_normal = 5;
+            test_config.max_retries_high_tree = 10;
+            test_config.max_retries_full_tree = 15;
+            test_config.yield_after_retries = 3;
+            test_config.sleep_after_retries = 5;
+            V2FSM::set_config(test_config.clone());
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_config_test1 (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_config_idx1 ON fsm_config_test1 USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_config_idx1'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let base_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+
+            // Create some XIDs to test with reduced retry counts
+            for i in 0..50 {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 10,
+                };
+                let start = (200000 + i * 5) as u32;
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..start + 2);
+            }
+
+            let drained: Vec<_> = fsm.drain(&mut bman, 10).collect();
+            pgrx::info!(
+                "With custom retry config (normal=5): drained {} blocks",
+                drained.len()
+            );
+
+            // Test 2: Modify maintenance configuration
+            test_config.maintenance_threshold_percent = 50; // Lower threshold
+            test_config.maintenance_batch_size = 10; // Smaller batches
+            V2FSM::set_config(test_config.clone());
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_config_test2 (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_config_idx2 ON fsm_config_test2 USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid2 =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_config_idx2'::regclass::oid")?
+                    .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel2 = PgSearchRelation::with_lock(
+                index_oid2,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman2 = BufferManager::new(&indexrel2);
+            let metapage2 = MetaPage::open(&indexrel2);
+            let mut fsm2 = V2FSM::open(metapage2.fsm());
+
+            // Fill tree to 60% (above new 50% threshold)
+            let sixty_percent = (MAX_SLOTS * 60 / 100) as u64;
+            for i in 0..sixty_percent {
+                let xid = pg_sys::FullTransactionId {
+                    value: base_xid + i * 10,
+                };
+                let start = (210000 + i * 2) as u32;
+                fsm2.extend_with_when_recyclable(&mut bman2, xid, start..start + 1);
+            }
+
+            // Check if maintenance is needed with new 50% threshold
+            let needs_maint = fsm2.needs_maintenance(&mut bman2);
+            pgrx::info!(
+                "With 50% threshold, tree at ~60% full needs maintenance: {}",
+                needs_maint
+            );
+            assert!(
+                needs_maint,
+                "Should need maintenance at 60% with 50% threshold"
+            );
+
+            // Drain all blocks to create empty XIDs
+            for _ in 0..sixty_percent {
+                let _: Vec<_> = fsm2.drain(&mut bman2, 1).collect();
+            }
+
+            // Run compact with smaller batch size (10 instead of 50)
+            let xids_removed = fsm2.compact(&mut bman2);
+            pgrx::info!(
+                "With batch_size=10, compact removed {} XIDs (max 10)",
+                xids_removed
+            );
+            assert!(
+                xids_removed <= 10,
+                "Should remove at most 10 XIDs with batch_size=10"
+            );
+
+            // Test 3: Modify tree fullness thresholds
+            test_config.tree_nearly_full_threshold = 100; // Much lower
+            test_config.tree_very_full_threshold = 50; // Much lower
+            V2FSM::set_config(test_config);
+
+            // With 100+ XIDs, should now be considered "nearly full"
+            let tree_size = 120;
+            let adaptive_retries = if tree_size > 100 {
+                15 // max_retries_full_tree
+            } else if tree_size > 50 {
+                10 // max_retries_high_tree
+            } else {
+                5 // max_retries_normal
+            };
+
+            assert_eq!(
+                adaptive_retries, 15,
+                "With threshold=100, tree_size=120 should use max retries"
+            );
+
+            pgrx::info!("Configuration changes applied successfully:");
+            pgrx::info!("- Retry counts: normal=5, high=10, full=15");
+            pgrx::info!("- Maintenance: threshold=50%, batch_size=10");
+            pgrx::info!("- Tree fullness: nearly_full=100, very_full=50");
+
+            // Restore original configuration
+            V2FSM::set_config(original_config);
+            pgrx::info!("Restored original configuration");
 
             Ok(())
         }

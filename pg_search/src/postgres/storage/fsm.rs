@@ -761,7 +761,7 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            debug2!("drain:asked FSM for {} blocks", many);
+            debug2!("drain: asked FSM for {} blocks", many);
 
             let current_xid = unsafe {
                 pg_sys::GetCurrentFullTransactionIdIfAny()

@@ -55,25 +55,36 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
+    buffer: pg_sys::Buffer,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid) -> Self {
-        Self { index_oid }
+    pub fn new(index_oid: pg_sys::Oid, buffer: pg_sys::Buffer) -> Self {
+        Self { index_oid, buffer }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
+
+    pub fn buffer(&self) -> pg_sys::Buffer {
+        self.buffer
+    }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
-        self.index_oid().into_datum()
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                &self as *const Self as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        };
+        bytes.into_datum()
     }
 
     fn type_oid() -> pg_sys::Oid {
-        pg_sys::OIDOID
+        <&[u8]>::type_oid()
     }
 }
 
@@ -87,8 +98,34 @@ impl FromDatum for BackgroundMergeArgs {
             return None;
         }
 
-        let index_oid = pg_sys::Oid::from_datum(datum, is_null)?;
-        Some(BackgroundMergeArgs { index_oid })
+        let varlena = datum.cast_mut_ptr::<pg_sys::varlena>();
+        if varlena.is_null() {
+            return None;
+        }
+
+        // Equivalent to VARDATA_ANY(varlena)
+        let data = varlena.cast::<u8>().add(pg_sys::VARHDRSZ as usize);
+
+        // Extract total_size from vl_len_ (4-byte header in network byte order)
+        // This is equivalent to VARSIZE_ANY(varlena)
+        let len_i8 = (*varlena).vl_len_; // [i8; 4] in your bindings
+        let len_u8 = [
+            len_i8[0] as u8,
+            len_i8[1] as u8,
+            len_i8[2] as u8,
+            len_i8[3] as u8,
+        ];
+        let total_size: usize = u32::from_be_bytes(len_u8) as usize;
+
+        // Equivalent to VARSIZE_ANY_EXHDR(varlena)
+        let data_len = total_size.saturating_sub(pg_sys::VARHDRSZ as usize);
+
+        if data_len != std::mem::size_of::<BackgroundMergeArgs>() {
+            return None; // size mismatch → corrupted or incompatible
+        }
+
+        let ptr = data as *const BackgroundMergeArgs;
+        Some(std::ptr::read_unaligned(ptr))
     }
 }
 
@@ -249,9 +286,11 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
-    if !MetaPage::open(index).bgmerger().try_starting() {
+    let sentinel_buffer = MetaPage::open(index).bgmerger().try_starting();
+    if sentinel_buffer.is_none() {
         return;
     }
+    let sentinel_buffer = sentinel_buffer.unwrap();
 
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
@@ -268,12 +307,12 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid()).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), sentinel_buffer).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
     {
-        MetaPage::open(index).bgmerger().set_stopped();
+        unsafe { pg_sys::ReleaseBuffer(sentinel_buffer) };
         pgrx::log!("not enough available `max_worker_processes` to launch a background merger");
     }
 }
@@ -310,7 +349,6 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         }
         let index = index.unwrap();
         let metadata = MetaPage::open(&index);
-        metadata.bgmerger().set_running();
 
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
@@ -329,7 +367,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 next_xid,
             )
         }))
-        .finally(|| metadata.bgmerger().set_stopped())
+        .finally(|| unsafe { pg_sys::ReleaseBuffer(args.buffer()) })
         .execute();
     });
 }

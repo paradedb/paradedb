@@ -25,7 +25,10 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, pg_sys, PgLogLevel, PgSqlErrorCode};
+use pgrx::{
+    function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
+    PgSqlErrorCode,
+};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -372,4 +375,19 @@ unsafe fn get_buffer_descriptor(buffer: pg_sys::Buffer) -> pg_sys::BufferDesc {
 unsafe fn get_buffer_refcount(pg_buffer: pg_sys::Buffer) -> i32 {
     let desc = unsafe { get_buffer_descriptor(pg_buffer) };
     (desc.state.value & pg_sys::BUF_REFCOUNT_MASK) as i32
+}
+
+#[allow(unused_variables)]
+#[pg_extern]
+unsafe fn reset_bgworker_state(index: PgRelation) {
+    pgrx::warning!("reset_bgworker_state has been deprecated");
+}
+
+#[allow(unused_variables)]
+#[pg_extern]
+unsafe fn bgmerger_state(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
+    pgrx::warning!("bgmerger_state has been deprecated");
+    TableIterator::new(std::iter::empty())
 }

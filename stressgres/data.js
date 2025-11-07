@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762482978421,
+  "lastUpdate": 1762483826181,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41620,6 +41620,54 @@ window.BENCHMARK_DATA = {
             "value": 6.263958353042946,
             "unit": "median tps",
             "extra": "avg tps: 6.235079328112591, max tps: 7.557783563277891, count: 56459"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d2ea63dccd451d4e82d4a925f9ff912d76bd4e",
+          "message": "feat: Default tokenizer to `pdb.unicode_words` (#3492)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAs per internal discussions, `pdb.unicode_words` is used instead of\n`pdb.simple` when no tokenizer is specified.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-06T21:05:39-05:00",
+          "tree_id": "f6309c86dc3eeede19990c61c7680be5b60dc4c1",
+          "url": "https://github.com/paradedb/paradedb/commit/95d2ea63dccd451d4e82d4a925f9ff912d76bd4e"
+        },
+        "date": 1762483823731,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1157.490375731766,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.4262017604867, max tps: 1206.215929780445, count: 56190"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 645.6966730727094,
+            "unit": "median tps",
+            "extra": "avg tps: 588.0878410180574, max tps: 1097.4428548594383, count: 56190"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1792.840579650529,
+            "unit": "median tps",
+            "extra": "avg tps: 1701.8766410224785, max tps: 1983.5655738217426, count: 56190"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.984385628637694,
+            "unit": "median tps",
+            "extra": "avg tps: 5.973878738107809, max tps: 7.036253727393844, count: 56190"
           }
         ]
       }

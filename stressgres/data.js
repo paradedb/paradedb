@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762488803284,
+  "lastUpdate": 1762488843542,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42136,6 +42136,54 @@ window.BENCHMARK_DATA = {
             "value": 5.984385628637694,
             "unit": "median tps",
             "extra": "avg tps: 5.973878738107809, max tps: 7.036253727393844, count: 56190"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bad99101a1317fe3a20680105c3af6e8b38538a8",
+          "message": "fix: FSM freelist sparsity causes too many page reads/lock acquisitions (#3509)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe `extend_freelist` function in V2 FSM had a \"fast path splice\" that\ncould inject tons of tiny, partially-full blocks into the freelist. If\nit saw that a freelist block was full, it would blindly just assume the\nnext block was also full and inject a new block between the current and\nnext block.\n\nHowever, this fails if a lot of `extend_freelist` calls come in\nconcurrently -- each call would inject a partially-filled block in the\nmiddle of the list, leading to a very sparse freelist.\n\nThe solution is to peek at the next block in the freelist, and only do\nthe fast path if both blocks are full.\n\nAdditionally, we have seen situations in prod (likely related to the\nabove) where freelists contain entirely empty blocks. The existing\nfreelist isn't good at self-healing -- we have modified `drain` to now\nremove these empty blocks from the freelist.\n\nFinally, `drain`s call to `extend_freelist` has been moved to the end\nafter all blocks have been drained. This prevents multiple calls to\n`extend_freelist`, which is expensive (it can do tree mutations).\n\n## Why\n\n## How\n\n## Tests\n\nSee two added regression tests, both of which fail on `main`",
+          "timestamp": "2025-11-06T22:28:22-05:00",
+          "tree_id": "5c3da39a34818529df9f6c15ca1e0fa4e965c023",
+          "url": "https://github.com/paradedb/paradedb/commit/bad99101a1317fe3a20680105c3af6e8b38538a8"
+        },
+        "date": 1762488841004,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1136.6792831416406,
+            "unit": "median tps",
+            "extra": "avg tps: 1128.0898393325024, max tps: 1202.6831159010626, count: 55970"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1239.7234934589835,
+            "unit": "median tps",
+            "extra": "avg tps: 1233.6852238222066, max tps: 1289.4378903821496, count: 55970"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1813.4759879456706,
+            "unit": "median tps",
+            "extra": "avg tps: 1727.1916135534823, max tps: 2040.7966609328332, count: 55970"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.993362212886508,
+            "unit": "median tps",
+            "extra": "avg tps: 5.966169524811599, max tps: 7.469755799116903, count: 55970"
           }
         ]
       }

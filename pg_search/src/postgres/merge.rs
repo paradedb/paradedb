@@ -103,12 +103,8 @@ impl FromDatum for BackgroundMergeArgs {
             return None;
         }
 
-        // Equivalent to VARDATA_ANY(varlena)
         let data = varlena.cast::<u8>().add(pg_sys::VARHDRSZ as usize);
-
-        // Extract total_size from vl_len_ (4-byte header in network byte order)
-        // This is equivalent to VARSIZE_ANY(varlena)
-        let len_i8 = (*varlena).vl_len_; // [i8; 4] in your bindings
+        let len_i8 = (*varlena).vl_len_;
         let len_u8 = [
             len_i8[0] as u8,
             len_i8[1] as u8,
@@ -117,11 +113,9 @@ impl FromDatum for BackgroundMergeArgs {
         ];
         let total_size: usize = u32::from_be_bytes(len_u8) as usize;
 
-        // Equivalent to VARSIZE_ANY_EXHDR(varlena)
         let data_len = total_size.saturating_sub(pg_sys::VARHDRSZ as usize);
-
         if data_len != std::mem::size_of::<BackgroundMergeArgs>() {
-            return None; // size mismatch → corrupted or incompatible
+            return None;
         }
 
         let ptr = data as *const BackgroundMergeArgs;

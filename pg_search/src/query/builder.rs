@@ -120,12 +120,13 @@ impl QueryBuilder for QueryTreeBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use tantivy::query::AllQuery;
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_query_only_builder() {
         let builder = QueryOnlyBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);
@@ -139,7 +140,7 @@ mod tests {
         let _extracted = QueryOnlyBuilder::extract_query(&output);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_query_tree_builder() {
         let builder = QueryTreeBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);

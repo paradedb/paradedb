@@ -641,6 +641,7 @@ pub mod v2 {
         init_new_buffer, BufferManager, BufferMut, Page, PageMut,
     };
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
+    use crate::{debug1, debug2};
     use pgrx::pg_sys;
     use std::iter::Peekable;
 
@@ -760,6 +761,8 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
+            debug2!("asked FSM for {} blocks", many);
+
             let current_xid = unsafe {
                 pg_sys::GetCurrentFullTransactionIdIfAny()
                     .value
@@ -792,10 +795,16 @@ pub mod v2 {
                     // draining the xid's freelist from its the head
                     let mut buffer = match bman.get_buffer_conditional(blockno) {
                         Some(buffer) => {
+                            debug2!("got slot with xid {} at blockno {}", found_xid, blockno);
                             drop(root.take());
                             buffer
                         }
                         None => {
+                            debug1!(
+                                "failed to lock slot with xid {} at blockno {}",
+                                found_xid,
+                                blockno
+                            );
                             drop(root.take());
 
                             // move to the next candidate XID below this one.
@@ -815,6 +824,7 @@ pub mod v2 {
                     };
 
                     if is_empty && blockno != head_blockno {
+                        debug1!("skipping empty freelist blockno {}", blockno);
                         drop(buffer);
                         blockno = next_blockno;
                         continue;
@@ -845,6 +855,7 @@ pub mod v2 {
                     };
 
                     if !modified {
+                        debug1!("no changes to freelist blockno {}", blockno);
                         // we didn't change anything
                         buffer.set_dirty(false);
                     }
@@ -855,6 +866,7 @@ pub mod v2 {
                     drop(buffer);
 
                     if should_unlink_head {
+                        debug1!("possibly unlinking head blockno {}", head_blockno);
                         let old_head = head_blockno;
 
                         // get mutable tree without holding any other locks
@@ -866,6 +878,7 @@ pub mod v2 {
                         if let Some(slot) = tree.get_slot_mut(&found_xid) {
                             // make sure that a concurrent process didn't unlink the same head
                             if slot.tag as pg_sys::BlockNumber == head_blockno {
+                                debug1!("actually unlinking head blockno {}", head_blockno);
                                 did_update_head = true;
                                 slot.tag = next_blockno;
 
@@ -888,6 +901,7 @@ pub mod v2 {
                     // if this was the last block in the list *and* the entire list is empty,
                     // remove the XID entry from the tree. We must hold no other locks while doing this
                     if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
+                        debug1!("removing xid {} from freelist (cnt == 0)", found_xid);
                         let mut root = bman.get_buffer_mut(self.start_blockno);
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
@@ -911,6 +925,8 @@ pub mod v2 {
                 if blocks.len() == many {
                     break;
                 }
+
+                debug2!("wanted {} blocks, got {}", many, blocks.len());
 
                 // exhausted this list
                 // move to the next candidate XID below this one.

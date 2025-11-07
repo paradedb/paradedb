@@ -324,7 +324,7 @@ impl BufferMut {
         // prevent Drop of BufferMut/Buffer from running
         // since we want to control the unlock order ourselves
         std::mem::forget(self);
-        block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
+        block_tracker::forget!(unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
 
         unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _) };
         PinnedBuffer::new(pg_buffer)

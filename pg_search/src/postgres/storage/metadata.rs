@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
@@ -353,7 +354,9 @@ impl BgMergerPage {
 
         // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
         // a pin is taken for every merge that is running, and released when it's done
-        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1 > 2 {
+        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1
+            > gucs::max_concurrent_background_merges()
+        {
             drop(buffer);
             None
         } else {

@@ -52,7 +52,8 @@ impl TryFrom<u8> for MergeStyle {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
     buffer: pg_sys::Buffer,
@@ -74,17 +75,14 @@ impl BackgroundMergeArgs {
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
-        let bytes = unsafe {
-            std::slice::from_raw_parts(
-                &self as *const Self as *const u8,
-                std::mem::size_of::<Self>(),
-            )
-        };
-        bytes.into_datum()
+        let upper = u32::from(self.index_oid) as u64; // top 32 bits
+        let lower = self.buffer as u64; // bottom 32 bits
+        let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
+        Some(pg_sys::Datum::from(raw as i64))
     }
 
     fn type_oid() -> pg_sys::Oid {
-        <&[u8]>::type_oid()
+        pg_sys::INT8OID
     }
 }
 
@@ -92,34 +90,20 @@ impl FromDatum for BackgroundMergeArgs {
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
-        _typoid: pg_sys::Oid,
+        typoid: pg_sys::Oid,
     ) -> Option<Self> {
         if is_null {
             return None;
         }
 
-        let varlena = datum.cast_mut_ptr::<pg_sys::varlena>();
-        if varlena.is_null() {
-            return None;
-        }
+        let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
+        let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
+        let buffer = (raw & 0xFFFF_FFFF) as std::os::raw::c_int;
 
-        let data = varlena.cast::<u8>().add(pg_sys::VARHDRSZ as usize);
-        let len_i8 = (*varlena).vl_len_;
-        let len_u8 = [
-            len_i8[0] as u8,
-            len_i8[1] as u8,
-            len_i8[2] as u8,
-            len_i8[3] as u8,
-        ];
-        let total_size: usize = u32::from_be_bytes(len_u8) as usize;
-
-        let data_len = total_size.saturating_sub(pg_sys::VARHDRSZ as usize);
-        if data_len != std::mem::size_of::<BackgroundMergeArgs>() {
-            return None;
-        }
-
-        let ptr = data as *const BackgroundMergeArgs;
-        Some(std::ptr::read_unaligned(ptr))
+        Some(Self {
+            index_oid: index_oid.into(),
+            buffer,
+        })
     }
 }
 
@@ -594,5 +578,38 @@ mod tests {
         let index = PgSearchRelation::open(index_oid);
         let layer_sizes = index.options().background_layer_sizes();
         assert_eq!(layer_sizes, DEFAULT_BACKGROUND_LAYER_SIZES.to_vec());
+    }
+
+    #[pg_test]
+    fn test_background_merge_args() {
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 200);
+        let datum = args
+            .into_datum()
+            .expect("should be able to convert to datum");
+        let args2 = unsafe {
+            BackgroundMergeArgs::from_datum(datum, false)
+                .expect("should be able to convert from datum")
+        };
+        assert_eq!(args, args2);
+
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), 0);
+        let datum = args
+            .into_datum()
+            .expect("should be able to convert to datum");
+        let args2 = unsafe {
+            BackgroundMergeArgs::from_datum(datum, false)
+                .expect("should be able to convert from datum")
+        };
+        assert_eq!(args, args2);
+
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), i32::MAX);
+        let datum = args
+            .into_datum()
+            .expect("should be able to convert to datum");
+        let args2 = unsafe {
+            BackgroundMergeArgs::from_datum(datum, false)
+                .expect("should be able to convert from datum")
+        };
+        assert_eq!(args, args2);
     }
 }

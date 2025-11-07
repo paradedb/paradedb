@@ -23,9 +23,8 @@ use crate::postgres::storage::buffer::{
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::iter::TableIterator;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, name, pg_extern, pg_sys, PgLogLevel, PgRelation, PgSqlErrorCode};
+use pgrx::{function_name, pg_sys, PgLogLevel, PgSqlErrorCode};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -354,32 +353,13 @@ impl BgMergerPage {
 
         // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
         // a pin is taken for every merge that is running, and released when it's done
-        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1 > 1 {
+        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1 > 2 {
             drop(buffer);
             None
         } else {
             Some(buffer.exchange_pinned().into_pg())
         }
     }
-}
-
-#[pg_extern]
-unsafe fn reset_bgworker_state(index: PgRelation) {
-    // let index = PgSearchRelation::from_pg(index.as_ptr());
-    // let mut bgmerger = MetaPage::open(&index).bgmerger();
-    // pgrx::info!("private refcount: {}", bgmerger.private_refcount());
-    // bgmerger.set_stopped(true);
-}
-
-#[pg_extern]
-unsafe fn bgmerger_state(
-    index: PgRelation,
-) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
-    todo!()
-    // let index = PgSearchRelation::from_pg(index.as_ptr());
-    // let bgmerger = MetaPage::open(&index).bgmerger().data();
-    // let iter = bgmerger.into_iter().map(|(pid, state)| (pid, format!("{:?}", state)));
-    // TableIterator::new(iter)
 }
 
 unsafe fn get_buffer_descriptor(buffer: pg_sys::Buffer) -> pg_sys::BufferDesc {

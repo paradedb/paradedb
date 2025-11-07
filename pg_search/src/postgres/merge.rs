@@ -583,33 +583,18 @@ mod tests {
     #[pg_test]
     fn test_background_merge_args() {
         let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 200);
-        let datum = args
-            .into_datum()
-            .expect("should be able to convert to datum");
-        let args2 = unsafe {
-            BackgroundMergeArgs::from_datum(datum, false)
-                .expect("should be able to convert from datum")
-        };
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
         let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), 0);
-        let datum = args
-            .into_datum()
-            .expect("should be able to convert to datum");
-        let args2 = unsafe {
-            BackgroundMergeArgs::from_datum(datum, false)
-                .expect("should be able to convert from datum")
-        };
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
         let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), i32::MAX);
-        let datum = args
-            .into_datum()
-            .expect("should be able to convert to datum");
-        let args2 = unsafe {
-            BackgroundMergeArgs::from_datum(datum, false)
-                .expect("should be able to convert from datum")
-        };
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
     }
 }

@@ -71,3 +71,13 @@ SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=engli
 SELECT 'Running Shoes.  olé'::pdb.literal_normalized::text[];
 SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+
+-- Invalid configurations
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('min=english')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=foo')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=f')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple(ascii_folding)::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_short=0')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_long=0')::text[];
+SELECT 'Running Shoes.  olé'::pdb.ngram(2, 'invalid')::text[];

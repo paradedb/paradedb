@@ -462,7 +462,8 @@ impl ParallelScanState {
 
         assert!(
             result_len < max_response_bytes,
-            "Initial aggregate result is too large: {result_len:?} vs {max_response_bytes}"
+            "Initial aggregate result is too large: {result_len:?} vs {max_response_bytes}. \
+            Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC."
         );
 
         let buffer_full = watermark + std::mem::size_of::<usize>() + result_len
@@ -515,7 +516,8 @@ impl ParallelScanState {
 
         assert!(
             merged_len < max_response_bytes,
-            "Aggregate result is too large: {merged_len:?} vs {max_response_bytes}"
+            "Aggregate result is too large: {merged_len:?} vs {max_response_bytes}. \
+            Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC."
         );
 
         // Reset buffer and write single merged result

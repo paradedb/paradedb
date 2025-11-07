@@ -18,8 +18,11 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
+use std::ptr::NonNull;
 use std::sync::Arc;
 
+use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
@@ -30,10 +33,10 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use std::ptr::NonNull;
 
 use anyhow::Result;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::{
     Collector, Feature, FieldFeature, ScoreFeature, SegmentCollector, TopDocs, TopOrderable,
 };
@@ -237,6 +240,23 @@ impl Iterator for MultiSegmentSearchResults {
             }
         }
     }
+}
+
+/// Defines auxiliary `Collector`s that may be used in parallel/around TopN.
+///
+/// The TopDocs collectors themselves are highly specialized based on field and query types, and so
+/// usually cannot have their types spelled all the way out: they are defined by the method calls
+/// below `search_top_n_in_segments`. This struct defines optional wrappers and neighbors for that
+/// core TopN collector.
+pub struct TopNAuxiliaryCollector {
+    /// If aggregations should be computed alongside TopN, the collector to use.
+    pub aggregation_collector: DistributedAggregationCollector,
+    /// If MVCC filtering should be applied, then the visibility checker to use for that.
+    ///
+    /// Note: If enabled, visibility checking is applied to to _both_ the TopN and to any
+    /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
+    /// as well feed the filtered result to TopN too.
+    pub vischeck: Option<TSVisibilityChecker>,
 }
 
 pub struct SearchIndexReader {
@@ -545,19 +565,17 @@ impl SearchIndexReader {
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    pub fn search_top_n_in_segments<C>(
+    /// If a TopNAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
+    /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
+    /// results for MVCC visibility, and re-query if necessary.
+    pub fn search_top_n_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
-        aggregation_collector: Option<C>,
-    ) -> TopNSearchResults
-    where
-        C: Collector<Fruit = IntermediateAggregationResults>,
-    {
+        aux_collector: Option<TopNAuxiliaryCollector>,
+    ) -> TopNSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -584,7 +602,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
@@ -596,7 +614,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     tantivy::schema::Type::I64 => TopNSearchResults::new_for_discarded_field(
@@ -608,7 +626,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     tantivy::schema::Type::F64 => TopNSearchResults::new_for_discarded_field(
@@ -620,7 +638,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     tantivy::schema::Type::Bool => TopNSearchResults::new_for_discarded_field(
@@ -632,7 +650,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     tantivy::schema::Type::Date => TopNSearchResults::new_for_discarded_field(
@@ -644,7 +662,7 @@ impl SearchIndexReader {
                             erased_features,
                             n,
                             offset,
-                            aggregation_collector,
+                            aux_collector,
                         ),
                     ),
                     x => {
@@ -666,7 +684,7 @@ impl SearchIndexReader {
                     erased_features,
                     n,
                     offset,
-                    aggregation_collector,
+                    aux_collector,
                 );
                 TopNSearchResults::new_for_score(
                     &self.searcher,
@@ -679,13 +697,7 @@ impl SearchIndexReader {
                 direction,
             } => {
                 // TODO: See method docs.
-                self.top_by_score_in_segments(
-                    segment_ids,
-                    *direction,
-                    n,
-                    offset,
-                    aggregation_collector,
-                )
+                self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
             }
         }
     }
@@ -706,7 +718,7 @@ impl SearchIndexReader {
     /// possible permutations of `F: Feature` types for three columns (which would be 7^3=343 copies
     /// of the method at time of writing).
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
-    fn top_in_segments<F, C>(
+    fn top_in_segments<F>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         first_feature: F,
@@ -714,11 +726,10 @@ impl SearchIndexReader {
         mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<C>,
+        aux_collector: Option<TopNAuxiliaryCollector>,
     ) -> TopNWithAggregate<F::Output>
     where
         F: Feature + Clone,
-        C: Collector<Fruit = IntermediateAggregationResults>,
     {
         // if last erased feature is score, then we need to return the score
         match erased_features.len() {
@@ -728,7 +739,7 @@ impl SearchIndexReader {
                     ((first_feature, first_sortdir.into()),),
                     n,
                     offset,
-                    aggregation_collector,
+                    aux_collector,
                 );
                 (
                     top_docs
@@ -748,7 +759,7 @@ impl SearchIndexReader {
                     ),
                     n,
                     offset,
-                    aggregation_collector,
+                    aux_collector,
                 );
 
                 (
@@ -774,7 +785,7 @@ impl SearchIndexReader {
                     ),
                     n,
                     offset,
-                    aggregation_collector,
+                    aux_collector,
                 );
 
                 (
@@ -805,43 +816,25 @@ impl SearchIndexReader {
     }
 
     /// See `top_in_segments` and `search_top_n_in_segments`.
-    fn top_for_orderable_in_segments<O, C>(
+    fn top_for_orderable_in_segments<O>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderable: O,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<C>,
+        aux_collector: Option<TopNAuxiliaryCollector>,
     ) -> (
         Vec<(O::Output, DocAddress)>,
         Option<IntermediateAggregationResults>,
     )
     where
         O: TopOrderable,
-        C: Collector<Fruit = IntermediateAggregationResults>,
     {
         let top_docs_collector = TopDocs::with_limit(n)
             .and_offset(offset)
             .order_by(orderable);
-        let query = self.query();
-        let weight = query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
-            .expect("creating a Weight from a Query should not fail");
 
-        if let Some(aggregation_collector) = aggregation_collector {
-            let collector = (top_docs_collector, aggregation_collector);
-            let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
-            let (top_docs, aggregation_results) = collector
-                .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segment");
-            (top_docs, Some(aggregation_results))
-        } else {
-            let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
-            let top_docs = top_docs_collector
-                .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segments");
-            (top_docs, None)
-        }
+        self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector)
     }
 
     /// Order by score only.
@@ -849,17 +842,14 @@ impl SearchIndexReader {
     /// TODO: This is a special case for a single score feature: the score-only codepath is highly
     /// specialized, and at least 50% faster than `TopDocs::order_by` when sorting on only the
     /// score. We should try to close that gap over time, but for now we special case it.
-    fn top_by_score_in_segments<C>(
+    fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-        aggregation_collector: Option<C>,
-    ) -> TopNSearchResults
-    where
-        C: Collector<Fruit = IntermediateAggregationResults>,
-    {
+        aux_collector: Option<TopNAuxiliaryCollector>,
+    ) -> TopNSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
@@ -870,31 +860,9 @@ impl SearchIndexReader {
                         }
                     },
                 );
-                let weight = self
-                    .query
-                    .weight(tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    })
-                    .expect("creating a Weight from a Query should not fail");
 
-                let (top_docs, aggregation_results) = if let Some(aggregation_collector) =
-                    aggregation_collector
-                {
-                    let collector = (top_docs_collector, aggregation_collector);
-                    let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
-                    let (top_docs, aggregation_results) = collector
-                        .merge_fruits(fruits)
-                        .expect("should be able to merge top-n in segment");
-                    (top_docs, Some(aggregation_results))
-                } else {
-                    let fruits =
-                        self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
-                    let top_docs = top_docs_collector
-                        .merge_fruits(fruits)
-                        .expect("should be able to merge top-n in segment");
-                    (top_docs, None)
-                };
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
                 TopNSearchResults::new_for_score(
                     &self.searcher,
@@ -908,31 +876,9 @@ impl SearchIndexReader {
             // can use tantivy's score directly
             SortDirection::Desc => {
                 let top_docs_collector = TopDocs::with_limit(n).and_offset(offset);
-                let weight = self
-                    .query
-                    .weight(tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    })
-                    .expect("creating a Weight from a Query should not fail");
 
-                let (top_docs, aggregation_results) = if let Some(aggregation_collector) =
-                    aggregation_collector
-                {
-                    let collector = (top_docs_collector, aggregation_collector);
-                    let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
-                    let (top_docs, aggregation_results) = collector
-                        .merge_fruits(fruits)
-                        .expect("should be able to merge top-n in segment");
-                    (top_docs, Some(aggregation_results))
-                } else {
-                    let fruits =
-                        self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
-                    let top_docs = top_docs_collector
-                        .merge_fruits(fruits)
-                        .expect("should be able to merge top-n in segment");
-                    (top_docs, None)
-                };
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
                 TopNSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
             }
@@ -981,6 +927,48 @@ impl SearchIndexReader {
                 enable_scoring(self.need_scores, &self.searcher),
             )
             .expect("search should not fail")
+    }
+
+    /// Collect for the given Collector, optionally paired with / wrapped with the given auxiliary
+    /// Collector(s).
+    fn collect_maybe_auxiliary<C: Collector>(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        top_docs_collector: C,
+        aux_collector: Option<TopNAuxiliaryCollector>,
+    ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
+        let query = self.query();
+        let weight = query
+            .weight(enable_scoring(self.need_scores, &self.searcher))
+            .expect("creating a Weight from a Query should not fail");
+
+        let Some(aux_collector) = aux_collector else {
+            // No auxiliary collector.
+            let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
+            let top_docs = top_docs_collector
+                .merge_fruits(fruits)
+                .expect("should be able to merge top-n in segments");
+            return (top_docs, None);
+        };
+
+        // We are executing a compound / tuple collection with an aggregation.
+        let compound_collector = (top_docs_collector, aux_collector.aggregation_collector);
+
+        // Optionally wrap in MVCC visibility filtering, if requested.
+        if let Some(vischeck) = aux_collector.vischeck {
+            let collector = MVCCFilterCollector::new(compound_collector, vischeck);
+            let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
+            let (top_docs, aggregation_results) = collector
+                .merge_fruits(fruits)
+                .expect("should be able to merge top-n in segment");
+            (top_docs, Some(aggregation_results))
+        } else {
+            let fruits = self.collect_segments(segment_ids, &compound_collector, weight.as_ref());
+            let (top_docs, aggregation_results) = compound_collector
+                .merge_fruits(fruits)
+                .expect("should be able to merge top-n in segment");
+            (top_docs, Some(aggregation_results))
+        }
     }
 
     /// Create erased Features for the given OrderByInfo, which must contain at least one item.

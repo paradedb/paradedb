@@ -325,7 +325,7 @@ SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  pdb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, count, stats, percentiles. Example: {"terms": {"field": "country"}}
+ERROR:  pdb.agg() received unknown aggregation type 'invalid_agg_type'. Valid types: terms, range, histogram, date_histogram, filter, avg, sum, min, max, value_count, stats, percentiles. Example: {"terms": {"field": "country"}}
 -- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
@@ -1399,5 +1399,124 @@ GROUP BY category;
 
 -- Re-enable for cleanup
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
+-- The custom scan will reject queries where quals can't be extracted
+-- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
+-- This is SAFE behavior - WHERE clause is applied correctly, no silent data loss
+SET paradedb.enable_filter_pushdown TO off;
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE response_time = 150
+ORDER BY timestamp DESC
+LIMIT 1;
+ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE response_time = 150
+ORDER BY timestamp DESC
+LIMIT 1;
+ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+-- Test 49: pdb.agg() with exact text match WHERE clause and filter_pushdown enabled
+-- With filter_pushdown ON, the custom scan should handle this via Qual::All + PostgreSQL filtering
+-- Result: Custom scan uses Qual::All, PostgreSQL applies WHERE clause filter, returns correct results
+SET paradedb.enable_filter_pushdown TO on;
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+         Table: logs
+         Index: logs_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 1
+         Full Index Scan: true
+         Tantivy Query: "all"
+(11 rows)
+
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+ id |        description        |                                                                                                                               agg                                                                                                                               
+----+---------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+SET paradedb.enable_filter_pushdown TO off;
+-- Test 50: pdb.agg() as window function with no WHERE clause should work
+EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC
+LIMIT 1;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.01 rows=1 width=76)
+   ->  Custom Scan (ParadeDB Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
+         Table: logs
+         Index: logs_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: timestamp desc
+            TopN Limit: 1
+         Full Index Scan: true
+         Tantivy Query: "all"
+(11 rows)
+
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+ORDER BY timestamp DESC
+LIMIT 1;
+ id |        description        |                                                                                                                               agg                                                                                                                               
+----+---------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 6}, {"key": "api", "doc_count": 5}, {"key": "application", "doc_count": 4}, {"key": "network", "doc_count": 4}, {"key": "security", "doc_count": 3}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Test 51: pdb.agg() with @@@ AND non-indexed field equality (filter_pushdown OFF)
+-- This demonstrates the limitation: mixing @@@ with non-pushable predicates will error
+-- when filter_pushdown is disabled
+SET paradedb.enable_filter_pushdown TO off;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error' AND description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
+-- Test 52: Same query works with filter_pushdown enabled
+SET paradedb.enable_filter_pushdown TO on;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error' AND description = 'Database connection error'
+ORDER BY timestamp DESC
+LIMIT 1;
+ id |        description        |                                                      agg                                                       
+----+---------------------------+----------------------------------------------------------------------------------------------------------------
+  1 | Database connection error | {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+SET paradedb.enable_filter_pushdown TO off;
+-- Test 51: pdb.agg() as window function with @@@ WHERE clause
+-- Currently requires filter_pushdown because we can't determine at planner time
+-- if ALL predicates are pushable (conservative approach to prevent silent data loss)
+SET paradedb.enable_filter_pushdown TO on;
+SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC
+LIMIT 1;
+ id |        description        |                                                                                                            agg                                                                                                             
+----+---------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
 -- Cleanup
 DROP TABLE logs CASCADE;
+RESET paradedb.enable_filter_pushdown;

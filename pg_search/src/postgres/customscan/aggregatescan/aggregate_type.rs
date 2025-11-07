@@ -20,7 +20,7 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -126,8 +126,9 @@ impl AggregateType {
         let filter_expr = if (*aggref).aggfilter.is_null() {
             None
         } else {
+            let context = PlannerContext::from_planner(root);
             extract_quals(
-                root,
+                &context,
                 heap_rti,
                 (*aggref).aggfilter as *mut pg_sys::Node,
                 anyelement_query_input_opoid(),

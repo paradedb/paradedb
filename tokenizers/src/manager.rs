@@ -27,9 +27,12 @@ use crate::{
     token_length::TokenLengthFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
+
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
@@ -277,7 +280,8 @@ macro_rules! add_filters {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
-    Default(SearchTokenizerFilters),
+    #[strum(serialize = "default")]
+    Simple(SearchTokenizerFilters),
     Keyword,
     #[deprecated(
         since = "0.19.0",
@@ -330,7 +334,10 @@ pub enum LinderaLanguage {
 
 impl Default for SearchTokenizer {
     fn default() -> Self {
-        Self::Default(SearchTokenizerFilters::default())
+        Self::UnicodeWords {
+            remove_emojis: false,
+            filters: SearchTokenizerFilters::default(),
+        }
     }
 }
 
@@ -347,7 +354,7 @@ impl SearchTokenizer {
         let filters = SearchTokenizerFilters::from_json_value(value)?;
 
         match tokenizer_type {
-            "default" => Ok(SearchTokenizer::Default(filters)),
+            "default" => Ok(SearchTokenizer::Simple(filters)),
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
@@ -410,7 +417,7 @@ impl SearchTokenizer {
 
     pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
         let analyzer = match self {
-            SearchTokenizer::Default(filters) => {
+            SearchTokenizer::Simple(filters) => {
                 add_filters!(SimpleTokenizer::default(), filters)
             }
             // the keyword tokenizer is a special case that does not have filters
@@ -494,7 +501,7 @@ impl SearchTokenizer {
 
     fn filters(&self) -> &SearchTokenizerFilters {
         match self {
-            SearchTokenizer::Default(filters) => filters,
+            SearchTokenizer::Simple(filters) => filters,
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => SearchTokenizerFilters::keyword_deprecated(),
@@ -522,34 +529,34 @@ impl SearchTokenizer {
     }
 }
 
-pub fn language_to_str(lang: &Language) -> &str {
-    match lang {
-        Language::Arabic => "Arabic",
-        Language::Danish => "Danish",
-        Language::Dutch => "Dutch",
-        Language::English => "English",
-        Language::Finnish => "Finnish",
-        Language::French => "French",
-        Language::German => "German",
-        Language::Greek => "Greek",
-        Language::Hungarian => "Hungarian",
-        Language::Italian => "Italian",
-        Language::Norwegian => "Norwegian",
-        Language::Portuguese => "Portuguese",
-        Language::Romanian => "Romanian",
-        Language::Russian => "Russian",
-        Language::Spanish => "Spanish",
-        Language::Swedish => "Swedish",
-        Language::Tamil => "Tamil",
-        Language::Turkish => "Turkish",
-    }
-}
+pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(Language::Arabic, "Arabic");
+    map.insert(Language::Danish, "Danish");
+    map.insert(Language::Dutch, "Dutch");
+    map.insert(Language::English, "English");
+    map.insert(Language::Finnish, "Finnish");
+    map.insert(Language::French, "French");
+    map.insert(Language::German, "German");
+    map.insert(Language::Greek, "Greek");
+    map.insert(Language::Hungarian, "Hungarian");
+    map.insert(Language::Italian, "Italian");
+    map.insert(Language::Norwegian, "Norwegian");
+    map.insert(Language::Portuguese, "Portuguese");
+    map.insert(Language::Romanian, "Romanian");
+    map.insert(Language::Russian, "Russian");
+    map.insert(Language::Spanish, "Spanish");
+    map.insert(Language::Swedish, "Swedish");
+    map.insert(Language::Tamil, "Tamil");
+    map.insert(Language::Turkish, "Turkish");
+    map
+});
 
 impl SearchTokenizer {
     pub fn name(&self) -> String {
         let filters_suffix = self.filters().name_suffix();
         match self {
-            SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
+            SearchTokenizer::Simple(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
@@ -623,7 +630,7 @@ mod tests {
 
     #[rstest]
     fn test_search_tokenizer() {
-        let tokenizer = SearchTokenizer::default();
+        let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
         assert_eq!(tokenizer.name(), "default".to_string());
 
         let json = r#"{

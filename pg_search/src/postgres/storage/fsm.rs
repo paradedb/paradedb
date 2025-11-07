@@ -1418,6 +1418,19 @@ pub mod v2 {
             let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
             assert!(!slot_exists(&mut bman, &mut fsm, xid));
 
+            // punch holes at end
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+            punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![2, 3, 4]);
+
+            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            assert_eq!(
+                freelist_blocks(&mut bman, &mut fsm, xid),
+                vec![2038, 2039, 0, 0, 0]
+            );
+
+            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            assert!(!slot_exists(&mut bman, &mut fsm, xid));
+
             Ok(())
         }
 

@@ -807,7 +807,7 @@ pub mod v2 {
                         }
                     };
 
-                    // this avoids WAL generation for empty pages we're just traversing
+                    // skip the page as quickly as possible if it's empty and we're not at the head
                     let (is_empty, next_blockno) = {
                         let page = buffer.page();
                         let contents = page.contents_ref::<AvlLeaf>();

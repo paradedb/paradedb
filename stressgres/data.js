@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762382289476,
+  "lastUpdate": 1762482135204,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8506,6 +8506,72 @@ window.BENCHMARK_DATA = {
             "value": 146.67116444268942,
             "unit": "median tps",
             "extra": "avg tps: 153.4734688984154, max tps: 1089.6094839609484, count: 55216"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d2ea63dccd451d4e82d4a925f9ff912d76bd4e",
+          "message": "feat: Default tokenizer to `pdb.unicode_words` (#3492)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAs per internal discussions, `pdb.unicode_words` is used instead of\n`pdb.simple` when no tokenizer is specified.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-06T21:05:39-05:00",
+          "tree_id": "f6309c86dc3eeede19990c61c7680be5b60dc4c1",
+          "url": "https://github.com/paradedb/paradedb/commit/95d2ea63dccd451d4e82d4a925f9ff912d76bd4e"
+        },
+        "date": 1762482132855,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 774.0830272974094,
+            "unit": "median tps",
+            "extra": "avg tps: 773.4738249945285, max tps: 782.5418403322645, count: 55354"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3119.6646249801897,
+            "unit": "median tps",
+            "extra": "avg tps: 3095.287078700772, max tps: 3208.7019998235214, count: 55354"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 764.9388165660463,
+            "unit": "median tps",
+            "extra": "avg tps: 763.4275670378275, max tps: 771.1447520643634, count: 55354"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 658.4717734849031,
+            "unit": "median tps",
+            "extra": "avg tps: 657.0267146833168, max tps: 663.6182774027341, count: 55354"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1693.9941564578853,
+            "unit": "median tps",
+            "extra": "avg tps: 1696.717925568266, max tps: 1726.953464794058, count: 110708"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1241.0056502983036,
+            "unit": "median tps",
+            "extra": "avg tps: 1231.2539868206804, max tps: 1249.0505435283933, count: 55354"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 58.70116080751634,
+            "unit": "median tps",
+            "extra": "avg tps: 69.36133971525405, max tps: 1077.4306296289114, count: 55354"
           }
         ]
       }

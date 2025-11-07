@@ -602,3 +602,21 @@ impl<T> ToPalloc for T {
         unsafe { mcxt.copy_ptr_into((&mut self as *mut T).cast(), size_of::<T>()) }
     }
 }
+
+#[macro_export]
+macro_rules! debug1 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pg_sys::debug1!($($arg)*);
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! debug2 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG2 as _) } {
+            pg_sys::debug2!($($arg)*);
+        }
+    }};
+}

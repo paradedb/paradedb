@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762487942088,
+  "lastUpdate": 1762487946080,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36088,6 +36088,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.80110573600552, max segment_count: 125.0, count: 57880"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bad99101a1317fe3a20680105c3af6e8b38538a8",
+          "message": "fix: FSM freelist sparsity causes too many page reads/lock acquisitions (#3509)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe `extend_freelist` function in V2 FSM had a \"fast path splice\" that\ncould inject tons of tiny, partially-full blocks into the freelist. If\nit saw that a freelist block was full, it would blindly just assume the\nnext block was also full and inject a new block between the current and\nnext block.\n\nHowever, this fails if a lot of `extend_freelist` calls come in\nconcurrently -- each call would inject a partially-filled block in the\nmiddle of the list, leading to a very sparse freelist.\n\nThe solution is to peek at the next block in the freelist, and only do\nthe fast path if both blocks are full.\n\nAdditionally, we have seen situations in prod (likely related to the\nabove) where freelists contain entirely empty blocks. The existing\nfreelist isn't good at self-healing -- we have modified `drain` to now\nremove these empty blocks from the freelist.\n\nFinally, `drain`s call to `extend_freelist` has been moved to the end\nafter all blocks have been drained. This prevents multiple calls to\n`extend_freelist`, which is expensive (it can do tree mutations).\n\n## Why\n\n## How\n\n## Tests\n\nSee two added regression tests, both of which fail on `main`",
+          "timestamp": "2025-11-06T22:28:22-05:00",
+          "tree_id": "5c3da39a34818529df9f6c15ca1e0fa4e965c023",
+          "url": "https://github.com/paradedb/paradedb/commit/bad99101a1317fe3a20680105c3af6e8b38538a8"
+        },
+        "date": 1762487943617,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.312861028314042, max cpu: 42.687748, count: 57511"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.43163454599988, max mem: 230.28125, count: 57511"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.507584443770387, max cpu: 33.23442, count: 57511"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.7990326035454, max mem: 166.03125, count: 57511"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34233,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33116.08134096086, max block_count: 35457.0, count: 57511"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.29380466345569, max segment_count: 124.0, count: 57511"
           }
         ]
       }

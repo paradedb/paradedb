@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762483826181,
+  "lastUpdate": 1762483830596,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -53566,6 +53566,108 @@ window.BENCHMARK_DATA = {
             "value": 157.5078125,
             "unit": "median mem",
             "extra": "avg mem: 176.18207031319187, max mem: 217.359375, count: 56459"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d2ea63dccd451d4e82d4a925f9ff912d76bd4e",
+          "message": "feat: Default tokenizer to `pdb.unicode_words` (#3492)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAs per internal discussions, `pdb.unicode_words` is used instead of\n`pdb.simple` when no tokenizer is specified.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-06T21:05:39-05:00",
+          "tree_id": "f6309c86dc3eeede19990c61c7680be5b60dc4c1",
+          "url": "https://github.com/paradedb/paradedb/commit/95d2ea63dccd451d4e82d4a925f9ff912d76bd4e"
+        },
+        "date": 1762483828132,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05114789108382274, max background_merging: 1.0, count: 56190"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.830898460545908, max cpu: 9.619239, count: 56190"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 18.619887115701193, max mem: 21.3515625, count: 56190"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.016152722234156, max cpu: 27.988338, count: 56190"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 165.74124420214895, max mem: 170.67578125, count: 56190"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 63742,
+            "unit": "median block_count",
+            "extra": "avg block_count: 63483.78332443495, max block_count: 63742.0, count: 56190"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.28072610784837, max segment_count: 57.0, count: 56190"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.985491823241027, max cpu: 32.589718, count: 56190"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 207.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 206.58471807427924, max mem: 208.359375, count: 56190"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.817226267496259, max cpu: 28.180038, count: 56190"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 171.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.13258732926232, max mem: 172.140625, count: 56190"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.79739340457438, max cpu: 33.667336, count: 56190"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 174.52651946798807, max mem: 216.984375, count: 56190"
           }
         ]
       }

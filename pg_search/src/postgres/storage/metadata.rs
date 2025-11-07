@@ -343,80 +343,50 @@ impl MetaPage {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(u8)]
-enum BgMergerState {
-    Stopped = 0,
-    Starting = 1,
-    Running = 2,
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-struct BgMergerPageData {
-    data: (i32, BgMergerState),
-}
-
 pub struct BgMergerPage {
     bman: BufferManager,
     blockno: pg_sys::BlockNumber,
 }
 
 impl BgMergerPage {
-    fn data(&self) -> (i32, BgMergerState) {
-        let buffer = self.bman.get_buffer(self.blockno);
-        let page = buffer.page();
-        let contents = page.contents::<BgMergerPageData>();
-        contents.data
-    }
+    pub fn try_starting(&mut self) -> Option<pg_sys::Buffer> {
+        let buffer = self.bman.get_buffer_mut(self.blockno);
 
-    pub fn try_starting(&mut self) -> bool {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        let contents = page.contents_mut::<BgMergerPageData>();
-        match contents.data {
-            // it's currently stopped
-            (_, BgMergerState::Stopped) => {
-                contents.data = (1, BgMergerState::Starting);
-                true
-            }
-
-            // it's tagged as running but the process doesn't belong to Postgres
-            (pid, BgMergerState::Running) if unsafe { !pg_sys::IsBackendPid(pid) } => {
-                contents.data = (1, BgMergerState::Starting);
-                true
-            }
-
-            _ => false,
+        // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
+        // a pin is taken for every merge that is running, and released when it's done
+        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1 > 1 {
+            drop(buffer);
+            None
+        } else {
+            Some(buffer.exchange_pinned().into_pg())
         }
-    }
-
-    pub fn set_running(&mut self) {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        page.contents_mut::<BgMergerPageData>().data =
-            (unsafe { pg_sys::MyProcPid }, BgMergerState::Running);
-    }
-
-    pub fn set_stopped(&mut self) {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        page.contents_mut::<BgMergerPageData>().data = (0, BgMergerState::Stopped);
     }
 }
 
 #[pg_extern]
 unsafe fn reset_bgworker_state(index: PgRelation) {
-    let index = PgSearchRelation::from_pg(index.as_ptr());
-    let mut bgmerger = MetaPage::open(&index).bgmerger();
-    bgmerger.set_stopped();
+    // let index = PgSearchRelation::from_pg(index.as_ptr());
+    // let mut bgmerger = MetaPage::open(&index).bgmerger();
+    // pgrx::info!("private refcount: {}", bgmerger.private_refcount());
+    // bgmerger.set_stopped(true);
 }
 
 #[pg_extern]
 unsafe fn bgmerger_state(
     index: PgRelation,
 ) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
-    let index = PgSearchRelation::from_pg(index.as_ptr());
-    let bgmerger = MetaPage::open(&index).bgmerger().data();
-    TableIterator::new(std::iter::once((bgmerger.0, format!("{:?}", bgmerger.1))))
+    todo!()
+    // let index = PgSearchRelation::from_pg(index.as_ptr());
+    // let bgmerger = MetaPage::open(&index).bgmerger().data();
+    // let iter = bgmerger.into_iter().map(|(pid, state)| (pid, format!("{:?}", state)));
+    // TableIterator::new(iter)
+}
+
+unsafe fn get_buffer_descriptor(buffer: pg_sys::Buffer) -> pg_sys::BufferDesc {
+    (*pg_sys::BufferDescriptors.add(buffer as usize - 1)).bufferdesc
+}
+
+unsafe fn get_buffer_refcount(pg_buffer: pg_sys::Buffer) -> i32 {
+    let desc = unsafe { get_buffer_descriptor(pg_buffer) };
+    (desc.state.value & pg_sys::BUF_REFCOUNT_MASK) as i32
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762487104194,
+  "lastUpdate": 1762487108349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24232,6 +24232,126 @@ window.BENCHMARK_DATA = {
             "value": 145.51171875,
             "unit": "median mem",
             "extra": "avg mem: 128.49186768345558, max mem: 152.6796875, count: 55354"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bad99101a1317fe3a20680105c3af6e8b38538a8",
+          "message": "fix: FSM freelist sparsity causes too many page reads/lock acquisitions (#3509)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe `extend_freelist` function in V2 FSM had a \"fast path splice\" that\ncould inject tons of tiny, partially-full blocks into the freelist. If\nit saw that a freelist block was full, it would blindly just assume the\nnext block was also full and inject a new block between the current and\nnext block.\n\nHowever, this fails if a lot of `extend_freelist` calls come in\nconcurrently -- each call would inject a partially-filled block in the\nmiddle of the list, leading to a very sparse freelist.\n\nThe solution is to peek at the next block in the freelist, and only do\nthe fast path if both blocks are full.\n\nAdditionally, we have seen situations in prod (likely related to the\nabove) where freelists contain entirely empty blocks. The existing\nfreelist isn't good at self-healing -- we have modified `drain` to now\nremove these empty blocks from the freelist.\n\nFinally, `drain`s call to `extend_freelist` has been moved to the end\nafter all blocks have been drained. This prevents multiple calls to\n`extend_freelist`, which is expensive (it can do tree mutations).\n\n## Why\n\n## How\n\n## Tests\n\nSee two added regression tests, both of which fail on `main`",
+          "timestamp": "2025-11-06T22:28:22-05:00",
+          "tree_id": "5c3da39a34818529df9f6c15ca1e0fa4e965c023",
+          "url": "https://github.com/paradedb/paradedb/commit/bad99101a1317fe3a20680105c3af6e8b38538a8"
+        },
+        "date": 1762487105714,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.056729824447795, max cpu: 14.45783, count: 55445"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 156.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.29494579369194, max mem: 156.80859375, count: 55445"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.672056114732809, max cpu: 9.590409, count: 55445"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.667208635810262, max mem: 26.1171875, count: 55445"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.058619268049645, max cpu: 14.4723625, count: 55445"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 158.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.20049373252772, max mem: 160.5546875, count: 55445"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.457008985981597, max cpu: 4.8144436, count: 55445"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 158.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.0430911967941, max mem: 158.015625, count: 55445"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.700895639999433, max cpu: 9.638554, count: 110890"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 156.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.00300649855714, max mem: 159.82421875, count: 110890"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28950,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28863.390080259716, max block_count: 56560.0, count: 55445"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.632392460997384, max segment_count: 58.0, count: 55445"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6192541269896985, max cpu: 9.365853, count: 55445"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 159.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.5456670884435, max mem: 162.421875, count: 55445"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8571729834967443, max cpu: 9.284333, count: 55445"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 147.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 129.24850421870772, max mem: 151.38671875, count: 55445"
           }
         ]
       }

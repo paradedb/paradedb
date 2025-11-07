@@ -70,11 +70,11 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
-       1 | J.K. Rowling    |    2.4239407 |          0
+       1 | J.K. Rowling    |     2.540445 |          0
        1 | Stephen King    |            1 | 0.45681813
        1 | Sami Bowling    |            1 | 0.35745716
        2 | Stephen King    |            1 | 0.36441684
-       3 | J.K. Rowling    |    2.4239407 |  0.4624617
+       3 | J.K. Rowling    |     2.540445 |  0.4624617
        4 | Agatha Christie |            1 | 0.20612015
 (6 rows)
 
@@ -89,7 +89,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id | author_name  | author_score 
 -----------+--------------+--------------
-         1 | J.K. Rowling |    2.4239407
+         1 | J.K. Rowling |     2.540445
 (1 row)
 
 -- Show another working case with books
@@ -121,7 +121,7 @@ WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       3 | J.K. Rowling |    1.4239408 |  0.4624617
+       3 | J.K. Rowling |    1.5404451 |  0.4624617
 (1 row)
 
 -- Test with mixed predicates - some indexed, some not
@@ -152,8 +152,8 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | Stephen King |    1.6777124 |          0
-       2 | Stephen King |    1.6777124 |          0
+       1 | Stephen King |    1.5404451 |          0
+       2 | Stephen King |    1.5404451 |          0
 (2 rows)
 
 SELECT
@@ -182,9 +182,9 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
-       1 | Stephen King    |    2.6777124 |          0
+       1 | Stephen King    |     2.540445 |          0
        1 | Sami Bowling    |            1 |          0
-       2 | Stephen King    |    2.6777124 |          0
+       2 | Stephen King    |     2.540445 |          0
        4 | Agatha Christie |            1 |          0
 (4 rows)
 
@@ -201,7 +201,7 @@ WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
   query_type  | author_id | author_name  | author_score 
 --------------+-----------+--------------+--------------
- Direct Query |         1 | J.K. Rowling |    1.4239408
+ Direct Query |         1 | J.K. Rowling |    1.5404451
 (1 row)
 
 -- Join query (currently shows issue)
@@ -216,8 +216,8 @@ WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
  query_type | author_id | author_name  | author_score 
 ------------+-----------+--------------+--------------
- Join Query |         1 | J.K. Rowling |    1.4239408
- Join Query |         1 | J.K. Rowling |    1.4239408
+ Join Query |         1 | J.K. Rowling |    1.5404451
+ Join Query |         1 | J.K. Rowling |    1.5404451
 (2 rows)
 
 -- Test with different join types to see if the issue persists
@@ -233,11 +233,11 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
  book_id |   author_name   | author_score | book_score 
 ---------+-----------------+--------------+------------
-       1 | J.K. Rowling    |    2.4239407 |          0
+       1 | J.K. Rowling    |     2.540445 |          0
        1 | Stephen King    |            1 | 0.45681813
        1 | Sami Bowling    |            1 | 0.35745716
        2 | Stephen King    |            1 | 0.36441684
-       3 | J.K. Rowling    |    2.4239407 |  0.4624617
+       3 | J.K. Rowling    |     2.540445 |  0.4624617
        4 | Agatha Christie |            1 | 0.20612015
 (6 rows)
 
@@ -275,9 +275,9 @@ ORDER BY b.id, a.id;
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
 ---------+--------------+----------------+----------------+--------------+--------------
        1 | J.K. Rowling |              1 |              1 |   0.35745716 |   0.35745716
-       1 | Stephen King |      2.6777124 |      2.6777124 |   0.35745716 |   0.35745716
+       1 | Stephen King |       2.540445 |       2.540445 |   0.35745716 |   0.35745716
        1 | Sami Bowling |              1 |              1 |   0.35745716 |   0.35745716
-       2 | Stephen King |      2.6777124 |      2.6777124 |   0.36441684 |   0.36441684
+       2 | Stephen King |       2.540445 |       2.540445 |   0.36441684 |   0.36441684
        3 | J.K. Rowling |              1 |              1 |    0.4624617 |    0.4624617
 (5 rows)
 
@@ -309,11 +309,11 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
  book_id |   author_name   | author_score |   author_snippet    | book_score |                                                                       book_snippet                                                                       
 ---------+-----------------+--------------+---------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------
-       1 | J.K. Rowling    |    2.4239407 | J.K. <b>Rowling</b> |          0 | 
+       1 | J.K. Rowling    |     2.540445 | J.K. <b>Rowling</b> |          0 | 
        1 | Stephen King    |            1 |                     | 0.45681813 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words
        1 | Sami Bowling    |            1 |                     | 0.35745716 | This is a final <b>test</b> of the snippet function with multiple final words
        2 | Stephen King    |            1 |                     | 0.36441684 | Another <b>test</b> of the snippet snippet function with repeated snippet words
-       3 | J.K. Rowling    |    2.4239407 | J.K. <b>Rowling</b> |  0.4624617 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
+       3 | J.K. Rowling    |     2.540445 | J.K. <b>Rowling</b> |  0.4624617 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
        4 | Agatha Christie |            1 |                     | 0.20612015 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim
 (6 rows)
 
@@ -325,8 +325,8 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
-  1 | Stephen King |    1.6777124 |          0
-  2 | Stephen King |    1.6777124 |          0
+  1 | Stephen King |    1.5404451 |          0
+  2 | Stephen King |    1.5404451 |          0
 (2 rows)
 
 -- Test RIGHT JOIN behavior
@@ -337,8 +337,8 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY a.id;
  id |     name     | author_score | book_score 
 ----+--------------+--------------+------------
-  1 | Stephen King |    1.6777124 |          0
-  2 | Stephen King |    1.6777124 |          0
+  1 | Stephen King |    1.5404451 |          0
+  2 | Stephen King |    1.5404451 |          0
 (2 rows)
 
 -- Cleanup

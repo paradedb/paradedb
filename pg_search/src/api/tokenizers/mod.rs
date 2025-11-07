@@ -60,7 +60,7 @@ pub fn search_field_config_from_type(
 
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
-        "simple" => SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         "lindera" => SearchTokenizer::Lindera(
             LinderaLanguage::default(),
             SearchTokenizerFilters::default(),
@@ -165,7 +165,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         #[allow(deprecated)]
         SearchTokenizer::Raw(filters)
         | SearchTokenizer::LiteralNormalized(filters)
-        | SearchTokenizer::Default(filters)
+        | SearchTokenizer::Simple(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)

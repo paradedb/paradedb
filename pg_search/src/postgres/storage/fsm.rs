@@ -907,6 +907,9 @@ pub mod v2 {
                 let mut chain_length = 0usize;
                 xids_processed += 1;
 
+                // Track previous blockno for unlinking empty pages
+                let mut prev_blockno: Option<pg_sys::BlockNumber> = None;
+
                 while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
                     chain_length += 1;
                     // we drop the "root" buffer after getting the head buffer.
@@ -971,19 +974,32 @@ pub mod v2 {
                         (contents.len == 0, page.next_blockno())
                     };
 
-                    // If the page is empty and it's not the head, skip it without modifying
+                    // If the page is empty and it's not the head, unlink it from the chain
                     if is_empty && blockno != head_blockno {
                         drop(buffer);
 
                         empty_pages_skipped += 1;
                         if next_blockno != pg_sys::InvalidBlockNumber {
                             pgrx::debug2!(
-                                "Skipping empty page {} in freelist chain for XID {}",
+                                "Unlinking empty non-head page {} in freelist chain for XID {} (prev: {:?}, next: {})",
                                 blockno,
-                                found_xid
+                                found_xid,
+                                prev_blockno,
+                                next_blockno
                             );
                         }
 
+                        // Unlink this empty page by updating the previous page's next pointer
+                        if let Some(prev) = prev_blockno {
+                            let mut prev_buf = bman.get_buffer_mut(prev);
+                            let mut prev_page = prev_buf.page_mut();
+                            prev_page.special_mut::<BM25PageSpecialData>().next_blockno =
+                                next_blockno;
+                            // The buffer will be marked dirty and written automatically
+                        }
+
+                        // Move to next page without updating prev_blockno
+                        // (since we're removing the current page from the chain)
                         blockno = next_blockno;
                         continue;
                     }
@@ -1075,7 +1091,8 @@ pub mod v2 {
                             );
                         }
 
-                        // Continue with the new head
+                        // Continue with the new head (reset prev since this is now the head)
+                        prev_blockno = None;
                         blockno = next_blockno;
                         continue;
                     }
@@ -1100,6 +1117,7 @@ pub mod v2 {
                     }
 
                     // advance to the next block in the chain.
+                    prev_blockno = Some(blockno);
                     blockno = next_blockno;
                 }
 
@@ -2106,6 +2124,110 @@ pub mod v2 {
 
             // The warning logic will trigger when we actually fill the tree
             // For now, just verify it doesn't panic with empty tree
+
+            Ok(())
+        }
+
+        fn freelist_blocks(
+            bman: &mut BufferManager,
+            fsm: &V2FSM,
+            xid: pg_sys::FullTransactionId,
+        ) -> Vec<usize> {
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let tree = fsm.avl_ref(&page);
+            let Some((_, tag)) = tree.get(&xid.value) else {
+                return Vec::new();
+            };
+
+            let mut blockno = tag as pg_sys::BlockNumber;
+            let mut result = Vec::new();
+
+            while blockno != pg_sys::InvalidBlockNumber {
+                let buf = bman.get_buffer(blockno);
+                let p = buf.page();
+                let leaf = p.contents_ref::<AvlLeaf>();
+                result.push(leaf.len as usize);
+                blockno = p.next_blockno();
+            }
+
+            result
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_with_holes() -> spi::Result<()> {
+            // Test that empty pages in the middle of a freelist chain are unlinked
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            // Create freelist with 5 pages (5 * MAX_ENTRIES blocks)
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+            let entries = (MAX_ENTRIES * 5) as u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+
+            // Empty pages at index 1 and 2 (but not 0, 3, 4)
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                let (_, tag) = tree.get(&xid.value).expect("xid should still exist");
+                let mut blockno = tag as pg_sys::BlockNumber;
+                let mut cnt = 0;
+                while blockno != pg_sys::InvalidBlockNumber {
+                    let mut buf = bman.get_buffer_mut(blockno);
+                    let mut p = buf.page_mut();
+                    let leaf = p.contents_mut::<super::AvlLeaf>();
+                    if cnt > 0 && cnt < 3 {
+                        leaf.len = 0;
+                    }
+                    drop(buf);
+                    let buf_ro = bman.get_buffer(blockno);
+                    let p_ro = buf_ro.page();
+                    blockno = p_ro.next_blockno();
+                    cnt += 1;
+                }
+            }
+
+            // Drain enough blocks to traverse past the empty pages
+            // First page has 2039, so draining 2040 will empty it and force traversal to the empty pages
+            let drained = fsm.drain(&mut bman, 2040).collect::<Vec<_>>();
+            // We should get 2039 from first page + 1 from the next non-empty page (skipping the 2 empty ones)
+            assert_eq!(drained.len(), 2040);
+
+            // After draining 2040, we've emptied the first page and traversed the empty pages
+            // The empty pages should now be unlinked, leaving only the last two pages (one with 2038, one with 2039)
+            let blocks = freelist_blocks(&mut bman, &fsm, xid);
+            assert_eq!(
+                blocks,
+                vec![2038, 2039],
+                "Empty pages should be unlinked after traversal"
+            );
+
+            // Drain all remaining - should get exactly 2038 + 2039 = 4077 blocks
+            let drained = fsm.drain(&mut bman, 10000).collect::<Vec<_>>();
+            assert_eq!(drained.len(), 2038 + 2039);
+
+            // After draining everything, XID should be removed
+            let blocks = freelist_blocks(&mut bman, &fsm, xid);
+            assert_eq!(
+                blocks,
+                Vec::<usize>::new(),
+                "XID should be removed after draining all blocks"
+            );
 
             Ok(())
         }

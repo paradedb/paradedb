@@ -1505,30 +1505,11 @@ pub mod v2 {
             loop {
                 let mut page = buffer.page_mut();
                 let contents = page.contents_mut::<AvlLeaf>();
-                let next_blockno = page.next_blockno();
 
-                if contents.len as usize == contents.entries.len()
-                    && next_blockno != pg_sys::InvalidBlockNumber
-                {
-                    // this block is full.  Chances are the next block is also full.
-                    // so we're going to populate a brand-new list with the rest of the iterator
-                    // and then link it in between this block and the next block.  This avoids
-                    // the possible overhead of scanning the rest of the freelist just to discover
-                    // all the following blocks are full
-                    let new_block = AvlLeaf::init_new_page(bman);
-                    let new_blockno = new_block.number();
-
-                    let mut last_block = Self::extend_freelist(bman, new_block, extend_with);
-
-                    // link the last block we just created to the next block
-                    let mut end_page = last_block.page_mut();
-                    end_page.special_mut::<BM25PageSpecialData>().next_blockno = next_blockno;
-
-                    // finally link this block to the new block
-                    page.special_mut::<BM25PageSpecialData>().next_blockno = new_blockno;
-
-                    return last_block;
-                }
+                // REMOVED: Aggressive splicing optimization that caused sparse freelists
+                // The old code assumed if current page is full, all following pages are also full,
+                // and created a new chain to splice in. This was wrong and created fragmentation.
+                // Now we just move to the next page and check if it has space.
 
                 while (contents.len as usize) < contents.entries.len() {
                     match extend_with.peek() {
@@ -2227,6 +2208,56 @@ pub mod v2 {
                 blocks,
                 Vec::<usize>::new(),
                 "XID should be removed after draining all blocks"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_extend_fills_existing_pages() -> spi::Result<()> {
+            // Test that extending a freelist fills existing pages with space
+            // rather than creating new pages unnecessarily
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Create initial freelist with 3 pages (3 * MAX_ENTRIES blocks)
+            let entries = (MAX_ENTRIES * 3) as u32;
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+
+            // Drain 1000 blocks, creating space in the first page
+            let drained = fsm.drain(&mut bman, 1000).collect::<Vec<_>>();
+            assert_eq!(drained.len(), 1000);
+
+            // Verify we have 3 pages: [2039-1000=1039, 2039, 2039]
+            let blocks_before = freelist_blocks(&mut bman, &fsm, xid);
+            assert_eq!(blocks_before, vec![1039, 2039, 2039]);
+
+            // Now extend with 500 more blocks
+            // Without the fix: would create a 4th page with 500 blocks
+            // With the fix: should fill the first page to 1539, leaving it at [1539, 2039, 2039]
+            fsm.extend_with_when_recyclable(&mut bman, xid, 10000..10500);
+
+            let blocks_after = freelist_blocks(&mut bman, &fsm, xid);
+            assert_eq!(
+                blocks_after,
+                vec![1539, 2039, 2039],
+                "Should fill existing page with space, not create new page"
             );
 
             Ok(())

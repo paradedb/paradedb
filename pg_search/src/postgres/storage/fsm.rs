@@ -768,6 +768,7 @@ pub mod v2 {
 
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
+            let mut unlinked_heads = Vec::new();
 
             'outer: while blocks.len() < many {
                 let mut root = Some(bman.get_buffer(self.start_blockno));
@@ -825,12 +826,9 @@ pub mod v2 {
 
                     let next_blockno = page.next_blockno();
                     let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
-                        // this is the first page in the list and it's empty
-                        //
-                        // we unlink initial empty pages when they *become* empty, not when the *are* empty
-                        //
-                        // this means a concurrent backend is in the process of recycling this page
-                        false
+                        // if the head is empty and we're not at the end of the list, we should unlink it
+                        // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
+                        next_blockno != pg_sys::InvalidBlockNumber
                     } else {
                         // get all that we can/need from this page
                         while contents.len > 0 && blocks.len() < many {
@@ -866,8 +864,8 @@ pub mod v2 {
 
                         let mut did_update_head = false;
                         if let Some(slot) = tree.get_slot_mut(&found_xid) {
+                            // make sure that a concurrent process didn't unlink the same head
                             if slot.tag as pg_sys::BlockNumber == head_blockno {
-                                // we are the process that actually unlinked the head
                                 did_update_head = true;
                                 slot.tag = next_blockno;
 
@@ -879,11 +877,7 @@ pub mod v2 {
                         drop(root);
 
                         if did_update_head {
-                            self.extend_with_when_recyclable(
-                                bman,
-                                unsafe { pg_sys::ReadNextFullTransactionId() },
-                                std::iter::once(old_head),
-                            );
+                            unlinked_heads.push(old_head);
                         }
 
                         // Continue with the new head
@@ -924,6 +918,15 @@ pub mod v2 {
                 if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
                     break;
                 }
+            }
+
+            // recycle unlinked head pages
+            if !unlinked_heads.is_empty() {
+                self.extend_with_when_recyclable(
+                    bman,
+                    unsafe { pg_sys::ReadNextFullTransactionId() },
+                    unlinked_heads.into_iter(),
+                );
             }
 
             blocks.into_iter()
@@ -1102,11 +1105,6 @@ pub mod v2 {
                     &mut root_block.avl_arena,
                 )
             }
-        }
-
-        #[allow(dead_code)]
-        fn start_blockno(&self) -> pg_sys::BlockNumber {
-            self.start_blockno
         }
     }
 
@@ -1370,15 +1368,57 @@ pub mod v2 {
             Ok(())
         }
 
-        fn slot_exists(
-            bman: &mut BufferManager,
-            fsm: &mut V2FSM,
-            xid: pg_sys::FullTransactionId,
-        ) -> bool {
-            let root = bman.get_buffer(fsm.start_blockno());
-            let page = root.page();
-            let tree = fsm.avl_ref(&page);
-            tree.get(&xid.value).is_some()
+        #[pg_test]
+        unsafe fn test_fsmv2_with_holes() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+            let entries = (MAX_ENTRIES * 5) as u32;
+
+            // punch holes in middle
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+
+            punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![1, 2, 3]);
+
+            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            assert_eq!(
+                freelist_blocks(&mut bman, &mut fsm, xid),
+                vec![2038, 0, 0, 0, 2039]
+            );
+
+            let _ = fsm.drain(&mut bman, 2050).collect::<Vec<_>>();
+            assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2027]);
+
+            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            assert!(!slot_exists(&mut bman, &mut fsm, xid));
+
+            // punch holes at start
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..entries);
+
+            punch_holes_in_freelist(&mut bman, &mut fsm, xid, vec![0, 1, 2]);
+
+            let _ = fsm.drain(&mut bman, 1).collect::<Vec<_>>();
+            assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2038, 2039]);
+
+            let _ = fsm.drain(&mut bman, 5000).collect::<Vec<_>>();
+            assert!(!slot_exists(&mut bman, &mut fsm, xid));
+
+            Ok(())
         }
 
         fn freelist_blocks(
@@ -1386,7 +1426,7 @@ pub mod v2 {
             fsm: &mut V2FSM,
             xid: pg_sys::FullTransactionId,
         ) -> Vec<pg_sys::BlockNumber> {
-            let root = bman.get_buffer(fsm.start_blockno());
+            let root = bman.get_buffer(fsm.start_blockno);
             let page = root.page();
             let tree = fsm.avl_ref(&page);
             let leaf = tree.get(&xid.value).expect("leaf should be present");
@@ -1402,6 +1442,50 @@ pub mod v2 {
                 blockno = bman.get_buffer(blockno).page().next_blockno();
             }
             blocks_per_page
+        }
+
+        // artificially make some pages empty in the freelist
+        // `holes` is a list of page indexes to make empty
+        fn punch_holes_in_freelist(
+            bman: &mut BufferManager,
+            fsm: &mut V2FSM,
+            xid: pg_sys::FullTransactionId,
+            holes: Vec<u32>,
+        ) {
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let tree = fsm.avl_ref(&page);
+            let (_, tag) = tree.get(&xid.value).expect("xid should still exist");
+            let mut blockno = tag as pg_sys::BlockNumber;
+            let mut cnt = 0;
+
+            while blockno != pg_sys::InvalidBlockNumber {
+                let mut buf = bman.get_buffer_mut(blockno);
+                let mut p = buf.page_mut();
+                let leaf = p.contents_mut::<super::AvlLeaf>();
+
+                if holes.contains(&cnt) {
+                    leaf.len = 0;
+                }
+                drop(buf);
+
+                let buf_ro = bman.get_buffer(blockno);
+                let p_ro = buf_ro.page();
+                blockno = p_ro.next_blockno();
+
+                cnt += 1;
+            }
+        }
+
+        fn slot_exists(
+            bman: &mut BufferManager,
+            fsm: &mut V2FSM,
+            xid: pg_sys::FullTransactionId,
+        ) -> bool {
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let tree = fsm.avl_ref(&page);
+            tree.get(&xid.value).is_some()
         }
     }
 }

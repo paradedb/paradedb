@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762489675852,
+  "lastUpdate": 1762489679947,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36742,6 +36742,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.29380466345569, max segment_count: 124.0, count: 57511"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02953dea1fe2818ffbdbcf6de47abc37a24a83b4",
+          "message": "fix: FSM freelist sparsity causes too many page reads/lock acquisitions (#3510)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe `extend_freelist` function in V2 FSM had a \"fast path splice\" that\ncould inject tons of tiny, partially-full blocks into the freelist. If\nit saw that a freelist block was full, it would blindly just assume the\nnext block was also full and inject a new block between the current and\nnext block.\n\nHowever, this fails if a lot of `extend_freelist` calls come in\nconcurrently -- each call would inject a partially-filled block in the\nmiddle of the list, leading to a very sparse freelist.\n\nThe solution is to peek at the next block in the freelist, and only do\nthe fast path if both blocks are full.\n\nAdditionally, we have seen situations in prod (likely related to the\nabove) where freelists contain entirely empty blocks. The existing\nfreelist isn't good at self-healing -- we have modified `drain` to now\nremove these empty blocks from the freelist.\n\nFinally, `drain`s call to `extend_freelist` has been moved to the end\nafter all blocks have been drained. This prevents multiple calls to\n`extend_freelist`, which is expensive (it can do tree mutations).\n\n## Why\n\n## How\n\n## Tests\n\nSee two added regression tests, both of which fail on `main`\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-06T22:56:33-05:00",
+          "tree_id": "8206c7c11b64b85536721a4ddc7efe7f6873a2c9",
+          "url": "https://github.com/paradedb/paradedb/commit/02953dea1fe2818ffbdbcf6de47abc37a24a83b4"
+        },
+        "date": 1762489677268,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.980671863081337, max cpu: 42.72997, count: 57886"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.40552443596033, max mem: 229.49609375, count: 57886"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.5051680130909, max cpu: 33.23442, count: 57886"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.31413542080554, max mem: 166.51953125, count: 57886"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33763,
+            "unit": "median block_count",
+            "extra": "avg block_count: 32628.70652662129, max block_count: 34945.0, count: 57886"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.1729779221228, max segment_count: 124.0, count: 57886"
           }
         ]
       }

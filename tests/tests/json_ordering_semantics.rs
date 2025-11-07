@@ -57,23 +57,20 @@ async fn json_lexical_ordering_matches_postgres() {
         let mut conn = pool.pull();
         let setup_sql = setup(&mut conn);
 
-        // Insert rows with numeric-like strings so lexical vs numeric ordering differs (e.g. "10" < "2" lexically).
-        // We quote the numbers so they are stored as JSON strings, not JSON numbers.
         for v in &values {
             let sql = format!("INSERT INTO json_ordering_test (metadata) VALUES ('{{\"code\": \"{}\"}}');", v);
             sql.execute(&mut conn);
         }
+
         // Include a few fixed values to amplify ordering edge cases.
         r#"INSERT INTO json_ordering_test (metadata) VALUES ('{"code": "2"}'), ('{"code": "10"}'), ('{"code": "1"}');"#.execute(&mut conn);
 
-        // Baseline Postgres query (custom scan disabled automatically inside compare()).
+        // Baseline Postgres query
         let pg_query = "SELECT metadata->>'code' FROM json_ordering_test ORDER BY metadata->>'code' LIMIT 100";
 
         // BM25 query to trigger custom scan + fast ordering pushdown.
         let bm25_query = "SELECT metadata->>'code' FROM json_ordering_test WHERE id @@@ paradedb.all() ORDER BY metadata->>'code' LIMIT 100";
 
-        // Enable the custom scan GUC so ORDER BY pushdown can occur.
-        // Enable only the custom scan to exercise ORDER BY pushdown.
         let gucs = PgGucs::with_custom_scan();
 
         compare(

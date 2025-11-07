@@ -31,6 +31,7 @@ use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -267,6 +268,7 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     need_scores: bool,
+    search_query_input: SearchQueryInput, // Store for recursive estimates
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -285,6 +287,7 @@ impl Clone for SearchIndexReader {
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
             need_scores: self.need_scores,
+            search_query_input: self.search_query_input.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -347,6 +350,8 @@ impl SearchIndexReader {
         let searcher = reader.searcher();
 
         let need_scores = need_scores || search_query_input.need_scores();
+        let search_query_input_copy = search_query_input.clone();
+
         let query = {
             search_query_input
                 .into_tantivy_query(
@@ -374,6 +379,7 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             need_scores,
+            search_query_input: search_query_input_copy,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -392,6 +398,10 @@ impl SearchIndexReader {
 
     pub fn query(&self) -> &dyn Query {
         &self.query
+    }
+
+    pub fn search_query_input(&self) -> &SearchQueryInput {
+        &self.search_query_input
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -910,6 +920,181 @@ impl SearchIndexReader {
         let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
 
         (count as f64 / segment_doc_proportion).ceil() as usize
+    }
+
+    /// Build a query tree with recursive estimates for EXPLAIN output.
+    pub fn build_query_tree_with_estimates(
+        &self,
+        query_input: SearchQueryInput,
+    ) -> Result<QueryWithEstimates> {
+        let parser_closure = || {
+            QueryParser::for_index(
+                &self.underlying_index,
+                self.schema
+                    .fields()
+                    .map(|(field, _)| field)
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
+            &self.schema,
+            &parser_closure,
+            &self.searcher,
+            self.index_rel.oid(),
+            self.index_rel.rel_oid(),
+            None, // expr_context not needed for estimation
+            None,
+        )?;
+
+        let total_docs = self.searcher.num_docs() as f64;
+        self.estimate_docs_recursive(&mut query_tree, total_docs, &parser_closure);
+
+        Ok(query_tree)
+    }
+
+    fn estimate_docs_recursive<QueryParserCtor: Fn() -> QueryParser>(
+        &self,
+        query_tree: &mut QueryWithEstimates,
+        total_docs: f64,
+        parser: &QueryParserCtor,
+    ) {
+        let segment_count = self.searcher.segment_readers().len();
+
+        if segment_count == 0 {
+            query_tree.traverse_mut(0, &mut |node, _depth| {
+                node.estimated_docs = Some(0);
+            });
+            return;
+        }
+
+        if segment_count == 1 {
+            // Single segment: estimate directly without scaling
+            let segment_reader = self.searcher.segment_reader(0);
+            let segment_doc_proportion = segment_reader.num_docs() as f64 / total_docs;
+            self.estimate_node_recursive(
+                query_tree,
+                segment_reader,
+                segment_doc_proportion,
+                parser,
+            );
+        } else {
+            // Multiple segments (EXPLAIN ANALYZE): estimate on all segments and sum
+            self.estimate_multi_segment_recursive(query_tree, parser);
+        }
+    }
+
+    fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
+        &self,
+        node: &mut QueryWithEstimates,
+        largest_reader: &SegmentReader,
+        segment_doc_proportion: f64,
+        parser: &QueryParserCtor,
+    ) {
+        for child in node.children_mut() {
+            self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
+        }
+
+        let tantivy_query_result = node.query.clone().into_tantivy_query(
+            &self.schema,
+            parser,
+            &self.searcher,
+            self.index_rel.oid(),
+            self.index_rel.rel_oid(),
+            None,
+            None,
+        );
+
+        match tantivy_query_result {
+            Ok(tantivy_query) => {
+                let weight = tantivy_query
+                    .weight(EnableScoring::Disabled {
+                        schema: self.schema.tantivy_schema(),
+                        searcher_opt: Some(&self.searcher),
+                    })
+                    .ok();
+
+                if let Some(weight) = weight {
+                    if let Ok(mut scorer) = weight.scorer(largest_reader, 1.0) {
+                        let mut count = scorer.size_hint() as usize;
+                        if count == 0 {
+                            count = scorer.count_including_deleted() as usize;
+                        }
+
+                        let estimated = if segment_doc_proportion > 0.0 {
+                            (count as f64 / segment_doc_proportion).ceil() as usize
+                        } else {
+                            count
+                        };
+
+                        node.set_estimate(estimated);
+                    } else {
+                        node.estimated_docs = None;
+                    }
+                } else {
+                    node.estimated_docs = None;
+                }
+            }
+            Err(_) => {
+                node.estimated_docs = None;
+            }
+        }
+    }
+
+    /// Estimate docs across multiple segments by summing counts from all segments.
+    /// This is used for EXPLAIN ANALYZE where all segments are open.
+    fn estimate_multi_segment_recursive<QueryParserCtor: Fn() -> QueryParser>(
+        &self,
+        node: &mut QueryWithEstimates,
+        parser: &QueryParserCtor,
+    ) {
+        // Recurse into children first (post-order traversal)
+        for child in node.children_mut() {
+            self.estimate_multi_segment_recursive(child, parser);
+        }
+
+        // Estimate the current node by summing across all segments
+        let tantivy_query_result = node.query.clone().into_tantivy_query(
+            &self.schema,
+            parser,
+            &self.searcher,
+            self.index_rel.oid(),
+            self.index_rel.rel_oid(),
+            None,
+            None,
+        );
+
+        match tantivy_query_result {
+            Ok(tantivy_query) => {
+                let weight_result = tantivy_query.weight(EnableScoring::Disabled {
+                    schema: self.schema.tantivy_schema(),
+                    searcher_opt: Some(&self.searcher),
+                });
+
+                if let Ok(weight) = weight_result {
+                    let mut total_count: usize = 0;
+                    let segment_readers = self.searcher.segment_readers();
+
+                    // Sum counts from all segments
+                    for segment_reader in segment_readers {
+                        if let Ok(mut scorer) = weight.scorer(segment_reader, 1.0) {
+                            let mut count = scorer.size_hint() as usize;
+                            if count == 0 {
+                                count = scorer.count_including_deleted() as usize;
+                            }
+                            total_count += count;
+                        }
+                    }
+
+                    node.set_estimate(total_count);
+                } else {
+                    node.estimated_docs = None;
+                }
+            }
+            Err(_) => {
+                node.estimated_docs = None;
+            }
+        }
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {

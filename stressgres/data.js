@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762483830596,
+  "lastUpdate": 1762484647594,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -60142,6 +60142,60 @@ window.BENCHMARK_DATA = {
             "value": 17.734411340736752,
             "unit": "median tps",
             "extra": "avg tps: 17.942443504717048, max tps: 21.64399238417169, count: 55531"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d2ea63dccd451d4e82d4a925f9ff912d76bd4e",
+          "message": "feat: Default tokenizer to `pdb.unicode_words` (#3492)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAs per internal discussions, `pdb.unicode_words` is used instead of\n`pdb.simple` when no tokenizer is specified.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-06T21:05:39-05:00",
+          "tree_id": "f6309c86dc3eeede19990c61c7680be5b60dc4c1",
+          "url": "https://github.com/paradedb/paradedb/commit/95d2ea63dccd451d4e82d4a925f9ff912d76bd4e"
+        },
+        "date": 1762484645019,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.674281312989244,
+            "unit": "median tps",
+            "extra": "avg tps: 36.80523171936394, max tps: 38.96075991435515, count: 55658"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.24973972240122,
+            "unit": "median tps",
+            "extra": "avg tps: 276.0724492654978, max tps: 2722.8242390875916, count: 55658"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1000.9165979698183,
+            "unit": "median tps",
+            "extra": "avg tps: 995.3599857300344, max tps: 1047.7514297938865, count: 55658"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 106.73631291258074,
+            "unit": "median tps",
+            "extra": "avg tps: 148.3139769534338, max tps: 819.8033018611068, count: 111316"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.031998096554204,
+            "unit": "median tps",
+            "extra": "avg tps: 19.05455600244891, max tps: 22.669599377323536, count: 55658"
           }
         ]
       }

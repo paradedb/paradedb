@@ -769,8 +769,6 @@ pub mod v2 {
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
-            let mut heads_unlinked = 0usize;
-
             'outer: while blocks.len() < many {
                 let mut root = Some(bman.get_buffer(self.start_blockno));
                 let page = root.as_ref().unwrap().page();
@@ -783,8 +781,6 @@ pub mod v2 {
                 let mut head_blockno = tag as pg_sys::BlockNumber;
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
-
-                let mut condlock_failures = 0usize;
 
                 while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
                     // we drop the "root" buffer after getting the head buffer.
@@ -799,13 +795,6 @@ pub mod v2 {
                             buffer
                         }
                         None => {
-                            condlock_failures += 1;
-                            pgrx::log!(
-                                "FSM drain: failed conditional lock on block {} (total so far: {})",
-                                blockno,
-                                condlock_failures
-                            );
-
                             drop(root.take());
 
                             // move to the next candidate XID below this one.
@@ -858,7 +847,6 @@ pub mod v2 {
                     };
 
                     if !modified {
-                        pgrx::log!("unnecessary generic xlog of block {}", buffer.number());
                         // we didn't change anything
                         buffer.set_dirty(false);
                     }
@@ -869,12 +857,6 @@ pub mod v2 {
                     drop(buffer);
 
                     if should_unlink_head {
-                        heads_unlinked += 1;
-                        pgrx::log!(
-                            "unlinked head block {} (total so far: {})",
-                            head_blockno,
-                            heads_unlinked
-                        );
                         let old_head = head_blockno;
 
                         // get mutable tree without holding any other locks

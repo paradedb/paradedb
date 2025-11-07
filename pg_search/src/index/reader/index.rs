@@ -372,9 +372,7 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             need_scores,
-            _cleanup_lock: unsafe {
-                pgrx::pg_sys::XLogInsertAllowed().then(|| Arc::new(cleanup_lock))
-            },
+            _cleanup_lock: cleanup_lock.map(Arc::new),
         })
     }
 

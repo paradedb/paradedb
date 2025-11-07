@@ -266,13 +266,19 @@ impl MetaPage {
     const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-    pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
+    pub fn cleanup_lock_pinned(&self) -> Option<PinnedBuffer> {
+        // the cleanup lock is taken to notify VACUUM that a read is running
+        // but vacuums don't run on hot standbys
+        if unsafe { !pg_sys::XLogInsertAllowed() } {
+            return None;
+        }
+
         let blockno = if self.data.cleanup_lock == 0 {
             Self::LEGACY_CLEANUP_LOCK
         } else {
             self.data.cleanup_lock
         };
-        self.bman.pinned_buffer(blockno)
+        Some(self.bman.pinned_buffer(blockno))
     }
 
     pub fn cleanup_lock_shared(&self) -> Buffer {

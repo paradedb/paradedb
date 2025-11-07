@@ -578,6 +578,12 @@ pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
 impl PinCushion {
     pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
+        // if we are on a hot standby, don't hold an unnecessary pin since this pin is used
+        // to notify vacuum that we are running but vacuums don't run on hot standbys
+        if unsafe { !pg_sys::XLogInsertAllowed() } {
+            return;
+        }
+
         let blockno = entry.pintest_blockno();
         self.0.insert(blockno, bman.pinned_buffer(blockno));
     }

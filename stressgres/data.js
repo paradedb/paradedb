@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762485456022,
+  "lastUpdate": 1762487104194,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8572,6 +8572,72 @@ window.BENCHMARK_DATA = {
             "value": 58.70116080751634,
             "unit": "median tps",
             "extra": "avg tps: 69.36133971525405, max tps: 1077.4306296289114, count: 55354"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bad99101a1317fe3a20680105c3af6e8b38538a8",
+          "message": "fix: FSM freelist sparsity causes too many page reads/lock acquisitions (#3509)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe `extend_freelist` function in V2 FSM had a \"fast path splice\" that\ncould inject tons of tiny, partially-full blocks into the freelist. If\nit saw that a freelist block was full, it would blindly just assume the\nnext block was also full and inject a new block between the current and\nnext block.\n\nHowever, this fails if a lot of `extend_freelist` calls come in\nconcurrently -- each call would inject a partially-filled block in the\nmiddle of the list, leading to a very sparse freelist.\n\nThe solution is to peek at the next block in the freelist, and only do\nthe fast path if both blocks are full.\n\nAdditionally, we have seen situations in prod (likely related to the\nabove) where freelists contain entirely empty blocks. The existing\nfreelist isn't good at self-healing -- we have modified `drain` to now\nremove these empty blocks from the freelist.\n\nFinally, `drain`s call to `extend_freelist` has been moved to the end\nafter all blocks have been drained. This prevents multiple calls to\n`extend_freelist`, which is expensive (it can do tree mutations).\n\n## Why\n\n## How\n\n## Tests\n\nSee two added regression tests, both of which fail on `main`",
+          "timestamp": "2025-11-06T22:28:22-05:00",
+          "tree_id": "5c3da39a34818529df9f6c15ca1e0fa4e965c023",
+          "url": "https://github.com/paradedb/paradedb/commit/bad99101a1317fe3a20680105c3af6e8b38538a8"
+        },
+        "date": 1762487101585,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 738.1747952154377,
+            "unit": "median tps",
+            "extra": "avg tps: 740.2067155302212, max tps: 839.935357995583, count: 55445"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3172.3105796755003,
+            "unit": "median tps",
+            "extra": "avg tps: 3130.315203049138, max tps: 3182.800973650198, count: 55445"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 731.136483146522,
+            "unit": "median tps",
+            "extra": "avg tps: 729.4298851965248, max tps: 776.4960631788257, count: 55445"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 646.498471885999,
+            "unit": "median tps",
+            "extra": "avg tps: 643.7030341273098, max tps: 649.0801094804098, count: 55445"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1643.585672981927,
+            "unit": "median tps",
+            "extra": "avg tps: 1654.7291859408156, max tps: 1703.047073472656, count: 110890"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1227.4508790381192,
+            "unit": "median tps",
+            "extra": "avg tps: 1217.6035891911213, max tps: 1232.742235374293, count: 55445"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 229.98839963637016,
+            "unit": "median tps",
+            "extra": "avg tps: 216.03860579963884, max tps: 997.3868464622687, count: 55445"
           }
         ]
       }

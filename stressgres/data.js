@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762482139544,
+  "lastUpdate": 1762482974402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28516,6 +28516,42 @@ window.BENCHMARK_DATA = {
             "value": 5.311381003064979,
             "unit": "median tps",
             "extra": "avg tps: 4.787839242053158, max tps: 5.878300467866386, count: 57584"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95d2ea63dccd451d4e82d4a925f9ff912d76bd4e",
+          "message": "feat: Default tokenizer to `pdb.unicode_words` (#3492)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAs per internal discussions, `pdb.unicode_words` is used instead of\n`pdb.simple` when no tokenizer is specified.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-06T21:05:39-05:00",
+          "tree_id": "f6309c86dc3eeede19990c61c7680be5b60dc4c1",
+          "url": "https://github.com/paradedb/paradedb/commit/95d2ea63dccd451d4e82d4a925f9ff912d76bd4e"
+        },
+        "date": 1762482971949,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.74782691148307,
+            "unit": "median tps",
+            "extra": "avg tps: 6.630808468973053, max tps: 10.122637563177667, count: 57880"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.531029000857675,
+            "unit": "median tps",
+            "extra": "avg tps: 4.983211130844612, max tps: 6.147881504048897, count: 57880"
           }
         ]
       }

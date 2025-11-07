@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
-use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{HashMap, OrderByFeature, OrderByFieldSemantic, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
@@ -581,16 +581,34 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Field(sort_field),
                 direction,
+                semantic,
             } => {
                 let field = self
                     .schema
                     .search_field(sort_field)
                     .expect("sort field should exist in index schema");
-
-                let resolved_type = self.normalize_json_underlying_type(
-                    field.field_entry().field_type().value_type(),
-                    sort_field.as_ref(),
-                );
+                let mut resolved_type = field.field_entry().field_type().value_type();
+                if field.is_json() {
+                    // Determine the actual underlying fast-field type for this JSON path.
+                    let underlying =
+                        self.normalize_json_underlying_type(resolved_type, sort_field.as_ref());
+                    match semantic.unwrap_or(OrderByFieldSemantic::Natural) {
+                        OrderByFieldSemantic::Lexical => {
+                            // Only use string fast field if it's actually available; otherwise fall back to underlying.
+                            resolved_type = if underlying == tantivy::schema::Type::Str {
+                                tantivy::schema::Type::Str
+                            } else {
+                                underlying
+                            };
+                        }
+                        OrderByFieldSemantic::Natural => {
+                            resolved_type = underlying;
+                        }
+                    }
+                } else if matches!(resolved_type, tantivy::schema::Type::Json) {
+                    resolved_type =
+                        self.normalize_json_underlying_type(resolved_type, sort_field.as_ref());
+                }
 
                 match resolved_type {
                     tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
@@ -675,6 +693,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                ..
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let (top_docs, aggregation_results) = self.top_in_segments(
@@ -695,6 +714,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                ..
             } => {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
@@ -991,6 +1011,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
+                    semantic,
                 } => {
                     let field = self
                         .schema
@@ -998,8 +1019,31 @@ impl SearchIndexReader {
                         .expect("sort field should exist in index schema");
 
                     let original_value_type = field.field_entry().field_type().value_type();
-                    let resolved_type = self
-                        .normalize_json_underlying_type(original_value_type, sort_field.as_ref());
+                    let mut resolved_type = original_value_type;
+                    if field.is_json() {
+                        let underlying = self.normalize_json_underlying_type(
+                            original_value_type,
+                            sort_field.as_ref(),
+                        );
+                        match semantic.unwrap_or(OrderByFieldSemantic::Natural) {
+                            OrderByFieldSemantic::Lexical => {
+                                // Only force string when string fast-field exists; else use underlying.
+                                resolved_type = if underlying == tantivy::schema::Type::Str {
+                                    tantivy::schema::Type::Str
+                                } else {
+                                    underlying
+                                };
+                            }
+                            OrderByFieldSemantic::Natural => {
+                                resolved_type = underlying;
+                            }
+                        }
+                    } else if matches!(resolved_type, tantivy::schema::Type::Json) {
+                        resolved_type = self.normalize_json_underlying_type(
+                            original_value_type,
+                            sort_field.as_ref(),
+                        );
+                    }
 
                     match resolved_type {
                         tantivy::schema::Type::Str => erased_features
@@ -1024,6 +1068,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
+                    ..
                 } => {
                     erased_features.push_score_feature(*direction);
                 }

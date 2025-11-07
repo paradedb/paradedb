@@ -24,6 +24,7 @@ mod scan_state;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_aggregate::window_agg_oid;
+use crate::api::OrderByFieldSemantic;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -968,12 +969,14 @@ impl CustomScan for PdbScan {
                         OrderByInfo {
                             feature: OrderByFeature::Field(fieldname),
                             direction,
+                            ..
                         } => {
                             format!("{fieldname} {}", direction.as_ref())
                         }
                         OrderByInfo {
                             feature: OrderByFeature::Score,
                             direction,
+                            ..
                         } => {
                             format!("pdb.score() {}", direction.as_ref())
                         }
@@ -1583,8 +1586,11 @@ where
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {
                             if lower_sortability_check(&search_field) {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                pathkey_styles.push(OrderByStyle::Field(
+                                    pathkey,
+                                    att.name().into(),
+                                    OrderByFieldSemantic::Lexical,
+                                ));
                                 found_valid_member = true;
                                 break;
                             }
@@ -1603,8 +1609,16 @@ where
                         if let Some(att) = tupdesc.get(attno as usize - 1) {
                             if let Some(search_field) = schema.search_field(att.name()) {
                                 if regular_sortability_check(&search_field) {
-                                    pathkey_styles
-                                        .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                    let semantic = if search_field.is_json() {
+                                        OrderByFieldSemantic::Lexical
+                                    } else {
+                                        OrderByFieldSemantic::Natural
+                                    };
+                                    pathkey_styles.push(OrderByStyle::Field(
+                                        pathkey,
+                                        att.name().into(),
+                                        semantic,
+                                    ));
                                     found_valid_member = true;
                                     break;
                                 }
@@ -1622,7 +1636,12 @@ where
                 if heaprelid != pg_sys::Oid::INVALID {
                     if let Some(search_field) = schema.search_field(field_name.root()) {
                         if regular_sortability_check(&search_field) {
-                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                            let semantic = if search_field.is_json() {
+                                OrderByFieldSemantic::Lexical
+                            } else {
+                                OrderByFieldSemantic::Natural
+                            };
+                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name, semantic));
                             found_valid_member = true;
                             break;
                         }

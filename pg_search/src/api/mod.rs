@@ -301,6 +301,19 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     }
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub enum OrderByFieldSemantic {
+    // use the underlying Tantivy fast-field type when available (numeric/bool/date) or string.
+    Natural,
+    // force lexical (string) ordering semantics, matching Postgres' JSON key ordering.
+    Lexical,
+}
+
+fn default_orderby_field_semantic() -> Option<OrderByFieldSemantic> {
+    // if older serialized data lacks this field, treat as Natural
+    Some(OrderByFieldSemantic::Natural)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score,
@@ -312,6 +325,9 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
+    // sorting semantic for field-based ordering; none defaults to Natural.
+    #[serde(default = "default_orderby_field_semantic")]
+    pub semantic: Option<OrderByFieldSemantic>,
 }
 
 impl OrderByInfo {

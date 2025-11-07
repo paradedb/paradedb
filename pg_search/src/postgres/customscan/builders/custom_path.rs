@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{
+    Cardinality, FieldName, HashSet, OrderByFeature, OrderByFieldSemantic, OrderByInfo,
+    SortDirection,
+};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
@@ -25,14 +28,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone)]
 pub enum OrderByStyle {
     Score(*mut pg_sys::PathKey),
-    Field(*mut pg_sys::PathKey, FieldName),
+    Field(*mut pg_sys::PathKey, FieldName, OrderByFieldSemantic),
 }
 
 impl OrderByStyle {
     pub fn pathkey(&self) -> *mut pg_sys::PathKey {
         match self {
             OrderByStyle::Score(pathkey) => *pathkey,
-            OrderByStyle::Field(pathkey, _) => *pathkey,
+            OrderByStyle::Field(pathkey, _, _) => *pathkey,
         }
     }
 
@@ -62,13 +65,17 @@ impl OrderByStyle {
 
 impl From<&OrderByStyle> for OrderByInfo {
     fn from(value: &OrderByStyle) -> Self {
-        let feature = match value {
-            OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
-            OrderByStyle::Score(_) => OrderByFeature::Score,
-        };
-        OrderByInfo {
-            feature,
-            direction: value.direction(),
+        match value {
+            OrderByStyle::Field(_, name, semantic) => OrderByInfo {
+                feature: OrderByFeature::Field(name.to_owned()),
+                direction: value.direction(),
+                semantic: Some(*semantic),
+            },
+            OrderByStyle::Score(_) => OrderByInfo {
+                feature: OrderByFeature::Score,
+                direction: value.direction(),
+                semantic: None,
+            },
         }
     }
 }

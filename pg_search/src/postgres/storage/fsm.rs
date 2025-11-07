@@ -769,6 +769,8 @@ pub mod v2 {
             let mut xid = current_xid;
             let mut blocks = Vec::with_capacity(many);
 
+            let mut heads_unlinked = 0usize;
+
             'outer: while blocks.len() < many {
                 let mut root = Some(bman.get_buffer(self.start_blockno));
                 let page = root.as_ref().unwrap().page();
@@ -781,6 +783,8 @@ pub mod v2 {
                 let mut head_blockno = tag as pg_sys::BlockNumber;
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
+
+                let mut condlock_failures = 0usize;
 
                 while blocks.len() < many && blockno != pg_sys::InvalidBlockNumber {
                     // we drop the "root" buffer after getting the head buffer.
@@ -795,6 +799,13 @@ pub mod v2 {
                             buffer
                         }
                         None => {
+                            condlock_failures += 1;
+                            pgrx::log!(
+                                "FSM drain: failed conditional lock on block {} (total so far: {})",
+                                blockno,
+                                condlock_failures
+                            );
+
                             drop(root.take());
 
                             // move to the next candidate XID below this one.
@@ -805,6 +816,19 @@ pub mod v2 {
                             continue 'outer;
                         }
                     };
+
+                    // this avoids WAL generation for empty pages we're just traversing
+                    let (is_empty, next_blockno) = {
+                        let page = buffer.page();
+                        let contents = page.contents_ref::<AvlLeaf>();
+                        (contents.len == 0, page.next_blockno())
+                    };
+
+                    if is_empty && blockno != head_blockno {
+                        drop(buffer);
+                        blockno = next_blockno;
+                        continue;
+                    }
 
                     let mut page = buffer.page_mut();
                     let contents = page.contents_mut::<AvlLeaf>();
@@ -834,6 +858,7 @@ pub mod v2 {
                     };
 
                     if !modified {
+                        pgrx::log!("unnecessary generic xlog of block {}", buffer.number());
                         // we didn't change anything
                         buffer.set_dirty(false);
                     }
@@ -844,6 +869,12 @@ pub mod v2 {
                     drop(buffer);
 
                     if should_unlink_head {
+                        heads_unlinked += 1;
+                        pgrx::log!(
+                            "unlinked head block {} (total so far: {})",
+                            head_blockno,
+                            heads_unlinked
+                        );
                         let old_head = head_blockno;
 
                         // get mutable tree without holding any other locks
@@ -1006,24 +1037,33 @@ pub mod v2 {
                 if contents.len as usize == contents.entries.len()
                     && next_blockno != pg_sys::InvalidBlockNumber
                 {
-                    // this block is full.  Chances are the next block is also full.
-                    // so we're going to populate a brand-new list with the rest of the iterator
-                    // and then link it in between this block and the next block.  This avoids
-                    // the possible overhead of scanning the rest of the freelist just to discover
-                    // all the following blocks are full
-                    let new_block = AvlLeaf::init_new_page(bman);
-                    let new_blockno = new_block.number();
+                    let peek_next_full = {
+                        let buffer = bman.get_buffer(next_blockno);
+                        let page = buffer.page();
+                        let contents = page.contents_ref::<AvlLeaf>();
+                        contents.len as usize == contents.entries.len()
+                    };
 
-                    let mut last_block = Self::extend_freelist(bman, new_block, extend_with);
+                    if peek_next_full {
+                        // this block is full and the next block is also full
+                        // so we're going to populate a brand-new list with the rest of the iterator
+                        // and then link it in between this block and the next block.  This avoids
+                        // the possible overhead of scanning the rest of the freelist just to discover
+                        // all the following blocks are full
+                        let new_block = AvlLeaf::init_new_page(bman);
+                        let new_blockno = new_block.number();
 
-                    // link the last block we just created to the next block
-                    let mut end_page = last_block.page_mut();
-                    end_page.special_mut::<BM25PageSpecialData>().next_blockno = next_blockno;
+                        let mut last_block = Self::extend_freelist(bman, new_block, extend_with);
 
-                    // finally link this block to the new block
-                    page.special_mut::<BM25PageSpecialData>().next_blockno = new_blockno;
+                        // link the last block we just created to the next block
+                        let mut end_page = last_block.page_mut();
+                        end_page.special_mut::<BM25PageSpecialData>().next_blockno = next_blockno;
 
-                    return last_block;
+                        // finally link this block to the new block
+                        page.special_mut::<BM25PageSpecialData>().next_blockno = new_blockno;
+
+                        return last_block;
+                    }
                 }
 
                 while (contents.len as usize) < contents.entries.len() {
@@ -1081,6 +1121,11 @@ pub mod v2 {
                 )
             }
         }
+
+        #[allow(dead_code)]
+        fn start_blockno(&self) -> pg_sys::BlockNumber {
+            self.start_blockno
+        }
     }
 
     #[cfg(any(test, feature = "pg_test"))]
@@ -1089,7 +1134,7 @@ pub mod v2 {
         use pgrx::prelude::*;
         use std::collections::HashSet;
 
-        use super::{MAX_SLOTS, V2FSM};
+        use super::{AvlLeaf, MAX_ENTRIES, MAX_SLOTS, V2FSM};
         use crate::postgres::rel::PgSearchRelation;
         use crate::postgres::storage::buffer::BufferManager;
         use crate::postgres::storage::fsm::FreeSpaceManager;
@@ -1294,6 +1339,87 @@ pub mod v2 {
             assert!(empty);
 
             Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_extend_with_splice() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_sparse_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 3));
+
+            for _ in 0..5 {
+                fsm.extend_with_when_recyclable(&mut bman, xid, 0..1_u32);
+            }
+
+            assert_eq!(
+                freelist_blocks(&mut bman, &mut fsm, xid),
+                vec![2039, 5, 2039, 2039]
+            );
+
+            let _ = fsm.drain(&mut bman, 2041).collect::<Vec<_>>();
+            assert_eq!(
+                freelist_blocks(&mut bman, &mut fsm, xid),
+                vec![3, 2039, 2039]
+            );
+
+            let _ = fsm.drain(&mut bman, 2043).collect::<Vec<_>>();
+            assert_eq!(freelist_blocks(&mut bman, &mut fsm, xid), vec![2038]);
+
+            let _ = fsm.drain(&mut bman, 2038).collect::<Vec<_>>();
+            assert!(!slot_exists(&mut bman, &mut fsm, xid));
+
+            Ok(())
+        }
+
+        fn slot_exists(
+            bman: &mut BufferManager,
+            fsm: &mut V2FSM,
+            xid: pg_sys::FullTransactionId,
+        ) -> bool {
+            let root = bman.get_buffer(fsm.start_blockno());
+            let page = root.page();
+            let tree = fsm.avl_ref(&page);
+            tree.get(&xid.value).is_some()
+        }
+
+        fn freelist_blocks(
+            bman: &mut BufferManager,
+            fsm: &mut V2FSM,
+            xid: pg_sys::FullTransactionId,
+        ) -> Vec<pg_sys::BlockNumber> {
+            let root = bman.get_buffer(fsm.start_blockno());
+            let page = root.page();
+            let tree = fsm.avl_ref(&page);
+            let leaf = tree.get(&xid.value).expect("leaf should be present");
+
+            let (_, mut blockno) = leaf;
+            let mut blocks_per_page = vec![];
+
+            while blockno != pg_sys::InvalidBlockNumber {
+                let buffer = bman.get_buffer(blockno);
+                let page = buffer.page();
+                let contents = page.contents_ref::<AvlLeaf>();
+                blocks_per_page.push(contents.len);
+                blockno = bman.get_buffer(blockno).page().next_blockno();
+            }
+            blocks_per_page
         }
     }
 }

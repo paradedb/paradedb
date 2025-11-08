@@ -4,6 +4,7 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.global_mutable_segment_rows = 0;
 
 -- =====================================================================
 -- SECTION 1: Large Aggregation Error

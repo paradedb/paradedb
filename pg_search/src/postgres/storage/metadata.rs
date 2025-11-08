@@ -357,6 +357,7 @@ impl BgMergerPage {
         buffer.and_then(|buffer| {
             // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
             // a pin is taken for every merge that is running, and released when it's done
+            pgrx::info!("buffer refcount: {}", unsafe { get_buffer_refcount(buffer.pg_buffer) });
             if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1
                 > gucs::max_concurrent_background_merges()
             {
@@ -370,12 +371,14 @@ impl BgMergerPage {
 }
 
 unsafe fn get_buffer_descriptor(buffer: pg_sys::Buffer) -> pg_sys::BufferDesc {
-    (*pg_sys::BufferDescriptors.add(buffer as usize - 1)).bufferdesc
+    let padded = pg_sys::BufferDescriptors.add((buffer - 1) as usize);
+    (*padded).bufferdesc
 }
 
-unsafe fn get_buffer_refcount(pg_buffer: pg_sys::Buffer) -> i32 {
-    let desc = unsafe { get_buffer_descriptor(pg_buffer) };
-    (desc.state.value & pg_sys::BUF_REFCOUNT_MASK) as i32
+unsafe fn get_buffer_refcount(buffer: pg_sys::Buffer) -> i32 {
+    let bufdesc = get_buffer_descriptor(buffer);
+    let state = bufdesc.state.value;
+    (state & pg_sys::BUF_REFCOUNT_MASK) as i32
 }
 
 #[allow(unused_variables)]
@@ -391,4 +394,52 @@ unsafe fn bgmerger_state(
 ) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
     pgrx::warning!("bgmerger_state has been deprecated");
     TableIterator::new(std::iter::empty())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    fn create_index() -> pg_sys::Oid {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
+        Spi::run("CREATE TABLE IF NOT EXISTS t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .unwrap()
+    }
+
+    #[pg_test]
+    fn test_bgmerger_max_concurrent_merges() {
+        let index_oid = create_index();
+        let index = PgSearchRelation::open(index_oid);
+        let metadata = MetaPage::open(&index);
+        let mut bgmerger = metadata.bgmerger();
+
+        // by default only 2 concurrent merges are allowed
+        let pin1 = bgmerger.try_starting();
+        assert!(pin1.is_some());
+
+        let pin2 = bgmerger.try_starting();
+        assert!(pin2.is_some());
+
+        let pin3 = bgmerger.try_starting();
+        assert!(pin3.is_some());
+
+        // drop one pin, should be able to start another
+        // unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
+        let pin4 = bgmerger.try_starting();
+        assert!(pin4.is_some());
+
+        let pin5 = bgmerger.try_starting();
+        assert!(pin5.is_some());
+
+        let pin6 = bgmerger.try_starting();
+        assert!(pin6.is_none());
+    }
 }

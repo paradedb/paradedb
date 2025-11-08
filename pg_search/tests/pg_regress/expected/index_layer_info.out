@@ -21,32 +21,38 @@ WITH (key_field='id');
 SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items_1_idx' OR relname = 'mock_items_2_idx';
      relname      |    layer_size     
 ------------------+-------------------
- mock_items_1_idx | 10000 MB..
+ mock_items_1_idx | 977 GB..
+ mock_items_1_idx | 98 GB..977 GB
+ mock_items_1_idx | 10000 MB..98 GB
  mock_items_1_idx | 1000 MB..10000 MB
  mock_items_1_idx | 100 MB..1000 MB
  mock_items_1_idx | 10 MB..100 MB
  mock_items_1_idx | 1024 kB..10 MB
  mock_items_1_idx | 100 kB..1024 kB
- mock_items_1_idx | ..100 kB
- mock_items_2_idx | 10000 MB..
+ mock_items_1_idx | 10 kB..100 kB
+ mock_items_1_idx | ..10 kB
+ mock_items_2_idx | 977 GB..
+ mock_items_2_idx | 98 GB..977 GB
+ mock_items_2_idx | 10000 MB..98 GB
  mock_items_2_idx | 1000 MB..10000 MB
  mock_items_2_idx | 100 MB..1000 MB
  mock_items_2_idx | 10 MB..100 MB
  mock_items_2_idx | 1024 kB..10 MB
  mock_items_2_idx | 100 kB..1024 kB
- mock_items_2_idx | ..100 kB
-(14 rows)
+ mock_items_2_idx | 10 kB..100 kB
+ mock_items_2_idx | ..10 kB
+(20 rows)
 
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
-                    combined_layer_sizes                    
-------------------------------------------------------------
- {102400,1048576,10485760,104857600,1048576000,10485760000}
+                                    combined_layer_sizes                                     
+---------------------------------------------------------------------------------------------
+ {10240,102400,1048576,10485760,104857600,1048576000,10485760000,104857600000,1048576000000}
 (1 row)
 
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_2_idx');
-                    combined_layer_sizes                    
-------------------------------------------------------------
- {102400,1048576,10485760,104857600,1048576000,10485760000}
+                                    combined_layer_sizes                                     
+---------------------------------------------------------------------------------------------
+ {10240,102400,1048576,10485760,104857600,1048576000,10485760000,104857600000,1048576000000}
 (1 row)
 
 ALTER INDEX mock_items_1_idx SET (layer_sizes = '0');
@@ -59,14 +65,17 @@ SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items
  mock_items_1_idx | 100 kB..1024 kB
  mock_items_1_idx | 10 kB..100 kB
  mock_items_1_idx | ..10 kB
- mock_items_2_idx | 10000 MB..
+ mock_items_2_idx | 977 GB..
+ mock_items_2_idx | 98 GB..977 GB
+ mock_items_2_idx | 10000 MB..98 GB
  mock_items_2_idx | 1000 MB..10000 MB
  mock_items_2_idx | 100 MB..1000 MB
  mock_items_2_idx | 10 MB..100 MB
  mock_items_2_idx | 1024 kB..10 MB
  mock_items_2_idx | 100 kB..1024 kB
- mock_items_2_idx | ..100 kB
-(12 rows)
+ mock_items_2_idx | 10 kB..100 kB
+ mock_items_2_idx | ..10 kB
+(15 rows)
 
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
        combined_layer_sizes       
@@ -85,14 +94,17 @@ SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items
  mock_items_1_idx | 100 kB..1024 kB
  mock_items_1_idx | 10 kB..100 kB
  mock_items_1_idx | ..10 kB
- mock_items_2_idx | 10000 MB..
+ mock_items_2_idx | 977 GB..
+ mock_items_2_idx | 98 GB..977 GB
+ mock_items_2_idx | 10000 MB..98 GB
  mock_items_2_idx | 1000 MB..10000 MB
  mock_items_2_idx | 100 MB..1000 MB
  mock_items_2_idx | 10 MB..100 MB
  mock_items_2_idx | 1024 kB..10 MB
  mock_items_2_idx | 100 kB..1024 kB
- mock_items_2_idx | ..100 kB
-(13 rows)
+ mock_items_2_idx | 10 kB..100 kB
+ mock_items_2_idx | ..10 kB
+(16 rows)
 
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
             combined_layer_sizes             

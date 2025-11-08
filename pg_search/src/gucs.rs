@@ -268,7 +268,7 @@ pub fn init() {
         c"Raising this number will help keep the segment count down at the expensive of increased CPU and memory usage",
         &MAX_CONCURRENT_BACKGROUND_MERGES,
         1,
-        10,
+        MAX_ALLOWED_BACKGROUND_MERGES as i32,
         GucContext::Userset,
         GucFlags::default(),
     );

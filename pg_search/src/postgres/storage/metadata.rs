@@ -72,7 +72,9 @@ pub struct MetaPageData {
     /// The block where our current, v2, FSM starts
     v2_fsm: pg_sys::BlockNumber,
 
-    bgmerger: pg_sys::BlockNumber,
+    /// Allow up to 5 concurrent background merges
+    /// If one of these blocks is pinned, that means a background merge is running
+    bgmerger: [pg_sys::BlockNumber; gucs::MAX_ALLOWED_BACKGROUND_MERGES],
 }
 
 /// Provides read access to the metadata page
@@ -110,7 +112,7 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
-            metadata.bgmerger = init_new_buffer(indexrel).number();
+            metadata.bgmerger = std::array::from_fn(|_| init_new_buffer(indexrel).number());
         }
     }
 
@@ -140,12 +142,15 @@ impl MetaPage {
         //
         // These will have either been initialized in `MetaPage::init()` or known to be
         // our old hardcoded values
+        let bgmerger = metadata.bgmerger;
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.bgmerger);
+            || bgmerger
+                .iter()
+                .any(|&blockno| !block_number_is_valid(blockno));
 
         drop(buffer);
 
@@ -191,8 +196,10 @@ impl MetaPage {
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
-                if !block_number_is_valid(metadata.bgmerger) {
-                    metadata.bgmerger = init_new_buffer(indexrel).number();
+                for i in 0..gucs::MAX_ALLOWED_BACKGROUND_MERGES {
+                    if !block_number_is_valid(metadata.bgmerger[i]) {
+                        metadata.bgmerger[i] = init_new_buffer(indexrel).number();
+                    }
                 }
             }
 
@@ -257,7 +264,7 @@ impl MetaPage {
     pub fn bgmerger(&self) -> BgMergerPage {
         BgMergerPage {
             bman: self.bman.clone(),
-            blockno: self.data.bgmerger,
+            blocknos: self.data.bgmerger,
         }
     }
 }
@@ -348,37 +355,26 @@ impl MetaPage {
 
 pub struct BgMergerPage {
     bman: BufferManager,
-    blockno: pg_sys::BlockNumber,
+    blocknos: [pg_sys::BlockNumber; gucs::MAX_ALLOWED_BACKGROUND_MERGES],
 }
 
 impl BgMergerPage {
     pub fn try_starting(&mut self) -> Option<pg_sys::Buffer> {
-        let buffer = self.bman.get_buffer_conditional(self.blockno);
-        buffer.and_then(|buffer| {
-            // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
-            // a pin is taken for every merge that is running, and released when it's done
-            pgrx::info!("buffer refcount: {}", unsafe { get_buffer_refcount(buffer.pg_buffer) });
-            if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1
-                > gucs::max_concurrent_background_merges()
-            {
-                drop(buffer);
-                None
-            } else {
-                Some(buffer.exchange_pinned().into_pg())
+        let max_concurrent_merges = gucs::max_concurrent_background_merges() as usize;
+        assert!(max_concurrent_merges <= gucs::MAX_ALLOWED_BACKGROUND_MERGES);
+
+        for i in 0..max_concurrent_merges {
+            assert!(block_number_is_valid(self.blocknos[i]));
+
+            let buffer = self
+                .bman
+                .get_buffer_for_cleanup_conditional(self.blocknos[i]);
+            if let Some(buffer) = buffer {
+                return Some(buffer.exchange_pinned().into_pg());
             }
-        })
+        }
+        None
     }
-}
-
-unsafe fn get_buffer_descriptor(buffer: pg_sys::Buffer) -> pg_sys::BufferDesc {
-    let padded = pg_sys::BufferDescriptors.add((buffer - 1) as usize);
-    (*padded).bufferdesc
-}
-
-unsafe fn get_buffer_refcount(buffer: pg_sys::Buffer) -> i32 {
-    let bufdesc = get_buffer_descriptor(buffer);
-    let state = bufdesc.state.value;
-    (state & pg_sys::BUF_REFCOUNT_MASK) as i32
 }
 
 #[allow(unused_variables)]
@@ -429,10 +425,30 @@ mod tests {
         assert!(pin2.is_some());
 
         let pin3 = bgmerger.try_starting();
-        assert!(pin3.is_some());
+        assert!(pin3.is_none());
 
         // drop one pin, should be able to start another
-        // unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
+        let pin4 = bgmerger.try_starting();
+        assert!(pin4.is_some());
+
+        // drop the rest
+        unsafe { pg_sys::ReleaseBuffer(pin2.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin4.unwrap()) };
+
+        // raise max concurrent merges to 5
+        Spi::run("SET paradedb.max_concurrent_background_merges = 5;").unwrap();
+
+        // now we should be able to start five merges
+        let pin1 = bgmerger.try_starting();
+        assert!(pin1.is_some());
+
+        let pin2 = bgmerger.try_starting();
+        assert!(pin2.is_some());
+
+        let pin3 = bgmerger.try_starting();
+        assert!(pin3.is_some());
+
         let pin4 = bgmerger.try_starting();
         assert!(pin4.is_some());
 
@@ -441,5 +457,18 @@ mod tests {
 
         let pin6 = bgmerger.try_starting();
         assert!(pin6.is_none());
+
+        // release everything
+        unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin2.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin3.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin4.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin5.unwrap()) };
+
+        // this should error
+        assert!(std::panic::catch_unwind(|| {
+            Spi::run("SET paradedb.max_concurrent_background_merges = 6;").unwrap();
+        })
+        .is_err());
     }
 }

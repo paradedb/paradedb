@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762631237673,
+  "lastUpdate": 1762631242124,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24976,6 +24976,126 @@ window.BENCHMARK_DATA = {
             "value": 148.28515625,
             "unit": "median mem",
             "extra": "avg mem: 129.75683133436806, max mem: 153.015625, count: 54523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce941b2d80ca0e0484b524f1a9ef090e1d36a156",
+          "message": "feat: Enable mutable segments by default (#3516)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nEnough testing has gone into mutable segments that they can be enabled\nby default. With mutable segments turned on, write throughput\ndrastically increases.\n\nThe default has been set to `1000`, ie a mutable segment can hold 1000\nrows before being flushed.\n\nAdditionally, I reworked the `paradedb.enable_global_mutable_rows`\nsetting to be ignored if set to `-1`. If set to `0`, it turns off\nmutable segments globally. If greater than `0`, it overrides the\nindex-specific mutable segment settings.\n\nPreviously a value of `0` meant the setting was ignored, which means it\nwas actually not possible to turn off mutable segments globally.\n\nFinally I capped the setting's max to `10000`, the old default of\n`i32::MAX` was not good as mutable segments should be anywhere near that\nlarge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-08T14:30:44-05:00",
+          "tree_id": "fa79bb07f80e31c00e50a3ef7d12874375392dbf",
+          "url": "https://github.com/paradedb/paradedb/commit/ce941b2d80ca0e0484b524f1a9ef090e1d36a156"
+        },
+        "date": 1762631239600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.609448951370082, max cpu: 37.2093, count: 55509"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 49.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.56031123612838, max mem: 58.54296875, count: 55509"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6500279535941, max cpu: 9.320388, count: 55509"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.347759625691328, max mem: 27.828125, count: 55509"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.6073832581081, max cpu: 38.133068, count: 55509"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 48.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.11690052514007, max mem: 57.9765625, count: 55509"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.279004081848091, max cpu: 13.967022, count: 55509"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 49.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.53553421517231, max mem: 55.7109375, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.598126785600098, max cpu: 9.430255, count: 111018"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 35.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.1137411275649, max mem: 42.69921875, count: 111018"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1332,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1335.0744563944586, max block_count: 2294.0, count: 55509"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.30477940514151, max segment_count: 49.0, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621818814303676, max cpu: 9.302325, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 37.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.530447483741376, max mem: 46.34765625, count: 55509"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.143813752017083, max cpu: 13.913043, count: 55509"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 40.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.414406827609035, max mem: 47.56640625, count: 55509"
           }
         ]
       }

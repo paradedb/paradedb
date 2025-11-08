@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762632070286,
+  "lastUpdate": 1762632929533,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -43270,6 +43270,54 @@ window.BENCHMARK_DATA = {
             "value": 5.738810764862468,
             "unit": "median tps",
             "extra": "avg tps: 5.719808347623578, max tps: 6.867207389203052, count: 56646"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce941b2d80ca0e0484b524f1a9ef090e1d36a156",
+          "message": "feat: Enable mutable segments by default (#3516)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nEnough testing has gone into mutable segments that they can be enabled\nby default. With mutable segments turned on, write throughput\ndrastically increases.\n\nThe default has been set to `1000`, ie a mutable segment can hold 1000\nrows before being flushed.\n\nAdditionally, I reworked the `paradedb.enable_global_mutable_rows`\nsetting to be ignored if set to `-1`. If set to `0`, it turns off\nmutable segments globally. If greater than `0`, it overrides the\nindex-specific mutable segment settings.\n\nPreviously a value of `0` meant the setting was ignored, which means it\nwas actually not possible to turn off mutable segments globally.\n\nFinally I capped the setting's max to `10000`, the old default of\n`i32::MAX` was not good as mutable segments should be anywhere near that\nlarge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-08T14:30:44-05:00",
+          "tree_id": "fa79bb07f80e31c00e50a3ef7d12874375392dbf",
+          "url": "https://github.com/paradedb/paradedb/commit/ce941b2d80ca0e0484b524f1a9ef090e1d36a156"
+        },
+        "date": 1762632926986,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1165.6495023303412,
+            "unit": "median tps",
+            "extra": "avg tps: 1160.0377612038833, max tps: 1219.5961836034019, count: 56075"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1211.203856984714,
+            "unit": "median tps",
+            "extra": "avg tps: 1174.9230063159687, max tps: 1270.5086730205885, count: 56075"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1877.4592689660803,
+            "unit": "median tps",
+            "extra": "avg tps: 1798.6844438359155, max tps: 2076.4582682032174, count: 56075"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.047739411701758,
+            "unit": "median tps",
+            "extra": "avg tps: 6.056926028378029, max tps: 7.041282274265711, count: 56075"
           }
         ]
       }

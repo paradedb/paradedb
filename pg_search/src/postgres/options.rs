@@ -332,7 +332,11 @@ impl BM25IndexOptions {
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
-        gucs::global_mutable_segment_rows().or_else(|| self.options_data().mutable_segment_rows())
+        match gucs::global_mutable_segment_rows() {
+            Some(rows) if rows > 0 => NonZeroUsize::new(rows),
+            Some(0) => None,
+            _ => self.options_data().mutable_segment_rows(),
+        }
     }
 
     pub fn key_field_name(&self) -> FieldName {

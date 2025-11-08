@@ -353,18 +353,19 @@ pub struct BgMergerPage {
 
 impl BgMergerPage {
     pub fn try_starting(&mut self) -> Option<pg_sys::Buffer> {
-        let buffer = self.bman.get_buffer_mut(self.blockno);
-
-        // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
-        // a pin is taken for every merge that is running, and released when it's done
-        if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1
-            > gucs::max_concurrent_background_merges()
-        {
-            drop(buffer);
-            None
-        } else {
-            Some(buffer.exchange_pinned().into_pg())
-        }
+        let buffer = self.bman.get_buffer_conditional(self.blockno);
+        buffer.and_then(|buffer| {
+            // get number of pins on the sentinel buffer, minus 1 because we are holding a pin on this buffer ourselves
+            // a pin is taken for every merge that is running, and released when it's done
+            if unsafe { get_buffer_refcount(buffer.pg_buffer) } - 1
+                > gucs::max_concurrent_background_merges()
+            {
+                drop(buffer);
+                None
+            } else {
+                Some(buffer.exchange_pinned().into_pg())
+            }
+        })
     }
 }
 

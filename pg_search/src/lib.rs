@@ -90,6 +90,15 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::options::init();
     gucs::init();
 
+    // PG18: Removed global GUC disable - now relying on planner hook to dynamically disable
+    // self-join elimination only when needed (for self-joins with score() functions)
+    // #[cfg(feature = "pg18")]
+    // {
+    //     pgrx::warning!("PG18 detected: Globally disabling self-join elimination");
+    //     pg_sys::enable_self_join_elimination = false;
+    //     pgrx::warning!("Self-join elimination disabled, value is now: {}", pg_sys::enable_self_join_elimination);
+    // }
+
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();
 

@@ -196,7 +196,7 @@ impl MetaPage {
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
-                for i in 0..gucs::MAX_ALLOWED_BACKGROUND_MERGES {
+                for i in 0..gucs::max_concurrent_background_merges() as usize {
                     if !block_number_is_valid(metadata.bgmerger[i]) {
                         metadata.bgmerger[i] = init_new_buffer(indexrel).number();
                     }

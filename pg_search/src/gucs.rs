@@ -24,6 +24,8 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
+use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+
 /// Allows the user to toggle the use of our "ParadeDB Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -87,7 +89,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
-static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(1000);
+static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -252,7 +254,7 @@ pub fn init() {
         c"Setting this to a non-negative value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
         &GLOBAL_MUTABLE_SEGMENT_ROWS,
         -1,
-        10000,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
         GucContext::Userset,
         GucFlags::default(),
     );

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762811052980,
+  "lastUpdate": 1762811057585,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -77284,6 +77284,114 @@ window.BENCHMARK_DATA = {
             "value": 163.60546875,
             "unit": "median mem",
             "extra": "avg mem: 160.99508616456745, max mem: 163.60546875, count: 55497"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762811054911,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.5204721007109, max cpu: 41.618496, count: 55646"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 158.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.6124256741275, max mem: 162.3359375, count: 55646"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.306415181799888, max cpu: 37.065636, count: 55646"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 112.52611352624177, max mem: 113.64453125, count: 55646"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.067301172002721, max cpu: 14.0214205, count: 55646"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 136.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 123.10930339781835, max mem: 161.66015625, count: 55646"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18024,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18444.600258778708, max block_count: 35529.0, count: 55646"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.423020647597164, max cpu: 4.729064, count: 55646"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 84.97122876925116, max mem: 129.3359375, count: 55646"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.469449735830068, max segment_count: 46.0, count: 55646"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.462021662578843, max cpu: 27.988338, count: 111292"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.7623747523407, max mem: 166.25, count: 111292"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.935006208161022, max cpu: 28.318584, count: 55646"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 163.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.3487009398699, max mem: 163.6875, count: 55646"
           }
         ]
       }

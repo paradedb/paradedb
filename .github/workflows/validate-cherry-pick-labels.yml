@@ -14,10 +14,15 @@ jobs:
       - name: Check for explicit cherry pick behavior
         run: |
           labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
-          has_cherry_pick=$(echo "$labels" | jq '[.[] | select(startswith("cherry-pick/"))] | length')
-          has_do_not_cherry_pick=$(echo "$labels" | jq '[.[] | . == "Do Not Cherry Pick"] | length')
+          echo "Labels: $labels"
 
-          if [ "$has_cherry_pick" -eq 0 ] && [ "$has_do_not_cherry_pick" -eq 0 ]; then
+          has_cherry_pick=$(echo "$labels" | jq 'any(.[]; startswith("cherry-pick/"))')
+          has_do_not_cherry_pick=$(echo "$labels" | jq 'contains(["Do Not Cherry Pick"])')
+
+          echo "Has cherry pick: $has_cherry_pick"
+          echo "Has do not cherry pick: $has_do_not_cherry_pick"
+
+          if [ "$has_cherry_pick" = "false" ] && [ "$has_do_not_cherry_pick" = "false" ]; then
             echo "❌ PR must have either cherry-pick/* labels OR 'Do Not Cherry Pick' label"
             echo "Please add appropriate labels to define the cherry pick behavior for this PR."
             echo "Options:"
@@ -26,7 +31,7 @@ jobs:
             exit 1
           fi
 
-          if [ "$has_cherry_pick" -gt 0 ] && [ "$has_do_not_cherry_pick" -gt 0 ]; then
+          if [ "$has_cherry_pick" = "true" ] && [ "$has_do_not_cherry_pick" = "true" ]; then
             echo "❌ PR has both 'Do Not Cherry Pick' and cherry-pick labels"
             echo "Please choose either 'Do Not Cherry Pick' OR cherry-pick/* labels, not both."
             exit 1

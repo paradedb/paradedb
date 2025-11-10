@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762808514459,
+  "lastUpdate": 1762809354856,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30070,6 +30070,42 @@ window.BENCHMARK_DATA = {
             "value": 5.386542114797987,
             "unit": "median tps",
             "extra": "avg tps: 4.8564832952657095, max tps: 5.975266574121892, count: 57425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762809352200,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.025997464526748,
+            "unit": "median tps",
+            "extra": "avg tps: 6.874647898077494, max tps: 10.625117221358986, count: 57581"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.53537182982958,
+            "unit": "median tps",
+            "extra": "avg tps: 4.996845239466193, max tps: 6.133679815923864, count: 57581"
           }
         ]
       }

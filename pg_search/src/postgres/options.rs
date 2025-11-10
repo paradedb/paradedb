@@ -68,6 +68,9 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
     1000000 * 1024 * 1024, // 1TB
 ];
 
+pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
+pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
+
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
@@ -815,9 +818,9 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "mutable_segment_rows".as_pg_cstr(),
         "The size of mutable segments.".as_pg_cstr(),
+        DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
         0,
-        0,
-        i32::MAX,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

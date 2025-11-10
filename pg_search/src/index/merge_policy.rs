@@ -29,7 +29,10 @@ impl MergePolicy for LayeredMergePolicy {
         original_segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
         let candidates = self.compute_merge_candidates_inner(directory, original_segments);
-        candidates.into_iter().map(|(_, candidate)| candidate).collect()
+        candidates
+            .into_iter()
+            .map(|(_, candidate)| candidate)
+            .collect()
     }
 }
 
@@ -436,7 +439,7 @@ mod tests {
         // The candidate should contain only our single mutable segment
         assert_eq!(candidate_ids.len(), 1);
         assert_eq!(candidate_ids[0], segment_ids[0]);
-        assert_eq!(largest_layer_size, 1000);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]
@@ -472,7 +475,7 @@ mod tests {
         let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 0);
-        assert_eq!(largest_layer_size, 1000);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]
@@ -488,7 +491,7 @@ mod tests {
         let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 0);
-        assert_eq!(largest_layer_size, 1000);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]

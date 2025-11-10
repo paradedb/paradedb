@@ -72,9 +72,9 @@ pub struct MetaPageData {
     /// The block where our current, v2, FSM starts
     v2_fsm: pg_sys::BlockNumber,
 
-    /// Allow up to 5 concurrent background merges
+    /// Allow up to 2 concurrent background merges
     /// If one of these blocks is pinned, that means a background merge is running
-    bgmerger: [pg_sys::BlockNumber; gucs::MAX_ALLOWED_BACKGROUND_MERGES],
+    bgmerger: [pg_sys::BlockNumber; 2],
 }
 
 /// Provides read access to the metadata page
@@ -353,27 +353,32 @@ impl MetaPage {
     }
 }
 
+// We at most allow 2 concurrent background merges
+// The first background merge is for "small" merges, the second is for "large" merges
+// This makes it so that a long-running large merge doesn't block smaller merges from happening
+// We arbitrarily say that a merge is "large" if the largest layer size is greater than
+// or equal to this threshold
+const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
+
 pub struct BgMergerPage {
     bman: BufferManager,
-    blocknos: [pg_sys::BlockNumber; gucs::MAX_ALLOWED_BACKGROUND_MERGES],
+    blocknos: [pg_sys::BlockNumber; 2],
 }
 
 impl BgMergerPage {
-    pub fn try_starting(&mut self) -> Option<pg_sys::Buffer> {
-        let max_concurrent_merges = gucs::max_concurrent_background_merges() as usize;
-        assert!(max_concurrent_merges <= gucs::MAX_ALLOWED_BACKGROUND_MERGES);
+    pub fn try_starting(&mut self, largest_layer_size: u64) -> Option<pg_sys::Buffer> {
+        let blockno = if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+            1
+        } else {
+            0
+        };
 
-        for i in 0..max_concurrent_merges {
-            assert!(block_number_is_valid(self.blocknos[i]));
+        assert!(block_number_is_valid(self.blocknos[blockno]));
 
-            let buffer = self
-                .bman
-                .get_buffer_for_cleanup_conditional(self.blocknos[i]);
-            if let Some(buffer) = buffer {
-                return Some(buffer.exchange_pinned().into_pg());
-            }
-        }
-        None
+        let buffer = self
+            .bman
+            .get_buffer_for_cleanup_conditional(self.blocknos[blockno]);
+        buffer.map(|buffer| buffer.exchange_pinned().into_pg())
     }
 }
 
@@ -417,30 +422,30 @@ mod tests {
         let metadata = MetaPage::open(&index);
         let mut bgmerger = metadata.bgmerger();
 
-        // by default only 2 concurrent merges are allowed
-        let pin1 = bgmerger.try_starting();
+        let pin1 = bgmerger.try_starting(100 * 1024 * 1024);
         assert!(pin1.is_some());
 
-        let pin2 = bgmerger.try_starting();
-        assert!(pin2.is_some());
+        let pin2 = bgmerger.try_starting(100 * 1024 * 1024);
+        assert!(pin2.is_none());
 
-        let pin3 = bgmerger.try_starting();
-        assert!(pin3.is_none());
+        let pin3 = bgmerger.try_starting(99 * 1024 * 1024);
+        assert!(pin3.is_some());
+
+        let pin4 = bgmerger.try_starting(99 * 1024 * 1024);
+        assert!(pin4.is_none());
 
         // drop one pin, should be able to start another
         unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
-        let pin4 = bgmerger.try_starting();
-        assert!(pin4.is_some());
+        let pin5 = bgmerger.try_starting(100 * 1024 * 1024);
+        assert!(pin5.is_some());
+
+        // drop one pin, should be able to start another
+        unsafe { pg_sys::ReleaseBuffer(pin3.unwrap()) };
+        let pin6 = bgmerger.try_starting(99 * 1024 * 1024);
+        assert!(pin6.is_some());
 
         // drop the rest
-        unsafe { pg_sys::ReleaseBuffer(pin2.unwrap()) };
-        unsafe { pg_sys::ReleaseBuffer(pin3.unwrap()) };
-        unsafe { pg_sys::ReleaseBuffer(pin4.unwrap()) };
-
-        // this should error
-        assert!(std::panic::catch_unwind(|| {
-            Spi::run("SET paradedb.max_concurrent_background_merges = 3;").unwrap();
-        })
-        .is_err());
+        unsafe { pg_sys::ReleaseBuffer(pin5.unwrap()) };
+        unsafe { pg_sys::ReleaseBuffer(pin6.unwrap()) };
     }
 }

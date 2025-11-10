@@ -225,16 +225,18 @@ pub unsafe fn do_merge(
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = layer_sizes.user_configured_background_layers()
-        && { merge_lock.merge_list().is_empty() }
-        && {
+    let (needs_background_merge, largest_layer_size) =
+        if layer_sizes.user_configured_background_layers() {
             let combined_layers = layer_sizes.combined();
             let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
             let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
             background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let (merge_candidates, _) = background_merge_policy.simulate();
-            !merge_candidates.is_empty()
+            let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
+
+            (!merge_candidates.is_empty(), largest_layer_size)
+        } else {
+            (false, 0)
         };
 
     if needs_background_merge {
@@ -243,7 +245,7 @@ pub unsafe fn do_merge(
         drop(merge_lock);
         drop(cleanup_lock);
 
-        try_launch_background_merger(index);
+        try_launch_background_merger(index, largest_layer_size);
     } else if style == MergeStyle::Insert && !layer_sizes.foreground().is_empty() {
         let foreground_merge_policy = LayeredMergePolicy::new(layer_sizes.foreground_layer_sizes);
         merge_index(
@@ -263,8 +265,10 @@ pub unsafe fn do_merge(
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
-    let sentinel_buffer = MetaPage::open(index).bgmerger().try_starting();
+unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
+    let sentinel_buffer = MetaPage::open(index)
+        .bgmerger()
+        .try_starting(largest_layer_size);
     if sentinel_buffer.is_none() {
         return;
     }

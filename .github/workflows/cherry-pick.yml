@@ -7,6 +7,23 @@ on:
     types: [closed]
 
 jobs:
+  validate-cherry-pick-labels:
+    name: Validate Cherry Pick Labels
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for explicit cherry pick behavior
+        run: |
+          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          has_cherry_pick=$(echo "$labels" | jq '[.[] | select(startswith("cherry-pick/"))] | length')
+          has_do_not_cherry_pick=$(echo "$labels" | jq '[.[] | . == "Do Not Cherry Pick"] | length')
+
+          if [ "$has_cherry_pick" -eq 0 ] && [ "$has_do_not_cherry_pick" -eq 0 ]; then
+            echo "❌ PR must have either cherry-pick/* labels OR 'Do Not Cherry Pick' label"
+            echo "Please add appropriate labels to define the cherry pick behavior for this PR."
+            exit 1
+          fi
+
   get-branches:
     name: Get Cherry Pick Branches
     if: github.event.pull_request.merged == true
@@ -18,12 +35,18 @@ jobs:
         id: set-branches
         run: |
           labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
-          branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
-          echo "branches=${branches}" >> $GITHUB_OUTPUT
+          has_do_not_cherry_pick=$(echo "$labels" | jq '[.[] | . == "Do Not Cherry Pick"] | length')
+
+          if [ "$has_do_not_cherry_pick" -gt 0 ]; then
+            echo "branches=[]" >> $GITHUB_OUTPUT
+          else
+            branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
+            echo "branches=${branches}" >> $GITHUB_OUTPUT
+          fi
 
   cherry-pick:
     name: Cherry Pick
-    needs: get-branches
+    needs: [validate-cherry-pick-labels, get-branches]
     if: needs.get-branches.outputs.branches != '[]'
     runs-on: ubuntu-latest
     strategy:

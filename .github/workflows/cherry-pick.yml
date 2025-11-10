@@ -24,6 +24,12 @@ jobs:
             exit 1
           fi
 
+          if [ "$has_cherry_pick" -gt 0 ] && [ "$has_do_not_cherry_pick" -gt 0 ]; then
+            echo "❌ PR has both 'Do Not Cherry Pick' and cherry-pick labels"
+            echo "Please choose either 'Do Not Cherry Pick' OR cherry-pick/* labels, not both."
+            exit 1
+          fi
+
   get-branches:
     name: Get Cherry Pick Branches
     if: github.event.pull_request.merged == true

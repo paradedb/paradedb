@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762811057585,
+  "lastUpdate": 1762811889059,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -79218,6 +79218,54 @@ window.BENCHMARK_DATA = {
             "value": 89.0228112515493,
             "unit": "median tps",
             "extra": "avg tps: 95.64791090754122, max tps: 496.62288163440576, count: 107114"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762811886678,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 154.47498980031634,
+            "unit": "median tps",
+            "extra": "avg tps: 198.84254099929768, max tps: 651.4215177365079, count: 53621"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 165.6360588457617,
+            "unit": "median tps",
+            "extra": "avg tps: 218.67410336711637, max tps: 787.1811330945, count: 53621"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 77.11111115435094,
+            "unit": "median tps",
+            "extra": "avg tps: 78.47657222837957, max tps: 97.79661695585847, count: 53621"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 89.98196762374205,
+            "unit": "median tps",
+            "extra": "avg tps: 96.86321660757909, max tps: 552.627317899891, count: 107242"
           }
         ]
       }

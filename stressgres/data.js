@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762810235203,
+  "lastUpdate": 1762811052980,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63544,6 +63544,60 @@ window.BENCHMARK_DATA = {
             "value": 14.37456771671958,
             "unit": "median tps",
             "extra": "avg tps: 14.352186433501497, max tps: 19.61859990017664, count: 55497"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762811050248,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.84128936799718,
+            "unit": "median tps",
+            "extra": "avg tps: 32.77834505557355, max tps: 37.06545482501675, count: 55646"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 130.02000300427756,
+            "unit": "median tps",
+            "extra": "avg tps: 172.96098898109278, max tps: 2975.5271134837203, count: 55646"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 959.125665097836,
+            "unit": "median tps",
+            "extra": "avg tps: 951.1491373630436, max tps: 999.7406872605384, count: 55646"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 171.39644095906098,
+            "unit": "median tps",
+            "extra": "avg tps: 153.9238572500574, max tps: 1193.602012973468, count: 111292"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.608995650206273,
+            "unit": "median tps",
+            "extra": "avg tps: 14.64241263937367, max tps: 19.418895004287304, count: 55646"
           }
         ]
       }

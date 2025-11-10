@@ -367,12 +367,8 @@ impl PinnedBuffer {
         Self { pg_buffer }
     }
 
-    /// Returns the raw Postgres buffer
-    /// It is your responsibility to release the buffer when you're done with it
-    pub fn into_pg(self) -> pg_sys::Buffer {
-        let pg_buffer = self.pg_buffer;
-        std::mem::forget(self);
-        pg_buffer
+    pub fn number(self) -> pg_sys::BlockNumber {
+        unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 }
 

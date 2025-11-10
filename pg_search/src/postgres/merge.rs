@@ -56,27 +56,27 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
-    buffer: pg_sys::Buffer,
+    blockno: pg_sys::BlockNumber,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid, buffer: pg_sys::Buffer) -> Self {
-        Self { index_oid, buffer }
+    pub fn new(index_oid: pg_sys::Oid, blockno: pg_sys::BlockNumber) -> Self {
+        Self { index_oid, blockno }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
 
-    pub fn buffer(&self) -> pg_sys::Buffer {
-        self.buffer
+    pub fn blockno(&self) -> pg_sys::BlockNumber {
+        self.blockno
     }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         let upper = u32::from(self.index_oid) as u64; // top 32 bits
-        let lower = self.buffer as u64; // bottom 32 bits
+        let lower = self.blockno as u64; // bottom 32 bits
         let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
         Some(pg_sys::Datum::from(raw as i64))
     }
@@ -98,11 +98,11 @@ impl FromDatum for BackgroundMergeArgs {
 
         let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
         let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
-        let buffer = (raw & 0xFFFF_FFFF) as std::os::raw::c_int;
+        let blockno = (raw & 0xFFFF_FFFF) as u32;
 
         Some(Self {
             index_oid: index_oid.into(),
-            buffer,
+            blockno,
         })
     }
 }
@@ -268,7 +268,7 @@ pub unsafe fn do_merge(
 unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
     let sentinel_buffer = MetaPage::open(index)
         .bgmerger()
-        .try_starting(largest_layer_size);
+        .try_starting_with_layer_size(largest_layer_size);
     if sentinel_buffer.is_none() {
         return;
     }
@@ -289,12 +289,11 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), sentinel_buffer).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), sentinel_buffer.number()).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
     {
-        unsafe { pg_sys::ReleaseBuffer(sentinel_buffer) };
         pgrx::log!("not enough available `max_worker_processes` to launch a background merger");
     }
 }
@@ -330,6 +329,12 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             return;
         }
         let index = index.unwrap();
+        let sentinel_buffer = MetaPage::open(&index)
+            .bgmerger()
+            .try_starting_with_blockno(args.blockno());
+        if sentinel_buffer.is_none() {
+            return;
+        }
         let metadata = MetaPage::open(&index);
 
         let layer_sizes = IndexLayerSizes::from(&index);
@@ -350,9 +355,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             )
         }))
         .execute();
-
-        unsafe { pg_sys::ReleaseBuffer(args.buffer()) };
-    });
+    })
 }
 
 #[inline]
@@ -597,7 +600,7 @@ mod tests {
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), i32::MAX);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), pg_sys::BlockNumber::MAX);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);

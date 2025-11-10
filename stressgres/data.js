@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762795896698,
+  "lastUpdate": 1762796704102,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63058,6 +63058,60 @@ window.BENCHMARK_DATA = {
             "value": 14.580353805773619,
             "unit": "median tps",
             "extra": "avg tps: 14.590377383638115, max tps: 19.32862560173877, count: 55516"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d6aff88de9a7c8f2802c5d1084826bc059798015",
+          "message": "fix: Disable global mutable segment override by default (#3520)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nInstead of using the global `paradedb.global_mutable_segment_rows` to\ndefault mutable segments to `1000`, we should default the per-index\nconfiguration to `1000` and have the global override disabled by\ndefault.\n\n## Why\n\nThe global setting overrides the per-index settings, so having it\nenabled by default can be confusing.\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T11:45:51-05:00",
+          "tree_id": "1d5c9705c5d8be4488162d765ae95528a93ab2a1",
+          "url": "https://github.com/paradedb/paradedb/commit/d6aff88de9a7c8f2802c5d1084826bc059798015"
+        },
+        "date": 1762796701509,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.10672827408032,
+            "unit": "median tps",
+            "extra": "avg tps: 32.057651094901615, max tps: 33.529320611572125, count: 55497"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 240.64387455607454,
+            "unit": "median tps",
+            "extra": "avg tps: 267.5038631001868, max tps: 2864.6045749424443, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 927.7165891099129,
+            "unit": "median tps",
+            "extra": "avg tps: 927.9527210582453, max tps: 1010.0851227592525, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 174.4412894118993,
+            "unit": "median tps",
+            "extra": "avg tps: 190.05365663406278, max tps: 1295.7659871206738, count: 110994"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.37456771671958,
+            "unit": "median tps",
+            "extra": "avg tps: 14.352186433501497, max tps: 19.61859990017664, count: 55497"
           }
         ]
       }

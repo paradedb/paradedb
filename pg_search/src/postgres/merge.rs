@@ -20,7 +20,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{Buffer, BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
@@ -318,7 +318,6 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let current_xid = pg_sys::GetCurrentFullTransactionId();
         let next_xid = current_xid;
         let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
-        let merge_sentinel = PinnedBuffer::new(args.buffer());
         let index = PgSearchRelation::try_open(
             args.index_oid(),
             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
@@ -352,8 +351,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         }))
         .execute();
 
-        // just to be explicit that we're dropping the pin on the merge sentinel
-        drop(merge_sentinel);
+        unsafe { pg_sys::ReleaseBuffer(args.buffer()) };
     });
 }
 

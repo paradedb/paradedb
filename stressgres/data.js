@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762797523543,
+  "lastUpdate": 1762808510287,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8968,6 +8968,72 @@ window.BENCHMARK_DATA = {
             "value": 36.901940319868146,
             "unit": "median tps",
             "extra": "avg tps: 52.96068387154091, max tps: 361.39516168494276, count: 55545"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762808507683,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 150.21390378101972,
+            "unit": "median tps",
+            "extra": "avg tps: 167.72236175521155, max tps: 578.1399637076106, count: 55438"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3199.488757640564,
+            "unit": "median tps",
+            "extra": "avg tps: 3172.895224991663, max tps: 3213.051806357811, count: 55438"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 150.35264870347552,
+            "unit": "median tps",
+            "extra": "avg tps: 167.72033897982297, max tps: 637.3428557211923, count: 55438"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 128.0133211621911,
+            "unit": "median tps",
+            "extra": "avg tps: 142.92691459110947, max tps: 465.18777614709364, count: 55438"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3221.9810933051594,
+            "unit": "median tps",
+            "extra": "avg tps: 3207.165812757034, max tps: 3254.3246452527046, count: 110876"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2177.478680031949,
+            "unit": "median tps",
+            "extra": "avg tps: 2154.080188483055, max tps: 2185.6696867237565, count: 55438"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 43.01607979606324,
+            "unit": "median tps",
+            "extra": "avg tps: 65.0055269584374, max tps: 1084.8763891842164, count: 55438"
           }
         ]
       }

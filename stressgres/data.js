@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762809359175,
+  "lastUpdate": 1762810230998,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -43930,6 +43930,54 @@ window.BENCHMARK_DATA = {
             "value": 6.42366930262592,
             "unit": "median tps",
             "extra": "avg tps: 6.378024946487142, max tps: 6.974725700428808, count: 55277"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68",
+          "message": "feat: Move all merging to background by default (#3518)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe have enough testing in prod to confidently make background merging\nthe default behavior, which significantly improves writes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T15:45:10-05:00",
+          "tree_id": "eed27c2d40792a56a9fd9baab8d2deb35613fb68",
+          "url": "https://github.com/paradedb/paradedb/commit/1b366edd2ce34721c6d3d4c9ff20fe15f3e4eb68"
+        },
+        "date": 1762810228257,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1163.1707464492988,
+            "unit": "median tps",
+            "extra": "avg tps: 1163.172033371841, max tps: 1211.16303827295, count: 56199"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1277.4713931274064,
+            "unit": "median tps",
+            "extra": "avg tps: 1244.196212145748, max tps: 1294.4722365510356, count: 56199"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1772.3651805746215,
+            "unit": "median tps",
+            "extra": "avg tps: 1684.6958045774838, max tps: 1996.3931719317377, count: 56199"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.8686791991501455,
+            "unit": "median tps",
+            "extra": "avg tps: 5.879337846829075, max tps: 7.477822013747857, count: 56199"
           }
         ]
       }

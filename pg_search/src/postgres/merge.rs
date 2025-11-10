@@ -233,7 +233,7 @@ pub unsafe fn do_merge(
             let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
             background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let merge_candidates = background_merge_policy.simulate();
+            let (merge_candidates, _) = background_merge_policy.simulate();
             !merge_candidates.is_empty()
         };
 
@@ -375,7 +375,7 @@ unsafe fn merge_index(
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
     merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-    let merge_candidates = merge_policy.simulate();
+    let (merge_candidates, _) = merge_policy.simulate();
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())

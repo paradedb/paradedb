@@ -434,40 +434,12 @@ mod tests {
 
         // drop the rest
         unsafe { pg_sys::ReleaseBuffer(pin2.unwrap()) };
-        unsafe { pg_sys::ReleaseBuffer(pin4.unwrap()) };
-
-        // raise max concurrent merges to 5
-        Spi::run("SET paradedb.max_concurrent_background_merges = 5;").unwrap();
-
-        // now we should be able to start five merges
-        let pin1 = bgmerger.try_starting();
-        assert!(pin1.is_some());
-
-        let pin2 = bgmerger.try_starting();
-        assert!(pin2.is_some());
-
-        let pin3 = bgmerger.try_starting();
-        assert!(pin3.is_some());
-
-        let pin4 = bgmerger.try_starting();
-        assert!(pin4.is_some());
-
-        let pin5 = bgmerger.try_starting();
-        assert!(pin5.is_some());
-
-        let pin6 = bgmerger.try_starting();
-        assert!(pin6.is_none());
-
-        // release everything
-        unsafe { pg_sys::ReleaseBuffer(pin1.unwrap()) };
-        unsafe { pg_sys::ReleaseBuffer(pin2.unwrap()) };
         unsafe { pg_sys::ReleaseBuffer(pin3.unwrap()) };
         unsafe { pg_sys::ReleaseBuffer(pin4.unwrap()) };
-        unsafe { pg_sys::ReleaseBuffer(pin5.unwrap()) };
 
         // this should error
         assert!(std::panic::catch_unwind(|| {
-            Spi::run("SET paradedb.max_concurrent_background_merges = 6;").unwrap();
+            Spi::run("SET paradedb.max_concurrent_background_merges = 3;").unwrap();
         })
         .is_err());
     }

@@ -18,12 +18,18 @@ jobs:
         id: set-branches
         run: |
           labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
-          branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
-          echo "branches=${branches}" >> $GITHUB_OUTPUT
+          has_do_not_cherry_pick=$(echo "$labels" | jq '[.[] | . == "Do Not Cherry Pick"] | length')
+
+          if [ "$has_do_not_cherry_pick" -gt 0 ]; then
+            echo "branches=[]" >> $GITHUB_OUTPUT
+          else
+            branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
+            echo "branches=${branches}" >> $GITHUB_OUTPUT
+          fi
 
   cherry-pick:
     name: Cherry Pick
-    needs: get-branches
+    needs: [validate-cherry-pick-labels, get-branches]
     if: needs.get-branches.outputs.branches != '[]'
     runs-on: ubuntu-latest
     strategy:

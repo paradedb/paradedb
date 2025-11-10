@@ -52,20 +52,16 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 #[allow(clippy::identity_op)]
-pub(crate) const DEFAULT_FOREGROUND_LAYER_SIZES: &[u64] = &[
-    10 * 1024,       // 10KB
-    100 * 1024,      // 100KB
-    1 * 1024 * 1024, // 1MB
-];
+pub(crate) const DEFAULT_FOREGROUND_LAYER_SIZES: &[u64] = &[];
 
 #[allow(clippy::identity_op)]
 pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
-    10 * 1024 * 1024,      // 10MB
-    100 * 1024 * 1024,     // 100MB
-    1000 * 1024 * 1024,    // 1GB
-    10000 * 1024 * 1024,   // 10GB
-    100000 * 1024 * 1024,  // 100GB
-    1000000 * 1024 * 1024, // 1TB
+    100 * 1024,          // 100KB
+    1 * 1024 * 1024,     // 1MB
+    10 * 1024 * 1024,    // 10MB
+    100 * 1024 * 1024,   // 100MB
+    1000 * 1024 * 1024,  // 1GB
+    10000 * 1024 * 1024, // 10GB
 ];
 
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762796708184,
+  "lastUpdate": 1762797519381,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -78576,6 +78576,54 @@ window.BENCHMARK_DATA = {
             "value": 89.07106187543971,
             "unit": "median tps",
             "extra": "avg tps: 96.1915403539897, max tps: 540.235521077769, count: 107220"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d6aff88de9a7c8f2802c5d1084826bc059798015",
+          "message": "fix: Disable global mutable segment override by default (#3520)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nInstead of using the global `paradedb.global_mutable_segment_rows` to\ndefault mutable segments to `1000`, we should default the per-index\nconfiguration to `1000` and have the global override disabled by\ndefault.\n\n## Why\n\nThe global setting overrides the per-index settings, so having it\nenabled by default can be confusing.\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T11:45:51-05:00",
+          "tree_id": "1d5c9705c5d8be4488162d765ae95528a93ab2a1",
+          "url": "https://github.com/paradedb/paradedb/commit/d6aff88de9a7c8f2802c5d1084826bc059798015"
+        },
+        "date": 1762797516731,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 154.00000994069293,
+            "unit": "median tps",
+            "extra": "avg tps: 197.60583914064185, max tps: 634.0406937884619, count: 53557"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 156.88082476660523,
+            "unit": "median tps",
+            "extra": "avg tps: 208.25920909830788, max tps: 692.1522174011712, count: 53557"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 76.40830654211298,
+            "unit": "median tps",
+            "extra": "avg tps: 77.7875647912496, max tps: 93.17875502436671, count: 53557"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 89.0228112515493,
+            "unit": "median tps",
+            "extra": "avg tps: 95.64791090754122, max tps: 496.62288163440576, count: 107114"
           }
         ]
       }

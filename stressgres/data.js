@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762796704102,
+  "lastUpdate": 1762796708184,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -76690,6 +76690,114 @@ window.BENCHMARK_DATA = {
             "value": 162.40234375,
             "unit": "median mem",
             "extra": "avg mem: 159.86714605642968, max mem: 162.40234375, count: 55516"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d6aff88de9a7c8f2802c5d1084826bc059798015",
+          "message": "fix: Disable global mutable segment override by default (#3520)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nInstead of using the global `paradedb.global_mutable_segment_rows` to\ndefault mutable segments to `1000`, we should default the per-index\nconfiguration to `1000` and have the global override disabled by\ndefault.\n\n## Why\n\nThe global setting overrides the per-index settings, so having it\nenabled by default can be confusing.\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T11:45:51-05:00",
+          "tree_id": "1d5c9705c5d8be4488162d765ae95528a93ab2a1",
+          "url": "https://github.com/paradedb/paradedb/commit/d6aff88de9a7c8f2802c5d1084826bc059798015"
+        },
+        "date": 1762796705618,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.596549414219933, max cpu: 46.332047, count: 55497"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 164.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 162.2595031178487, max mem: 164.0546875, count: 55497"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.698963977519365, max cpu: 28.070175, count: 55497"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 114.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.9179568546498, max mem: 114.00390625, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.063399090761656, max cpu: 14.159292, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 158.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 128.68554212389859, max mem: 159.29296875, count: 55497"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18944,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19168.934951438816, max block_count: 36263.0, count: 55497"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.02352987412103, max cpu: 4.655674, count: 55497"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 104.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.56227722613384, max mem: 128.953125, count: 55497"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.658612177234804, max segment_count: 45.0, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.6334357493585, max cpu: 27.961164, count: 110994"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 161.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 145.18441790772474, max mem: 163.3515625, count: 110994"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.781221901729154, max cpu: 27.745665, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 163.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.99508616456745, max mem: 163.60546875, count: 55497"
           }
         ]
       }

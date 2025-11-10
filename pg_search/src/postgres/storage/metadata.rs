@@ -365,10 +365,7 @@ pub struct BgMergerPage {
 }
 
 impl BgMergerPage {
-    pub fn try_starting_with_layer_size(
-        &mut self,
-        largest_layer_size: u64,
-    ) -> Option<PinnedBuffer> {
+    pub fn can_start(&mut self, largest_layer_size: u64) -> Option<pg_sys::BlockNumber> {
         let blockno = if largest_layer_size >= LARGE_MERGE_THRESHOLD {
             1
         } else {
@@ -380,13 +377,10 @@ impl BgMergerPage {
         let buffer = self
             .bman
             .get_buffer_for_cleanup_conditional(self.blocknos[blockno]);
-        buffer.map(|buffer| buffer.exchange_pinned())
+        buffer.map(|_| self.blocknos[blockno])
     }
 
-    pub fn try_starting_with_blockno(
-        &mut self,
-        blockno: pg_sys::BlockNumber,
-    ) -> Option<PinnedBuffer> {
+    pub fn try_starting(&mut self, blockno: pg_sys::BlockNumber) -> Option<PinnedBuffer> {
         assert!(blockno == self.blocknos[0] || blockno == self.blocknos[1]);
 
         let buffer = self.bman.get_buffer_for_cleanup_conditional(blockno);
@@ -434,26 +428,26 @@ mod tests {
         let metadata = MetaPage::open(&index);
         let mut bgmerger = metadata.bgmerger();
 
-        let pin1 = bgmerger.try_starting_with_layer_size(100 * 1024 * 1024);
+        let pin1 = bgmerger.try_starting(bgmerger.blocknos[1]);
         assert!(pin1.is_some());
 
-        let pin2 = bgmerger.try_starting_with_layer_size(100 * 1024 * 1024);
+        let pin2 = bgmerger.try_starting(bgmerger.blocknos[1]);
         assert!(pin2.is_none());
 
-        let pin3 = bgmerger.try_starting_with_layer_size(99 * 1024 * 1024);
+        let pin3 = bgmerger.try_starting(bgmerger.blocknos[0]);
         assert!(pin3.is_some());
 
-        let pin4 = bgmerger.try_starting_with_layer_size(99 * 1024 * 1024);
+        let pin4 = bgmerger.try_starting(bgmerger.blocknos[0]);
         assert!(pin4.is_none());
 
         // drop one pin, should be able to start another
         drop(pin1.unwrap());
-        let pin5 = bgmerger.try_starting_with_layer_size(100 * 1024 * 1024);
+        let pin5 = bgmerger.try_starting(bgmerger.blocknos[1]);
         assert!(pin5.is_some());
 
         // drop one pin, should be able to start another
         drop(pin3.unwrap());
-        let pin6 = bgmerger.try_starting_with_layer_size(99 * 1024 * 1024);
+        let pin6 = bgmerger.try_starting(bgmerger.blocknos[0]);
         assert!(pin6.is_some());
 
         // drop the rest

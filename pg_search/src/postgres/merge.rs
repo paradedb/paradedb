@@ -266,13 +266,12 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
-    let sentinel_buffer = MetaPage::open(index)
+    let maybe_blockno = MetaPage::open(index)
         .bgmerger()
-        .try_starting_with_layer_size(largest_layer_size);
-    if sentinel_buffer.is_none() {
+        .can_start(largest_layer_size);
+    if maybe_blockno.is_none() {
         return;
     }
-    let sentinel_buffer = sentinel_buffer.unwrap();
 
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
@@ -289,7 +288,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), sentinel_buffer.number()).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), maybe_blockno.unwrap()).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
@@ -331,7 +330,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let index = index.unwrap();
         let sentinel_buffer = MetaPage::open(&index)
             .bgmerger()
-            .try_starting_with_blockno(args.blockno());
+            .try_starting(args.blockno());
         if sentinel_buffer.is_none() {
             return;
         }

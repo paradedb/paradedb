@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
@@ -196,7 +195,7 @@ impl MetaPage {
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
-                for i in 0..gucs::max_concurrent_background_merges() as usize {
+                for i in 0..2 {
                     if !block_number_is_valid(metadata.bgmerger[i]) {
                         metadata.bgmerger[i] = init_new_buffer(indexrel).number();
                     }

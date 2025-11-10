@@ -61,9 +61,6 @@ static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BU
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
 
-/// How many concurrent background merges are allowed per index?
-static MAX_CONCURRENT_BACKGROUND_MERGES: GucSetting<i32> = GucSetting::<i32>::new(2);
-
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -315,10 +312,6 @@ pub fn global_target_segment_count() -> i32 {
 
 pub fn global_enable_background_merging() -> bool {
     GLOBAL_ENABLE_BACKGROUND_MERGING.get()
-}
-
-pub fn max_concurrent_background_merges() -> i32 {
-    MAX_CONCURRENT_BACKGROUND_MERGES.get()
 }
 
 // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed

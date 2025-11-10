@@ -63,6 +63,11 @@ jobs:
             pg_impl: pgrx
             runner: ubicloud-standard-8
             arch: amd64
+          # Add pgrx-managed Postgres for PG 18 (regular runner)
+          - pg_version: 18
+            pg_impl: pgrx
+            runner: ubicloud-standard-8
+            arch: amd64
           # Add ARM run for PG 17 (system Postgres)
           - pg_version: 17
             pg_impl: system
@@ -122,7 +127,7 @@ jobs:
       - name: Install pgvector (system)
         if: matrix.pg_impl == 'system'
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762903697860,
+  "lastUpdate": 1762903702148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26278,6 +26278,126 @@ window.BENCHMARK_DATA = {
             "value": 41.37890625,
             "unit": "median mem",
             "extra": "avg mem: 40.759320205047885, max mem: 49.51953125, count: 55548"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "867b07e15de212c1039e6b7f1f5b457e9f5ff1d2",
+          "message": "fix: Account for mutable segment deletes in `ambulkdelete` (#3534)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our `ambulkdelete`, we wait out concurrent reads if any tuples were\ndeleted, so that the visibility map doesn't change underneath the reads.\n\nWe do this by checking if new segment meta entries were generated.\n\nHowever, deletes to mutable segments happen in place, they don't\ngenerate a new segment meta entry. As such we weren't accounting for\nthese deletes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T18:11:44-05:00",
+          "tree_id": "28fef5abca666fa4cb806d9b1d23d6c2a7aa132c",
+          "url": "https://github.com/paradedb/paradedb/commit/867b07e15de212c1039e6b7f1f5b457e9f5ff1d2"
+        },
+        "date": 1762903699336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 11.294118,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.646441392708057, max cpu: 41.941746, count: 55500"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 50.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.037056798986484, max mem: 57.62890625, count: 55500"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623340255465494, max cpu: 9.402546, count: 55500"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.193252674549548, max mem: 27.3359375, count: 55500"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.107659194850601, max cpu: 37.83251, count: 55500"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 49.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.70953934403153, max mem: 57.99609375, count: 55500"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.440288853003464, max cpu: 14.201183, count: 55500"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 47.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.306693201013516, max mem: 58.70703125, count: 55500"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630890945912545, max cpu: 9.467456, count: 111000"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 34.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.53811159206081, max mem: 45.90625, count: 111000"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1482,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1458.206846846847, max block_count: 2453.0, count: 55500"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.915117117117116, max segment_count: 49.0, count: 55500"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.503501211708958, max cpu: 4.819277, count: 55500"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 39.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 39.27335986768018, max mem: 47.8203125, count: 55500"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.657499499203673, max cpu: 9.476802, count: 55500"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 42.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.07410655968469, max mem: 50.8671875, count: 55500"
           }
         ]
       }

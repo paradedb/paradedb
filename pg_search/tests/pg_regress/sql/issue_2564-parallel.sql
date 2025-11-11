@@ -1,3 +1,5 @@
+SET paradedb.global_mutable_segment_rows = 0;
+
 -- uses the same schema as the mixed fast fields queries
 \i common/mixedff_queries_setup.sql
 

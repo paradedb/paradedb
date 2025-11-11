@@ -102,10 +102,10 @@ impl JsonValueType {
                 "-1".to_string(),
                 "999".to_string(),
                 // Edge cases for numeric type conversion
-                "1".to_string(),           // Small integer (I64/U64/F64)
-                "1.0".to_string(),         // Float equivalent of integer
-                "9007199254740992".to_string(), // 2^53, max safe F64 integer
-                "9223372036854775807".to_string(), // i64::MAX
+                "1".to_string(),                    // Small integer (I64/U64/F64)
+                "1.0".to_string(),                  // Float equivalent of integer
+                "9007199254740992".to_string(),     // 2^53, max safe F64 integer
+                "9223372036854775807".to_string(),  // i64::MAX
                 "18446744073709551615".to_string(), // u64::MAX (as string)
                 "-9223372036854775808".to_string(), // i64::MIN
             ])

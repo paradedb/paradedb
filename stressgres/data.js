@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762877160118,
+  "lastUpdate": 1762878021057,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30736,6 +30736,42 @@ window.BENCHMARK_DATA = {
             "value": 5.511151130822046,
             "unit": "median tps",
             "extra": "avg tps: 4.968297055223402, max tps: 6.087619656945664, count: 57811"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7eda3978ecadf37f9f719e5734a72122526edd3",
+          "message": "chore: Sync `0.19.6` (#3526)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T10:49:18-05:00",
+          "tree_id": "568c0a5498cb4354919158d1111a7e35de4896a9",
+          "url": "https://github.com/paradedb/paradedb/commit/d7eda3978ecadf37f9f719e5734a72122526edd3"
+        },
+        "date": 1762878018173,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.126967770569573,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9216479196692, max tps: 10.666121044828927, count: 57899"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.559763822942842,
+            "unit": "median tps",
+            "extra": "avg tps: 5.0267837657626195, max tps: 6.168295144764086, count: 57899"
           }
         ]
       }

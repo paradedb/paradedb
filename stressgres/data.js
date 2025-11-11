@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762837157290,
+  "lastUpdate": 1762837266647,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -80142,6 +80142,54 @@ window.BENCHMARK_DATA = {
             "value": 89.98196762374205,
             "unit": "median tps",
             "extra": "avg tps: 96.86321660757909, max tps: 552.627317899891, count: 107242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62823aa36c1489883f73775d5fb61d659bc3f5b3",
+          "message": "fix: Allow up to 2 background mergers (#3519)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAddresses two problems:\n\n1. Right now only one background merger is allowed per index. We\nactually want 2, because we don't want a long-running merge to prevent\nsmaller segments from being merged.\n2. In production I've seen an issue where background workers were not\nlaunching because we currently keep track of whether a merge is\nhappening by writing its PID to disk. I'm seeing stale PIDs being\nconsidered live merges, or merges not being correctly recorded in the\nbackground merger page.\n\n## Why\n\n## How\n\nThis PR moves us to a stateless way of tracking background merging:\npins.\n\nThe metadata page allocates 2 blocks. Whenever we want to start a\nbackground merge, we try and take a conditional cleanup lock on one of\nthese pages. Then, we immediately drop the lock but keep the pin until\nthe merge has finished, which prevents any further cleanup locks from\nbeing taken on this page.\n\nThe first block is pinned when the largest layer size of the merge is\nunder `100mb`, the second is pinned for larger layers. This guarantees\nthat small merges are not held back by a large one.\n\n## Tests",
+          "timestamp": "2025-11-10T22:47:40-05:00",
+          "tree_id": "d6eb65ff9cc939f9e38ff176af5c03a3fe0efe0f",
+          "url": "https://github.com/paradedb/paradedb/commit/62823aa36c1489883f73775d5fb61d659bc3f5b3"
+        },
+        "date": 1762837263914,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 154.9633186743658,
+            "unit": "median tps",
+            "extra": "avg tps: 202.3967432163743, max tps: 667.2426834495394, count: 53605"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 164.70876083716095,
+            "unit": "median tps",
+            "extra": "avg tps: 217.44111434761294, max tps: 808.3990816817403, count: 53605"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 77.21987680175799,
+            "unit": "median tps",
+            "extra": "avg tps: 78.44742194250667, max tps: 101.83379916356145, count: 53605"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 88.88741335340826,
+            "unit": "median tps",
+            "extra": "avg tps: 95.75220886307294, max tps: 545.6253857230462, count: 107210"
           }
         ]
       }

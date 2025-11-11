@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762904563740,
+  "lastUpdate": 1762905458281,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45580,6 +45580,54 @@ window.BENCHMARK_DATA = {
             "value": 5.870982332559716,
             "unit": "median tps",
             "extra": "avg tps: 5.860964437157699, max tps: 7.203921076952774, count: 56281"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "867b07e15de212c1039e6b7f1f5b457e9f5ff1d2",
+          "message": "fix: Account for mutable segment deletes in `ambulkdelete` (#3534)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our `ambulkdelete`, we wait out concurrent reads if any tuples were\ndeleted, so that the visibility map doesn't change underneath the reads.\n\nWe do this by checking if new segment meta entries were generated.\n\nHowever, deletes to mutable segments happen in place, they don't\ngenerate a new segment meta entry. As such we weren't accounting for\nthese deletes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T18:11:44-05:00",
+          "tree_id": "28fef5abca666fa4cb806d9b1d23d6c2a7aa132c",
+          "url": "https://github.com/paradedb/paradedb/commit/867b07e15de212c1039e6b7f1f5b457e9f5ff1d2"
+        },
+        "date": 1762905455294,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1144.2526240127186,
+            "unit": "median tps",
+            "extra": "avg tps: 1144.8180819963902, max tps: 1183.9731222485332, count: 56445"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1307.4054982043235,
+            "unit": "median tps",
+            "extra": "avg tps: 1293.7372880705313, max tps: 1314.7398242221498, count: 56445"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1991.9561229482993,
+            "unit": "median tps",
+            "extra": "avg tps: 1960.3657722055073, max tps: 2158.022144365857, count: 56445"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.823365852474802,
+            "unit": "median tps",
+            "extra": "avg tps: 5.8367656231578104, max tps: 7.211600548911937, count: 56445"
           }
         ]
       }

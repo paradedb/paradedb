@@ -51,6 +51,7 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
+use smallvec::{SmallVec, smallvec};
 
 // F64 can safely represent integers up to 2^53 without precision loss
 pub(crate) const F64_SAFE_INTEGER_MAX: u64 = 1u64 << 53;
@@ -58,12 +59,13 @@ pub(crate) const F64_SAFE_INTEGER_MAX: u64 = 1u64 << 53;
 /// Expands a numeric value into multiple Tantivy term variants to handle
 /// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
 /// This enables cross-type matching for equality and IN clause queries.
+/// Uses SmallVec to avoid heap allocation for typical cases (up to 3 terms).
 pub(crate) fn expand_json_numeric_to_terms(
     tantivy_field: Field,
     value: &OwnedValue,
     path: Option<&str>,
-) -> anyhow::Result<Vec<Term>> {
-    let mut terms = Vec::new();
+) -> anyhow::Result<SmallVec<[Term; 3]>> {
+    let mut terms = SmallVec::new();
 
     match value {
         OwnedValue::I64(i64_val) => {
@@ -960,7 +962,7 @@ impl SearchQueryInput {
                                     .expect("could not expand JSON numeric to terms")
                                 } else {
                                     // Standard term creation for non-JSON or non-numeric fields
-                                    vec![value_to_term(
+                                    smallvec![value_to_term(
                                         search_field.field(),
                                         &value,
                                         field_type,
@@ -970,8 +972,7 @@ impl SearchQueryInput {
                                     .expect("could not convert argument to search term")]
                                 }
                             },
-                        )
-                        .collect::<Vec<_>>(),
+                        ),
                 )))
             }
             SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(

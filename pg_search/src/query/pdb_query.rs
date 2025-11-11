@@ -39,6 +39,7 @@ use tantivy::schema::OwnedValue;
 use tantivy::schema::{Field, FieldType};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
+use smallvec::smallvec;
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
@@ -721,7 +722,7 @@ fn term_set(
                     .expect("could not expand JSON numeric to terms")
                 } else {
                     // Non-numeric values use standard term creation
-                    vec![value_to_term(
+                    smallvec![value_to_term(
                         tantivy_field,
                         &term_value,
                         field_type,

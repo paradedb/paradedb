@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762903702148,
+  "lastUpdate": 1762904559362,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31180,6 +31180,42 @@ window.BENCHMARK_DATA = {
             "value": 5.363135684968285,
             "unit": "median tps",
             "extra": "avg tps: 4.848672619457235, max tps: 5.95560679135134, count: 57297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "867b07e15de212c1039e6b7f1f5b457e9f5ff1d2",
+          "message": "fix: Account for mutable segment deletes in `ambulkdelete` (#3534)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our `ambulkdelete`, we wait out concurrent reads if any tuples were\ndeleted, so that the visibility map doesn't change underneath the reads.\n\nWe do this by checking if new segment meta entries were generated.\n\nHowever, deletes to mutable segments happen in place, they don't\ngenerate a new segment meta entry. As such we weren't accounting for\nthese deletes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T18:11:44-05:00",
+          "tree_id": "28fef5abca666fa4cb806d9b1d23d6c2a7aa132c",
+          "url": "https://github.com/paradedb/paradedb/commit/867b07e15de212c1039e6b7f1f5b457e9f5ff1d2"
+        },
+        "date": 1762904556460,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.8934002437659805,
+            "unit": "median tps",
+            "extra": "avg tps: 6.776626635179134, max tps: 10.482503826382302, count: 57742"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.502452663120059,
+            "unit": "median tps",
+            "extra": "avg tps: 4.956248291017306, max tps: 6.070149543027243, count: 57742"
           }
         ]
       }

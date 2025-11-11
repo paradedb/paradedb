@@ -319,6 +319,17 @@ impl BufferMut {
         self.inner.page_size()
     }
 
+    pub fn exchange_pinned(self) -> PinnedBuffer {
+        let pg_buffer = self.inner.pg_buffer;
+        // prevent Drop of BufferMut/Buffer from running
+        // since we want to control the unlock order ourselves
+        std::mem::forget(self);
+        block_tracker::forget!(unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
+
+        unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _) };
+        PinnedBuffer::new(pg_buffer)
+    }
+
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
     pub fn return_to_fsm_with_when_recyclable(
@@ -351,9 +362,13 @@ impl Drop for PinnedBuffer {
 }
 
 impl PinnedBuffer {
-    fn new(pg_buffer: pg_sys::Buffer) -> Self {
+    pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
+    }
+
+    pub fn number(self) -> pg_sys::BlockNumber {
+        unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 }
 

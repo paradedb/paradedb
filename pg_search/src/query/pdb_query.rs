@@ -27,6 +27,7 @@ use crate::query::{
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
+use smallvec::smallvec;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
@@ -39,7 +40,6 @@ use tantivy::schema::OwnedValue;
 use tantivy::schema::{Field, FieldType};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
-use smallvec::smallvec;
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {

@@ -38,6 +38,7 @@ use core::panic;
 use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use smallvec::{smallvec, SmallVec};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
@@ -51,7 +52,6 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
-use smallvec::{SmallVec, smallvec};
 
 // F64 can safely represent integers up to 2^53 without precision loss
 pub(crate) const F64_SAFE_INTEGER_MAX: u64 = 1u64 << 53;
@@ -929,51 +929,47 @@ impl SearchQueryInput {
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                Ok(Box::new(TermSetQuery::new(
-                    fields
-                        .into_iter()
-                        .flat_map(
-                            |TermInput {
-                                 field,
-                                 value,
-                                 is_datetime,
-                             }| {
-                                let search_field = schema
-                                    .search_field(field.root())
-                                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
-                                    .expect("could not find search field");
-                                let field_type = search_field.field_entry().field_type();
-                                let is_datetime = search_field.is_datetime() || is_datetime;
+                Ok(Box::new(TermSetQuery::new(fields.into_iter().flat_map(
+                    |TermInput {
+                         field,
+                         value,
+                         is_datetime,
+                     }| {
+                        let search_field = schema
+                            .search_field(field.root())
+                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
+                            .expect("could not find search field");
+                        let field_type = search_field.field_entry().field_type();
+                        let is_datetime = search_field.is_datetime() || is_datetime;
 
-                                // Check if this is a JSON field with numeric value
-                                let is_json_field = matches!(field_type, FieldType::JsonObject(_));
-                                let is_numeric = matches!(
-                                    value,
-                                    OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-                                );
+                        // Check if this is a JSON field with numeric value
+                        let is_json_field = matches!(field_type, FieldType::JsonObject(_));
+                        let is_numeric = matches!(
+                            value,
+                            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+                        );
 
-                                if is_json_field && is_numeric && !is_datetime {
-                                    // For JSON numeric fields, expand to multiple type variants
-                                    expand_json_numeric_to_terms(
-                                        search_field.field(),
-                                        &value,
-                                        field.path().as_deref(),
-                                    )
-                                    .expect("could not expand JSON numeric to terms")
-                                } else {
-                                    // Standard term creation for non-JSON or non-numeric fields
-                                    smallvec![value_to_term(
-                                        search_field.field(),
-                                        &value,
-                                        field_type,
-                                        field.path().as_deref(),
-                                        is_datetime,
-                                    )
-                                    .expect("could not convert argument to search term")]
-                                }
-                            },
-                        ),
-                )))
+                        if is_json_field && is_numeric && !is_datetime {
+                            // For JSON numeric fields, expand to multiple type variants
+                            expand_json_numeric_to_terms(
+                                search_field.field(),
+                                &value,
+                                field.path().as_deref(),
+                            )
+                            .expect("could not expand JSON numeric to terms")
+                        } else {
+                            // Standard term creation for non-JSON or non-numeric fields
+                            smallvec![value_to_term(
+                                search_field.field(),
+                                &value,
+                                field_type,
+                                field.path().as_deref(),
+                                is_datetime,
+                            )
+                            .expect("could not convert argument to search term")]
+                        }
+                    },
+                ))))
             }
             SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
                 schema,

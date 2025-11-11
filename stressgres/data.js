@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762879741801,
+  "lastUpdate": 1762881055088,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9232,6 +9232,72 @@ window.BENCHMARK_DATA = {
             "value": 39.10069566965179,
             "unit": "median tps",
             "extra": "avg tps: 44.99753161227234, max tps: 350.1053396946073, count: 55495"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "904aaaf37c3868046721c6eb25ecef7702e0f469",
+          "message": "fix: Integer overflow when indexing large arrays (#3524)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSee https://github.com/paradedb/tantivy/pull/80\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T11:52:42-05:00",
+          "tree_id": "d0820f0b7f92daed3d9747e004d367d8129c1495",
+          "url": "https://github.com/paradedb/paradedb/commit/904aaaf37c3868046721c6eb25ecef7702e0f469"
+        },
+        "date": 1762881052497,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 143.28552415832155,
+            "unit": "median tps",
+            "extra": "avg tps: 159.10928733668445, max tps: 607.0651600293396, count: 55548"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3233.65260798479,
+            "unit": "median tps",
+            "extra": "avg tps: 3195.690549479702, max tps: 3266.4031463264337, count: 55548"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 144.12672793559886,
+            "unit": "median tps",
+            "extra": "avg tps: 159.99193854144562, max tps: 598.4996279327313, count: 55548"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 121.39168391428437,
+            "unit": "median tps",
+            "extra": "avg tps: 133.91888321473826, max tps: 399.01776191655574, count: 55548"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3438.9666685770303,
+            "unit": "median tps",
+            "extra": "avg tps: 3408.5274062624203, max tps: 3469.2219691891887, count: 111096"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2138.0279235128814,
+            "unit": "median tps",
+            "extra": "avg tps: 2120.4704251629805, max tps: 2153.947927173048, count: 55548"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 24.15440050036234,
+            "unit": "median tps",
+            "extra": "avg tps: 46.16783607686216, max tps: 313.8245075420996, count: 55548"
           }
         ]
       }

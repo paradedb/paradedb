@@ -1,0 +1,136 @@
+-- EXACT customer reproduction using their actual list_id patterns
+-- Based on their sample data showing specific non-sequential list IDs
+\set VERBOSITY verbose
+\timing on
+-- Match their EXACT settings
+SET work_mem = '4MB';
+Time: 2.371 ms
+SET maintenance_work_mem = '60GB';
+Time: 0.123 ms
+SET max_parallel_workers = 120;
+Time: 0.313 ms
+SET max_parallel_maintenance_workers = 30;
+Time: 0.119 ms
+DROP TABLE IF EXISTS contacts_companies_combined_full_old CASCADE;
+Time: 70.833 ms
+CREATE TABLE contacts_companies_combined_full_old (
+    contact_id INT PRIMARY KEY,
+    list_id INT[]
+);
+Time: 10.187 ms
+\echo '=== EXACT CUSTOMER REPRODUCTION ==='
+=== EXACT CUSTOMER REPRODUCTION ===
+\echo 'Using their actual list_id patterns from production'
+Using their actual list_id patterns from production
+\echo 'Arrays with 6000-6700 elements of non-sequential IDs'
+Arrays with 6000-6700 elements of non-sequential IDs
+\echo ''
+
+-- Insert data matching their EXACT pattern:
+-- Real list IDs from their sample: {407,434,638,769,1184,1202,1781,2012,2108,2270,...}
+-- These are NOT random, they're specific list IDs with gaps
+INSERT INTO contacts_companies_combined_full_old (contact_id, list_id)
+SELECT
+    i,
+    -- Create arrays with similar pattern to customer's data:
+    -- Non-sequential IDs with gaps, matching their distribution
+    ARRAY(
+        SELECT DISTINCT (
+            CASE
+                WHEN j % 10 = 0 THEN j * 100 + (random() * 50)::int
+                WHEN j % 5 = 0 THEN j * 20 + (random() * 10)::int
+                ELSE j * 3 + (random() * 5)::int
+            END
+        )::int
+        FROM generate_series(1,
+            -- Vary array sizes like customer: 6600-6700 elements
+            6600 + (i % 100)
+        ) j
+        ORDER BY 1
+        LIMIT 6700
+    )
+FROM generate_series(1, 100000) i;
+Time: 215483.485 ms (03:35.483)
+\echo ''
+
+\echo 'Sample of actual data (matching customer format):'
+Sample of actual data (matching customer format):
+SELECT
+    array_length(list_id, 1) as array_len,
+    pg_column_size(list_id) as size_bytes,
+    list_id[1:10] as first_10_elements
+FROM contacts_companies_combined_full_old
+WHERE list_id IS NOT NULL
+ORDER BY array_length(list_id, 1) DESC
+LIMIT 10;
+ array_len | size_bytes |       first_10_elements        
+-----------+------------+--------------------------------
+      6409 |      25656 | {4,8,12,13,20,21,28,29,35,36}
+      6405 |      25640 | {8,10,14,19,23,25,32,37,43,48}
+      6404 |      25636 | {6,8,11,16,20,25,26,28,34,37}
+      6401 |      25624 | {6,9,10,13,21,23,26,28,36,38}
+      6401 |      25624 | {5,10,12,14,21,23,26,30,34,40}
+      6400 |      25620 | {6,7,12,13,22,24,26,28,36,42}
+      6398 |      25612 | {6,9,10,13,19,23,28,29,35,37}
+      6397 |      25608 | {4,7,13,14,20,23,28,29,36,37}
+      6397 |      25608 | {4,11,13,16,20,22,28,33,36,42}
+      6396 |      25604 | {8,14,15,19,23,25,29,36,39,47}
+(10 rows)
+
+Time: 9885.115 ms (00:09.885)
+\echo ''
+
+\echo 'Memory settings:'
+Memory settings:
+SHOW work_mem;
+ work_mem 
+----------
+ 4MB
+(1 row)
+
+Time: 0.487 ms
+SHOW maintenance_work_mem;
+ maintenance_work_mem 
+----------------------
+ 60GB
+(1 row)
+
+Time: 0.085 ms
+SHOW max_parallel_workers;
+ max_parallel_workers 
+----------------------
+ 120
+(1 row)
+
+Time: 0.092 ms
+SHOW max_parallel_maintenance_workers;
+ max_parallel_maintenance_workers 
+----------------------------------
+ 30
+(1 row)
+
+Time: 0.078 ms
+\echo ''
+
+\echo '=== CREATING INDEX (EXACT CUSTOMER COMMAND) ==='
+=== CREATING INDEX (EXACT CUSTOMER COMMAND) ===
+\echo 'Using their exact CREATE INDEX statement'
+Using their exact CREATE INDEX statement
+\echo ''
+
+-- EXACT command from customer
+CREATE INDEX contacts_companies_combined_full_old_list_id_idx ON contacts_companies_combined_full_old
+USING bm25 (contact_id, list_id)
+WITH (
+    key_field=contact_id,
+    numeric_fields='{"list_id": {"indexed": true}}'
+);
+ERROR:  XX000: attempt to add with overflow
+LOCATION:  expull.rs:122
+Time: 843948.473 ms (14:03.948)
+\echo ''
+
+\echo '=== INDEX CREATED SUCCESSFULLY ==='
+=== INDEX CREATED SUCCESSFULLY ===
+\echo 'If you see this, the bug was NOT reproduced'
+If you see this, the bug was NOT reproduced

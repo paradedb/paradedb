@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762835577237,
+  "lastUpdate": 1762836307576,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9100,6 +9100,72 @@ window.BENCHMARK_DATA = {
             "value": 56.2750859714928,
             "unit": "median tps",
             "extra": "avg tps: 72.46432573979492, max tps: 1081.341772124523, count: 55497"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e2d7b17b03771a2b6d16465bfe42fd35115ff46",
+          "message": "chore: Upgrade to `0.19.6` (#3525)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-10T23:26:56-05:00",
+          "tree_id": "e64e9c74d81f72085eda7055cd89ca794ad4366a",
+          "url": "https://github.com/paradedb/paradedb/commit/6e2d7b17b03771a2b6d16465bfe42fd35115ff46"
+        },
+        "date": 1762836304908,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 147.31009739646282,
+            "unit": "median tps",
+            "extra": "avg tps: 162.31399589678296, max tps: 611.1575850829955, count: 55574"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3209.535681247727,
+            "unit": "median tps",
+            "extra": "avg tps: 3158.6577927248713, max tps: 3248.467134436154, count: 55574"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 142.71173119302952,
+            "unit": "median tps",
+            "extra": "avg tps: 157.20841829963717, max tps: 551.4375116805853, count: 55574"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 119.44849190978796,
+            "unit": "median tps",
+            "extra": "avg tps: 133.06591756584814, max tps: 486.90404618479636, count: 55574"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3421.481025549899,
+            "unit": "median tps",
+            "extra": "avg tps: 3374.5482807075296, max tps: 3447.6869054600543, count: 111148"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2106.1964345917872,
+            "unit": "median tps",
+            "extra": "avg tps: 2072.6394758040988, max tps: 2127.043944243101, count: 55574"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 40.760849264145484,
+            "unit": "median tps",
+            "extra": "avg tps: 67.09397985727455, max tps: 379.7417642080856, count: 55574"
           }
         ]
       }

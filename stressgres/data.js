@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762811892793,
+  "lastUpdate": 1762833857445,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9034,6 +9034,72 @@ window.BENCHMARK_DATA = {
             "value": 43.01607979606324,
             "unit": "median tps",
             "extra": "avg tps: 65.0055269584374, max tps: 1084.8763891842164, count: 55438"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62823aa36c1489883f73775d5fb61d659bc3f5b3",
+          "message": "fix: Allow up to 2 background mergers (#3519)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAddresses two problems:\n\n1. Right now only one background merger is allowed per index. We\nactually want 2, because we don't want a long-running merge to prevent\nsmaller segments from being merged.\n2. In production I've seen an issue where background workers were not\nlaunching because we currently keep track of whether a merge is\nhappening by writing its PID to disk. I'm seeing stale PIDs being\nconsidered live merges, or merges not being correctly recorded in the\nbackground merger page.\n\n## Why\n\n## How\n\nThis PR moves us to a stateless way of tracking background merging:\npins.\n\nThe metadata page allocates 2 blocks. Whenever we want to start a\nbackground merge, we try and take a conditional cleanup lock on one of\nthese pages. Then, we immediately drop the lock but keep the pin until\nthe merge has finished, which prevents any further cleanup locks from\nbeing taken on this page.\n\nThe first block is pinned when the largest layer size of the merge is\nunder `100mb`, the second is pinned for larger layers. This guarantees\nthat small merges are not held back by a large one.\n\n## Tests",
+          "timestamp": "2025-11-10T22:47:40-05:00",
+          "tree_id": "d6eb65ff9cc939f9e38ff176af5c03a3fe0efe0f",
+          "url": "https://github.com/paradedb/paradedb/commit/62823aa36c1489883f73775d5fb61d659bc3f5b3"
+        },
+        "date": 1762833854935,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 140.96794769693196,
+            "unit": "median tps",
+            "extra": "avg tps: 158.1448564646713, max tps: 611.9697805556394, count: 55497"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3184.266957423353,
+            "unit": "median tps",
+            "extra": "avg tps: 3168.558379224388, max tps: 3190.6947926066946, count: 55497"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 153.40577404272182,
+            "unit": "median tps",
+            "extra": "avg tps: 169.7227079689698, max tps: 603.0024480813987, count: 55497"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 127.66608855883557,
+            "unit": "median tps",
+            "extra": "avg tps: 142.2753270836878, max tps: 479.48182718590573, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3401.3443295984157,
+            "unit": "median tps",
+            "extra": "avg tps: 3455.9968812615602, max tps: 3567.7179975661884, count: 110994"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2135.6605816576043,
+            "unit": "median tps",
+            "extra": "avg tps: 2133.964275071065, max tps: 2167.7294079286435, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 56.2750859714928,
+            "unit": "median tps",
+            "extra": "avg tps: 72.46432573979492, max tps: 1081.341772124523, count: 55497"
           }
         ]
       }

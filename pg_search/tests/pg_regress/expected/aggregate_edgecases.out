@@ -52,7 +52,7 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
-ERROR:  Initial aggregate result is too large: 1048582 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
+ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
 DROP TABLE large_agg_test;
 -- =====================================================================
 -- SECTION 2: Aggregation After Deletion

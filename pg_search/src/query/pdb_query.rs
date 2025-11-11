@@ -1086,9 +1086,38 @@ fn range_within(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let is_datetime = search_field.is_datetime() || is_datetime;
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+
+    // For JSON numeric fields, create multi-type range query to handle I64/F64/U64 matching
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some();
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let has_numeric_bounds = [&lower_bound, &upper_bound]
+        .iter()
+        .any(|bound| match bound {
+            Bound::Included(v) | Bound::Excluded(v) => {
+                matches!(
+                    v,
+                    OwnedValue::I64(_) | OwnedValue::U64(_) | OwnedValue::F64(_)
+                )
+            }
+            Bound::Unbounded => false,
+        });
+
+    if is_json_numeric_field && has_numeric_bounds && !is_datetime {
+        return create_json_numeric_range_query(
+            field,
+            search_field.field(),
+            field_type,
+            lower_bound,
+            upper_bound,
+            field.path().as_deref(),
+        );
+    }
 
     let range_field = RangeField::new(search_field.field(), is_datetime);
 

@@ -881,18 +881,37 @@ fn create_json_numeric_range_query(
 
     // Generate a RangeQuery for each applicable type
     for value_type in types_to_generate {
-        let lower_term =
-            convert_bound_to_type(&lower_bound, value_type, tantivy_field, field_type, path)?;
-        let upper_term =
-            convert_bound_to_type(&upper_bound, value_type, tantivy_field, field_type, path)?;
+        // Try to convert bounds to this type. If conversion fails (e.g., overflow),
+        // skip this type variant rather than failing the entire query.
+        let lower_term_result =
+            convert_bound_to_type(&lower_bound, value_type, tantivy_field, field_type, path);
+        let upper_term_result =
+            convert_bound_to_type(&upper_bound, value_type, tantivy_field, field_type, path);
 
-        // Only add if the bounds are valid (not empty range)
-        if !is_empty_range(&lower_term, &upper_term) {
-            range_queries.push((
-                Occur::Should,
-                Box::new(RangeQuery::new(lower_term, upper_term)),
-            ));
+        if let (Ok(lower_term), Ok(upper_term)) = (lower_term_result, upper_term_result) {
+            // Only add if the bounds are valid (not empty range)
+            if !is_empty_range(&lower_term, &upper_term) {
+                // Try to create the range query. This can fail with arithmetic overflow
+                // for edge cases like Excluded(u64::MAX) which internally tries u64::MAX + 1.
+                // Use catch_unwind to handle panics from Tantivy's range normalization.
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    RangeQuery::new(lower_term.clone(), upper_term.clone())
+                })) {
+                    Ok(range_query) => {
+                        range_queries.push((Occur::Should, Box::new(range_query)));
+                    }
+                    Err(_) => {
+                        // Range construction panicked (likely overflow), skip this variant
+                    }
+                }
+            }
         }
+        // If conversion failed, silently skip this type variant
+    }
+
+    // If no valid range queries could be generated, return an empty query
+    if range_queries.is_empty() {
+        return Ok(Box::new(EmptyQuery));
     }
 
     // If only one variant, return it directly (optimization)

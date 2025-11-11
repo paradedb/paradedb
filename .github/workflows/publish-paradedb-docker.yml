@@ -102,7 +102,7 @@ jobs:
 
           echo ""
           echo "Comparing versions to determine if the current version is the latest..."
-          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
+          if npx semver -r ">=$latest_tag_version" "$current_tag_version"; then
             echo "is_latest=true"
             echo "is_latest=true" >> $GITHUB_OUTPUT
           else

@@ -93,7 +93,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
-          current_tag_version="${{ github.event.inputs.version }}"
+          current_tag_version="${{ steps.version.outputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag_version"
           echo "Current version to be released is $current_tag_version"
@@ -104,7 +104,7 @@ jobs:
 
           echo ""
           echo "Comparing versions to determine if the current version is the latest..."
-          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
+          if npx semver -r ">=$latest_tag_version" "$current_tag_version"; then
             echo "is_latest=true"
             echo "is_latest=true" >> $GITHUB_OUTPUT
           else

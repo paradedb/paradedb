@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762904559362,
+  "lastUpdate": 1762904563740,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39190,6 +39190,66 @@ window.BENCHMARK_DATA = {
             "value": 84,
             "unit": "median segment_count",
             "extra": "avg segment_count: 85.77253608391365, max segment_count: 139.0, count: 57297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "867b07e15de212c1039e6b7f1f5b457e9f5ff1d2",
+          "message": "fix: Account for mutable segment deletes in `ambulkdelete` (#3534)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our `ambulkdelete`, we wait out concurrent reads if any tuples were\ndeleted, so that the visibility map doesn't change underneath the reads.\n\nWe do this by checking if new segment meta entries were generated.\n\nHowever, deletes to mutable segments happen in place, they don't\ngenerate a new segment meta entry. As such we weren't accounting for\nthese deletes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T18:11:44-05:00",
+          "tree_id": "28fef5abca666fa4cb806d9b1d23d6c2a7aa132c",
+          "url": "https://github.com/paradedb/paradedb/commit/867b07e15de212c1039e6b7f1f5b457e9f5ff1d2"
+        },
+        "date": 1762904560868,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.16752246130506, max cpu: 42.60355, count: 57742"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 230.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 230.01374128396574, max mem: 231.45703125, count: 57742"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.474647383407568, max cpu: 33.20158, count: 57742"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.7161253128139, max mem: 168.296875, count: 57742"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34896,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34137.69748190226, max block_count: 37269.0, count: 57742"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 83,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.81568009421218, max segment_count: 138.0, count: 57742"
           }
         ]
       }

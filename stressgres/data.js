@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762881059712,
+  "lastUpdate": 1762881908599,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30958,6 +30958,42 @@ window.BENCHMARK_DATA = {
             "value": 5.559763822942842,
             "unit": "median tps",
             "extra": "avg tps: 5.0267837657626195, max tps: 6.168295144764086, count: 57899"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "904aaaf37c3868046721c6eb25ecef7702e0f469",
+          "message": "fix: Integer overflow when indexing large arrays (#3524)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSee https://github.com/paradedb/tantivy/pull/80\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T11:52:42-05:00",
+          "tree_id": "d0820f0b7f92daed3d9747e004d367d8129c1495",
+          "url": "https://github.com/paradedb/paradedb/commit/904aaaf37c3868046721c6eb25ecef7702e0f469"
+        },
+        "date": 1762881905928,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.27677832392629,
+            "unit": "median tps",
+            "extra": "avg tps: 7.056397381547643, max tps: 10.860519591811633, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.363135684968285,
+            "unit": "median tps",
+            "extra": "avg tps: 4.848672619457235, max tps: 5.95560679135134, count: 57297"
           }
         ]
       }

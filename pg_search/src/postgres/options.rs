@@ -49,6 +49,11 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
  * (because SearchIndexOptionsData is a postgres-allocated object) and use getters and setters
 */
 
+// We set the target segment count equal to the CPU count by default
+// However for machines with only a few CPUs, we set the target segment count to 4
+// to avoid cramming everything into a single segment
+const MIN_TARGET_SEGMENT_COUNT: usize = 4;
+
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 #[allow(clippy::identity_op)]
@@ -328,6 +333,7 @@ impl BM25IndexOptions {
             .target_segment_count()
             .map(|count| count as usize)
             .unwrap_or_else(crate::available_parallelism)
+            .max(MIN_TARGET_SEGMENT_COUNT)
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {

@@ -332,8 +332,7 @@ impl BM25IndexOptions {
         self.options_data()
             .target_segment_count()
             .map(|count| count as usize)
-            .unwrap_or_else(crate::available_parallelism)
-            .max(MIN_TARGET_SEGMENT_COUNT)
+            .unwrap_or(crate::available_parallelism().max(MIN_TARGET_SEGMENT_COUNT))
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {

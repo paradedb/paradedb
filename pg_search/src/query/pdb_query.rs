@@ -232,6 +232,11 @@ pub mod pdb {
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
         },
+        Parse {
+            query_string: String,
+            lenient: Option<bool>,
+            conjunction_mode: Option<bool>,
+        },
         ParseWithField {
             query_string: String,
             lenient: Option<bool>,
@@ -543,12 +548,17 @@ impl pdb::Query {
                 prefix,
                 conjunction_mode,
             )?,
+            pdb::Query::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            } => parse(parser, query_string, lenient, conjunction_mode)?,
             pdb::Query::ParseWithField {
                 query_string,
                 lenient,
                 conjunction_mode,
                 fuzzy_data,
-            } => parse(
+            } => parse_with_field(
                 &field,
                 parser,
                 schema,
@@ -1865,6 +1875,30 @@ fn phrase_array(
 }
 
 fn parse<QueryParserCtor: Fn() -> QueryParser>(
+    parser: &QueryParserCtor,
+    query_string: String,
+    lenient: Option<bool>,
+    conjunction_mode: Option<bool>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let mut parser = parser();
+    if let Some(true) = conjunction_mode {
+        parser.set_conjunction_by_default();
+    }
+
+    let lenient = lenient.unwrap_or(false);
+    Ok(if lenient {
+        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
+        Box::new(parsed_query)
+    } else {
+        Box::new(
+            parser
+                .parse_query(&query_string)
+                .map_err(|err| QueryError::ParseError(err, query_string))?,
+        )
+    })
+}
+
+fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
     parser: &QueryParserCtor,
     schema: &SearchIndexSchema,

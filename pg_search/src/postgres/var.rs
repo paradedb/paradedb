@@ -12,12 +12,17 @@ use std::sync::OnceLock;
 
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),
+    Query(*mut pg_sys::Query),
     Exec(pg_sys::Oid),
 }
 
 impl VarContext {
     pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
         Self::Planner(root)
+    }
+
+    pub fn from_query(parse: *mut pg_sys::Query) -> Self {
+        Self::Query(parse)
     }
 
     pub fn from_exec(heaprelid: pg_sys::Oid) -> Self {
@@ -30,6 +35,38 @@ impl VarContext {
                 let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
                 (heaprelid, varattno)
             }
+            Self::Query(parse) => unsafe {
+                // Early return for null pointers
+                if var.is_null() || parse.is_null() {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
+
+                let query_ptr = *parse;
+                let varno = (*var).varno;
+                let rtable = (*query_ptr).rtable;
+
+                // Early return for invalid rtable or varno
+                if rtable.is_null() || varno <= 0 {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
+
+                let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+                let rte_index = (varno - 1) as usize;
+
+                // Early return for out of bounds index
+                if rte_index >= rtable_list.len() {
+                    return (pg_sys::InvalidOid, (*var).varattno);
+                }
+
+                // Get the RTE and check if it's a relation
+                let heaprelid = match rtable_list.get_ptr(rte_index) {
+                    Some(rte) if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION => (*rte).relid,
+                    _ => pg_sys::InvalidOid,
+                };
+
+                let varattno = (*var).varattno;
+                (heaprelid, varattno)
+            },
             Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
     }

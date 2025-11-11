@@ -40,7 +40,7 @@ ORDER BY category;
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
-   Output: (metadata ->> 'category'::text), now()
+   Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_single
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
      Applies to Aggregates: COUNT(*)
@@ -95,7 +95,7 @@ ORDER BY category, brand;
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multiple
-   Output: (metadata ->> 'category'::text), (metadata ->> 'brand'::text), now()
+   Output: (metadata ->> 'category'::text), (metadata ->> 'brand'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_multiple
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -152,7 +152,7 @@ ORDER BY brand;
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
-   Output: (metadata ->> 'brand'::text), now()
+   Output: (metadata ->> 'brand'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_aggregates
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
      Applies to Aggregates: COUNT(*)
@@ -371,7 +371,7 @@ ORDER BY category NULLS FIRST;
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_nulls
-   Output: (metadata ->> 'category'::text), now()
+   Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_nulls
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -386,9 +386,10 @@ GROUP BY metadata->>'category'
 ORDER BY category NULLS FIRST;
   category   | count 
 -------------+-------
+             |     2
  clothing    |     1
  electronics |     1
-(2 rows)
+(3 rows)
 
 -- =========================================
 -- Test 5: Original example from issue
@@ -424,7 +425,7 @@ ORDER BY txn_key_value;
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.ledger_transactions
-   Output: (metadata_json ->> 'reservation_id'::text), now()
+   Output: (metadata_json ->> 'reservation_id'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_ledger_json
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.reservation_id"}}}}
      Applies to Aggregates: COUNT(*)
@@ -482,7 +483,7 @@ ORDER BY theme, region;
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_deep
-   Output: ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text), ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text), now()
+   Output: ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text), ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_deep
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.theme"}}}},{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.region"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -550,7 +551,7 @@ ORDER BY object_type;
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
-   Output: (data ->> 'type'::text), now()
+   Output: (data ->> 'type'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.type"}}}}
      Applies to Aggregates: COUNT(*)
@@ -583,7 +584,7 @@ ORDER BY category, brand;
                                                                                                                            QUERY PLAN                                                                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
-   Output: (data ->> 'category'::text), (data ->> 'brand'::text), now()
+   Output: (data ->> 'category'::text), (data ->> 'brand'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -618,7 +619,7 @@ ORDER BY country;
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
-   Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), now()
+   Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -673,7 +674,7 @@ ORDER BY priority_text;
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
-   Output: ((payload -> 'metadata'::text) ->> 'priority'::text), now()
+   Output: ((payload -> 'metadata'::text) ->> 'priority'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}}
      Applies to Aggregates: COUNT(*)
@@ -706,7 +707,7 @@ ORDER BY team;
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
-   Output: (payload ->> 'team'::text), now()
+   Output: (payload ->> 'team'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.team"}}}}
      Applies to Aggregates: COUNT(*)
@@ -739,7 +740,7 @@ ORDER BY priority_text, team;
                                                                                                                                    QUERY PLAN                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
-   Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), now()
+   Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_operators
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}},{"with_index":{"query":{"exists":{"field":"payload.metadata.assignee.team"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -913,7 +914,7 @@ ORDER BY api_version;
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
-   Output: ((config -> 'api'::text) ->> 'version'::text), now()
+   Output: ((config -> 'api'::text) ->> 'version'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_reconstruction
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"config.api.version"}}}}
      Applies to Aggregates: COUNT(*)
@@ -949,7 +950,7 @@ ORDER BY db_host, api_version;
                                                                                                                            QUERY PLAN                                                                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
-   Output: ((config -> 'database'::text) ->> 'host'::text), ((config -> 'api'::text) ->> 'version'::text), now()
+   Output: ((config -> 'database'::text) ->> 'host'::text), ((config -> 'api'::text) ->> 'version'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.database.host"}}}},{"with_index":{"query":{"exists":{"field":"config.api.version"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -988,7 +989,7 @@ ORDER BY users_endpoint, db_port;
                                                                                                                                QUERY PLAN                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
-   Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), now()
+   Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.api.endpoints.users"}}}},{"with_index":{"query":{"exists":{"field":"config.database.port"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -1056,7 +1057,7 @@ ORDER BY department, role;
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
-   Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), now()
+   Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -1100,7 +1101,7 @@ ORDER BY department, role, location;
                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
-   Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), (user_profile ->> 'location'::text), now()
+   Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), (user_profile ->> 'location'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.location"}}}}]}}
      Applies to Aggregates: COUNT(*)
@@ -1272,7 +1273,7 @@ ORDER BY email_type;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_special
-   Output: ((content -> 'user-info'::text) ->> 'email@domain'::text), now()
+   Output: ((content -> 'user-info'::text) ->> 'email@domain'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_special
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"content.user-info.email@domain"}}}}
      Applies to Aggregates: COUNT(*)

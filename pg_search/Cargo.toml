@@ -21,6 +21,7 @@ unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = []                         # for debugging when blocks are acquired and released
 
 [dependencies]
+stable_deref_trait = "1.2.0"
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 arrow-array = "55.2.0"
 arrow-buffer = "55.2.0"
@@ -64,7 +65,7 @@ tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.6.0"
-bytemuck = "1.23.2"
+bytemuck = { version = "1.23.2", features = ["derive", "min_const_generics"] }
 smallvec = "1.13.2"
 
 [dev-dependencies]

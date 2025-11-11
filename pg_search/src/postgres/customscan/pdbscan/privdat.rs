@@ -18,6 +18,7 @@
 use crate::api::{AsCStr, Cardinality, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 
@@ -50,6 +51,8 @@ pub struct PrivateData {
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
     join_predicates: Option<SearchQueryInput>,
     ambulkdelete_epoch: u32,
+    // Window aggregates to compute during TopN execution
+    window_aggregates: Vec<WindowAggregateInfo>,
 }
 
 mod var_attname_lookup_serializer {
@@ -219,6 +222,10 @@ impl PrivateData {
     pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
         self.join_predicates = predicates;
     }
+
+    pub fn set_window_aggregates(&mut self, window_aggregates: Vec<WindowAggregateInfo>) {
+        self.window_aggregates = window_aggregates;
+    }
 }
 
 //
@@ -286,5 +293,9 @@ impl PrivateData {
 
     pub fn ambulkdelete_epoch(&self) -> u32 {
         self.ambulkdelete_epoch
+    }
+
+    pub fn window_aggregates(&self) -> &Vec<WindowAggregateInfo> {
+        &self.window_aggregates
     }
 }

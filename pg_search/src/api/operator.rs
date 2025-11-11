@@ -30,9 +30,7 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::{
-    lookup_alias_typmod, lookup_generic_typmod, type_is_alias, type_is_tokenizer,
-};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -117,6 +115,16 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
             &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
         .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
+    }
+}
+
+pub fn anyelement_text_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, text)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, text)` operator should exist")
     }
 }
 
@@ -277,8 +285,10 @@ unsafe fn field_name_from_node(
     // just directly reach in and pluck out the alias if the type is cast to it
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
         if type_is_alias((*relabel).resulttype) {
-            if let Ok(alias) = lookup_alias_typmod((*relabel).resulttypmod) {
-                return Some(FieldName::from(alias.alias));
+            let typmod =
+                AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
+            if let Some(alias) = typmod.alias() {
+                return Some(FieldName::from(alias));
             }
         }
     }
@@ -321,9 +331,10 @@ unsafe fn field_name_from_node(
                         // we pick the first un-aliased custom tokenizer expression that uses the
                         // Var as the matching indexed expression
                         let typmod = pg_sys::exprTypmod(expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-                        if parsed.alias().is_none() {
+                        let alias = UncheckedTypmod::try_from(typmod)
+                            .unwrap_or_else(|e| panic!("{e}"))
+                            .alias();
+                        if alias.is_none() {
                             return attname_from_var(heaprel, var);
                         }
                     }
@@ -364,10 +375,10 @@ unsafe fn field_name_from_node(
                         indexed_expression.cast(),
                     )) {
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
+                        let typmod =
+                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
 
-                        parsed.alias().map(FieldName::from).or_else(|| {
+                        typmod.alias().map(FieldName::from).or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })

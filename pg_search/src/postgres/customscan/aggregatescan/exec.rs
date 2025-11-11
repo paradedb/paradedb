@@ -22,18 +22,29 @@ use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
-use crate::postgres::customscan::aggregatescan::AggregateScan;
+use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::types::TantivyValue;
+use pgrx::{pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
-    AggregationResult, AggregationResults as TantivyAggregationResults, BucketResult,
-    MetricResult as TantivyMetricResult,
+    AggregationResult as TantivyAggregationResult, AggregationResults as TantivyAggregationResults,
+    BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
 use tantivy::schema::OwnedValue;
+
+/// Unified result type for aggregates
+/// Can hold either a standard metric (f64) or a custom aggregate (JSON)
+#[derive(Debug, Clone)]
+pub enum AggregateResult {
+    /// Standard metric aggregates (COUNT, SUM, AVG, MIN, MAX)
+    Metric(TantivySingleMetricResult),
+    /// Custom aggregates (full JSON result)
+    Json(serde_json::Value),
+}
 
 pub fn aggregation_results_iter(
     state: &mut CustomScanStateWrapper<AggregateScan>,
@@ -77,7 +88,7 @@ pub fn aggregation_results_iter(
 }
 
 #[derive(Debug)]
-struct AggregationResults(HashMap<String, AggregationResult>);
+pub struct AggregationResults(HashMap<String, TantivyAggregationResult>);
 impl From<TantivyAggregationResults> for AggregationResults {
     fn from(results: TantivyAggregationResults) -> Self {
         Self(results.0)
@@ -91,7 +102,7 @@ impl IntoIterator for AggregationResults {
     fn into_iter(self) -> Self::IntoIter {
         let mut result = Vec::new();
         match self.style() {
-            AggregationStyle::Ungrouped => self.flatten_ungrouped(&mut result),
+            AggregationStyle::Ungrouped => self.flatten_ungrouped(&mut result, None),
             AggregationStyle::Grouped => self.flatten_grouped(&mut result),
             AggregationStyle::GroupedWithFilter => self.flatten_grouped_with_filter(&mut result),
         }
@@ -103,7 +114,7 @@ impl IntoIterator for AggregationResults {
 #[derive(Debug, Default)]
 pub struct AggregationResultsRow {
     pub group_keys: Vec<TantivyValue>,
-    pub aggregates: Vec<Option<TantivySingleMetricResult>>,
+    pub aggregates: Vec<Option<AggregateResult>>,
     doc_count: Option<u64>,
 }
 
@@ -127,23 +138,81 @@ enum AggregationStyle {
 }
 
 struct MetricResult(TantivyMetricResult);
-impl From<MetricResult> for TantivySingleMetricResult {
+/// Convert a Tantivy MetricResult to an AggregateResult
+///
+/// Simple metrics (Average, Count, Sum, Min, Max) are converted to single metric results.
+/// Complex metrics (Stats, Percentiles, etc.) are serialized to JSON.
+impl From<MetricResult> for AggregateResult {
     fn from(val: MetricResult) -> Self {
         match val.0 {
             TantivyMetricResult::Average(r)
             | TantivyMetricResult::Count(r)
             | TantivyMetricResult::Sum(r)
             | TantivyMetricResult::Min(r)
-            | TantivyMetricResult::Max(r) => r,
-            unsupported => {
-                panic!("unsupported metric type: {:?}", unsupported);
+            | TantivyMetricResult::Max(r) => AggregateResult::Metric(r),
+            // Complex metrics (Stats, Percentiles, etc.) - serialize to JSON
+            other => {
+                let json_value = serde_json::to_value(&other)
+                    .unwrap_or_else(|e| pgrx::error!("Failed to serialize metric: {}", e));
+                AggregateResult::Json(json_value)
+            }
+        }
+    }
+}
+
+/// Convert an AggregateResult to a PostgreSQL Datum
+/// This is the shared logic for converting both Custom (JSON) and Metric aggregates
+///
+/// # Arguments
+/// * `agg_result` - The aggregate result to convert (Metric or Json)
+/// * `agg_type` - The aggregate type (for nullish fallback)
+/// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
+pub fn aggregate_result_to_datum(
+    agg_result: Option<AggregateResult>,
+    agg_type: &AggregateType,
+    expected_typoid: pg_sys::Oid,
+) -> Option<pg_sys::Datum> {
+    match agg_result {
+        Some(AggregateResult::Json(json_value)) => {
+            // Custom aggregate - return as JSONB
+            JsonB(json_value).into_datum()
+        }
+        Some(AggregateResult::Metric(metric)) => {
+            // Standard metric - convert f64 to appropriate type
+            // If expected type is JSONB (for pdb.agg() custom aggregates),
+            // serialize the entire metric result to match Tantivy's JSON format
+            if expected_typoid == pg_sys::JSONBOID {
+                // Serialize the SingleMetricResult to JSON
+                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
+                    pgrx::error!("Failed to serialize metric result to JSON: {}", e)
+                });
+                JsonB(json_value).into_datum()
+            } else {
+                metric.value.and_then(|value| unsafe {
+                    TantivyValue(OwnedValue::F64(value))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
+            }
+        }
+        None => {
+            // No result - use nullish value
+            // If expected type is JSONB, return JSON null
+            if expected_typoid == pg_sys::JSONBOID {
+                JsonB(serde_json::Value::Null).into_datum()
+            } else {
+                agg_type.nullish().value.and_then(|value| unsafe {
+                    TantivyValue(OwnedValue::F64(value))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
             }
         }
     }
 }
 
 impl AggregationResults {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         // we should return an empty result set if either the Aggregations JSON is empty,
         // or if the top-level `_doc_count` is `0.0` (i.e. zero documents were matched)
         if self.0.is_empty() {
@@ -154,7 +223,7 @@ impl AggregationResults {
             .0
             .get(DocCountKey::NAME)
             .and_then(|result| match result {
-                AggregationResult::MetricResult(TantivyMetricResult::Count(
+                TantivyAggregationResult::MetricResult(TantivyMetricResult::Count(
                     TantivySingleMetricResult { value, .. },
                 )) => *value,
                 _ => None,
@@ -185,8 +254,9 @@ impl AggregationResults {
         out: &mut Vec<AggregationResultsRow>,
     ) {
         // look only at the "grouped" terms bucket at this level
-        if let Some(AggregationResult::BucketResult(BucketResult::Terms { buckets, .. })) =
-            self.0.get(GroupedKey::NAME)
+        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
+            buckets, ..
+        })) = self.0.get(GroupedKey::NAME)
         {
             for bucket_entry in buckets {
                 // extend the key path with this bucket's key
@@ -202,8 +272,9 @@ impl AggregationResults {
                 // check if this bucket has a child "grouped" terms bucket
                 let sub = AggregationResults(bucket_entry.sub_aggregation.0.clone());
                 let has_child_grouped = match sub.0.get(GroupedKey::NAME) {
-                    Some(AggregationResult::BucketResult(BucketResult::Terms {
-                        buckets, ..
+                    Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
+                        buckets,
+                        ..
                     })) => !buckets.is_empty(),
                     _ => false,
                 };
@@ -237,8 +308,9 @@ impl AggregationResults {
 
             // traverse down into nested "grouped" buckets following group_keys
             for key in &row.group_keys {
-                if let Some(AggregationResult::BucketResult(BucketResult::Terms {
-                    buckets, ..
+                if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
+                    buckets,
+                    ..
                 })) = current.get(GroupedKey::NAME)
                 {
                     // find the bucket whose key matches this level
@@ -266,15 +338,26 @@ impl AggregationResults {
             entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
             for (_name, result) in entries {
-                if let AggregationResult::MetricResult(metric) = result {
-                    let single = MetricResult(metric).into();
-                    row.aggregates.push(Some(single));
+                match result {
+                    TantivyAggregationResult::MetricResult(metric) => {
+                        row.aggregates.push(Some(MetricResult(metric).into()));
+                    }
+                    other => {
+                        let json_value = serde_json::to_value(&other).unwrap_or_else(|e| {
+                            pgrx::error!("Failed to serialize aggregate: {}", e)
+                        });
+                        row.aggregates.push(Some(AggregateResult::Json(json_value)));
+                    }
                 }
             }
         }
     }
 
-    fn flatten_ungrouped(self, out: &mut Vec<AggregationResultsRow>) {
+    pub fn flatten_ungrouped(
+        self,
+        out: &mut Vec<AggregationResultsRow>,
+        agg_types: Option<&[AggregateType]>,
+    ) {
         if self.is_empty() {
             return;
         }
@@ -283,21 +366,32 @@ impl AggregationResults {
         let mut entries: Vec<_> = self.0.into_iter().collect();
         entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
 
-        for (_name, result) in entries {
+        for (idx, (_name, result)) in entries.into_iter().enumerate() {
+            // Check if this is a Custom aggregate
+            let is_custom = agg_types
+                .and_then(|types| types.get(idx))
+                .map(|agg| matches!(agg, AggregateType::Custom { .. }))
+                .unwrap_or(false);
+
             match result {
-                AggregationResult::MetricResult(metric) => {
-                    let single = MetricResult(metric).into();
-                    aggregates.push(Some(single));
+                TantivyAggregationResult::MetricResult(metric) if !is_custom => {
+                    // Standard metric aggregate
+                    aggregates.push(Some(MetricResult(metric).into()));
                 }
-                AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
+                TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
                     let mut sub_rows = Vec::new();
                     let sub = AggregationResults(filter_bucket.sub_aggregations.0);
-                    sub.flatten_ungrouped(&mut sub_rows);
+                    sub.flatten_ungrouped(&mut sub_rows, agg_types);
                     for sub_row in sub_rows {
                         aggregates.extend(sub_row.aggregates);
                     }
                 }
-                unsupported => todo!("unsupported bucket type: {:?}", unsupported),
+                // Custom aggregates or any other result type - store as JSON
+                other => {
+                    let json_value = serde_json::to_value(&other)
+                        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+                    aggregates.push(Some(AggregateResult::Json(json_value)));
+                }
             }
         }
 
@@ -306,6 +400,35 @@ impl AggregationResults {
             aggregates,
             doc_count: None,
         });
+    }
+
+    /// Flatten ungrouped results and convert directly to Datums
+    /// This is useful for window aggregates where we need Datums immediately
+    /// Returns a Vec where the index corresponds to the aggregate index
+    pub fn flatten_ungrouped_to_datums(
+        self,
+        agg_types: &[AggregateType],
+    ) -> Vec<Option<pg_sys::Datum>> {
+        let mut results = vec![None; agg_types.len()];
+
+        if self.is_empty() {
+            return results;
+        }
+
+        // Flatten all aggregates (now handles both Custom and Metric)
+        let mut rows = Vec::new();
+        self.flatten_ungrouped(&mut rows, Some(agg_types));
+
+        if let Some(row) = rows.into_iter().next() {
+            for (agg_idx, (agg_type, agg_result)) in
+                agg_types.iter().zip(row.aggregates.into_iter()).enumerate()
+            {
+                let expected_typoid = agg_type.result_type_oid();
+                results[agg_idx] = aggregate_result_to_datum(agg_result, agg_type, expected_typoid);
+            }
+        }
+
+        results
     }
 
     fn flatten_grouped_with_filter(self, out: &mut Vec<AggregationResultsRow>) {
@@ -323,7 +446,7 @@ impl AggregationResults {
 
         // extract the sentinel filter bucket, used to get all the group keys
         let sentinel = match self.0.get(FilterSentinelKey::NAME) {
-            Some(AggregationResult::BucketResult(BucketResult::Filter(filter_bucket))) => {
+            Some(TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))) => {
                 filter_bucket
             }
             _ => {
@@ -342,16 +465,16 @@ impl AggregationResults {
             let mut aggregates = Vec::new();
 
             for (_filter_name, filter_result) in &filter_entries {
-                let mut found_metrics: Vec<Option<TantivySingleMetricResult>> = Vec::new();
+                let mut found_metrics: Vec<Option<AggregateResult>> = Vec::new();
 
-                if let AggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) =
+                if let TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) =
                     filter_result
                 {
                     let sub = AggregationResults(filter_bucket.sub_aggregations.0.clone());
                     let mut current = sub.0;
 
                     for key in &row.group_keys {
-                        if let Some(AggregationResult::BucketResult(BucketResult::Terms {
+                        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
                             buckets,
                             ..
                         })) = current.get(GroupedKey::NAME)
@@ -372,9 +495,16 @@ impl AggregationResults {
                     }
 
                     for (_n, res) in current {
-                        if let AggregationResult::MetricResult(metric) = res {
-                            let single = MetricResult(metric).into();
-                            found_metrics.push(Some(single));
+                        match res {
+                            TantivyAggregationResult::MetricResult(metric) => {
+                                found_metrics.push(Some(MetricResult(metric).into()));
+                            }
+                            other => {
+                                let json_value = serde_json::to_value(&other).unwrap_or_else(|e| {
+                                    pgrx::error!("Failed to serialize aggregate: {}", e)
+                                });
+                                found_metrics.push(Some(AggregateResult::Json(json_value)));
+                            }
                         }
                     }
                 }

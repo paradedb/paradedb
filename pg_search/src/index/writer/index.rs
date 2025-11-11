@@ -454,7 +454,10 @@ mod tests {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run(
+            "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",
+        )
+        .unwrap();
         Spi::get_one::<pg_sys::Oid>(
             "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
         )

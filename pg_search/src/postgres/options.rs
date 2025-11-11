@@ -52,21 +52,20 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 #[allow(clippy::identity_op)]
-pub(crate) const DEFAULT_FOREGROUND_LAYER_SIZES: &[u64] = &[
-    10 * 1024,       // 10KB
-    100 * 1024,      // 100KB
-    1 * 1024 * 1024, // 1MB
-];
+pub(crate) const DEFAULT_FOREGROUND_LAYER_SIZES: &[u64] = &[];
 
 #[allow(clippy::identity_op)]
 pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
-    10 * 1024 * 1024,      // 10MB
-    100 * 1024 * 1024,     // 100MB
-    1000 * 1024 * 1024,    // 1GB
-    10000 * 1024 * 1024,   // 10GB
-    100000 * 1024 * 1024,  // 100GB
-    1000000 * 1024 * 1024, // 1TB
+    100 * 1024,          // 100KB
+    1 * 1024 * 1024,     // 1MB
+    10 * 1024 * 1024,    // 10MB
+    100 * 1024 * 1024,   // 100MB
+    1000 * 1024 * 1024,  // 1GB
+    10000 * 1024 * 1024, // 10GB
 ];
+
+pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
+pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -332,7 +331,11 @@ impl BM25IndexOptions {
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
-        gucs::global_mutable_segment_rows().or_else(|| self.options_data().mutable_segment_rows())
+        match gucs::global_mutable_segment_rows() {
+            Some(rows) if rows > 0 => NonZeroUsize::new(rows),
+            Some(0) => None,
+            _ => self.options_data().mutable_segment_rows(),
+        }
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -811,9 +814,9 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "mutable_segment_rows".as_pg_cstr(),
         "The size of mutable segments.".as_pg_cstr(),
+        DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
         0,
-        0,
-        i32::MAX,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

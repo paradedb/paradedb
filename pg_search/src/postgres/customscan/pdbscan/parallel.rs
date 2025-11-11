@@ -37,8 +37,12 @@ impl ParallelQueryCapable for PdbScan {
             PdbScan::init_search_reader(state);
         }
 
-        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
-        ParallelScanState::size_of(segments.len(), &serialized_query)
+        let args = state.custom_state().parallel_scan_args();
+        ParallelScanState::size_of(
+            args.segment_readers.len(),
+            &args.query,
+            args.with_aggregates,
+        )
     }
 
     fn initialize_dsm_custom_scan(
@@ -46,12 +50,12 @@ impl ParallelQueryCapable for PdbScan {
         pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
-        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
+        let args = state.custom_state().parallel_scan_args();
 
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).init(segments, &serialized_query);
+            (*pscan_state).init(args);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }

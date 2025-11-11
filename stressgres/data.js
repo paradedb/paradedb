@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762833857445,
+  "lastUpdate": 1762833861475,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25534,6 +25534,126 @@ window.BENCHMARK_DATA = {
             "value": 40.82421875,
             "unit": "median mem",
             "extra": "avg mem: 40.067091489028286, max mem: 47.37109375, count: 55438"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62823aa36c1489883f73775d5fb61d659bc3f5b3",
+          "message": "fix: Allow up to 2 background mergers (#3519)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAddresses two problems:\n\n1. Right now only one background merger is allowed per index. We\nactually want 2, because we don't want a long-running merge to prevent\nsmaller segments from being merged.\n2. In production I've seen an issue where background workers were not\nlaunching because we currently keep track of whether a merge is\nhappening by writing its PID to disk. I'm seeing stale PIDs being\nconsidered live merges, or merges not being correctly recorded in the\nbackground merger page.\n\n## Why\n\n## How\n\nThis PR moves us to a stateless way of tracking background merging:\npins.\n\nThe metadata page allocates 2 blocks. Whenever we want to start a\nbackground merge, we try and take a conditional cleanup lock on one of\nthese pages. Then, we immediately drop the lock but keep the pin until\nthe merge has finished, which prevents any further cleanup locks from\nbeing taken on this page.\n\nThe first block is pinned when the largest layer size of the merge is\nunder `100mb`, the second is pinned for larger layers. This guarantees\nthat small merges are not held back by a large one.\n\n## Tests",
+          "timestamp": "2025-11-10T22:47:40-05:00",
+          "tree_id": "d6eb65ff9cc939f9e38ff176af5c03a3fe0efe0f",
+          "url": "https://github.com/paradedb/paradedb/commit/62823aa36c1489883f73775d5fb61d659bc3f5b3"
+        },
+        "date": 1762833859009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.079913375921574, max cpu: 37.065636, count: 55497"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 49.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.093711005775084, max mem: 57.8046875, count: 55497"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.686253102234034, max cpu: 9.356726, count: 55497"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.427080940185956, max mem: 27.62890625, count: 55497"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.448819,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.315930668171802, max cpu: 33.23442, count: 55497"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 51.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.82697058793718, max mem: 58.42578125, count: 55497"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.143892447558045, max cpu: 14.257426, count: 55497"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 47.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.69314128184857, max mem: 57.53125, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.603022831097955, max cpu: 9.495549, count: 110994"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 34.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.77737595190956, max mem: 43.23828125, count: 110994"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1459,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1444.486620898427, max block_count: 2452.0, count: 55497"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.964754851613602, max segment_count: 49.0, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576997295073193, max cpu: 7.5471697, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 37.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.11227183451358, max mem: 47.03515625, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.650161124383151, max cpu: 14.0625, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 41.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.76095962957457, max mem: 49.140625, count: 55497"
           }
         ]
       }

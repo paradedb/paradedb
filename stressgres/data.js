@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762882794920,
+  "lastUpdate": 1762883619972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65488,6 +65488,60 @@ window.BENCHMARK_DATA = {
             "value": 13.895875947804639,
             "unit": "median tps",
             "extra": "avg tps: 13.833136260294935, max tps: 19.172198165374013, count: 55357"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "904aaaf37c3868046721c6eb25ecef7702e0f469",
+          "message": "fix: Integer overflow when indexing large arrays (#3524)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSee https://github.com/paradedb/tantivy/pull/80\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T11:52:42-05:00",
+          "tree_id": "d0820f0b7f92daed3d9747e004d367d8129c1495",
+          "url": "https://github.com/paradedb/paradedb/commit/904aaaf37c3868046721c6eb25ecef7702e0f469"
+        },
+        "date": 1762883617177,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.79767886702625,
+            "unit": "median tps",
+            "extra": "avg tps: 31.482124121402634, max tps: 32.405796071254464, count: 55546"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.46122680297555,
+            "unit": "median tps",
+            "extra": "avg tps: 264.5414676079995, max tps: 2816.0653944934797, count: 55546"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2054.1686350411005,
+            "unit": "median tps",
+            "extra": "avg tps: 2023.9956474942248, max tps: 2198.053899437794, count: 55546"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 173.48972711614817,
+            "unit": "median tps",
+            "extra": "avg tps: 201.51200673839247, max tps: 1627.936203877893, count: 111092"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.28424978406437,
+            "unit": "median tps",
+            "extra": "avg tps: 14.467702903811869, max tps: 20.594509956724753, count: 55546"
           }
         ]
       }

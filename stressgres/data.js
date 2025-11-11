@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762836395819,
+  "lastUpdate": 1762836399949,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -78064,6 +78064,114 @@ window.BENCHMARK_DATA = {
             "value": 163.6875,
             "unit": "median mem",
             "extra": "avg mem: 161.3487009398699, max mem: 163.6875, count: 55646"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62823aa36c1489883f73775d5fb61d659bc3f5b3",
+          "message": "fix: Allow up to 2 background mergers (#3519)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAddresses two problems:\n\n1. Right now only one background merger is allowed per index. We\nactually want 2, because we don't want a long-running merge to prevent\nsmaller segments from being merged.\n2. In production I've seen an issue where background workers were not\nlaunching because we currently keep track of whether a merge is\nhappening by writing its PID to disk. I'm seeing stale PIDs being\nconsidered live merges, or merges not being correctly recorded in the\nbackground merger page.\n\n## Why\n\n## How\n\nThis PR moves us to a stateless way of tracking background merging:\npins.\n\nThe metadata page allocates 2 blocks. Whenever we want to start a\nbackground merge, we try and take a conditional cleanup lock on one of\nthese pages. Then, we immediately drop the lock but keep the pin until\nthe merge has finished, which prevents any further cleanup locks from\nbeing taken on this page.\n\nThe first block is pinned when the largest layer size of the merge is\nunder `100mb`, the second is pinned for larger layers. This guarantees\nthat small merges are not held back by a large one.\n\n## Tests",
+          "timestamp": "2025-11-10T22:47:40-05:00",
+          "tree_id": "d6eb65ff9cc939f9e38ff176af5c03a3fe0efe0f",
+          "url": "https://github.com/paradedb/paradedb/commit/62823aa36c1489883f73775d5fb61d659bc3f5b3"
+        },
+        "date": 1762836397261,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.929945856145874, max cpu: 42.64561, count: 55605"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 163.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.05957858443486, max mem: 163.0234375, count: 55605"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.714672934664048, max cpu: 27.961164, count: 55605"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 114.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.93011152886432, max mem: 114.09765625, count: 55605"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7978117419473145, max cpu: 9.430255, count: 55605"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 119.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.1165931149402, max mem: 142.65234375, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14741,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14730.301231903606, max block_count: 25908.0, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584318690332619, max cpu: 4.7105007, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 91.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 83.70119523311753, max mem: 123.80859375, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.98750112399964, max segment_count: 46.0, count: 55605"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.657240513618007, max cpu: 32.338787, count: 111210"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 128.99670179868042, max mem: 150.53125, count: 111210"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.037863947246187, max cpu: 23.622047, count: 55605"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 162.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.0799787564068, max mem: 163.4765625, count: 55605"
           }
         ]
       }

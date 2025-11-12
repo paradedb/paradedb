@@ -124,3 +124,14 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
+
+## Using Pretokenized Text
+
+The match operators also accept text arrays. If a text array is provided, each element of the array is treated as an exact token,
+which means that no further processing is done.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& ARRAY['running', 'shoes'];
+```

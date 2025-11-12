@@ -18,7 +18,7 @@ WHERE rating = 5
 AND id @@@ pdb.all();
 ```
 
-If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append `AND <key_field> @@@ pdb.all()` to the query's
+If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/v2/query-builder/compound/all) to the query's
 `WHERE` clause.
 
 ## Join Support

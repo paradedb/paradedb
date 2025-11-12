@@ -220,7 +220,8 @@ unsafe fn signal_background_merge(entry: &MergeEntry) -> bool {
     signal_background_merge_impl(entry, proc_ptr, kill)
 }
 
-type KillFn = unsafe extern "C" fn(::std::os::raw::c_int, ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+type KillFn =
+    unsafe extern "C" fn(::std::os::raw::c_int, ::std::os::raw::c_int) -> ::std::os::raw::c_int;
 
 unsafe fn signal_background_merge_impl(
     entry: &MergeEntry,

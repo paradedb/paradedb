@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762923355952,
+  "lastUpdate": 1762924171483,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31588,6 +31588,42 @@ window.BENCHMARK_DATA = {
             "value": 5.502452663120059,
             "unit": "median tps",
             "extra": "avg tps: 4.956248291017306, max tps: 6.070149543027243, count: 57742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ea563bd4b0c7877092be2ca76fe0086baf5c794",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3536)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T23:38:37-05:00",
+          "tree_id": "e0683bf7f412f73ea026a347b322c6d3ed713179",
+          "url": "https://github.com/paradedb/paradedb/commit/2ea563bd4b0c7877092be2ca76fe0086baf5c794"
+        },
+        "date": 1762924168861,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.092930653674586,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9068603726723286, max tps: 10.658695012950403, count: 57322"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.579744252876223,
+            "unit": "median tps",
+            "extra": "avg tps: 5.037242910153228, max tps: 6.196703730074674, count: 57322"
           }
         ]
       }

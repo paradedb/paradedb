@@ -374,7 +374,6 @@ fn save_delete_metas(
 mod tests {
     use super::*;
     use once_cell::sync::Lazy;
-    use pgrx::prelude::*;
     use std::ptr;
     use std::sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},

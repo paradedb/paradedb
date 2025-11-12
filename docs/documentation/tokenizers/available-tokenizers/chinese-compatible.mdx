@@ -1,0 +1,27 @@
+---
+title: Chinese Compatible
+description: A simple tokenizer for Chinese, Japanese, and Korean characters
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/chinese-compatible
+---
+
+The Chinese compatible tokenizer is like the [simple](/documentation/tokenizers/available-tokenizers/simple) tokenizer -- it lowercases non-CJK characters and splits on
+any non-alphanumeric character. Additionally, it treats each CJK character as its own token.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.chinese_compatible))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Hello world! 你好!'::pdb.chinese_compatible::text[];
+```
+
+```ini Expected Response
+        text
+---------------------
+ {hello,world,你,好}
+(1 row)
+```

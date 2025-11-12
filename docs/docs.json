@@ -37,9 +37,9 @@
                   {
                     "group": "Getting Started",
                     "pages": [
-                      "v2/getting-started/install",
-                      "v2/getting-started/quickstart",
-                      "v2/getting-started/load"
+                      "documentation/getting-started/install",
+                      "documentation/getting-started/quickstart",
+                      "documentation/getting-started/load"
                     ]
                   },
                   {
@@ -48,111 +48,111 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "v2/indexing/create-index",
-                          "v2/indexing/indexing-expressions",
-                          "v2/indexing/indexing-json",
-                          "v2/indexing/reindexing"
+                          "documentation/indexing/create-index",
+                          "documentation/indexing/indexing-expressions",
+                          "documentation/indexing/indexing-json",
+                          "documentation/indexing/reindexing"
                         ]
                       },
                       {
                         "group": "Tokenizers",
                         "pages": [
-                          "v2/tokenizers/overview",
+                          "documentation/tokenizers/overview",
                           {
                             "group": "Available Tokenizers",
                             "pages": [
-                              "v2/tokenizers/available-tokenizers/unicode",
-                              "v2/tokenizers/available-tokenizers/exact",
-                              "v2/tokenizers/available-tokenizers/literal-normalized",
-                              "v2/tokenizers/available-tokenizers/whitespace",
-                              "v2/tokenizers/available-tokenizers/ngrams",
-                              "v2/tokenizers/available-tokenizers/simple",
-                              "v2/tokenizers/available-tokenizers/regex",
-                              "v2/tokenizers/available-tokenizers/chinese-compatible",
-                              "v2/tokenizers/available-tokenizers/lindera",
-                              "v2/tokenizers/available-tokenizers/icu",
-                              "v2/tokenizers/available-tokenizers/jieba",
-                              "v2/tokenizers/available-tokenizers/source-code"
+                              "documentation/tokenizers/available-tokenizers/unicode",
+                              "documentation/tokenizers/available-tokenizers/exact",
+                              "documentation/tokenizers/available-tokenizers/literal-normalized",
+                              "documentation/tokenizers/available-tokenizers/whitespace",
+                              "documentation/tokenizers/available-tokenizers/ngrams",
+                              "documentation/tokenizers/available-tokenizers/simple",
+                              "documentation/tokenizers/available-tokenizers/regex",
+                              "documentation/tokenizers/available-tokenizers/chinese-compatible",
+                              "documentation/tokenizers/available-tokenizers/lindera",
+                              "documentation/tokenizers/available-tokenizers/icu",
+                              "documentation/tokenizers/available-tokenizers/jieba",
+                              "documentation/tokenizers/available-tokenizers/source-code"
                             ]
                           },
-                          "v2/tokenizers/multiple-per-field"
+                          "documentation/tokenizers/multiple-per-field"
                         ]
                       },
                       {
                         "group": "Token Filters",
                         "pages": [
-                          "v2/token-filters/overview",
-                          "v2/token-filters/alphanumeric",
-                          "v2/token-filters/ascii-folding",
-                          "v2/token-filters/lowercase",
-                          "v2/token-filters/stopwords",
-                          "v2/token-filters/stemming",
-                          "v2/token-filters/token-length"
+                          "documentation/token-filters/overview",
+                          "documentation/token-filters/alphanumeric",
+                          "documentation/token-filters/ascii-folding",
+                          "documentation/token-filters/lowercase",
+                          "documentation/token-filters/stopwords",
+                          "documentation/token-filters/stemming",
+                          "documentation/token-filters/token-length"
                         ]
                       },
                       {
                         "group": "Full Text Search",
                         "pages": [
-                          "v2/full-text/overview",
-                          "v2/full-text/match",
-                          "v2/full-text/phrase",
-                          "v2/full-text/term",
-                          "v2/full-text/fuzzy",
-                          "v2/full-text/highlight",
-                          "v2/full-text/proximity"
+                          "documentation/full-text/overview",
+                          "documentation/full-text/match",
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/term",
+                          "documentation/full-text/fuzzy",
+                          "documentation/full-text/highlight",
+                          "documentation/full-text/proximity"
                         ]
                       },
                       {
                         "group": "Sorting",
                         "pages": [
-                          "v2/sorting/score",
-                          "v2/sorting/boost",
-                          "v2/sorting/topn"
+                          "documentation/sorting/score",
+                          "documentation/sorting/boost",
+                          "documentation/sorting/topn"
                         ]
                       },
-                      "v2/filtering",
+                      "documentation/filtering",
                       {
                         "group": "Aggregates",
                         "pages": [
-                          "v2/aggregates/overview",
+                          "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
                             "pages": [
-                              "v2/aggregates/bucket/terms"
+                              "documentation/aggregates/bucket/terms"
                             ]
                           },
                           {
                             "group": "Metrics",
                             "pages": [
-                              "v2/aggregates/metrics/average",
-                              "v2/aggregates/metrics/count",
-                              "v2/aggregates/metrics/minmax",
-                              "v2/aggregates/metrics/sum"
+                              "documentation/aggregates/metrics/average",
+                              "documentation/aggregates/metrics/count",
+                              "documentation/aggregates/metrics/minmax",
+                              "documentation/aggregates/metrics/sum"
                             ]
                           },
-                          "v2/aggregates/tuning",
-                          "v2/aggregates/limitations"
+                          "documentation/aggregates/tuning",
+                          "documentation/aggregates/limitations"
                         ]
                       },
                       {
                         "group": "Advanced Query Functions",
                         "pages": [
-                          "v2/query-builder/overview",
-                          "v2/query-builder/compound/all",
-                          "v2/query-builder/specialized/more-like-this",
-                          "v2/query-builder/phrase/phrase-prefix",
-                          "v2/query-builder/compound/query-parser",
-                          "v2/query-builder/term/range-term",
-                          "v2/query-builder/term/regex"
+                          "documentation/query-builder/overview",
+                          "documentation/query-builder/compound/all",
+                          "documentation/query-builder/specialized/more-like-this",
+                          "documentation/query-builder/phrase/phrase-prefix",
+                          "documentation/query-builder/compound/query-parser",
+                          "documentation/query-builder/term/range-term",
+                          "documentation/query-builder/term/regex"
                         ]
                       },
                       {
                         "group": "Performance Tuning",
                         "pages": [
-                          "v2/performance-tuning/overview",
-                          "v2/performance-tuning/create-index",
-                          "v2/performance-tuning/reads",
-                          "v2/performance-tuning/writes"
+                          "documentation/performance-tuning/overview",
+                          "documentation/performance-tuning/create-index",
+                          "documentation/performance-tuning/reads",
+                          "documentation/performance-tuning/writes"
                         ]
                       }
                     ]
@@ -172,90 +172,86 @@
                   {
                     "group": "Indexing",
                     "pages": [
-                      "documentation/indexing/create-index",
-                      "documentation/indexing/inspect-index",
-                      {
-                        "group": "Feature Flags",
-                        "pages": ["documentation/configuration/custom-scan"]
-                      }
+                      "legacy/indexing/create-index",
+                      "legacy/indexing/inspect-index"
                     ]
                   },
                   {
                     "group": "Field Configuration",
                     "pages": [
-                      "documentation/indexing/field-options",
-                      "documentation/indexing/tokenizers",
-                      "documentation/indexing/token-filters",
-                      "documentation/indexing/fast-fields",
-                      "documentation/indexing/record"
+                      "legacy/indexing/field-options",
+                      "legacy/indexing/tokenizers",
+                      "legacy/indexing/token-filters",
+                      "legacy/indexing/fast-fields",
+                      "legacy/indexing/record"
                     ]
                   },
                   {
                     "group": "Full Text Search",
                     "pages": [
-                      "documentation/full-text/overview",
-                      "documentation/full-text/boolean",
-                      "documentation/full-text/phrase",
-                      "documentation/full-text/filtering",
-                      "documentation/full-text/pagination",
-                      "documentation/full-text/scoring",
-                      "documentation/full-text/highlighting",
-                      "documentation/full-text/sorting",
-                      "documentation/full-text/boosting"
+                      "legacy/full-text/overview",
+                      "legacy/full-text/boolean",
+                      "legacy/full-text/phrase",
+                      "legacy/full-text/filtering",
+                      "legacy/full-text/pagination",
+                      "legacy/full-text/scoring",
+                      "legacy/full-text/highlighting",
+                      "legacy/full-text/sorting",
+                      "legacy/full-text/boosting"
                     ]
                   },
                   {
                     "group": "Query Builder",
                     "pages": [
-                      "documentation/advanced/overview",
+                      "legacy/advanced/overview",
                       {
                         "group": "Full Text Queries",
-                        "pages": ["documentation/advanced/full-text/match"]
+                        "pages": ["legacy/advanced/full-text/match"]
                       },
                       {
                         "group": "Term-Level Queries",
                         "pages": [
-                          "documentation/advanced/term/exists",
-                          "documentation/advanced/term/fuzzy-term",
-                          "documentation/advanced/term/range",
-                          "documentation/advanced/term/range-term",
-                          "documentation/advanced/term/regex",
-                          "documentation/advanced/term/term",
-                          "documentation/advanced/term/term-set"
+                          "legacy/advanced/term/exists",
+                          "legacy/advanced/term/fuzzy-term",
+                          "legacy/advanced/term/range",
+                          "legacy/advanced/term/range-term",
+                          "legacy/advanced/term/regex",
+                          "legacy/advanced/term/term",
+                          "legacy/advanced/term/term-set"
                         ]
                       },
                       {
                         "group": "Phrase-Level Queries",
                         "pages": [
-                          "documentation/advanced/phrase/phrase",
-                          "documentation/advanced/phrase/phrase-prefix"
+                          "legacy/advanced/phrase/phrase",
+                          "legacy/advanced/phrase/phrase-prefix"
                         ]
                       },
                       {
                         "group": "JSON Queries",
                         "pages": [
-                          "documentation/advanced/json/overview",
-                          "documentation/advanced/json/arrays",
-                          "documentation/advanced/json/range"
+                          "legacy/advanced/json/overview",
+                          "legacy/advanced/json/arrays",
+                          "legacy/advanced/json/range"
                         ]
                       },
                       {
                         "group": "Compound Queries",
                         "pages": [
-                          "documentation/advanced/compound/overview",
-                          "documentation/advanced/compound/all",
-                          "documentation/advanced/compound/boolean",
-                          "documentation/advanced/compound/boost",
-                          "documentation/advanced/compound/const",
-                          "documentation/advanced/compound/disjunction-max",
-                          "documentation/advanced/compound/empty",
-                          "documentation/advanced/compound/parse"
+                          "legacy/advanced/compound/overview",
+                          "legacy/advanced/compound/all",
+                          "legacy/advanced/compound/boolean",
+                          "legacy/advanced/compound/boost",
+                          "legacy/advanced/compound/const",
+                          "legacy/advanced/compound/disjunction-max",
+                          "legacy/advanced/compound/empty",
+                          "legacy/advanced/compound/parse"
                         ]
                       },
                       {
                         "group": "Specialized Queries",
                         "pages": [
-                          "documentation/advanced/specialized/more-like-this"
+                          "legacy/advanced/specialized/more-like-this"
                         ]
                       }
                     ]
@@ -263,9 +259,9 @@
                   {
                     "group": "Similarity Search",
                     "pages": [
-                      "documentation/similarity/overview",
-                      "documentation/similarity/index",
-                      "documentation/similarity/search"
+                      "legacy/similarity/overview",
+                      "legacy/similarity/index",
+                      "legacy/similarity/search"
                     ]
                   }
                 ]

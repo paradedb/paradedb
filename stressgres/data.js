@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762962818633,
+  "lastUpdate": 1762963694186,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31810,6 +31810,42 @@ window.BENCHMARK_DATA = {
             "value": 5.579744252876223,
             "unit": "median tps",
             "extra": "avg tps: 5.037242910153228, max tps: 6.196703730074674, count: 57322"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "713d491a60900c749c5775f0a285d7628dc52a53",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3538)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-12T10:36:15-05:00",
+          "tree_id": "923f14da5a4e0349faeea05c896ec38f0c5aad16",
+          "url": "https://github.com/paradedb/paradedb/commit/713d491a60900c749c5775f0a285d7628dc52a53"
+        },
+        "date": 1762963691437,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.885959103302191,
+            "unit": "median tps",
+            "extra": "avg tps: 6.7822747681921145, max tps: 10.528411535781775, count: 57302"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.559521028485074,
+            "unit": "median tps",
+            "extra": "avg tps: 5.005660707749007, max tps: 6.138150749695612, count: 57302"
           }
         ]
       }

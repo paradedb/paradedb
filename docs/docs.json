@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new query syntax. The old syntax is still supported and we have preserved the [legacy docs here](/documentation).",
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new query syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy).",
     "dismissible": false
   },
   "navigation": {
@@ -254,14 +254,6 @@
                           "legacy/advanced/specialized/more-like-this"
                         ]
                       }
-                    ]
-                  },
-                  {
-                    "group": "Similarity Search",
-                    "pages": [
-                      "legacy/similarity/overview",
-                      "legacy/similarity/index",
-                      "legacy/similarity/search"
                     ]
                   }
                 ]

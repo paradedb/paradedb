@@ -61,11 +61,12 @@
                           {
                             "group": "Available Tokenizers",
                             "pages": [
-                              "v2/tokenizers/available-tokenizers/simple",
+                              "v2/tokenizers/available-tokenizers/unicode",
                               "v2/tokenizers/available-tokenizers/exact",
                               "v2/tokenizers/available-tokenizers/literal-normalized",
                               "v2/tokenizers/available-tokenizers/whitespace",
                               "v2/tokenizers/available-tokenizers/ngrams",
+                              "v2/tokenizers/available-tokenizers/simple",
                               "v2/tokenizers/available-tokenizers/regex",
                               "v2/tokenizers/available-tokenizers/chinese-compatible",
                               "v2/tokenizers/available-tokenizers/lindera",

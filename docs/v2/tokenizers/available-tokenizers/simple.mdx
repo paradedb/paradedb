@@ -1,19 +1,13 @@
 ---
 title: Simple
-description: The default tokenizer in ParadeDB
+description: Splits on any non-alphanumeric character
 canonical: https://docs.paradedb.com/v2/tokenizers/available-tokenizers/simple
 ---
 
-The simple tokenizer is the default tokenizer in ParadeDB. This tokenizer splits on punctuation, whitespace, and lowercases all characters.
-
-If no tokenizer is specified for a text field, the simple tokenizer is used.
+The simple tokenizer splits on any non-alphanumeric character (e.g. whitespace, punctuation, symbols). All characters are
+[lowercased](/v2/token-filters/lowercase) by default.
 
 ```sql
--- The following statements are equivalent
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
-WITH (key_field='id');
-
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple))
 WITH (key_field='id');

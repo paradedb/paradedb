@@ -4,8 +4,7 @@ description: Tokenizes text by splitting on whitespace
 canonical: https://docs.paradedb.com/v2/tokenizers/available-tokenizers/whitespace
 ---
 
-The whitespace tokenizer is exactly like the [simple](/v2/tokenizers/available-tokenizers/simple) tokenizer, but splits only on whitespace and preserves
-punctuation. It also lowercases by default.
+The whitespace tokenizer splits only on whitespace. It also [lowercases](/v2/token-filters/lowercase) characters by default.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

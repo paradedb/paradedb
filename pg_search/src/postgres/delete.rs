@@ -370,7 +370,7 @@ fn save_delete_metas(
     Ok(())
 }
 
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(feature = "pg_test")]
 mod tests {
     use super::*;
     use once_cell::sync::Lazy;

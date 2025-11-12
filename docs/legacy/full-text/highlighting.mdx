@@ -67,13 +67,14 @@ WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-  ```csv id | snippet | snippet_positions
-  ----+----------------------------+------------------- 3 | Sleek running{" "}
-  <b>shoes</b> | {"{14,19}"}4 | White jogging <b>shoes</b> | {"{14,19}"}5 |
-  Generic <b>shoes</b> | {"{8,13}"}
-  (3 rows) ```
-</Accordion>
+```ini Expected Response
+ id |          snippet           | snippet_positions
+----+----------------------------+-------------------
+  3 | Sleek running <b>shoes</b> | {"{14,19}"}
+  4 | White jogging <b>shoes</b> | {"{14,19}"}
+  5 | Generic <b>shoes</b>       | {"{8,13}"}
+(3 rows)
+```
 
 ## Snippet Limit and Offset
 

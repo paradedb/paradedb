@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762963698656,
+  "lastUpdate": 1762964588268,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46426,6 +46426,54 @@ window.BENCHMARK_DATA = {
             "value": 5.850142050865625,
             "unit": "median tps",
             "extra": "avg tps: 5.846919801967167, max tps: 7.410978126461005, count: 56109"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "713d491a60900c749c5775f0a285d7628dc52a53",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3538)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-12T10:36:15-05:00",
+          "tree_id": "923f14da5a4e0349faeea05c896ec38f0c5aad16",
+          "url": "https://github.com/paradedb/paradedb/commit/713d491a60900c749c5775f0a285d7628dc52a53"
+        },
+        "date": 1762964585420,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1163.7617626567874,
+            "unit": "median tps",
+            "extra": "avg tps: 1164.3076738768607, max tps: 1209.9838265737603, count: 56264"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1344.9959938372058,
+            "unit": "median tps",
+            "extra": "avg tps: 1330.7091798800989, max tps: 1353.0276270997863, count: 56264"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1944.0673734962184,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.7003939087099, max tps: 2096.1008864159007, count: 56264"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.892377171347686,
+            "unit": "median tps",
+            "extra": "avg tps: 5.898126634983513, max tps: 7.463933043982525, count: 56264"
           }
         ]
       }

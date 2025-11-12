@@ -17,7 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
-use pgrx::pg_sys;
+use pgrx::{check_for_interrupts, pg_sys};
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
@@ -404,6 +404,7 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
+        check_for_interrupts!();
         let mut writer: IndexWriter = self.index.writer_with_options(
             IndexWriterOptions::builder()
                 .memory_budget_per_thread(15 * 1024 * 1024)
@@ -411,7 +412,9 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
+        check_for_interrupts!();
         let new_segment = writer.merge_foreground(segment_ids, true)?;
+        check_for_interrupts!();
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that

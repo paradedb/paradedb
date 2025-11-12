@@ -20,6 +20,7 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
+use crate::postgres::storage::merge::MergeEntry;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
@@ -52,6 +53,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let mut metadata = MetaPage::open(&index_relation);
+    request_background_merge_cancellation(&metadata);
     let cleanup_lock = metadata.cleanup_lock_exclusive();
 
     // take the MergeLock
@@ -173,6 +175,90 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     stats.into_pg()
 }
 
+unsafe fn request_background_merge_cancellation(metadata: &MetaPage) {
+    let merge_lock = metadata.acquire_merge_lock();
+    let mut merge_list = merge_lock.merge_list();
+    merge_list.garbage_collect(pg_sys::ReadNextFullTransactionId());
+    let entries = merge_list.list();
+
+    pgrx::debug1!(
+        "ambulkdelete: evaluating {} active merges for cancellation",
+        entries.len()
+    );
+
+    let mut signaled = 0usize;
+    for entry in &entries {
+        if signal_background_merge(entry) {
+            signaled += 1;
+        }
+    }
+
+    if signaled == 0 {
+        pgrx::debug1!("ambulkdelete: unable to signal any background merges");
+    } else {
+        pgrx::debug1!("ambulkdelete: signaled {signaled} background merges");
+    }
+
+    drop(merge_lock);
+}
+
+// FFI declaration for kill() - matches PostgreSQL's pg_cancel_backend behavior on Unix
+extern "C" {
+    fn kill(pid: ::std::os::raw::c_int, sig: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+}
+
+unsafe fn signal_background_merge(entry: &MergeEntry) -> bool {
+    if entry.pid <= 0 {
+        pgrx::debug1!(
+            "ambulkdelete: refusing to signal invalid background merge pid {}",
+            entry.pid
+        );
+        return false;
+    }
+
+    let proc_ptr = pg_sys::BackendPidGetProc(entry.pid);
+    signal_background_merge_impl(entry, proc_ptr, kill)
+}
+
+type KillFn = unsafe extern "C" fn(::std::os::raw::c_int, ::std::os::raw::c_int) -> ::std::os::raw::c_int;
+
+unsafe fn signal_background_merge_impl(
+    entry: &MergeEntry,
+    proc_ptr: *mut pg_sys::PGPROC,
+    send_signal: KillFn,
+) -> bool {
+    if proc_ptr.is_null() {
+        pgrx::debug1!(
+            "ambulkdelete: background merge pid {} is no longer registered",
+            entry.pid
+        );
+        return false;
+    }
+
+    if !(*proc_ptr).isBackgroundWorker {
+        pgrx::debug1!(
+            "ambulkdelete: pid {} is not a background worker, skipping signal",
+            entry.pid
+        );
+        return false;
+    }
+
+    // SIGINT = 2 on Unix systems (standard value)
+    const SIGINT: ::std::os::raw::c_int = 2;
+    let rc = send_signal(entry.pid, SIGINT);
+
+    if rc != 0 {
+        pgrx::warning!(
+            "ambulkdelete: failed to signal background merge pid {} (rc={})",
+            entry.pid,
+            rc
+        );
+        return false;
+    }
+
+    true
+}
+
 struct SegmentDeleterImmutable {
     delete_queue: DeleteQueue,
     segment_entry: SegmentEntry,
@@ -281,4 +367,121 @@ fn save_delete_metas(
         .directory()
         .save_metas(&new_index_meta, &old_index_meta, &mut ())?;
     Ok(())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+mod tests {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use pgrx::prelude::*;
+    use std::ptr;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicI32, Ordering},
+        Mutex,
+    };
+
+    static TEST_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+    static SEND_CALLED: AtomicBool = AtomicBool::new(false);
+    static LAST_SIGNAL_PID: AtomicI32 = AtomicI32::new(0);
+    fn dummy_merge_entry(pid: i32) -> MergeEntry {
+        MergeEntry {
+            pid,
+            xmin: pg_sys::TransactionId::from(0_u32),
+            _unused: pg_sys::TransactionId::from(0_u32),
+            segment_ids_start_blockno: 0,
+        }
+    }
+
+    fn make_pgproc(pid: i32, _backend_id: i32, is_background: bool) -> *mut pg_sys::PGPROC {
+        let mut proc = Box::new(pg_sys::PGPROC::default());
+        proc.pid = pid;
+        proc.isBackgroundWorker = is_background;
+        Box::into_raw(proc)
+    }
+
+    unsafe extern "C" fn mock_send_success(
+        pid: ::std::os::raw::c_int,
+        _sig: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int {
+        SEND_CALLED.store(true, Ordering::SeqCst);
+        LAST_SIGNAL_PID.store(pid, Ordering::SeqCst);
+        0
+    }
+
+    unsafe extern "C" fn mock_send_failure(
+        _pid: ::std::os::raw::c_int,
+        _sig: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int {
+        SEND_CALLED.store(true, Ordering::SeqCst);
+        1
+    }
+
+    #[cfg_attr(feature = "pg_test", pg_test)]
+    #[cfg_attr(not(feature = "pg_test"), test)]
+    fn signal_background_merge_rejects_invalid_pid() {
+        let _guard = TEST_GUARD.lock().unwrap();
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        assert!(!unsafe { signal_background_merge(&dummy_merge_entry(0)) });
+        assert!(!SEND_CALLED.load(Ordering::SeqCst));
+    }
+
+    #[cfg_attr(feature = "pg_test", pg_test)]
+    #[cfg_attr(not(feature = "pg_test"), test)]
+    fn signal_background_merge_impl_handles_missing_proc() {
+        let _guard = TEST_GUARD.lock().unwrap();
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        let entry = dummy_merge_entry(42);
+        let result =
+            unsafe { signal_background_merge_impl(&entry, ptr::null_mut(), mock_send_success) };
+        assert!(!result);
+        assert!(!SEND_CALLED.load(Ordering::SeqCst));
+    }
+
+    #[cfg_attr(feature = "pg_test", pg_test)]
+    #[cfg_attr(not(feature = "pg_test"), test)]
+    fn signal_background_merge_impl_skips_foreground_workers() {
+        let _guard = TEST_GUARD.lock().unwrap();
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        let entry = dummy_merge_entry(99);
+        let proc_ptr = make_pgproc(entry.pid, 7, false);
+        let result = unsafe { signal_background_merge_impl(&entry, proc_ptr, mock_send_success) };
+        assert!(!result);
+        assert!(!SEND_CALLED.load(Ordering::SeqCst));
+        unsafe {
+            drop(Box::from_raw(proc_ptr));
+        }
+    }
+
+    #[cfg_attr(feature = "pg_test", pg_test)]
+    #[cfg_attr(not(feature = "pg_test"), test)]
+    fn signal_background_merge_impl_signals_background_workers() {
+        let _guard = TEST_GUARD.lock().unwrap();
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        LAST_SIGNAL_PID.store(0, Ordering::SeqCst);
+
+        let entry = dummy_merge_entry(1234);
+        let proc_ptr = make_pgproc(entry.pid, 55, true);
+        let result = unsafe { signal_background_merge_impl(&entry, proc_ptr, mock_send_success) };
+        assert!(result);
+        assert!(SEND_CALLED.load(Ordering::SeqCst));
+        assert_eq!(LAST_SIGNAL_PID.load(Ordering::SeqCst), entry.pid);
+        unsafe {
+            drop(Box::from_raw(proc_ptr));
+        }
+    }
+
+    #[cfg_attr(feature = "pg_test", pg_test)]
+    #[cfg_attr(not(feature = "pg_test"), test)]
+    fn signal_background_merge_impl_reports_signal_failures() {
+        let _guard = TEST_GUARD.lock().unwrap();
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        let entry = dummy_merge_entry(2222);
+        let proc_ptr = make_pgproc(entry.pid, 77, true);
+        let result = unsafe { signal_background_merge_impl(&entry, proc_ptr, mock_send_failure) };
+        assert!(!result);
+        assert!(SEND_CALLED.load(Ordering::SeqCst));
+        unsafe {
+            drop(Box::from_raw(proc_ptr));
+        }
+    }
 }

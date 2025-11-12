@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
@@ -404,12 +405,22 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
+            if gc_after_merge {
+                let delay_ms = gucs::background_merge_delay_ms();
+                if delay_ms > 0 {
+                    unsafe {
+                        pg_sys::pg_usleep(delay_ms as i64 * 1000);
+                    }
+                }
+            }
+            check_for_interrupts!();
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
             if merge_result.is_err() {
                 break;
             }
+            check_for_interrupts!();
             if gc_after_merge {
                 garbage_collect_index(indexrel, current_xid, next_xid);
                 need_gc = false;

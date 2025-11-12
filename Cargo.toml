@@ -3,7 +3,7 @@ resolver = "2"
 members = ["pg_search", "tests", "tokenizers", "benchmarks", "macros"]
 
 [workspace.package]
-version = "0.19.5"
+version = "0.19.6"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -23,7 +23,7 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "cbda1a82649e65147e3778cba8cfdb27cf7312eb", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "d5a1844142607c5dbe8f485a1c08a60dc5178da0", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
@@ -33,4 +33,4 @@ pgrx-tests = "=0.15.0"
 tantivy-jieba = "0.11.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "cbda1a82649e65147e3778cba8cfdb27cf7312eb" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "d5a1844142607c5dbe8f485a1c08a60dc5178da0" }

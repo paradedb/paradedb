@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762924171483,
+  "lastUpdate": 1762924175712,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39658,6 +39658,66 @@ window.BENCHMARK_DATA = {
             "value": 83,
             "unit": "median segment_count",
             "extra": "avg segment_count: 84.81568009421218, max segment_count: 138.0, count: 57742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ea563bd4b0c7877092be2ca76fe0086baf5c794",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3536)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T23:38:37-05:00",
+          "tree_id": "e0683bf7f412f73ea026a347b322c6d3ed713179",
+          "url": "https://github.com/paradedb/paradedb/commit/2ea563bd4b0c7877092be2ca76fe0086baf5c794"
+        },
+        "date": 1762924173066,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.054754,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.11749713851092, max cpu: 42.899704, count: 57322"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.41469019039374, max mem: 230.67578125, count: 57322"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.302374617860266, max cpu: 33.23442, count: 57322"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.00612085019714, max mem: 168.69921875, count: 57322"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35550,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34284.068420501724, max block_count: 37395.0, count: 57322"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 83,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 85.18807787585918, max segment_count: 136.0, count: 57322"
           }
         ]
       }

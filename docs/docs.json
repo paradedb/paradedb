@@ -97,7 +97,6 @@
                           "v2/full-text/match",
                           "v2/full-text/phrase",
                           "v2/full-text/term",
-                          "v2/full-text/term-set",
                           "v2/full-text/fuzzy",
                           "v2/full-text/highlight",
                           "v2/full-text/proximity"
@@ -114,7 +113,26 @@
                       "v2/filtering",
                       {
                         "group": "Aggregates",
-                        "pages": ["v2/aggregates/overview"]
+                        "pages": [
+                          "v2/aggregates/overview",
+                          {
+                            "group": "Bucket",
+                            "pages": [
+                              "v2/aggregates/bucket/terms"
+                            ]
+                          },
+                          {
+                            "group": "Metrics",
+                            "pages": [
+                              "v2/aggregates/metrics/average",
+                              "v2/aggregates/metrics/count",
+                              "v2/aggregates/metrics/minmax",
+                              "v2/aggregates/metrics/sum"
+                            ]
+                          },
+                          "v2/aggregates/tuning",
+                          "v2/aggregates/limitations"
+                        ]
                       },
                       {
                         "group": "Advanced Query Functions",

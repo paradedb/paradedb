@@ -81,7 +81,7 @@ WHERE description ### 'shoes running'::pdb.slop(2);
 
 ## Using a Custom Tokenizer
 
-Like the [match](/v2/full-text/match#custom-query-tokenization) query, the phrase query supports custom query tokenization.
+The phrase query supports custom query tokenization.
 
 ```sql
 SELECT description, rating, category
@@ -89,7 +89,7 @@ FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
 ```
 
-## Using a Text Array
+## Using Pretokenized Text
 
 The phrase operator also accepts a text array as the right-hand side argument. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.

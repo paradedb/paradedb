@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762925894933,
+  "lastUpdate": 1762926725303,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -83208,6 +83208,54 @@ window.BENCHMARK_DATA = {
             "value": 87.89170553446749,
             "unit": "median tps",
             "extra": "avg tps: 94.5032215140631, max tps: 490.0030341325807, count: 107094"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ea563bd4b0c7877092be2ca76fe0086baf5c794",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3536)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T23:38:37-05:00",
+          "tree_id": "e0683bf7f412f73ea026a347b322c6d3ed713179",
+          "url": "https://github.com/paradedb/paradedb/commit/2ea563bd4b0c7877092be2ca76fe0086baf5c794"
+        },
+        "date": 1762926722581,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 151.18419889911326,
+            "unit": "median tps",
+            "extra": "avg tps: 196.8074696512904, max tps: 735.774548027272, count: 53586"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 170.90089750620336,
+            "unit": "median tps",
+            "extra": "avg tps: 225.62043274401853, max tps: 765.3829844526344, count: 53586"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 75.71342276898628,
+            "unit": "median tps",
+            "extra": "avg tps: 76.93127515126618, max tps: 94.45189607436286, count: 53586"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 87.95831711453519,
+            "unit": "median tps",
+            "extra": "avg tps: 94.88025938855196, max tps: 494.80912923393225, count: 107172"
           }
         ]
       }

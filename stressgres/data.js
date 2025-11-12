@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762925050049,
+  "lastUpdate": 1762925890313,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -66646,6 +66646,60 @@ window.BENCHMARK_DATA = {
             "value": 14.241150887566008,
             "unit": "median tps",
             "extra": "avg tps: 14.339749886534632, max tps: 20.841868947078368, count: 55540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ea563bd4b0c7877092be2ca76fe0086baf5c794",
+          "message": "fix: Don't default `target_segment_count` to 1 or 2 for machines with low CPU counts (#3536)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf `target_segment_count` is not explicitly set on a machine with a very\nlow CPU count, we should still have at least 4 segments so index\nbuild/reads can be parallelized.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T23:38:37-05:00",
+          "tree_id": "e0683bf7f412f73ea026a347b322c6d3ed713179",
+          "url": "https://github.com/paradedb/paradedb/commit/2ea563bd4b0c7877092be2ca76fe0086baf5c794"
+        },
+        "date": 1762925887626,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.574513076151064,
+            "unit": "median tps",
+            "extra": "avg tps: 31.432137098303542, max tps: 33.10052697662449, count: 55628"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 128.84323979399687,
+            "unit": "median tps",
+            "extra": "avg tps: 165.5280301093831, max tps: 2735.691266454141, count: 55628"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1943.3514588264516,
+            "unit": "median tps",
+            "extra": "avg tps: 1942.7137120561551, max tps: 2280.770377564869, count: 55628"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 169.5094148211051,
+            "unit": "median tps",
+            "extra": "avg tps: 159.8886938844557, max tps: 1727.4639373394539, count: 111256"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.530341987694792,
+            "unit": "median tps",
+            "extra": "avg tps: 14.612066857785976, max tps: 19.38316902447088, count: 55628"
           }
         ]
       }

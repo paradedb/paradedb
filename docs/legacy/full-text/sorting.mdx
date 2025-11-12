@@ -126,7 +126,7 @@ Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
 
 1. `ORDER BY` without a `LIMIT`.
 2. `ORDER BY` for [indexed expressions](https://www.postgresql.org/docs/current/indexes-expressional.html).
-   </Note>
+</Note>
 
 ## Partial Ordering with Multiple Sort Fields
 
@@ -181,4 +181,4 @@ Limitations for partial `ORDER BY` pushdown:
 1. Only the first sort field is pushed down to the BM25 index.
 2. The first sort field must be indexed as a fast field.
 3. A `LIMIT` clause is still required.
-   </Note>
+</Note>

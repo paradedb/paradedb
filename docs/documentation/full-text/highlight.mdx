@@ -58,17 +58,13 @@ WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-```csv
+```ini Expected Response
  id |                snippets
 ----+-----------------------------------------
  19 | {<b>Artistic</b>,"ceramic <b>vase</b>"}
 (1 row)
 
-Time: 10.614 ms
-
-````
-</Accordion>
+```
 
 <ParamField body="start_tag" default="<b>">
   The leading indicator around the highlighted region.
@@ -77,16 +73,19 @@ Time: 10.614 ms
   The trailing indicator around the highlighted region.
 </ParamField>
 <ParamField body="max_num_chars" default={150}>
-  Max number of characters for a highlighted snippet. When `max_num_chars` is small, multiple snippets may be generated for a single document.
+  Max number of characters for a highlighted snippet. When `max_num_chars` is
+  small, multiple snippets may be generated for a single document.
 </ParamField>
 <ParamField body="limit" default={5}>
   The maximum number of snippets to return per document.
 </ParamField>
 <ParamField body="offset" default={0}>
-  The number of snippets to skip before returning results. Use with `limit` for pagination.
+  The number of snippets to skip before returning results. Use with `limit` for
+  pagination.
 </ParamField>
 <ParamField body="sort_by" default="score">
-  The order in which to sort the snippets. Can be `'score'` (default, sorts by relevance) or `'position'` (sorts by appearance in the document).
+  The order in which to sort the snippets. Can be `'score'` (default, sorts by
+  relevance) or `'position'` (sorts by appearance in the document).
 </ParamField>
 
 ### Limiting and Offsetting Snippets
@@ -100,7 +99,7 @@ SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
 FROM mock_items
 WHERE description ||| 'running'
 LIMIT 5;
-````
+```
 
 To get the second snippet (by skipping the first one):
 
@@ -136,10 +135,11 @@ WHERE description ||| 'shoes'
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-  ```csv id | snippet | snippet_positions
-  ----+----------------------------+------------------- 3 | Sleek running{" "}
-  <b>shoes</b> | {"{14,19}"}4 | White jogging <b>shoes</b> | {"{14,19}"}5 |
-  Generic <b>shoes</b> | {"{8,13}"}
-  (3 rows) ```
-</Accordion>
+```ini Expected Response
+ id |          snippet           | snippet_positions
+----+----------------------------+-------------------
+  3 | Sleek running <b>shoes</b> | {"{14,19}"}
+  4 | White jogging <b>shoes</b> | {"{14,19}"}
+  5 | Generic <b>shoes</b>       | {"{8,13}"}
+(3 rows)
+```

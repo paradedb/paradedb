@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762905462748,
+  "lastUpdate": 1762906306987,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65974,6 +65974,60 @@ window.BENCHMARK_DATA = {
             "value": 14.28424978406437,
             "unit": "median tps",
             "extra": "avg tps: 14.467702903811869, max tps: 20.594509956724753, count: 55546"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "867b07e15de212c1039e6b7f1f5b457e9f5ff1d2",
+          "message": "fix: Account for mutable segment deletes in `ambulkdelete` (#3534)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our `ambulkdelete`, we wait out concurrent reads if any tuples were\ndeleted, so that the visibility map doesn't change underneath the reads.\n\nWe do this by checking if new segment meta entries were generated.\n\nHowever, deletes to mutable segments happen in place, they don't\ngenerate a new segment meta entry. As such we weren't accounting for\nthese deletes.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-11T18:11:44-05:00",
+          "tree_id": "28fef5abca666fa4cb806d9b1d23d6c2a7aa132c",
+          "url": "https://github.com/paradedb/paradedb/commit/867b07e15de212c1039e6b7f1f5b457e9f5ff1d2"
+        },
+        "date": 1762906304020,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.43050973019581,
+            "unit": "median tps",
+            "extra": "avg tps: 30.213692180587238, max tps: 34.045422304103205, count: 55540"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.69095488454832,
+            "unit": "median tps",
+            "extra": "avg tps: 262.90461882667995, max tps: 2808.1523090203127, count: 55540"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1973.1286814214732,
+            "unit": "median tps",
+            "extra": "avg tps: 1960.3387673362533, max tps: 2495.0894661491366, count: 55540"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 180.5054548169757,
+            "unit": "median tps",
+            "extra": "avg tps: 206.47235702046422, max tps: 1651.6750210127834, count: 111080"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.241150887566008,
+            "unit": "median tps",
+            "extra": "avg tps: 14.339749886534632, max tps: 20.841868947078368, count: 55540"
           }
         ]
       }

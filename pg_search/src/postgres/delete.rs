@@ -417,7 +417,6 @@ mod tests {
     }
 
     #[cfg_attr(feature = "pg_test", pg_test)]
-    #[cfg_attr(not(feature = "pg_test"), test)]
     fn signal_background_merge_rejects_invalid_pid() {
         let _guard = TEST_GUARD.lock().unwrap();
         SEND_CALLED.store(false, Ordering::SeqCst);
@@ -426,7 +425,6 @@ mod tests {
     }
 
     #[cfg_attr(feature = "pg_test", pg_test)]
-    #[cfg_attr(not(feature = "pg_test"), test)]
     fn signal_background_merge_impl_handles_missing_proc() {
         let _guard = TEST_GUARD.lock().unwrap();
         SEND_CALLED.store(false, Ordering::SeqCst);
@@ -438,7 +436,6 @@ mod tests {
     }
 
     #[cfg_attr(feature = "pg_test", pg_test)]
-    #[cfg_attr(not(feature = "pg_test"), test)]
     fn signal_background_merge_impl_skips_foreground_workers() {
         let _guard = TEST_GUARD.lock().unwrap();
         SEND_CALLED.store(false, Ordering::SeqCst);
@@ -453,7 +450,6 @@ mod tests {
     }
 
     #[cfg_attr(feature = "pg_test", pg_test)]
-    #[cfg_attr(not(feature = "pg_test"), test)]
     fn signal_background_merge_impl_signals_background_workers() {
         let _guard = TEST_GUARD.lock().unwrap();
         SEND_CALLED.store(false, Ordering::SeqCst);
@@ -471,7 +467,6 @@ mod tests {
     }
 
     #[cfg_attr(feature = "pg_test", pg_test)]
-    #[cfg_attr(not(feature = "pg_test"), test)]
     fn signal_background_merge_impl_reports_signal_failures() {
         let _guard = TEST_GUARD.lock().unwrap();
         SEND_CALLED.store(false, Ordering::SeqCst);

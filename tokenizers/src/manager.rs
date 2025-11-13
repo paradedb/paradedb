@@ -25,6 +25,7 @@ use crate::{
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
+    token_whitespace::TokenWhitespaceFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
 
@@ -50,6 +51,7 @@ pub struct SearchTokenizerFilters {
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
+    pub remove_whitespace: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
 }
 
@@ -69,6 +71,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
+            remove_whitespace: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -83,6 +86,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
+            remove_whitespace: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -141,6 +145,14 @@ impl SearchTokenizerFilters {
         if let Some(ascii_folding) = value.get("ascii_folding") {
             filters.ascii_folding = Some(ascii_folding.as_bool().ok_or_else(|| {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
+            })?);
+        }
+        if let Some(remove_whitespace) = value.get("remove_whitespace") {
+            filters.remove_whitespace = Some(remove_whitespace.as_bool().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'remove_whitespace' value passed to the pg_search tokenizer configuration \
+                     must be of type bool, found: {remove_whitespace:#?}"
+                )
             })?);
         }
 
@@ -248,6 +260,13 @@ impl SearchTokenizerFilters {
         }
     }
 
+    fn whitespace_filter(&self) -> Option<TokenWhitespaceFilter> {
+        match self.remove_whitespace {
+            Some(true) => Some(TokenWhitespaceFilter::new()), // Only enable if explicitly requested.
+            _ => None,
+        }
+    }
+
     fn normalizer(&self) -> Option<SearchNormalizer> {
         self.normalizer
     }
@@ -257,6 +276,7 @@ macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
+            .filter($filters.whitespace_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
@@ -659,6 +679,7 @@ mod tests {
                     stopwords_language: None,
                     stopwords: None,
                     ascii_folding: None,
+                    remove_whitespace: None,
                     normalizer: None,
                     alpha_num_only: None,
                 }
@@ -683,6 +704,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
+                remove_whitespace: None,
                 normalizer: None,
                 alpha_num_only: None,
             },
@@ -727,6 +749,7 @@ mod tests {
                     "公园".to_string()
                 ]),
                 ascii_folding: None,
+                remove_whitespace: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -779,6 +802,7 @@ mod tests {
                 stopwords_language: Some(Language::English),
                 stopwords: None,
                 ascii_folding: None,
+                remove_whitespace: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -805,5 +829,163 @@ mod tests {
         assert!(tokens.contains(&"library".to_string()));
         assert!(tokens.contains(&"读书".to_string()));
         assert!(tokens.contains(&"learning".to_string()));
+    }
+
+    #[rstest]
+    fn test_jieba_tokenizer_with_whitespace_filter() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Jieba tokenizer with whitespace filter
+        let json = r#"{
+            "type": "jieba",
+            "remove_whitespace": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: None,
+                stopwords: None,
+                ascii_folding: None,
+                remove_whitespace: Some(true),
+                normalizer: None,
+                alpha_num_only: None,
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing text with spaces (which Jieba may produce as separate tokens)
+        let text = "富裕 劳动力";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that space tokens are filtered out
+        assert!(!tokens.contains(&" ".to_string()));
+        assert!(!tokens.iter().any(|t| t.trim().is_empty()));
+
+        // Verify that content words are still present
+        assert!(tokens.contains(&"富裕".to_string()));
+        assert!(tokens.contains(&"劳动".to_string()) || tokens.contains(&"劳动力".to_string()));
+    }
+
+    #[rstest]
+    fn test_korean_lindera_tokenizer_with_whitespace_filter() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Korean Lindera tokenizer with whitespace filter
+        let json = r#"{
+            "type": "korean_lindera",
+            "remove_whitespace": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::KoreanLindera(SearchTokenizerFilters {
+                remove_short: None,
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: None,
+                stopwords: None,
+                ascii_folding: None,
+                remove_whitespace: Some(true),
+                normalizer: None,
+                alpha_num_only: None,
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing Korean text with spaces
+        // "아름다운 우리나라" (Beautiful our country)
+        let text = "아름다운 우리나라";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that space tokens are filtered out
+        assert!(!tokens.contains(&" ".to_string()));
+        assert!(!tokens.iter().any(|t| t.trim().is_empty()));
+
+        // Verify that Korean words are still present
+        assert!(tokens.len() > 0);
+    }
+
+    #[rstest]
+    fn test_whitespace_filter_with_multiple_tokenizers() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test that whitespace filter works across different tokenizers
+
+        // Test 1: Chinese Lindera tokenizer with whitespace filter
+        let json_lindera = r#"{
+            "type": "chinese_lindera",
+            "remove_whitespace": true
+        }"#;
+
+        let tokenizer_lindera =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_lindera).unwrap())
+                .unwrap();
+        let mut analyzer_lindera = tokenizer_lindera.to_tantivy_tokenizer().unwrap();
+
+        let text_lindera = "富裕 劳动力";
+        let mut token_stream_lindera = analyzer_lindera.token_stream(text_lindera);
+
+        let mut tokens_lindera = Vec::new();
+        while token_stream_lindera.advance() {
+            let token = token_stream_lindera.token();
+            tokens_lindera.push(token.text.clone());
+        }
+
+        // Verify no whitespace tokens
+        assert!(!tokens_lindera.contains(&" ".to_string()));
+        assert!(!tokens_lindera.iter().any(|t| t.trim().is_empty()));
+        assert!(tokens_lindera.len() > 0);
+
+        // Test 2: Chinese Compatible tokenizer with whitespace filter
+        let json_chinese = r#"{
+            "type": "chinese_compatible",
+            "remove_whitespace": true
+        }"#;
+
+        let tokenizer_chinese =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_chinese).unwrap())
+                .unwrap();
+        let mut analyzer_chinese = tokenizer_chinese.to_tantivy_tokenizer().unwrap();
+
+        let text_chinese = "中文 测试 文本";
+        let mut token_stream_chinese = analyzer_chinese.token_stream(text_chinese);
+
+        let mut tokens_chinese = Vec::new();
+        while token_stream_chinese.advance() {
+            let token = token_stream_chinese.token();
+            tokens_chinese.push(token.text.clone());
+        }
+
+        // Verify no whitespace tokens
+        assert!(!tokens_chinese.contains(&" ".to_string()));
+        assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
     }
 }

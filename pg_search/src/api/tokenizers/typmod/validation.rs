@@ -207,6 +207,7 @@ impl TypmodSchema {
                 rule!("stopwords", ValueConstraint::String),
                 rule!("alpha_num_only", ValueConstraint::Boolean),
                 rule!("ascii_folding", ValueConstraint::Boolean),
+                rule!("remove_whitespace", ValueConstraint::Boolean),
                 rule!(
                     "normalizer",
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])

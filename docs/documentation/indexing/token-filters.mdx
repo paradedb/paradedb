@@ -113,3 +113,38 @@ WITH (
     }'
 );
 ```
+
+## Remove Whitespace
+
+The `remove_whitespace` filter removes tokens that consist entirely of whitespace characters (spaces, tabs, newlines, etc.). This is particularly useful for tokenizers like Jieba and Lindera that may produce whitespace-only tokens.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "jieba", "remove_whitespace": true}}
+    }'
+);
+```
+
+The filter works with all tokenizers. Here are some examples:
+
+```sql
+-- With Jieba (Chinese)
+SELECT '富裕 劳动力'::pdb.jieba('remove_whitespace=true')::text[];
+-- Returns: {富裕,劳动,动力,劳动力} (no space token)
+
+-- With Lindera (Chinese)
+SELECT '富裕 劳动力'::pdb.lindera('chinese', 'remove_whitespace=true')::text[];
+-- Returns: {富裕,劳动力} (no space token)
+
+-- With Lindera (Korean)
+SELECT '아름다운 우리나라'::pdb.lindera('korean', 'remove_whitespace=true')::text[];
+-- Returns Korean tokens without spaces
+```
+
+<Note>
+  The `remove_whitespace` filter detects all Unicode whitespace characters, not just spaces. This includes tabs, newlines, and other Unicode whitespace as defined by the Unicode standard.
+</Note>

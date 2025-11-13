@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1762991785417,
+  "lastUpdate": 1763060440801,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9628,6 +9628,72 @@ window.BENCHMARK_DATA = {
             "value": 37.77004803313052,
             "unit": "median tps",
             "extra": "avg tps: 43.78309983755335, max tps: 290.60505813602623, count: 55488"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5489b415067cb81d29310ca0ede95d069a922941",
+          "message": "perf: GUC to disable `_doc_count` from aggregates (#3547)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe add a `_doc_count` to every non-term aggregate in order to deliver\nconsistent results vs. Postgres for null aggregate values, ie \"give me\nthe sum of an empty table.\" This is useful for our proptests that\ncompare Postgres vs. our values, but hurts performance over large\ntables.\n\nIntroduces a GUC that disables this behavior by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-13T13:44:02-05:00",
+          "tree_id": "b2dd3ba06a40f183306966610903d00eea36752a",
+          "url": "https://github.com/paradedb/paradedb/commit/5489b415067cb81d29310ca0ede95d069a922941"
+        },
+        "date": 1763060438024,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 146.61811595755253,
+            "unit": "median tps",
+            "extra": "avg tps: 161.90718251783963, max tps: 599.5598271572942, count: 55548"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3314.9815190984136,
+            "unit": "median tps",
+            "extra": "avg tps: 3276.02114959364, max tps: 3325.399047773648, count: 55548"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 142.41261090391652,
+            "unit": "median tps",
+            "extra": "avg tps: 158.01661948892826, max tps: 645.1084330509693, count: 55548"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 124.68781922814419,
+            "unit": "median tps",
+            "extra": "avg tps: 136.25088562648278, max tps: 446.40284126480407, count: 55548"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3438.792319557243,
+            "unit": "median tps",
+            "extra": "avg tps: 3416.978812811735, max tps: 3454.0124477296235, count: 111096"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2185.5812123434225,
+            "unit": "median tps",
+            "extra": "avg tps: 2169.742379462408, max tps: 2190.6700628153285, count: 55548"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.63201767877219,
+            "unit": "median tps",
+            "extra": "avg tps: 73.92762296136894, max tps: 999.7710524289937, count: 55548"
           }
         ]
       }

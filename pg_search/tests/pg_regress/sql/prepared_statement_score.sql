@@ -117,4 +117,73 @@ EXECUTE search_pdb('keyboard', 0);
 EXECUTE search_pdb('keyboard', 0);
 DEALLOCATE search_pdb;
 
+-- Test 5: Verify filter conditions are actually applied in generic plans
+-- This tests that $2 = 0 is properly evaluated, not just ignored
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE test_filter(text, int) AS
+SELECT
+  id,
+  description,
+  pdb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1
+AND $2 = 0
+ORDER BY score DESC
+LIMIT 10;
+
+-- When $2 = 0, should return results
+EXPLAIN (COSTS OFF)
+EXECUTE test_filter('shoes', 0);
+
+EXECUTE test_filter('shoes', 0);
+
+-- When $2 = 1, should return NO results (filter condition fails)
+EXPLAIN (COSTS OFF)
+EXECUTE test_filter('shoes', 1);
+
+EXECUTE test_filter('shoes', 1);
+
+-- When $2 = 0 again, should return results
+EXPLAIN (COSTS OFF)
+EXECUTE test_filter('keyboard', 0);
+
+EXECUTE test_filter('keyboard', 0);
+
+DEALLOCATE test_filter;
+
+-- Test 6: More complex filter with multiple parameters
+PREPARE test_complex(text, int, int) AS
+SELECT
+  id,
+  description,
+  rating,
+  pdb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1
+AND rating > $2
+AND $3 = 0
+ORDER BY score DESC
+LIMIT 10;
+
+-- Should return shoes with rating > 3
+EXPLAIN (COSTS OFF)
+EXECUTE test_complex('shoes', 3, 0);
+
+EXECUTE test_complex('shoes', 3, 0);
+
+-- Should return NO results (filter $3 = 1 fails)
+EXPLAIN (COSTS OFF)
+EXECUTE test_complex('shoes', 3, 1);
+
+EXECUTE test_complex('shoes', 3, 1);
+
+-- Should return shoes with rating > 2
+EXPLAIN (COSTS OFF)
+EXECUTE test_complex('shoes', 2, 0);
+
+EXECUTE test_complex('shoes', 2, 0);
+
+DEALLOCATE test_complex;
+
 \i common/common_cleanup.sql

@@ -223,14 +223,61 @@ EXECUTE search_pdb('keyboard', 0);
 (2 rows)
 
 DEALLOCATE search_pdb;
-\i common/common_cleanup.sql
--- Reset parallel workers setting to default
-RESET max_parallel_workers_per_gather;
-RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
-SELECT 'Common tests cleanup complete' AS status; 
-            status             
--------------------------------
- Common tests cleanup complete
-(1 row)
+-- Test 5: Verify filter conditions are actually applied in generic plans
+-- This tests that $2 = 0 is properly evaluated, not just ignored
+SET plan_cache_mode = force_generic_plan;
+PREPARE test_filter(text, int) AS
+SELECT
+  id,
+  description,
+  pdb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1
+AND $2 = 0
+ORDER BY score DESC
+LIMIT 10;
+-- When $2 = 0, should return results
+EXPLAIN (COSTS OFF)
+EXECUTE test_filter('shoes', 0);
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(id)) DESC
+         ->  Result
+               One-Time Filter: ($2 = 0)
+               ->  Bitmap Heap Scan on mock_items
+                     Recheck Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+                     ->  Bitmap Index Scan on search_idx
+                           Index Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+(9 rows)
 
+EXECUTE test_filter('shoes', 0);
+ id |     description     | score 
+----+---------------------+-------
+  3 | Sleek running shoes |      
+  4 | White jogging shoes |      
+  5 | Generic shoes       |      
+(3 rows)
+
+-- When $2 = 1, should return NO results (filter condition fails)
+EXPLAIN (COSTS OFF)
+EXECUTE test_filter('shoes', 1);
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(id)) DESC
+         ->  Result
+               One-Time Filter: ($2 = 0)
+               ->  Bitmap Heap Scan on mock_items
+                     Recheck Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+                     ->  Bitmap Index Scan on search_idx
+                           Index Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+(9 rows)
+
+EXECUTE test_filter('shoes', 1);
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+connection to server was lost

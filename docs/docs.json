@@ -129,9 +129,13 @@
                             "group": "Metrics",
                             "pages": [
                               "documentation/aggregates/metrics/average",
+                              "documentation/aggregates/metrics/cardinality",
                               "documentation/aggregates/metrics/count",
                               "documentation/aggregates/metrics/minmax",
-                              "documentation/aggregates/metrics/sum"
+                              "documentation/aggregates/metrics/percentiles",
+                              "documentation/aggregates/metrics/stats",
+                              "documentation/aggregates/metrics/sum",
+                              "documentation/aggregates/metrics/top_hits"
                             ]
                           },
                           "documentation/aggregates/tuning",

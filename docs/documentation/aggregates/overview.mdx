@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/overview
 The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. It executes the aggregate using the
 [columnar](/welcome/architecture#columnar-index) portion of the ParadeDB index, which can significantly accelerate performance compared to vanilla Postgres.
 
-For example, the following query returns the total number of results for a search query.
+For example, the following query counts the total number of results for a search query.
 
 ```sql
 SELECT pdb.agg('{"value_count": {"field": "id"}}')
@@ -45,15 +45,9 @@ LIMIT 5;
 Please see the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html)
 for details on how to construct these JSON request strings.
 
-## JSON Fields
-
-If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
-
-```sql
-SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
-FROM mock_items
-WHERE id @@@ pdb.all();
-```
+<Note>
+If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer.
+</Note>
 
 ## Faceted Queries
 
@@ -63,6 +57,8 @@ results, and also the count of the total number of results."
 Instead of issuing two separate queries -- one for the search results, and another for the aggregate -- `pdb.agg` allows for
 these results to be returned in a single "faceted" query. This can significantly improve read throughput, since issuing a single
 query decreases CPU usage.
+
+For example, this query returns the top 3 search results alongside the total number of results found.
 
 ```sql
 SELECT
@@ -83,4 +79,35 @@ LIMIT 3;
 (3 rows)
 ```
 
-Note how this query returned the top 3 results, in addition to the total number of results found.
+<Note>
+Faceted queries require that `pdb.agg` be used as a window function: `pdb.agg() OVER ()`.
+</Note>
+
+## Multiple Aggregations
+
+To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
+
+```sql
+SELECT
+  pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
+  pdb.agg('{"value_count": {"field": "id"}}') AS count
+FROM mock_items
+WHERE category === 'electronics';
+```
+
+```ini Expected Response
+   avg_rating   |     count
+----------------+----------------
+ {"value": 4.0} | {"value": 5.0}
+(1 row)
+```
+
+## JSON Fields
+
+If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
+
+```sql
+SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```

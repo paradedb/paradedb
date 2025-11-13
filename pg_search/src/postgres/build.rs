@@ -74,6 +74,18 @@ pub extern "C-unwind" fn ambuild(
         )
         .unwrap_or_else(|e| panic!("{e}"));
 
+        // Warn if indexing a large number of rows with potentially insufficient maintenance_work_mem
+        if heap_tuples > 100_000.0 {
+            let work_mem_kb = pg_sys::maintenance_work_mem;
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_WARNING,
+                format!("indexing {} rows with maintenance_work_mem set to {}MB", heap_tuples, work_mem_kb / 1024),
+                function_name!(),
+            )
+                .set_hint("Consider increasing maintenance_work_mem for faster index creation, especially during the WAL writing phase")
+                .report(PgLogLevel::WARNING);
+        }
+
         pgrx::debug1!("build_index: flushing buffers");
         pg_sys::FlushRelationBuffers(indexrel);
 

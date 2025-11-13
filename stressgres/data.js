@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763060440801,
+  "lastUpdate": 1763060445073,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27208,6 +27208,126 @@ window.BENCHMARK_DATA = {
             "value": 42.0234375,
             "unit": "median mem",
             "extra": "avg mem: 42.054332341564844, max mem: 50.5078125, count: 55488"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5489b415067cb81d29310ca0ede95d069a922941",
+          "message": "perf: GUC to disable `_doc_count` from aggregates (#3547)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe add a `_doc_count` to every non-term aggregate in order to deliver\nconsistent results vs. Postgres for null aggregate values, ie \"give me\nthe sum of an empty table.\" This is useful for our proptests that\ncompare Postgres vs. our values, but hurts performance over large\ntables.\n\nIntroduces a GUC that disables this behavior by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-13T13:44:02-05:00",
+          "tree_id": "b2dd3ba06a40f183306966610903d00eea36752a",
+          "url": "https://github.com/paradedb/paradedb/commit/5489b415067cb81d29310ca0ede95d069a922941"
+        },
+        "date": 1763060442427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 9.533267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.643827050990804, max cpu: 33.23442, count: 55548"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 50.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.38492462318625, max mem: 59.3359375, count: 55548"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6266339620797154, max cpu: 9.320388, count: 55548"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.95719946037661, max mem: 28.86328125, count: 55548"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.025771155640678, max cpu: 37.684006, count: 55548"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 51.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.60068677933949, max mem: 58.05078125, count: 55548"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.209377748034384, max cpu: 14.035088, count: 55548"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 48.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.66297813377619, max mem: 58.17578125, count: 55548"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6997755641825085, max cpu: 9.486166, count: 111096"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 35.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.9717761342105, max mem: 45.796875, count: 111096"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1435,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1426.5264816014978, max block_count: 2439.0, count: 55548"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.310578238640456, max segment_count: 49.0, count: 55548"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671135455909592, max cpu: 9.338522, count: 55548"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 39.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 39.19744389143173, max mem: 48.52734375, count: 55548"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.441624847546947, max cpu: 9.467456, count: 55548"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 42.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.46716557358051, max mem: 52.046875, count: 55548"
           }
         ]
       }

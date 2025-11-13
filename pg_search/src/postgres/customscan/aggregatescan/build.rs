@@ -154,16 +154,18 @@ impl CollectAggregations for AggregateCSClause {
                 })
                 .collect::<Aggregations>();
 
-            aggs.insert(
-                DocCountKey::NAME.to_string(),
-                Aggregation {
-                    agg: AggregationVariants::Count(CountAggregation {
-                        field: "ctid".to_string(),
-                        missing: None,
-                    }),
-                    sub_aggregation: Aggregations::new(),
-                },
-            );
+            if gucs::add_doc_count_to_aggs() {
+                aggs.insert(
+                    DocCountKey::NAME.to_string(),
+                    Aggregation {
+                        agg: AggregationVariants::Count(CountAggregation {
+                            field: "ctid".to_string(),
+                            missing: None,
+                        }),
+                        sub_aggregation: Aggregations::new(),
+                    },
+                );
+            }
 
             aggs
         } else {

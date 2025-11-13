@@ -90,8 +90,6 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
-// TODO: Remove this GUC once background merge tests are passing and only unit tests remain
-static BACKGROUND_MERGE_DELAY_MS: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -260,18 +258,6 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-
-    // TODO: Remove this GUC once background merge tests are passing
-    GucRegistry::define_int_guc(
-        c"paradedb.background_merge_delay_ms",
-        c"Delay each background merge candidate by N milliseconds (testing only - will be removed)",
-        c"Temporary GUC for regression tests to keep background merges running long enough to validate cancellation behavior. Will be removed once tests are stable.",
-        &BACKGROUND_MERGE_DELAY_MS,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -326,10 +312,6 @@ pub fn global_target_segment_count() -> i32 {
 
 pub fn global_enable_background_merging() -> bool {
     GLOBAL_ENABLE_BACKGROUND_MERGING.get()
-}
-
-pub fn background_merge_delay_ms() -> i32 {
-    BACKGROUND_MERGE_DELAY_MS.get()
 }
 
 // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed

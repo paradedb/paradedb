@@ -1,7 +1,7 @@
 \i common/common_setup.sql
 
 -- keep background merges alive long enough to verify cancellation
-SET paradedb.background_merge_delay_ms = 5000;
+SELECT paradedb.__set_background_merge_delay_ms(5000);
 SET client_min_messages = 'WARNING';
 
 DROP TABLE IF EXISTS bgmerge_cancel CASCADE;
@@ -46,7 +46,7 @@ VACUUM (INDEX_CLEANUP ON) bgmerge_cancel;
 SELECT count(*) = 0 AS merges_after_vacuum
 FROM paradedb.merge_info('bgmerge_cancel_idx'::regclass);
 
-RESET paradedb.background_merge_delay_ms;
+SELECT paradedb.__set_background_merge_delay_ms(0);
 DROP TABLE bgmerge_cancel;
 
 \i common/common_cleanup.sql

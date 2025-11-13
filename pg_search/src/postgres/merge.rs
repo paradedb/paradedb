@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
@@ -28,10 +27,14 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
+#[cfg(any(test, feature = "pg_test"))]
+use pgrx::pg_extern;
 use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
+#[cfg(any(test, feature = "pg_test"))]
+use std::sync::atomic::{AtomicI32, Ordering};
 use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +75,26 @@ impl BackgroundMergeArgs {
     pub fn blockno(&self) -> pg_sys::BlockNumber {
         self.blockno
     }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+static BACKGROUND_MERGE_DELAY_MS: AtomicI32 = AtomicI32::new(0);
+
+fn background_merge_delay_ms() -> i32 {
+    #[cfg(any(test, feature = "pg_test"))]
+    {
+        BACKGROUND_MERGE_DELAY_MS.load(Ordering::SeqCst)
+    }
+    #[cfg(not(any(test, feature = "pg_test")))]
+    {
+        0
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pg_extern(name = "__set_background_merge_delay_ms")]
+fn set_background_merge_delay_ms(delay_ms: i32) {
+    BACKGROUND_MERGE_DELAY_MS.store(delay_ms.max(0), Ordering::SeqCst);
 }
 
 impl IntoDatum for BackgroundMergeArgs {
@@ -406,7 +429,7 @@ unsafe fn merge_index(
 
         for candidate in merge_candidates {
             if gc_after_merge {
-                let delay_ms = gucs::background_merge_delay_ms();
+                let delay_ms = background_merge_delay_ms();
                 if delay_ms > 0 {
                     unsafe {
                         pg_sys::pg_usleep(delay_ms as i64 * 1000);

@@ -17,64 +17,69 @@
 
 use tantivy::tokenizer::{Token, TokenFilter, TokenStream, Tokenizer};
 
-/// `TokenWhitespaceFilter` removes tokens that consist entirely of whitespace characters.
-/// This is useful for tokenizers like Jieba that may produce whitespace-only tokens.
+/// `TokenTrimFilter` trims leading and trailing whitespace from each token.
+/// After trimming, tokens that become empty are filtered out.
+/// This matches the behavior of Elasticsearch's trim token filter.
 #[derive(Clone)]
-pub struct TokenWhitespaceFilter;
+pub struct TokenTrimFilter;
 
-impl TokenWhitespaceFilter {
-    /// Creates a `TokenWhitespaceFilter`.
-    pub fn new() -> TokenWhitespaceFilter {
-        TokenWhitespaceFilter
+impl TokenTrimFilter {
+    /// Creates a `TokenTrimFilter`.
+    pub fn new() -> TokenTrimFilter {
+        TokenTrimFilter
     }
 }
 
-impl Default for TokenWhitespaceFilter {
+impl Default for TokenTrimFilter {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> TokenWhitespaceFilterStream<T> {
-    fn predicate(&self, token: &Token) -> bool {
-        // Return false if the token is entirely whitespace, true otherwise
-        !token.text.chars().all(|c| c.is_whitespace())
-    }
-}
+impl TokenFilter for TokenTrimFilter {
+    type Tokenizer<T: Tokenizer> = TokenTrimFilterWrapper<T>;
 
-impl TokenFilter for TokenWhitespaceFilter {
-    type Tokenizer<T: Tokenizer> = TokenWhitespaceFilterWrapper<T>;
-
-    fn transform<T: Tokenizer>(self, tokenizer: T) -> TokenWhitespaceFilterWrapper<T> {
-        TokenWhitespaceFilterWrapper { inner: tokenizer }
+    fn transform<T: Tokenizer>(self, tokenizer: T) -> TokenTrimFilterWrapper<T> {
+        TokenTrimFilterWrapper { inner: tokenizer }
     }
 }
 
 #[derive(Clone)]
-pub struct TokenWhitespaceFilterWrapper<T: Tokenizer> {
+pub struct TokenTrimFilterWrapper<T: Tokenizer> {
     inner: T,
 }
 
-impl<T: Tokenizer> Tokenizer for TokenWhitespaceFilterWrapper<T> {
-    type TokenStream<'a> = TokenWhitespaceFilterStream<T::TokenStream<'a>>;
+impl<T: Tokenizer> Tokenizer for TokenTrimFilterWrapper<T> {
+    type TokenStream<'a> = TokenTrimFilterStream<T::TokenStream<'a>>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
-        TokenWhitespaceFilterStream {
+        TokenTrimFilterStream {
             tail: self.inner.token_stream(text),
         }
     }
 }
 
-pub struct TokenWhitespaceFilterStream<T> {
+pub struct TokenTrimFilterStream<T> {
     tail: T,
 }
 
-impl<T: TokenStream> TokenStream for TokenWhitespaceFilterStream<T> {
+impl<T: TokenStream> TokenStream for TokenTrimFilterStream<T> {
     fn advance(&mut self) -> bool {
         while self.tail.advance() {
-            if self.predicate(self.tail.token()) {
+            // Trim the token text
+            let token = self.tail.token_mut();
+            let trimmed = token.text.trim();
+
+            // If the token is not empty after trimming, update it and return
+            if !trimmed.is_empty() {
+                // Only update the text if it actually changed
+                if trimmed != token.text {
+                    token.text.clear();
+                    token.text.push_str(trimmed);
+                }
                 return true;
             }
+            // Otherwise, skip this token and continue to the next one
         }
         false
     }
@@ -90,13 +95,13 @@ impl<T: TokenStream> TokenStream for TokenWhitespaceFilterStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::TokenWhitespaceFilter;
+    use super::TokenTrimFilter;
     use tantivy::tokenizer::{SimpleTokenizer, TextAnalyzer, Token};
 
     #[test]
-    fn test_whitespace_filter_removes_space() {
+    fn test_trim_filter_basic() {
         let tokens = token_stream_helper("hello world");
-        // SimpleTokenizer splits on whitespace, so no space token should appear
+        // SimpleTokenizer splits on whitespace, so tokens should be clean
         let expected_tokens = vec![
             Token {
                 offset_from: 0,
@@ -117,17 +122,16 @@ mod tests {
     }
 
     #[test]
-    fn test_whitespace_filter_removes_tabs_and_newlines() {
-        // This tests that various whitespace characters would be filtered
-        // Note: SimpleTokenizer already splits on whitespace, so this is more
-        // relevant for tokenizers like Jieba that might produce whitespace tokens
+    fn test_trim_filter_removes_empty_after_trim() {
+        // Test that tokens that are only whitespace get removed after trimming
         let tokens = token_stream_helper("hello\tworld\ntest");
         assert!(tokens.iter().all(|t| !t.text.trim().is_empty()));
+        assert!(tokens.iter().all(|t| t.text == t.text.trim()));
     }
 
     fn token_stream_helper(text: &str) -> Vec<Token> {
         let mut a = TextAnalyzer::builder(SimpleTokenizer::default())
-            .filter(TokenWhitespaceFilter::new())
+            .filter(TokenTrimFilter::new())
             .build();
         let mut token_stream = a.token_stream(text);
         let mut tokens: Vec<Token> = vec![];

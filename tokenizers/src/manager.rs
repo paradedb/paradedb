@@ -25,7 +25,7 @@ use crate::{
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
-    token_whitespace::TokenWhitespaceFilter,
+    token_trim::TokenTrimFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
 
@@ -51,7 +51,7 @@ pub struct SearchTokenizerFilters {
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
-    pub remove_whitespace: Option<bool>,
+    pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
 }
 
@@ -71,7 +71,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
-            remove_whitespace: None,
+            trim: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -86,7 +86,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
-            remove_whitespace: None,
+            trim: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -147,11 +147,11 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
             })?);
         }
-        if let Some(remove_whitespace) = value.get("remove_whitespace") {
-            filters.remove_whitespace = Some(remove_whitespace.as_bool().ok_or_else(|| {
+        if let Some(trim) = value.get("trim") {
+            filters.trim = Some(trim.as_bool().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "a 'remove_whitespace' value passed to the pg_search tokenizer configuration \
-                     must be of type bool, found: {remove_whitespace:#?}"
+                    "a 'trim' value passed to the pg_search tokenizer configuration \
+                     must be of type bool, found: {trim:#?}"
                 )
             })?);
         }
@@ -260,9 +260,9 @@ impl SearchTokenizerFilters {
         }
     }
 
-    fn whitespace_filter(&self) -> Option<TokenWhitespaceFilter> {
-        match self.remove_whitespace {
-            Some(true) => Some(TokenWhitespaceFilter::new()), // Only enable if explicitly requested.
+    fn trim_filter(&self) -> Option<TokenTrimFilter> {
+        match self.trim {
+            Some(true) => Some(TokenTrimFilter::new()), // Only enable if explicitly requested.
             _ => None,
         }
     }
@@ -276,7 +276,7 @@ macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
-            .filter($filters.whitespace_filter())
+            .filter($filters.trim_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
@@ -679,7 +679,7 @@ mod tests {
                     stopwords_language: None,
                     stopwords: None,
                     ascii_folding: None,
-                    remove_whitespace: None,
+                    trim: None,
                     normalizer: None,
                     alpha_num_only: None,
                 }
@@ -704,7 +704,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
-                remove_whitespace: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             },
@@ -749,7 +749,7 @@ mod tests {
                     "公园".to_string()
                 ]),
                 ascii_folding: None,
-                remove_whitespace: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -802,7 +802,7 @@ mod tests {
                 stopwords_language: Some(Language::English),
                 stopwords: None,
                 ascii_folding: None,
-                remove_whitespace: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -832,13 +832,13 @@ mod tests {
     }
 
     #[rstest]
-    fn test_jieba_tokenizer_with_whitespace_filter() {
+    fn test_jieba_tokenizer_with_trim_filter() {
         use tantivy::tokenizer::TokenStream;
 
-        // Test Jieba tokenizer with whitespace filter
+        // Test Jieba tokenizer with trim filter
         let json = r#"{
             "type": "jieba",
-            "remove_whitespace": true
+            "trim": true
         }"#;
 
         let tokenizer =
@@ -854,7 +854,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
-                remove_whitespace: Some(true),
+                trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -883,13 +883,13 @@ mod tests {
     }
 
     #[rstest]
-    fn test_korean_lindera_tokenizer_with_whitespace_filter() {
+    fn test_korean_lindera_tokenizer_with_trim_filter() {
         use tantivy::tokenizer::TokenStream;
 
-        // Test Korean Lindera tokenizer with whitespace filter
+        // Test Korean Lindera tokenizer with trim filter
         let json = r#"{
             "type": "korean_lindera",
-            "remove_whitespace": true
+            "trim": true
         }"#;
 
         let tokenizer =
@@ -905,7 +905,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
-                remove_whitespace: Some(true),
+                trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -934,15 +934,15 @@ mod tests {
     }
 
     #[rstest]
-    fn test_whitespace_filter_with_multiple_tokenizers() {
+    fn test_trim_filter_with_multiple_tokenizers() {
         use tantivy::tokenizer::TokenStream;
 
-        // Test that whitespace filter works across different tokenizers
+        // Test that trim filter works across different tokenizers
 
-        // Test 1: Chinese Lindera tokenizer with whitespace filter
+        // Test 1: Chinese Lindera tokenizer with trim filter
         let json_lindera = r#"{
             "type": "chinese_lindera",
-            "remove_whitespace": true
+            "trim": true
         }"#;
 
         let tokenizer_lindera =
@@ -963,10 +963,10 @@ mod tests {
         assert!(!tokens_lindera.iter().any(|t| t.trim().is_empty()));
         assert!(!tokens_lindera.is_empty());
 
-        // Test 2: Chinese Compatible tokenizer with whitespace filter
+        // Test 2: Chinese Compatible tokenizer with trim filter
         let json_chinese = r#"{
             "type": "chinese_compatible",
-            "remove_whitespace": true
+            "trim": true
         }"#;
 
         let tokenizer_chinese =

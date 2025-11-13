@@ -339,7 +339,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             stopwords: None, // TODO: handle stopwords list in a new way we haven't done up to this point
             alpha_num_only: value.get("alpha_num_only").and_then(|p| p.as_bool()),
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
-            remove_whitespace: value.get("remove_whitespace").and_then(|p| p.as_bool()),
+            trim: value.get("trim").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
         }
     }

@@ -8,6 +8,7 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.add_doc_count_to_aggs TO on;
 
 -- =====================================================================
 -- SECTION 1: Setup Empty Tables
@@ -23,7 +24,7 @@ CREATE TABLE empty_test (
 );
 
 -- Create index with fast fields for aggregation
-CREATE INDEX empty_test_idx ON empty_test 
+CREATE INDEX empty_test_idx ON empty_test
 USING bm25 (id, value, category, price, created_at)
 WITH (
     key_field='id',
@@ -43,11 +44,11 @@ CREATE TABLE empty_logs (
     metadata JSONB
 );
 
-CREATE INDEX empty_logs_idx ON empty_logs 
-USING bm25 (id, message, country, severity, timestamp, metadata) 
+CREATE INDEX empty_logs_idx ON empty_logs
+USING bm25 (id, message, country, severity, timestamp, metadata)
 WITH (
-    key_field = 'id', 
-    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}', 
+    key_field = 'id',
+    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}',
     numeric_fields = '{"severity": {"fast": true}}',
     json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}'
 );
@@ -91,10 +92,10 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.7: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
+SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
 
-SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
+SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.8: From the original issue report
@@ -106,51 +107,51 @@ SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
 
 -- Test 3.1: Simple GROUP BY - should return empty result set (0 rows)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
 -- Test 3.2: GROUP BY with ORDER BY - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*), SUM(value), AVG(value) 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*), SUM(value), AVG(value)
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 ORDER BY category;
 
-SELECT category, COUNT(*), SUM(value), AVG(value) 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*), SUM(value), AVG(value)
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 ORDER BY category;
 
 -- Test 3.3: GROUP BY with LIMIT - should return empty result set
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 LIMIT 10;
 
 -- Test 3.4: Multiple GROUP BY columns - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, value, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category, value 
+SELECT category, value, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category, value
 ORDER BY category, value;
 
-SELECT category, value, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category, value 
+SELECT category, value, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category, value
 ORDER BY category, value;
 
 -- Test 3.5: From the original issue report
-SELECT severity, COUNT(*) FROM empty_logs 
-WHERE id @@@ paradedb.all() 
-GROUP BY severity 
-ORDER BY severity DESC 
+SELECT severity, COUNT(*) FROM empty_logs
+WHERE id @@@ paradedb.all()
+GROUP BY severity
+ORDER BY severity DESC
 LIMIT 10;
 
 -- =====================================================================
@@ -329,28 +330,28 @@ SELECT * FROM paradedb.aggregate(
 -- =====================================================================
 
 -- Test 6.1: HAVING clause with empty GROUP BY result
-SELECT category, COUNT(*) as cnt 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*) as cnt
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 HAVING COUNT(*) > 0;
 
 -- Test 6.2: Complex aggregates with expressions
-SELECT 
+SELECT
     category,
     COUNT(*) as total_count,
     COUNT(DISTINCT value) as distinct_values,
     SUM(CASE WHEN value > 50 THEN 1 ELSE 0 END) as high_values,
     AVG(value * 2) as doubled_avg
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
+FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
 
 -- Test 6.3: Aggregates with FILTER clause
-SELECT 
+SELECT
     COUNT(*) FILTER (WHERE value > 50) as high_count,
     SUM(value) FILTER (WHERE category = 'Electronics') as electronics_sum
-FROM empty_test 
+FROM empty_test
 WHERE id @@@ paradedb.all();
 
 -- Test 6.4: Multiple tables (though both empty)

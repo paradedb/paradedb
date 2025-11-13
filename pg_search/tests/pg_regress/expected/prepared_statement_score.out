@@ -1,0 +1,236 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+-- Test prepared statements with pdb.score() function
+-- This test verifies that scores work correctly in both custom and generic plans
+-- Create the BM25 index
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field='id');
+-- Test 1: Basic prepared statement with score and parameter
+PREPARE search_desc(text, int) AS
+SELECT
+  id,
+  description,
+  paradedb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1        
+AND $2 = 0
+ORDER BY score DESC
+LIMIT 5;
+-- Show plan for first execution (custom plan)
+EXPLAIN (COSTS OFF)
+EXECUTE search_desc('keyboard', 0);
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- Execute with custom plan (first 5 times by default)
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+-- Show plan for 6th execution (should be generic plan by default, but still use Custom Scan)
+EXPLAIN (COSTS OFF)
+EXECUTE search_desc('keyboard', 0);
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- 6th execution should use generic plan (by default)
+-- This should still return scores, not NULL
+EXECUTE search_desc('keyboard', 0);
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+DEALLOCATE search_desc;
+-- Test 2: Force generic plan to ensure it works
+SET plan_cache_mode = force_generic_plan;
+PREPARE search_generic(text, int) AS
+SELECT
+  id,
+  description,
+  paradedb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1        
+AND $2 = 0
+ORDER BY score DESC
+LIMIT 5;
+-- Show plan with forced generic plan (should still use Custom Scan)
+EXPLAIN (COSTS OFF)
+EXECUTE search_generic('keyboard', 0);
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (paradedb.score(id)) DESC
+         ->  Result
+               One-Time Filter: ($2 = 0)
+               ->  Bitmap Heap Scan on mock_items
+                     Recheck Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+                     ->  Bitmap Index Scan on search_idx
+                           Index Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+(9 rows)
+
+-- This should return scores even with forced generic plan
+EXECUTE search_generic('keyboard', 0);
+ id |       description        | score 
+----+--------------------------+-------
+  1 | Ergonomic metal keyboard |      
+  2 | Plastic Keyboard         |      
+(2 rows)
+
+-- Test different search terms
+EXECUTE search_generic('shoes', 0);
+ id |     description     | score 
+----+---------------------+-------
+  3 | Sleek running shoes |      
+  4 | White jogging shoes |      
+  5 | Generic shoes       |      
+(3 rows)
+
+DEALLOCATE search_generic;
+-- Reset plan cache mode
+RESET plan_cache_mode;
+-- Test 3: Prepared statement without the parameter condition
+-- This serves as a control to ensure basic functionality works
+PREPARE search_simple(text) AS
+SELECT
+  id,
+  description,
+  paradedb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1        
+ORDER BY score DESC
+LIMIT 5;
+SET plan_cache_mode = force_generic_plan;
+-- Show plan for simple query with generic plan
+EXPLAIN (COSTS OFF)
+EXECUTE search_simple('keyboard');
+                   QUERY PLAN                    
+-------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc
+            TopN Limit: 5
+         Tantivy Query: {}
+(9 rows)
+
+EXECUTE search_simple('keyboard');
+ id |       description        |   score   
+----+--------------------------+-----------
+  2 | Plastic Keyboard         | 3.2668595
+  1 | Ergonomic metal keyboard | 2.8213787
+(2 rows)
+
+DEALLOCATE search_simple;
+-- Test 4: Using new pdb schema
+PREPARE search_pdb(text, int) AS
+SELECT
+  id,
+  description,
+  pdb.score(id) AS score
+FROM mock_items
+WHERE description @@@ $1        
+AND $2 = 0
+ORDER BY score DESC
+LIMIT 5;
+SET plan_cache_mode = force_generic_plan;
+-- Show plan with pdb.score() function
+EXPLAIN (COSTS OFF)
+EXECUTE search_pdb('keyboard', 0);
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(id)) DESC
+         ->  Result
+               One-Time Filter: ($2 = 0)
+               ->  Bitmap Heap Scan on mock_items
+                     Recheck Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+                     ->  Bitmap Index Scan on search_idx
+                           Index Cond: (id @@@ paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean)))
+(9 rows)
+
+EXECUTE search_pdb('keyboard', 0);
+ id |       description        | score 
+----+--------------------------+-------
+  1 | Ergonomic metal keyboard |      
+  2 | Plastic Keyboard         |      
+(2 rows)
+
+DEALLOCATE search_pdb;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

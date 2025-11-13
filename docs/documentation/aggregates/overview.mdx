@@ -1,5 +1,5 @@
 ---
-title: How Aggregates Work
+title: Aggregate Syntax
 description: Accelerate aggregates with the ParadeDB index
 canonical: https://docs.paradedb.com/documentation/aggregates/overview
 ---
@@ -44,6 +44,16 @@ LIMIT 5;
 
 Please see the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html)
 for details on how to construct these JSON request strings.
+
+## JSON Fields
+
+If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
+
+```sql
+SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
 
 ## Faceted Queries
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763061305904,
+  "lastUpdate": 1763062189792,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47086,6 +47086,54 @@ window.BENCHMARK_DATA = {
             "value": 5.897461741281222,
             "unit": "median tps",
             "extra": "avg tps: 5.882638885557549, max tps: 7.249837716007646, count: 56262"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5489b415067cb81d29310ca0ede95d069a922941",
+          "message": "perf: GUC to disable `_doc_count` from aggregates (#3547)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe add a `_doc_count` to every non-term aggregate in order to deliver\nconsistent results vs. Postgres for null aggregate values, ie \"give me\nthe sum of an empty table.\" This is useful for our proptests that\ncompare Postgres vs. our values, but hurts performance over large\ntables.\n\nIntroduces a GUC that disables this behavior by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-13T13:44:02-05:00",
+          "tree_id": "b2dd3ba06a40f183306966610903d00eea36752a",
+          "url": "https://github.com/paradedb/paradedb/commit/5489b415067cb81d29310ca0ede95d069a922941"
+        },
+        "date": 1763062186941,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1156.7818055841076,
+            "unit": "median tps",
+            "extra": "avg tps: 1157.6646193204926, max tps: 1217.1124005945446, count: 55704"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1319.6525851283432,
+            "unit": "median tps",
+            "extra": "avg tps: 1305.8235870129097, max tps: 1327.4085518709426, count: 55704"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1998.627324156846,
+            "unit": "median tps",
+            "extra": "avg tps: 1964.1825527335568, max tps: 2166.840582478364, count: 55704"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.53506972086555,
+            "unit": "median tps",
+            "extra": "avg tps: 5.546622395797471, max tps: 7.427821647276474, count: 55704"
           }
         ]
       }

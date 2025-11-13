@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763060445073,
+  "lastUpdate": 1763061301607,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32254,6 +32254,42 @@ window.BENCHMARK_DATA = {
             "value": 5.371983710032063,
             "unit": "median tps",
             "extra": "avg tps: 4.853208155916368, max tps: 5.955107945751086, count: 57549"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5489b415067cb81d29310ca0ede95d069a922941",
+          "message": "perf: GUC to disable `_doc_count` from aggregates (#3547)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe add a `_doc_count` to every non-term aggregate in order to deliver\nconsistent results vs. Postgres for null aggregate values, ie \"give me\nthe sum of an empty table.\" This is useful for our proptests that\ncompare Postgres vs. our values, but hurts performance over large\ntables.\n\nIntroduces a GUC that disables this behavior by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-13T13:44:02-05:00",
+          "tree_id": "b2dd3ba06a40f183306966610903d00eea36752a",
+          "url": "https://github.com/paradedb/paradedb/commit/5489b415067cb81d29310ca0ede95d069a922941"
+        },
+        "date": 1763061298913,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.869994269467763,
+            "unit": "median tps",
+            "extra": "avg tps: 6.725478013916533, max tps: 10.349420160158795, count: 57557"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.561152634167315,
+            "unit": "median tps",
+            "extra": "avg tps: 5.015980223912821, max tps: 6.171176643334706, count: 57557"
           }
         ]
       }

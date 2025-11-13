@@ -946,8 +946,7 @@ mod tests {
         }"#;
 
         let tokenizer_lindera =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json_lindera).unwrap())
-                .unwrap();
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_lindera).unwrap()).unwrap();
         let mut analyzer_lindera = tokenizer_lindera.to_tantivy_tokenizer().unwrap();
 
         let text_lindera = "富裕 劳动力";
@@ -971,8 +970,7 @@ mod tests {
         }"#;
 
         let tokenizer_chinese =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json_chinese).unwrap())
-                .unwrap();
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_chinese).unwrap()).unwrap();
         let mut analyzer_chinese = tokenizer_chinese.to_tantivy_tokenizer().unwrap();
 
         let text_chinese = "中文 测试 文本";

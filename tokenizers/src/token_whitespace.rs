@@ -46,9 +46,7 @@ impl TokenFilter for TokenWhitespaceFilter {
     type Tokenizer<T: Tokenizer> = TokenWhitespaceFilterWrapper<T>;
 
     fn transform<T: Tokenizer>(self, tokenizer: T) -> TokenWhitespaceFilterWrapper<T> {
-        TokenWhitespaceFilterWrapper {
-            inner: tokenizer,
-        }
+        TokenWhitespaceFilterWrapper { inner: tokenizer }
     }
 }
 

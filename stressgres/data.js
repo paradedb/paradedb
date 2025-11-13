@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763061301607,
+  "lastUpdate": 1763061305904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40504,6 +40504,66 @@ window.BENCHMARK_DATA = {
             "value": 83,
             "unit": "median segment_count",
             "extra": "avg segment_count: 85.56181688647935, max segment_count: 136.0, count: 57549"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5489b415067cb81d29310ca0ede95d069a922941",
+          "message": "perf: GUC to disable `_doc_count` from aggregates (#3547)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe add a `_doc_count` to every non-term aggregate in order to deliver\nconsistent results vs. Postgres for null aggregate values, ie \"give me\nthe sum of an empty table.\" This is useful for our proptests that\ncompare Postgres vs. our values, but hurts performance over large\ntables.\n\nIntroduces a GUC that disables this behavior by default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-13T13:44:02-05:00",
+          "tree_id": "b2dd3ba06a40f183306966610903d00eea36752a",
+          "url": "https://github.com/paradedb/paradedb/commit/5489b415067cb81d29310ca0ede95d069a922941"
+        },
+        "date": 1763061303225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.594464616095642, max cpu: 42.72997, count: 57557"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.8643555247407, max mem: 238.09765625, count: 57557"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.458560877650182, max cpu: 33.23442, count: 57557"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.51471700064718, max mem: 168.12890625, count: 57557"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34897,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33952.934360720676, max block_count: 37016.0, count: 57557"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.1910627725559, max segment_count: 134.0, count: 57557"
           }
         ]
       }

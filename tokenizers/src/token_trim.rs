@@ -68,14 +68,13 @@ impl<T: TokenStream> TokenStream for TokenTrimFilterStream<T> {
         while self.tail.advance() {
             // Trim the token text
             let token = self.tail.token_mut();
-            let trimmed = token.text.trim();
+            let trimmed = token.text.trim().to_string();
 
             // If the token is not empty after trimming, update it and return
             if !trimmed.is_empty() {
                 // Only update the text if it actually changed
                 if trimmed != token.text {
-                    token.text.clear();
-                    token.text.push_str(trimmed);
+                    token.text = trimmed;
                 }
                 return true;
             }
@@ -127,6 +126,51 @@ mod tests {
         let tokens = token_stream_helper("hello\tworld\ntest");
         assert!(tokens.iter().all(|t| !t.text.trim().is_empty()));
         assert!(tokens.iter().all(|t| t.text == t.text.trim()));
+    }
+
+    #[test]
+    fn test_trim_filter_with_leading_trailing_whitespace() {
+        // Test with RawTokenizer (like keyword tokenizer) which doesn't split on whitespace
+        use tantivy::tokenizer::RawTokenizer;
+
+        let mut a = TextAnalyzer::builder(RawTokenizer::default())
+            .filter(TokenTrimFilter::new())
+            .build();
+
+        // Text with leading and trailing whitespace
+        let text = "  hello world  ";
+        let mut token_stream = a.token_stream(text);
+        let mut tokens: Vec<Token> = vec![];
+        let mut add_token = |token: &Token| {
+            tokens.push(token.clone());
+        };
+        token_stream.process(&mut add_token);
+
+        // Should have 1 token with whitespace trimmed
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].text, "hello world");
+    }
+
+    #[test]
+    fn test_trim_filter_removes_whitespace_only_token() {
+        // Test that a token consisting only of whitespace is removed
+        use tantivy::tokenizer::RawTokenizer;
+
+        let mut a = TextAnalyzer::builder(RawTokenizer::default())
+            .filter(TokenTrimFilter::new())
+            .build();
+
+        // Text with only whitespace
+        let text = "   ";
+        let mut token_stream = a.token_stream(text);
+        let mut tokens: Vec<Token> = vec![];
+        let mut add_token = |token: &Token| {
+            tokens.push(token.clone());
+        };
+        token_stream.process(&mut add_token);
+
+        // Should have 0 tokens (whitespace-only token removed)
+        assert_eq!(tokens.len(), 0);
     }
 
     fn token_stream_helper(text: &str) -> Vec<Token> {

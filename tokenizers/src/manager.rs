@@ -930,7 +930,7 @@ mod tests {
         assert!(!tokens.iter().any(|t| t.trim().is_empty()));
 
         // Verify that Korean words are still present
-        assert!(tokens.len() > 0);
+        assert!(!tokens.is_empty());
     }
 
     #[rstest]
@@ -961,7 +961,7 @@ mod tests {
         // Verify no whitespace tokens
         assert!(!tokens_lindera.contains(&" ".to_string()));
         assert!(!tokens_lindera.iter().any(|t| t.trim().is_empty()));
-        assert!(tokens_lindera.len() > 0);
+        assert!(!tokens_lindera.is_empty());
 
         // Test 2: Chinese Compatible tokenizer with whitespace filter
         let json_chinese = r#"{

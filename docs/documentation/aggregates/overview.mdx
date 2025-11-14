@@ -42,13 +42,6 @@ LIMIT 5;
 (3 rows)
 ```
 
-Please see the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html)
-for details on how to construct these JSON request strings.
-
-<Note>
-If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer.
-</Note>
-
 ## Faceted Queries
 
 A common pattern in search is to query for both an aggregate and a set of search results. For example, "find the top 10
@@ -111,3 +104,7 @@ SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+<Note>
+If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer.
+</Note>

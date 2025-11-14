@@ -1,7 +1,11 @@
 \i common/common_setup.sql
 
+SET paradedb.global_target_segment_count = 1;
+SET paradedb.global_mutable_segment_rows = 0;
+
 -- keep background merges alive long enough to verify cancellation
 SELECT paradedb.__set_background_merge_delay_ms(5000);
+SELECT paradedb.__set_max_docs_per_segment(25);
 SET client_min_messages = 'WARNING';
 
 DROP TABLE IF EXISTS bgmerge_cancel CASCADE;
@@ -15,7 +19,7 @@ CREATE INDEX bgmerge_cancel_idx ON bgmerge_cancel USING bm25(id, data)
 
 INSERT INTO bgmerge_cancel
 SELECT g, repeat('payload_data', 200)
-FROM generate_series(1, 4000) AS g;
+FROM generate_series(1, 800) AS g;
 
 DO $$
 DECLARE
@@ -41,12 +45,16 @@ $$;
 SELECT count(*) > 0 AS merges_before_vacuum
 FROM paradedb.merge_info('bgmerge_cancel_idx'::regclass);
 
+-- Sleep to ensure VACUUM runs while worker is still in sleep cycle
+SELECT pg_sleep(1);
+
 VACUUM (INDEX_CLEANUP ON) bgmerge_cancel;
 
 SELECT count(*) = 0 AS merges_after_vacuum
 FROM paradedb.merge_info('bgmerge_cancel_idx'::regclass);
 
 SELECT paradedb.__set_background_merge_delay_ms(0);
+SELECT paradedb.__set_max_docs_per_segment(0);
 DROP TABLE bgmerge_cancel;
 
 \i common/common_cleanup.sql

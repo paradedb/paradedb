@@ -19,6 +19,7 @@ use pgrx::*;
 
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
@@ -26,6 +27,13 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let index = PgSearchRelation::open((*(*info).index).rd_id);
+
+    // Cancel any background merges before we start merging
+    let mut metadata = MetaPage::open(&index);
+    let _cancel_guard =
+        unsafe { crate::postgres::delete::request_background_merge_cancellation(&mut metadata) };
+    drop(metadata);
+
     do_merge(&index, MergeStyle::Vacuum, None, None).expect("should be able to merge");
     stats
 }

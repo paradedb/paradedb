@@ -95,6 +95,8 @@ impl ParallelQueryCapable for PdbScan {
 /// presence of external vars (indicating a join), or return 0 if workers cannot or should not be
 /// used.
 ///
+const TINY_SEGMENT_MAX_DOCS: f64 = 1024.0;
+
 pub fn compute_nworkers(
     exec_method: &ExecMethodType,
     limit: Option<Cardinality>,
@@ -130,6 +132,33 @@ pub fn compute_nworkers(
         // Don't attempt to parallelize during a join.
         // TODO: Re-evaluate.
         nworkers = 0;
+    }
+
+    if nworkers > 0 {
+        // - If effective rows per segment are tiny, skip parallel.
+        // - If only one or fewer segments are expected to contribute materially, skip parallel.
+        let rows_per_segment = if segment_count > 0 {
+            estimated_total_rows / segment_count as f64
+        } else {
+            estimated_total_rows
+        };
+
+        // For sorted TopN we need to touch all segments anyway; keep parallel available.
+        if !exec_method.is_sorted_topn() {
+            // All segments are effectively tiny (based on estimates) and total rows small.
+            if rows_per_segment <= TINY_SEGMENT_MAX_DOCS && estimated_total_rows <= 10_000.0 {
+                nworkers = 0;
+            }
+        }
+
+        // If we only expect to need one segment to satisfy the limit (for unsorted scans),
+        // the leader can handle it cheaper than spinning workers.
+        if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
+            let segments_to_reach_limit = (limit / rows_per_segment.max(1.0)).ceil() as usize;
+            if segments_to_reach_limit <= 1 {
+                nworkers = 0;
+            }
+        }
     }
 
     #[cfg(not(any(feature = "pg14", feature = "pg15")))]

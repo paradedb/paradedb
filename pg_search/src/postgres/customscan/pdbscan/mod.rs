@@ -486,6 +486,7 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
+
             let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = bm25_index
                 .schema()

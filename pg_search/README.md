@@ -45,7 +45,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 14, 15, 16, and 17. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 14+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
 
@@ -160,7 +160,7 @@ sudo pacman -S extra/clang
 
 ```bash
 # Note: Replace 17 with your version of Postgres
-git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 # macOS arm64

@@ -48,8 +48,10 @@ mod build_parallel;
 pub mod catalog;
 pub mod customscan;
 pub mod datetime;
-#[cfg(not(feature = "pg17"))]
+#[cfg(not(any(feature = "pg17", feature = "pg18")))]
 pub mod fake_aminsertcleanup;
+#[cfg(feature = "pg18")]
+pub mod guc_guard;
 pub mod heap;
 pub mod index;
 mod jsonb_support;
@@ -103,7 +105,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
-    #[cfg(feature = "pg17")]
+    #[cfg(any(feature = "pg17", feature = "pg18"))]
     {
         amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
         amroutine.amcanbuildparallel = true;

@@ -35,11 +35,12 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{pg_sys, varlena_to_byte_slice, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use std::os::raw::c_char;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -455,6 +456,163 @@ impl ExplainFormat for SearchQueryInput {
     fn explain_format(&self) -> String {
         format_for_explain(self)
     }
+}
+
+impl SearchQueryInput {
+    pub unsafe fn from_datum_resilient(
+        datum: pg_sys::Datum,
+        is_null: bool,
+    ) -> Option<SearchQueryInput> {
+        if is_null {
+            return None;
+        }
+
+        if let Some(array_query) = Self::coerce_scalar_array(datum, is_null) {
+            return Some(array_query);
+        }
+
+        let bytes = detoast_datum_bytes(datum);
+
+        match serde_cbor::from_slice::<SearchQueryInput>(&bytes) {
+            Ok(parsed) => Some(parsed),
+            Err(cbor_err) => match serde_json::from_slice::<SearchQueryInput>(&bytes) {
+                Ok(parsed) => Some(parsed),
+                Err(json_err) => panic!(
+                    "failed to decode SearchQueryInput (CBOR error: {cbor_err}; JSON error: {json_err}; preview={})",
+                    json_preview(&bytes)
+                ),
+            },
+        }
+    }
+
+    unsafe fn coerce_scalar_array(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
+        if is_null {
+            return None;
+        }
+
+        let raw_array = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr::<pg_sys::varlena>());
+        let array = raw_array as *mut pg_sys::ArrayType;
+        let sqi_typoid = searchqueryinput_typoid();
+
+        let is_candidate = (*array).ndim >= 1
+            && (*array).ndim <= pg_sys::MAXDIM as i32
+            && (*array).elemtype == sqi_typoid;
+
+        if !is_candidate {
+            pg_sys::pfree(raw_array.cast());
+            return None;
+        }
+
+        let elements = Self::array_from_varlena(raw_array)?;
+        Some(Self::boolean_disjunction(elements))
+    }
+
+    fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
+        match elements.len() {
+            0 => SearchQueryInput::Empty,
+            1 => elements.pop().unwrap(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![],
+                should: elements,
+                must_not: vec![],
+            },
+        }
+    }
+
+    pub unsafe fn array_from_datum(
+        datum: pg_sys::Datum,
+        is_null: bool,
+    ) -> Option<Vec<SearchQueryInput>> {
+        if is_null {
+            return None;
+        }
+
+        let raw_array = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr::<pg_sys::varlena>());
+        Self::array_from_varlena(raw_array)
+    }
+
+    unsafe fn array_from_varlena(raw_array: *mut pg_sys::varlena) -> Option<Vec<SearchQueryInput>> {
+        let array = raw_array as *mut pg_sys::ArrayType;
+        let mut elem_values: *mut pg_sys::Datum = std::ptr::null_mut();
+        let mut elem_nulls: *mut bool = std::ptr::null_mut();
+        let mut elem_count = 0;
+
+        let mut elmlen: i16 = 0;
+        let mut elmbyval = false;
+        let mut elmalign: c_char = 0;
+
+        pg_sys::get_typlenbyvalalign(
+            searchqueryinput_typoid(),
+            &mut elmlen,
+            &mut elmbyval,
+            &mut elmalign,
+        );
+
+        pg_sys::deconstruct_array(
+            array,
+            searchqueryinput_typoid(),
+            elmlen as i32,
+            elmbyval,
+            elmalign,
+            &mut elem_values,
+            &mut elem_nulls,
+            &mut elem_count,
+        );
+
+        let values = std::slice::from_raw_parts(elem_values, elem_count as usize);
+        let nulls = std::slice::from_raw_parts(elem_nulls, elem_count as usize);
+
+        let mut result = Vec::with_capacity(elem_count as usize);
+        for (datum, is_elem_null) in values.iter().zip(nulls.iter()) {
+            if *is_elem_null {
+                panic!("SearchQueryInput arrays must not contain NULL elements");
+            }
+
+            let value =
+                SearchQueryInput::from_datum_resilient(*datum, false).expect("value present");
+            result.push(value);
+        }
+
+        if !elem_values.is_null() {
+            pg_sys::pfree(elem_values.cast());
+        }
+        if !elem_nulls.is_null() {
+            pg_sys::pfree(elem_nulls.cast());
+        }
+        if !raw_array.is_null() {
+            pg_sys::pfree(raw_array.cast());
+        }
+
+        Some(result)
+    }
+}
+
+fn json_preview(bytes: &[u8]) -> String {
+    const MAX: usize = 64;
+    let slice = if bytes.len() > MAX {
+        &bytes[..MAX]
+    } else {
+        bytes
+    };
+    match std::str::from_utf8(slice) {
+        Ok(text) => text.to_string(),
+        Err(_) => format!(
+            "0x{}",
+            slice
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        ),
+    }
+}
+
+unsafe fn detoast_datum_bytes(datum: pg_sys::Datum) -> Vec<u8> {
+    let varlena_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
+    let detoasted = pg_sys::pg_detoast_datum_copy(varlena_ptr);
+    let slice = varlena_to_byte_slice(detoasted);
+    let bytes = slice.to_vec();
+    pg_sys::pfree(detoasted.cast());
+    bytes
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

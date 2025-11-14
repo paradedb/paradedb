@@ -2149,12 +2149,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
- id |    name     | brand  |                                                                                             brand_with_avg_rating                                                                                              
-----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          
+----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
 -- Cleanup

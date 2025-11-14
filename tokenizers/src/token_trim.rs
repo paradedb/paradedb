@@ -66,19 +66,30 @@ pub struct TokenTrimFilterStream<T> {
 impl<T: TokenStream> TokenStream for TokenTrimFilterStream<T> {
     fn advance(&mut self) -> bool {
         while self.tail.advance() {
-            // Trim the token text
             let token = self.tail.token_mut();
-            let trimmed = token.text.trim().to_string();
+            let original_len = token.text.len();
+            let trimmed = token.text.trim();
 
-            // If the token is not empty after trimming, update it and return
-            if !trimmed.is_empty() {
-                // Only update the text if it actually changed
-                if trimmed != token.text {
-                    token.text = trimmed;
-                }
+            // Skip whitespace-only tokens.
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Fast path when no trimming is needed.
+            if trimmed.len() == original_len {
                 return true;
             }
-            // Otherwise, skip this token and continue to the next one
+
+            let leading = original_len - token.text.trim_start().len();
+            let trailing = original_len - token.text.trim_end().len();
+
+            // Remove trailing bytes before removing the leading bytes to keep ranges valid.
+            token.text.truncate(original_len - trailing);
+            token.text.drain(..leading);
+
+            token.offset_from += leading;
+            token.offset_to -= trailing;
+            return true;
         }
         false
     }

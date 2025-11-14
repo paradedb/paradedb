@@ -186,4 +186,6 @@ EXECUTE test_complex('shoes', 2, 0);
 
 DEALLOCATE test_complex;
 
+DROP TABLE mock_items;
+
 \i common/common_cleanup.sql

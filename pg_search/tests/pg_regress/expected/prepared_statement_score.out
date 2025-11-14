@@ -405,6 +405,7 @@ EXECUTE test_complex('shoes', 2, 0);
 (3 rows)
 
 DEALLOCATE test_complex;
+DROP TABLE mock_items;
 \i common/common_cleanup.sql
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;

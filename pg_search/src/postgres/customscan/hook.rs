@@ -479,9 +479,12 @@ unsafe fn collect_table_oids_from_query(
 /// Check if a single query (not recursively) contains score() function
 #[cfg(feature = "pg18")]
 unsafe fn query_has_score_function(parse: *mut pg_sys::Query) -> bool {
-    use crate::postgres::customscan::score_funcoids;
+    use crate::postgres::customscan::try_score_funcoids;
 
-    let score_oids = score_funcoids();
+    let Some(score_oids) = try_score_funcoids() else {
+        // The score() function doesn't exist yet (extension not installed).
+        return false;
+    };
 
     struct WalkerContext {
         score_oids: [pg_sys::Oid; 2],

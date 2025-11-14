@@ -23,7 +23,6 @@ use crate::gucs;
 use crate::index::reader::index::{
     SearchIndexReader, TopNAuxiliaryCollector, TopNSearchResults, MAX_TOPN_FEATURES,
 };
-use crate::postgres::customscan::aggregatescan::aggregate_type::parse_custom_aggregation;
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -193,8 +192,9 @@ impl TopNScanExecState {
         let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
             let agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
-                // For Custom aggregates, parse with nested sub_aggregations
-                parse_custom_aggregation(agg_json)
+                // For Custom aggregates, Tantivy's deserializer handles nested "aggs" automatically
+                serde_json::from_value(agg_json.clone())
+                    .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
             } else {
                 // For standard aggregates, convert to variant and wrap with empty sub_aggregation
                 let agg_variant = agg_type.clone().into();

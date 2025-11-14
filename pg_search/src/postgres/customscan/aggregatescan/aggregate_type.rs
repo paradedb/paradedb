@@ -34,7 +34,7 @@ use pgrx::pg_sys::{
 };
 use pgrx::prelude::*;
 use pgrx::PgList;
-use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -328,9 +328,7 @@ impl From<AggregateType> for AggregationVariants {
                 //   Input:  {"terms": {"field": "category", "aggs": {"brand": {...}}}}
                 //   Output: TermsAggregation { field: "category" }  // "aggs" is extracted separately
                 //
-                // Nested "aggs" are handled by parse_custom_aggregation() in:
-                // - build.rs for non-GROUP BY queries
-                // - top_n.rs for TopN/window queries
+                // Nested "aggs" are handled by serde_json::from_value::<Aggregation>().
                 //
                 // This trait is only used when the caller will handle sub_aggregations separately.
                 serde_json::from_value(agg_json)
@@ -458,61 +456,5 @@ pub fn create_aggregate_from_oid(
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
             None
         }
-    }
-}
-
-/// Parse a custom aggregation JSON and convert "aggs" to Tantivy's internal format
-///
-/// While Tantivy's JSON API uses "aggs" for nested aggregations (Elasticsearch-compatible),
-/// the Rust struct deserialization doesn't properly handle nested "aggs" in the current version.
-/// This function manually converts between the two formats.
-///
-/// See: https://docs.rs/tantivy/latest/tantivy/aggregation/index.html#json-format
-///
-/// # Example
-///
-/// ```json
-/// Input:  {"terms": {"field": "category", "aggs": {"brand": {"terms": {"field": "brand"}}}}}
-/// Output: Aggregation {
-///   agg: TermsAggregation { field: "category" },
-///   sub_aggregation: {"brand": Aggregation { agg: TermsAggregation { field: "brand" }, ... }}
-/// }
-/// ```
-pub fn parse_custom_aggregation(agg_json: &serde_json::Value) -> Aggregation {
-    // Check if there are nested "aggs" to extract
-    if let Some(obj) = agg_json.as_object() {
-        for (_agg_type, agg_config) in obj.iter() {
-            if let Some(config_obj) = agg_config.as_object() {
-                if let Some(nested_aggs) = config_obj.get("aggs") {
-                    if let Some(nested_obj) = nested_aggs.as_object() {
-                        // Parse nested aggregations recursively
-                        let mut sub_aggs = Aggregations::new();
-                        for (name, nested_agg_json) in nested_obj {
-                            let nested_agg = parse_custom_aggregation(nested_agg_json);
-                            sub_aggs.insert(name.clone(), nested_agg);
-                        }
-
-                        let agg_variant: AggregationVariants =
-                            serde_json::from_value(agg_json.clone()).unwrap_or_else(|e| {
-                                panic!("Failed to deserialize agg variant: {}", e)
-                            });
-
-                        return Aggregation {
-                            agg: agg_variant,
-                            sub_aggregation: sub_aggs,
-                        };
-                    }
-                }
-            }
-        }
-    }
-
-    // No nested aggs, deserialize directly as AggregationVariants
-    let agg_variant: AggregationVariants = serde_json::from_value(agg_json.clone())
-        .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e));
-
-    Aggregation {
-        agg: agg_variant,
-        sub_aggregation: Aggregations::new(),
     }
 }

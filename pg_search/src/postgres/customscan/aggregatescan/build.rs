@@ -17,9 +17,7 @@
 
 use crate::api::{FieldName, OrderByFeature};
 use crate::gucs;
-use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    parse_custom_aggregation, AggregateType,
-};
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
@@ -139,12 +137,12 @@ impl CollectAggregations for AggregateCSClause {
                 .zip(metrics)
                 .enumerate()
                 .map(|(idx, (filter, metric))| {
-                    // For Custom aggregates, parse and handle nested aggregations
+                    // For Custom aggregates, deserialize with nested aggregations
                     let metric_agg = if let AggregateType::Custom { agg_json, .. } = &metric {
-                        // Parse the JSON to extract nested "aggs" and convert to Tantivy format
-                        // Input format: {"terms": {"field": "category", "aggs": {"name": {...}}}}
-                        // Tantivy expects: Aggregation { agg: ..., sub_aggregation: {...} }
-                        parse_custom_aggregation(agg_json)
+                        // Tantivy's Aggregation deserializer handles nested "aggs" automatically
+                        serde_json::from_value(agg_json.clone()).unwrap_or_else(|e| {
+                            panic!("Failed to deserialize custom aggregate: {}", e)
+                        })
                     } else {
                         Aggregation {
                             agg: metric.into(),

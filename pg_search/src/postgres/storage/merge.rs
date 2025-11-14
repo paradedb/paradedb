@@ -267,6 +267,14 @@ impl MergeEntry {
             })
             .collect()
     }
+
+    pub fn cancel_requested(&self) -> bool {
+        self._unused == pg_sys::FrozenTransactionId
+    }
+
+    pub fn mark_cancelled(&mut self) {
+        self._unused = pg_sys::FrozenTransactionId;
+    }
 }
 
 pub struct MergeList {

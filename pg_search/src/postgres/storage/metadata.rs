@@ -70,6 +70,7 @@ pub struct MetaPageData {
 
     /// The block where our current, v2, FSM starts
     v2_fsm: pg_sys::BlockNumber,
+    cancel_sentinel: pg_sys::BlockNumber,
 
     /// Allow up to 2 concurrent background merges
     /// If one of these blocks is pinned, that means a background merge is running
@@ -107,6 +108,7 @@ impl MetaPage {
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
 
             metadata.cleanup_lock = init_new_buffer(indexrel).number();
+            metadata.cancel_sentinel = init_new_buffer(indexrel).number();
             metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
@@ -147,6 +149,7 @@ impl MetaPage {
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage)
+            || !block_number_is_valid(metadata.cancel_sentinel)
             || bgmerger
                 .iter()
                 .any(|&blockno| !block_number_is_valid(blockno));
@@ -193,6 +196,10 @@ impl MetaPage {
                 if !block_number_is_valid(metadata.segment_meta_garbage) {
                     metadata.segment_meta_garbage =
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+                }
+
+                if !block_number_is_valid(metadata.cancel_sentinel) {
+                    metadata.cancel_sentinel = init_new_buffer(indexrel).number();
                 }
 
                 for i in 0..2 {
@@ -309,6 +316,31 @@ impl MetaPage {
             self.data.cleanup_lock
         };
         self.bman.get_buffer_for_cleanup(blockno)
+    }
+
+    pub fn cancel_sentinel_exclusive(&mut self) -> BufferMut {
+        self.bman.get_buffer_mut(self.data.cancel_sentinel)
+    }
+
+    pub fn cancel_sentinel_requested(&self) -> bool {
+        if !block_number_is_valid(self.data.cancel_sentinel) {
+            pgrx::debug2!("cancel_sentinel block number is invalid");
+            return false;
+        }
+        match self
+            .bman
+            .get_buffer_shared_conditional(self.data.cancel_sentinel)
+        {
+            Some(buffer) => {
+                pgrx::debug2!("cancel_sentinel_requested: got shared lock (NOT cancelled)");
+                drop(buffer);
+                false
+            }
+            None => {
+                pgrx::debug1!("cancel_sentinel_requested: could not get shared lock (CANCELLED!)");
+                true
+            }
+        }
     }
 
     pub fn schema_bytes(&self) -> LinkedBytesList {

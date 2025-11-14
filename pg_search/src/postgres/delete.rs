@@ -20,6 +20,7 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
+use crate::postgres::storage::buffer::BufferMut;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
@@ -52,6 +53,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let mut metadata = MetaPage::open(&index_relation);
+    let _cancel_guard = request_background_merge_cancellation(&mut metadata);
     let cleanup_lock = metadata.cleanup_lock_exclusive();
 
     // take the MergeLock
@@ -171,6 +173,55 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(vacuum_sentinel);
 
     stats.into_pg()
+}
+
+pub(crate) unsafe fn request_background_merge_cancellation(metadata: &mut MetaPage) -> BufferMut {
+    let cancel_guard = metadata.cancel_sentinel_exclusive();
+
+    // Poll merge list to wait for background workers to detect cancellation and exit
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: i32 = 100; // 10 seconds max (100ms * 100)
+    const POLL_INTERVAL_MS: i64 = 100;
+
+    loop {
+        let merge_lock = metadata.acquire_merge_lock();
+        let mut merge_list = merge_lock.merge_list();
+        merge_list.garbage_collect(pg_sys::ReadNextFullTransactionId());
+        let entries = merge_list.list();
+        let count = entries.len();
+        drop(merge_lock);
+
+        if count == 0 {
+            if attempts > 0 {
+                pgrx::debug1!("ambulkdelete: all background merges cancelled after {} attempts", attempts);
+            } else {
+                pgrx::debug1!("ambulkdelete: no active background merges");
+            }
+            break;
+        }
+
+        if attempts == 0 {
+            pgrx::debug1!(
+                "ambulkdelete: requesting cancellation of {} active background merge(s)",
+                count
+            );
+        }
+
+        attempts += 1;
+        if attempts >= MAX_ATTEMPTS {
+            pgrx::warning!(
+                "ambulkdelete: timed out waiting for {} background merge(s) to cancel, proceeding anyway",
+                count
+            );
+            break;
+        }
+
+        // Sleep briefly to give background workers time to see cancellation
+        pg_sys::pg_usleep(POLL_INTERVAL_MS * 1000);
+        check_for_interrupts!();
+    }
+
+    cancel_guard
 }
 
 struct SegmentDeleterImmutable {

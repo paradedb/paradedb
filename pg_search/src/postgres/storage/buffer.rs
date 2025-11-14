@@ -806,6 +806,19 @@ impl BufferManager {
         }
     }
 
+    pub fn get_buffer_shared_conditional(&self, blockno: pg_sys::BlockNumber) -> Option<Buffer> {
+        unsafe {
+            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            if pg_sys::ConditionalLockBuffer(pg_buffer) {
+                block_tracker::track!(Conditional, blockno);
+                Some(Buffer::new(pg_buffer))
+            } else {
+                pg_sys::ReleaseBuffer(pg_buffer);
+                None
+            }
+        }
+    }
+
     ///
     /// See `get_buffer_exchange`.
     ///

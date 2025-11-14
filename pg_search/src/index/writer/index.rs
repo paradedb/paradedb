@@ -17,8 +17,12 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
-use pgrx::pg_sys;
+#[cfg(any(test, feature = "pg_test"))]
+use pgrx::pg_extern;
+use pgrx::{check_for_interrupts, pg_sys};
 use std::num::NonZeroUsize;
+#[cfg(any(test, feature = "pg_test"))]
+use std::sync::atomic::{AtomicU32, Ordering};
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
@@ -33,6 +37,29 @@ use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
+
+#[cfg(any(test, feature = "pg_test"))]
+static MAX_DOCS_PER_SEGMENT_OVERRIDE: AtomicU32 = AtomicU32::new(0);
+
+pub(crate) fn max_docs_per_segment_override() -> Option<u32> {
+    #[cfg(any(test, feature = "pg_test"))]
+    {
+        match MAX_DOCS_PER_SEGMENT_OVERRIDE.load(Ordering::SeqCst) {
+            0 => None,
+            value => Some(value),
+        }
+    }
+    #[cfg(not(any(test, feature = "pg_test")))]
+    {
+        None
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pg_extern(name = "__set_max_docs_per_segment")]
+fn set_max_docs_per_segment(value: i32) {
+    MAX_DOCS_PER_SEGMENT_OVERRIDE.store(value.max(0) as u32, Ordering::SeqCst);
+}
 
 struct PendingSegment {
     segment: Segment,
@@ -404,6 +431,7 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
+        check_for_interrupts!();
         let mut writer: IndexWriter = self.index.writer_with_options(
             IndexWriterOptions::builder()
                 .memory_budget_per_thread(15 * 1024 * 1024)
@@ -411,7 +439,9 @@ impl Mergeable for SearchIndexMerger {
                 .num_worker_threads(0)
                 .build(),
         )?;
+        check_for_interrupts!();
         let new_segment = writer.merge_foreground(segment_ids, true)?;
+        check_for_interrupts!();
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way
             // after their pins are dropped, and [`SearchIndexMerger`] ensures that

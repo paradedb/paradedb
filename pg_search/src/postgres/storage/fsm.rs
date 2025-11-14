@@ -840,8 +840,8 @@ pub mod v2 {
 
                     let next_blockno = page.next_blockno();
                     let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
-                        // Head is already empty (another process drained it)
-                        // We should try to unlink it, but we need to be careful about the race
+                        // if the head is empty and we're not at the end of the list, we should unlink it
+                        // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
                         // get all that we can/need from this page
@@ -888,28 +888,22 @@ pub mod v2 {
 
                                 // and keep local state in sync
                                 head_blockno = next_blockno;
-                            } else {
-                                // RACE CONDITION: Someone else already moved the head
-                                // Update our local head_blockno to match the current state
-                                debug1!("drain: lost race to unlink head, syncing local head from {} to {}", 
-                                    head_blockno, slot.tag as pg_sys::BlockNumber);
-                                head_blockno = slot.tag as pg_sys::BlockNumber;
-                                // Don't continue with next_blockno - it's stale!
-                                // Instead, restart from the new head
                             }
+                            // else: someone else already moved the head, we do nothing
                         }
                         drop(root);
 
                         if did_update_head {
                             unlinked_heads.push(old_head);
-                            // Continue with the new head that we just set
-                            blockno = head_blockno;
+                            // We successfully unlinked, continue with the new head
+                            blockno = next_blockno;
+                            continue;
                         } else {
-                            // Lost the race - restart from the current head
-                            // This ensures we don't skip blocks or access recycled ones
-                            blockno = head_blockno;
+                            // Lost the race - another process already updated the head
+                            // We need to re-read the head under a root lock
+                            // Continue 'outer to restart from the beginning with a fresh root lock
+                            continue 'outer;
                         }
-                        continue;
                     }
 
                     // if this was the last block in the list *and* the entire list is empty,

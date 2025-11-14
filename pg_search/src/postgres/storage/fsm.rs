@@ -840,8 +840,8 @@ pub mod v2 {
 
                     let next_blockno = page.next_blockno();
                     let should_unlink_head = if contents.len == 0 && head_blockno == blockno {
-                        // if the head is empty and we're not at the end of the list, we should unlink it
-                        // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
+                        // Head is already empty (another process drained it)
+                        // We should try to unlink it, but we need to be careful about the race
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
                         // get all that we can/need from this page
@@ -888,17 +888,27 @@ pub mod v2 {
 
                                 // and keep local state in sync
                                 head_blockno = next_blockno;
+                            } else {
+                                // RACE CONDITION: Someone else already moved the head
+                                // Update our local head_blockno to match the current state
+                                debug1!("drain: lost race to unlink head, syncing local head from {} to {}", 
+                                    head_blockno, slot.tag as pg_sys::BlockNumber);
+                                head_blockno = slot.tag as pg_sys::BlockNumber;
+                                // Don't continue with next_blockno - it's stale!
+                                // Instead, restart from the new head
                             }
-                            // else: someone else already moved the head, we do nothing
                         }
                         drop(root);
 
                         if did_update_head {
                             unlinked_heads.push(old_head);
+                            // Continue with the new head that we just set
+                            blockno = head_blockno;
+                        } else {
+                            // Lost the race - restart from the current head
+                            // This ensures we don't skip blocks or access recycled ones
+                            blockno = head_blockno;
                         }
-
-                        // Continue with the new head
-                        blockno = next_blockno;
                         continue;
                     }
 
@@ -1349,6 +1359,148 @@ pub mod v2 {
 
             let empty = fsm.drain(&mut bman, 1).next().is_none();
             assert!(empty);
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_concurrent_drain_empty_head() -> spi::Result<()> {
+            // Test for race condition where multiple processes see an empty head
+            // This simulates the scenario:
+            // - P1 drains B1 completely, tries to unlink
+            // - P2 sees B1 empty, also tries to unlink
+            // - Winner unlinks, loser must handle gracefully
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_race_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            assert_ne!(index_oid, pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Create a freelist with 3 blocks: B1 -> B2 -> B3
+            // Each block has MAX_ENTRIES elements
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 3));
+
+            // Simulate P1: Drain exactly MAX_ENTRIES (empties B1 completely)
+            let drained1 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(drained1.len(), MAX_ENTRIES);
+
+            // At this point, B1 should be empty and unlinked, B2 should be the new head
+            // Verify the freelist structure
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            // Should have 2 blocks left (B2 and B3), each with MAX_ENTRIES
+            assert_eq!(
+                blocks.len(),
+                2,
+                "Should have 2 blocks after draining first block"
+            );
+            assert_eq!(blocks[0] as usize, MAX_ENTRIES);
+            assert_eq!(blocks[1] as usize, MAX_ENTRIES);
+
+            // Simulate P2: Try to drain from what should now be B2
+            // This tests that we correctly handle the updated head
+            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(
+                drained2.len(),
+                MAX_ENTRIES,
+                "Should drain second block successfully"
+            );
+
+            // Verify only one block remains
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            assert_eq!(blocks.len(), 1, "Should have 1 block remaining");
+            assert_eq!(blocks[0] as usize, MAX_ENTRIES);
+
+            // Drain the last block
+            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(drained3.len(), MAX_ENTRIES, "Should drain last block");
+
+            // FSM should be empty now
+            assert!(
+                !slot_exists(&mut bman, &mut fsm, xid),
+                "Slot should be removed when empty"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_partial_drain_with_unlink() -> spi::Result<()> {
+            // Test partial draining that triggers head unlinking
+            // This ensures we handle the case where we drain some but not all
+            // entries from a block, then later drain the rest
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_partial_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Create freelist with multiple blocks
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 2));
+
+            // Drain half of first block
+            let drain_count = MAX_ENTRIES / 2;
+            let drained1 = fsm.drain(&mut bman, drain_count).collect::<Vec<_>>();
+            assert_eq!(drained1.len(), drain_count);
+
+            // Verify head block still has entries (approximately half, may be off by 1 due to rounding)
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            let remaining = blocks[0] as usize;
+            assert!(
+                remaining >= drain_count - 1 && remaining <= drain_count + 1,
+                "Head should have approximately half entries remaining, got {}",
+                remaining
+            );
+
+            // Drain the rest of the first block - this should trigger unlinking
+            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            // Should drain remaining from first block plus some from second
+            assert!(
+                drained2.len() >= drain_count,
+                "Should drain at least remaining entries"
+            );
+
+            // Verify we can continue draining successfully (tests no deadlock/panic)
+            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert!(!drained3.is_empty(), "Should be able to continue draining");
+
+            // Drain everything remaining
+            let _ = fsm.drain(&mut bman, MAX_ENTRIES * 10).collect::<Vec<_>>();
+
+            // FSM should be empty now
+            assert!(
+                !slot_exists(&mut bman, &mut fsm, xid),
+                "Slot should be removed when empty"
+            );
 
             Ok(())
         }

@@ -1478,6 +1478,50 @@ pub mod v2 {
             Ok(())
         }
 
+        #[pg_test]
+        unsafe fn test_create_index_slot_distribution() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let mut indexrel =
+                PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            indexrel.set_is_create_index();
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            for i in 0..1000 {
+                let (start, end) = (i * 3, i * 3 + 3);
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let avl_tree = fsm.avl_ref(&page);
+            let keys: Vec<u64> = avl_tree.iter().map(|(k, _v)| k).collect();
+
+            // we should have created approximately MAX_SLOTS keys
+            assert!(keys.len() > 300);
+            assert!(keys.len() <= MAX_SLOTS);
+            assert!(
+                *keys.iter().min().unwrap() >= pg_sys::FirstNormalTransactionId.into_inner() as u64
+            );
+            assert!(
+                *keys.iter().max().unwrap()
+                    < pg_sys::FirstNormalTransactionId.into_inner() as u64 + MAX_SLOTS as u64
+            );
+
+            Ok(())
+        }
+
         fn freelist_blocks(
             bman: &mut BufferManager,
             fsm: &mut V2FSM,

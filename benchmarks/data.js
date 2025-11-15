@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763236033499,
+  "lastUpdate": 1763236978067,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -54902,6 +54902,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 91.0775,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "35159349+mpr1255@users.noreply.github.com",
+            "name": "matthew p robertson",
+            "username": "mpr1255"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfb5d49d5735d5aa3dacc1833181a178627b7e25",
+          "message": "feat: Add `trim` token filter for all tokenizers (#3545)\n\nAdds a new `remove_whitespace` token filter that removes tokens\nconsisting entirely of whitespace characters (spaces, tabs, newlines,\netc.). This filter is particularly useful for tokenizers like Jieba and\nLindera that may produce whitespace-only tokens.\n\nBackground: We were having a big issue with jieba generating whitespace.\nThere is no existing token filter that will simply remove whitespaces\n(Euro language tokenisers don't have the problem). This solves that and\nshould work on all the filters.\n\n## Changes\n\n### New Files\n- `tokenizers/src/token_whitespace.rs`: Core filter implementation\nfollowing the TokenFilter trait pattern\n\n### Modified Files\n- `tokenizers/src/lib.rs`: Module export for token_whitespace\n- `tokenizers/src/manager.rs`:\n- Integrated whitespace filter into add_filters! macro (position 2,\nearly in pipeline)\n  - Added remove_whitespace field to SearchTokenizerFilters struct\n- Added 3 comprehensive tests covering Jieba, Korean Lindera, and\nmultiple tokenizers\n- `pg_search/src/api/tokenizers/typmod/mod.rs`: Added remove_whitespace\nfield parsing\n- `pg_search/src/api/tokenizers/typmod/validation.rs`: Added validation\nrule for remove_whitespace option\n- `docs/documentation/indexing/token-filters.mdx`: Documentation with\nSQL examples\n\n## Features\n- Works with ALL tokenizers (Jieba, Lindera, Chinese Compatible, etc.)\n- Detects all Unicode whitespace characters using Rust's\nchar::is_whitespace()\n- Runs early in filter pipeline for performance optimization\n- Fully backward compatible (opt-in via remove_whitespace=true)\n\n## Usage Examples\n\n```sql\n-- With Jieba\nSELECT '富裕 劳动力'::pdb.jieba('remove_whitespace=true')::text[];\n-- Returns: {富裕,劳动,动力,劳动力}\n\n-- With Lindera (Chinese)\nSELECT '富裕 劳动力'::pdb.lindera('chinese', 'remove_whitespace=true')::text[];\n-- Returns: {富裕,劳动力}\n```\n\n## Tests\nAll 20 tokenizer tests pass, including:\n- test_jieba_tokenizer_with_whitespace_filter\n- test_korean_lindera_tokenizer_with_whitespace_filter\n- test_whitespace_filter_with_multiple_tokenizers",
+          "timestamp": "2025-11-15T14:20:54-05:00",
+          "tree_id": "f1acd95457e49bf1645278b53012b1cf5d88d18a",
+          "url": "https://github.com/paradedb/paradedb/commit/cfb5d49d5735d5aa3dacc1833181a178627b7e25"
+        },
+        "date": 1763236975478,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1215.2935000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 644.4024999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1486.2555,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 712.5015000000001,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 681.2525,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1626.9195,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 23.880499999999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 66.826,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 89.82499999999999,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

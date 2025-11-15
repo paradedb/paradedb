@@ -782,7 +782,7 @@ pub mod v2 {
                     break;
                 };
 
-                let mut head_blockno = tag as pg_sys::BlockNumber;
+                let head_blockno = tag as pg_sys::BlockNumber;
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
 
@@ -885,9 +885,6 @@ pub mod v2 {
                                 debug1!("drain: actually unlinking head blockno {}", head_blockno);
                                 did_update_head = true;
                                 slot.tag = next_blockno;
-
-                                // and keep local state in sync
-                                head_blockno = next_blockno;
                             }
                             // else: someone else already moved the head, we do nothing
                         }
@@ -895,15 +892,12 @@ pub mod v2 {
 
                         if did_update_head {
                             unlinked_heads.push(old_head);
-                            // We successfully unlinked, continue with the new head
-                            blockno = next_blockno;
-                            continue;
-                        } else {
-                            // Lost the race - another process already updated the head
-                            // We need to re-read the head under a root lock
-                            // Continue 'outer to restart from the beginning with a fresh root lock
-                            continue 'outer;
                         }
+
+                        // Whether we won or lost the race, we need to restart from outer loop
+                        // to re-read the head under a root lock. The head value we have is stale
+                        // because we dropped the root lock.
+                        continue 'outer;
                     }
 
                     // if this was the last block in the list *and* the entire list is empty,

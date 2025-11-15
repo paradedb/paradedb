@@ -844,6 +844,25 @@ pub mod v2 {
                         // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
+                        // this should never happen, if it does it is indicative of a bug where the metadata is corrupt
+                        // however, we should handle it defensively -- in 0.19.5 this bug existed and it caused a deadlock
+                        // because the panic would longjmp past Rust frames, including the buffer `Drop`
+                        if contents.len > (MAX_ENTRIES as u32) {
+                            buffer.set_dirty(false);
+                            drop(buffer);
+                            pgrx::warning!(
+                                "drain: blockno {} has more than {} entries",
+                                blockno,
+                                MAX_ENTRIES
+                            );
+
+                            xid = found_xid - 1;
+                            if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                break 'outer;
+                            }
+                            continue 'outer;
+                        }
+
                         // get all that we can/need from this page
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;

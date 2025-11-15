@@ -1,6 +1,7 @@
 ---
 title: Terms
-noindex: true
+description: Count the number of occurrences for each value in a result set
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/terms
 ---
 
 A terms aggregation counts the number of occurrences for every unique value in a field. For example, the following query
@@ -8,7 +9,7 @@ groups the `mock_items` table by `rating`, and calculates the number of items fo
 
 ```sql
 SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 LIMIT 10;
 ```
@@ -17,7 +18,7 @@ Ordering by the bucketing field is supported:
 
 ```sql
 SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10;
@@ -29,8 +30,8 @@ LIMIT 10;
 </Note>
 
 <Note>
-  All fields in the `GROUP BY` and `ORDER BY` clauses, in this case `rating`,
-  must be indexed as [fast](/documentation/indexing/fast-fields).
+  If a text field is in the `GROUP BY` or `ORDER BY` clause, it must use the
+  [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer.
 </Note>
 
 For performance reasons, we strongly recommend adding a `LIMIT` to the `GROUP BY`. Terms aggregations without a `LIMIT` consume more memory and
@@ -40,7 +41,7 @@ To verify that a terms aggregation was pushed down, look for a `ParadeDB Aggrega
 
 ```sql
 EXPLAIN SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
+WHERE id @@@ pdb.all()
 GROUP BY rating
 LIMIT 10;
 ```

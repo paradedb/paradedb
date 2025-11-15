@@ -1,11 +1,12 @@
 ---
 title: Limitations
-noindex: true
+description: Caveats for aggregate support
+canonical: https://docs.paradedb.com/documentation/aggregates/limitations
 ---
 
-## `@@@` Operator
+## ParadeDB Operator
 
-In order for ParadeDB to push down an aggregate, the full text search `@@@` operator must be present in the query.
+In order for ParadeDB to push down an aggregate, a ParadeDB text search operator must be present in the query.
 
 ```sql
 -- Not pushed down
@@ -15,10 +16,10 @@ WHERE rating = 5;
 -- Pushed down
 SELECT COUNT(*) FROM mock_items
 WHERE rating = 5
-AND id @@@ paradedb.all();
+AND id @@@ pdb.all();
 ```
 
-If your query does not contain the `@@@` operator, a way to "force" aggregate pushdown is to append `AND <key_field> @@@ paradedb.all()` to the query's
+If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's
 `WHERE` clause.
 
 ## Join Support

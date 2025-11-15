@@ -1,32 +1,28 @@
 ---
 title: Average
-noindex: true
+description: Compute the average value of a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/average
 ---
 
 `AVG` computes the average value over a specific column:
 
 ```sql
 SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
-
-<Note>
-  The field being averaged, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast-fields).
-</Note>
 
 By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:
 
 ```sql
 SELECT AVG(COALESCE(rating, 0)) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
 
 To verify that `AVG` was pushed down, look for a `ParadeDB Aggregate Scan` with `average` in the `EXPLAIN` output:
 
 ```sql
 EXPLAIN SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
 
 ```sql Expected Response

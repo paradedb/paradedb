@@ -1,0 +1,26 @@
+---
+title: Whitespace
+description: Tokenizes text by splitting on whitespace
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/whitespace
+---
+
+The whitespace tokenizer splits only on whitespace. It also [lowercases](/documentation/token-filters/lowercase) characters by default.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.whitespace))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Tokenize me!'::pdb.whitespace::text[];
+```
+
+```ini Expected Response
+      text
+----------------
+ {tokenize,me!}
+(1 row)
+```

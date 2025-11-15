@@ -1,11 +1,10 @@
 ---
-title: Overview
-noindex: true
+title: How Aggregates Work
+description: Accelerate aggregates with the ParadeDB index
+canonical: https://docs.paradedb.com/documentation/aggregates/overview
 ---
 
-<Note>
-Aggregate pushdown is currently a beta feature.
-</Note>
+<Note>Aggregate pushdown is currently a beta feature.</Note>
 
 ## Basic Usage
 
@@ -19,14 +18,14 @@ With this setting enabled, queries like the following can be pushed down:
 
 ```sql
 SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
 
 To verify that a query is pushed down, look for `ParadeDB Aggregate Scan` in the `EXPLAIN` output:
 
 ```sql
 EXPLAIN SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
 
 ```csv Expected Response

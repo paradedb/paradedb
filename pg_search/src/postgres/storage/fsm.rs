@@ -971,7 +971,7 @@ pub mod v2 {
                 let max_xid = first_normal_xid + (MAX_SLOTS as u64 - 1);
                 pg_sys::FullTransactionId {
                     value: fib_hash_u64_range(
-                        *extend_with.peek().unwrap(),
+                        *extend_with.peek().expect("peek() checked above"),
                         first_normal_xid,
                         max_xid,
                     ),

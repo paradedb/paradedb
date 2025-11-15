@@ -958,20 +958,27 @@ pub mod v2 {
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
         ) {
-            // if we are creating the index, set the XID to the first normal transaction id
-            // because anything garbage-collected during index creation should be immediately reusable
-            let when_recyclable = if bman.is_create_index() {
-                pg_sys::FullTransactionId {
-                    value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
-                }
-            } else {
-                when_recyclable
-            };
             let mut extend_with = extend_with.peekable();
             if extend_with.peek().is_none() {
                 // caller didn't give us anything to do
                 return;
             }
+
+            // if we are creating the index, set the XID to the first normal transaction id
+            // because anything garbage-collected during index creation should be immediately reusable
+            let when_recyclable = if bman.is_create_index() {
+                let first_normal_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+                let max_xid = first_normal_xid + (MAX_SLOTS as u64 - 1);
+                pg_sys::FullTransactionId {
+                    value: fib_hash_u64_range(
+                        *extend_with.peek().unwrap(),
+                        first_normal_xid,
+                        max_xid,
+                    ),
+                }
+            } else {
+                when_recyclable
+            };
 
             // find the starting block of the associated freelist while holding (at least) a share
             // lock on the root page of the tree.  This ensures a concurrent drain that could be
@@ -1532,6 +1539,21 @@ pub mod v2 {
             let tree = fsm.avl_ref(&page);
             tree.get(&xid.value).is_some()
         }
+    }
+
+    // Fibonacci hashing constant
+    // https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+    const FIB64: u64 = 11400714819323198485;
+
+    // Hashes a value in the range [lo, hi] using Fibonacci hashing
+    // This is a more efficient way to hash a value than using modulo because it distributes values more evenly across the range
+    //
+    // We do this so that CREATE INDEX distributes recycled blocks across the freelist slots more evenly
+    #[inline]
+    pub fn fib_hash_u64_range(v: pg_sys::BlockNumber, lo: u64, hi: u64) -> u64 {
+        let range = hi - lo + 1;
+        let mixed = (v as u64).wrapping_mul(FIB64);
+        lo + (((mixed as u128 * range as u128) >> 64) as u64)
     }
 }
 

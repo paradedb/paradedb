@@ -845,7 +845,7 @@ pub mod v2 {
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
                         // this should never happen, if it does it is indicative of a bug where the metadata is corrupt
-                        // however, we should handle it defensively -- in 0.19.5 this bug existed and it caused a deadlock
+                        // however, we can handle it gracefully -- in 0.19.5 this bug existed and it caused a deadlock
                         // because the panic would longjmp past Rust frames, including the buffer `Drop`
                         if contents.len > (MAX_ENTRIES as u32) {
                             buffer.set_dirty(false);

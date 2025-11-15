@@ -956,20 +956,32 @@ pub mod v2 {
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
         ) {
-            // if we are creating the index, set the XID to the first normal transaction id
-            // because anything garbage-collected during index creation should be immediately reusable
-            let when_recyclable = if bman.is_create_index() {
-                pg_sys::FullTransactionId {
-                    value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
-                }
-            } else {
-                when_recyclable
-            };
             let mut extend_with = extend_with.peekable();
             if extend_with.peek().is_none() {
                 // caller didn't give us anything to do
                 return;
             }
+
+            let when_recyclable = if bman.is_create_index() {
+                // During index creation, blocks are recycled with XIDs in the range
+                // [FirstNormalTransactionId, FirstNormalTransactionId + MAX_SLOTS - 1].
+                // This reduces contention when parallel workers push/pop from the FSM.
+                //
+                // The hash input is the first block number in the batch. This provides
+                // reasonable distribution while keeping all blocks in a batch together
+                // (same XID slot) for cache locality.
+                let first_normal_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+                let max_xid = first_normal_xid + (MAX_SLOTS as u64 - 1);
+                pg_sys::FullTransactionId {
+                    value: fib_hash_u64_range(
+                        *extend_with.peek().expect("peek() checked above"),
+                        first_normal_xid,
+                        max_xid,
+                    ),
+                }
+            } else {
+                when_recyclable
+            };
 
             // find the starting block of the associated freelist while holding (at least) a share
             // lock on the root page of the tree.  This ensures a concurrent drain that could be
@@ -1606,6 +1618,50 @@ pub mod v2 {
             Ok(())
         }
 
+        #[pg_test]
+        unsafe fn test_create_index_slot_distribution() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let mut indexrel =
+                PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            indexrel.set_is_create_index();
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            for i in 0..1000 {
+                let (start, end) = (i * 3, i * 3 + 3);
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let avl_tree = fsm.avl_ref(&page);
+            let keys: Vec<u64> = avl_tree.iter().map(|(k, _v)| k).collect();
+
+            // we should have created approximately MAX_SLOTS keys
+            assert!(keys.len() > 300);
+            assert!(keys.len() <= MAX_SLOTS);
+            assert!(
+                *keys.iter().min().unwrap() >= pg_sys::FirstNormalTransactionId.into_inner() as u64
+            );
+            assert!(
+                *keys.iter().max().unwrap()
+                    < pg_sys::FirstNormalTransactionId.into_inner() as u64 + MAX_SLOTS as u64
+            );
+
+            Ok(())
+        }
+
         fn freelist_blocks(
             bman: &mut BufferManager,
             fsm: &mut V2FSM,
@@ -1672,6 +1728,19 @@ pub mod v2 {
             let tree = fsm.avl_ref(&page);
             tree.get(&xid.value).is_some()
         }
+    }
+
+    // Fibonacci hashing constant
+    // https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+    const FIB64: u64 = 11400714819323198485;
+
+    // Hashes a value in the range [lo, hi] using Fibonacci hashing
+    // We do this so that CREATE INDEX distributes recycled blocks across the freelist slots more evenly
+    #[inline]
+    pub fn fib_hash_u64_range(v: pg_sys::BlockNumber, lo: u64, hi: u64) -> u64 {
+        let range = hi - lo + 1;
+        let mixed = (v as u64).wrapping_mul(FIB64);
+        lo + (((mixed as u128 * range as u128) >> 64) as u64)
     }
 }
 

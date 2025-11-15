@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763234799845,
+  "lastUpdate": 1763235517708,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -53246,6 +53246,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.922,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0418982e774fc2f93496e0cf2966598cea52915a",
+          "message": "fix: FSM drain race condition causing deadlocks with parallel workers (#3554)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes a race condition in the FSM (Free Space Manager) drain operation\nthat caused deadlocks when multiple parallel workers tried to unlink the\nsame empty head block.\n\n## Why\n\n**The Race Condition:**\n\nThe drain function has two loops:\n- **Outer loop**: Acquires root lock, reads head from tree\n- **Inner loop**: Operates WITHOUT root lock\n\nWhen attempting to unlink an empty head:\n1. We drop the buffer lock to acquire the tree lock\n2. We try to unlink (might win or lose the race)\n3. We drop the tree lock\n4. **BUG**: We continued in the inner loop without re-acquiring root\nlock\n5. Any head pointer we have is now stale (no lock protecting it)\n\nEven if we WIN the race and update the head ourselves, by the time we\ntry to access the next block (without holding the root lock), another\nbackend could have already drained it, unlinked it, and recycled it.\n\n**Example (B1, B2, B3 are PostgreSQL block numbers in the freelist\nchain):**\n```\nInitial freelist: Block 100 (empty) → Block 200 (full) → Block 300 (full)\n\nProcess P1: Wins race, unlinks Block 100, sets head = Block 200, drops tree lock\nProcess P1: BUG: Continues inner loop trying to access Block 200 (no root lock!)\nProcess P2: Acquires tree lock, drains Block 200, unlinks it, sets head = Block 300\nProcess P2: Recycles Block 200\nProcess P1: Tries to access Block 200 → DEADLOCK (Block 200 was recycled!)\n```\n\nThe only safe way to proceed is to re-acquire the root lock and re-read\nthe current head.\n\n## How\n\nAfter attempting to unlink (whether we win or lose), always restart the\nouter loop:\n\n```rust\n// BEFORE:\nif did_update_head {\n    unlinked_heads.push(old_head);\n}\nblockno = next_blockno;  // ← Stale! No root lock protecting this value\ncontinue;  // ← Stays in inner loop, tries to access stale blockno\n\n// AFTER:\nif did_update_head {\n    unlinked_heads.push(old_head);\n}\n// Whether we won or lost, the head we know about is stale\n// Must re-read under root lock\ncontinue 'outer;  // ← Restarts outer loop, re-acquires root lock, re-reads head\n```\n\nThis ensures we **always** read the head pointer under a root lock. Even\nif we just set the head ourselves, another backend could modify it\nbefore we try to use it.\n\n## Tests\n\nAdded two unit tests that verify the fix:\n- `test_fsmv2_concurrent_drain_empty_head`: Simulates sequential\ndraining that empties and unlinks blocks, verifying correct head updates\n- `test_fsmv2_partial_drain_with_unlink`: Tests partial draining\nscenarios and confirms no deadlocks occur\n\n**Note**: The test cannot reproduce the actual race (requires true\nparallel workers), but verifies logical correctness.",
+          "timestamp": "2025-11-15T13:56:32-05:00",
+          "tree_id": "ac40f14b404cd83f8503bc0acbcc8ebd9350820c",
+          "url": "https://github.com/paradedb/paradedb/commit/0418982e774fc2f93496e0cf2966598cea52915a"
+        },
+        "date": 1763235514617,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1194.8809999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 647.796,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1468.4865,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 712.6455000000001,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 681.2729999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1632.004,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 25.098,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 66.941,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 90.5715,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

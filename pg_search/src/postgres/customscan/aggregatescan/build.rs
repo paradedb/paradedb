@@ -137,9 +137,17 @@ impl CollectAggregations for AggregateCSClause {
                 .zip(metrics)
                 .enumerate()
                 .map(|(idx, (filter, metric))| {
-                    let metric_agg = Aggregation {
-                        agg: metric.into(),
-                        sub_aggregation: Aggregations::new(),
+                    // For Custom aggregates, deserialize with nested aggregations
+                    let metric_agg = if let AggregateType::Custom { agg_json, .. } = &metric {
+                        // Tantivy's Aggregation deserializer handles nested "aggs" automatically
+                        serde_json::from_value(agg_json.clone()).unwrap_or_else(|e| {
+                            panic!("Failed to deserialize custom aggregate: {}", e)
+                        })
+                    } else {
+                        Aggregation {
+                            agg: metric.into(),
+                            sub_aggregation: Aggregations::new(),
+                        }
                     };
 
                     let agg = match filter {

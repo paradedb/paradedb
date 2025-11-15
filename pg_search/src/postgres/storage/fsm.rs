@@ -964,9 +964,14 @@ pub mod v2 {
                 return;
             }
 
-            // if we are creating the index, set the XID to the first normal transaction id
-            // because anything garbage-collected during index creation should be immediately reusable
             let when_recyclable = if bman.is_create_index() {
+                // During index creation, blocks are recycled with XIDs in the range
+                // [FirstNormalTransactionId, FirstNormalTransactionId + MAX_SLOTS - 1].
+                // This reduces contention when parallel workers push/pop from the FSM.
+                //
+                // The hash input is the first block number in the batch. This provides
+                // reasonable distribution while keeping all blocks in a batch together
+                // (same XID slot) for cache locality.
                 let first_normal_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
                 let max_xid = first_normal_xid + (MAX_SLOTS as u64 - 1);
                 pg_sys::FullTransactionId {
@@ -1546,8 +1551,6 @@ pub mod v2 {
     const FIB64: u64 = 11400714819323198485;
 
     // Hashes a value in the range [lo, hi] using Fibonacci hashing
-    // This is a more efficient way to hash a value than using modulo because it distributes values more evenly across the range
-    //
     // We do this so that CREATE INDEX distributes recycled blocks across the freelist slots more evenly
     #[inline]
     pub fn fib_hash_u64_range(v: pg_sys::BlockNumber, lo: u64, hi: u64) -> u64 {

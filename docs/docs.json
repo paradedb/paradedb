@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new query syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy).",
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy).",
     "dismissible": false
   },
   "navigation": {
@@ -138,6 +138,7 @@
                               "documentation/aggregates/metrics/top_hits"
                             ]
                           },
+                          "documentation/aggregates/facets",
                           "documentation/aggregates/tuning",
                           "documentation/aggregates/limitations"
                         ]

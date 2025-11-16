@@ -20,3 +20,5 @@ WHERE id @@@ pdb.all();
 
 Unlike SQL's `DISTINCT` clause, which returns an exact value but is very computationally expensive, the cardinality aggregation uses the HyperLogLog++ algorithm to
 closely approximate the number of distinct values.
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CardinalityAggregationReq.html) for all available options.

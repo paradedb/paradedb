@@ -18,6 +18,8 @@ WHERE id @@@ pdb.all();
 (1 row)
 ```
 
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html) for all available options.
+
 ## SQL Count Syntax
 
 SQL's `COUNT` syntax is supported. The following query is equivalent to the above and is executed in the same way.
@@ -33,4 +35,3 @@ To count all rows, including rows with null values, use `COUNT(*)`:
 SELECT COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
-

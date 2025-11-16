@@ -4,8 +4,25 @@ description: Indexes the text in its raw form, without any splitting or processi
 canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/exact
 ---
 
+<Note>
+  The literal tokenizer is not ideal for text search queries like
+  [match](/documentation/full-text/match) or
+  [phrase](/documentation/full-text/phrase). If you need to do text search over
+  a field that is literal tokenized, consider using [multiple
+  tokenizers](/documentation/tokenizers/multiple-per-field).
+</Note>
+
+<Note>
+  Because the literal tokenizer preserves the source text exactly, [token
+  filters](/documentation/token-filters/overview) cannot be configured for this
+  tokenizer.
+</Note>
+
 The literal tokenizer applies no tokenization to the text, preserving it as-is. It is the default for `uuid` fields (since
 exact UUID matching is a common use case), and is useful for doing exact string matching over text fields.
+
+It is also required if the text field is used as a sort field in a [Top N](/documentation/full-text/topn) query,
+or as part of an [aggregate](/documentation/aggregates).
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -25,9 +42,3 @@ SELECT 'Tokenize me!'::pdb.literal::text[];
  {"Tokenize me!"}
 (1 row)
 ```
-
-<Note>
-  Because the literal tokenizer preserves the source text exactly, [token
-  filters](/documentation/token-filters/overview) cannot be configured for this
-  tokenizer.
-</Note>

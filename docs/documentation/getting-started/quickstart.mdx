@@ -23,8 +23,7 @@ FROM mock_items
 LIMIT 3;
 ```
 
-<Accordion title="Expected Response">
-```csv
+```ini Expected Response
        description        | rating |  category
 --------------------------+--------+-------------
  Ergonomic metal keyboard |      4 | Electronics
@@ -32,7 +31,6 @@ LIMIT 3;
  Sleek running shoes      |      5 | Footwear
 (3 rows)
 ```
-</Accordion>
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
 
@@ -65,8 +63,7 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-``` csv
+```ini Expected Response
      description     | rating | category
 ---------------------+--------+----------
  White jogging shoes |      3 | Footwear
@@ -74,7 +71,6 @@ LIMIT 5;
  Sleek running shoes |      5 | Footwear
 (3 rows)
 ```
-</Accordion>
 
 `|||` is ParadeDB's custom [match disjunction](/documentation/full-text/match#disjunction) operator, which means "find me all documents containing
 `running OR shoes`.
@@ -89,18 +85,16 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-``` csv
+```ini Expected Response
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
 (1 row)
 ```
-</Accordion>
 
 ## BM25 Scoring
 
-Next, let's add BM25 scoring to the results, which allows us to sort matches by relevance. To do this, we'll use `pdb.score`.
+Next, let's add [BM25 scoring](/documentation/sorting/score) to the results, which sorts matches by relevance. To do this, we'll use `pdb.score`.
 
 ```sql
 SELECT description, pdb.score(id)
@@ -110,8 +104,7 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-``` csv
+```ini Expected Response
      description     |   score
 ---------------------+-----------
  Sleek running shoes |  6.833782
@@ -119,7 +112,6 @@ LIMIT 5;
  White jogging shoes | 3.4987166
 (3 rows)
 ```
-</Accordion>
 
 ## Highlighting
 
@@ -134,8 +126,7 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-<Accordion title="Expected Response">
-``` csv
+```ini Expected Response
      description     |              snippet              |   score
 ---------------------+-----------------------------------+-----------
  Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.833782
@@ -143,6 +134,52 @@ LIMIT 5;
  White jogging shoes | White jogging <b>shoes</b>        | 3.4987166
 (3 rows)
 ```
-</Accordion>
+
+## Top N
+
+ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```ini Expected Response
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+
+## Facets
+
+[Faceted queries](/documentation/aggregates/facets) allow a single query to return both the Top N results and an aggregate value,
+which is more CPU-efficient than issuing two separate queries.
+
+For example, the following query returns the top 3 results as well as the total number of results matched.
+
+```sql
+SELECT
+     description, rating, category,
+     pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```ini Expected Response
+     description     | rating | category |      agg
+---------------------+--------+----------+----------------
+ White jogging shoes |      3 | Footwear | {"value": 3.0}
+ Generic shoes       |      4 | Footwear | {"value": 3.0}
+ Sleek running shoes |      5 | Footwear | {"value": 3.0}
+(3 rows)
+```
 
 That's it! Next, let's [load your data](/documentation/getting-started/load) to start running real queries.

@@ -1681,6 +1681,58 @@ pub mod v2 {
             Ok(())
         }
 
+        #[pg_test]
+        unsafe fn test_fsmv2_tolerates_corrupt_metadata() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let slot1_key = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            let entries = MAX_ENTRIES * 2;
+            fsm.extend_with_when_recyclable(&mut bman, slot1_key, 0..(entries as u32));
+
+            let slot2_key = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + 1,
+            };
+
+            fsm.extend_with_when_recyclable(&mut bman, slot2_key, 0..(entries as u32));
+
+            // corrupt slot 1
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                let leaf = tree
+                    .get(&slot1_key.value)
+                    .expect("slot 1 should be present");
+                let (_, blockno) = leaf;
+                let mut buf = bman.get_buffer_mut(blockno);
+                let mut p = buf.page_mut();
+                let contents = p.contents_mut::<AvlLeaf>();
+                contents.len = MAX_ENTRIES as u32 + 1;
+            }
+
+            // now try draining
+            let drained = fsm.drain(&mut bman, entries + 1).collect::<Vec<_>>();
+            assert_eq!(drained.len(), entries);
+
+            Ok(())
+        }
+
         fn freelist_blocks(
             bman: &mut BufferManager,
             fsm: &mut V2FSM,

@@ -20,7 +20,9 @@ use std::panic::{catch_unwind, resume_unwind};
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
+use crate::index::writer::index::{
+    max_docs_per_segment_override, IndexError, IndexWriterConfig, SerialIndexWriter,
+};
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -44,7 +46,7 @@ impl InsertModeImmutable {
     fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(),
-            max_docs_per_segment: None,
+            max_docs_per_segment: max_docs_per_segment_override(),
         };
         let writer = SerialIndexWriter::with_mvcc(
             indexrel,

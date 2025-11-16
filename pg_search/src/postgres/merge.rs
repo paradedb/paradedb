@@ -22,15 +22,19 @@ use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
-use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::merge::{MergeEntry, MergeLock};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
+#[cfg(any(test, feature = "pg_test"))]
+use pgrx::pg_extern;
 use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
+#[cfg(any(test, feature = "pg_test"))]
+use std::sync::atomic::{AtomicI32, Ordering};
 use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +56,55 @@ impl TryFrom<u8> for MergeStyle {
     }
 }
 
+struct MergeEntryGuard {
+    indexrel: PgSearchRelation,
+    merge_entry: Option<MergeEntry>,
+}
+
+impl MergeEntryGuard {
+    fn new(indexrel: PgSearchRelation, merge_entry: MergeEntry) -> Self {
+        Self {
+            indexrel,
+            merge_entry: Some(merge_entry),
+        }
+    }
+
+    fn entry(&self) -> MergeEntry {
+        *self
+            .merge_entry
+            .as_ref()
+            .expect("merge entry should be present")
+    }
+
+    fn disarm(&mut self) {
+        self.merge_entry = None;
+    }
+}
+
+impl Drop for MergeEntryGuard {
+    fn drop(&mut self) {
+        if let Some(entry) = self.merge_entry.take() {
+            let metadata = MetaPage::open(&self.indexrel);
+            let merge_lock = unsafe { metadata.acquire_merge_lock() };
+            let _ = unsafe { merge_lock.merge_list().remove_entry(entry) };
+        }
+    }
+}
+
+fn background_merge_cancel_requested(metadata: &MetaPage, cancelled: &mut bool) -> bool {
+    if *cancelled {
+        return true;
+    }
+
+    let cancel_requested = metadata.cancel_sentinel_requested();
+    if cancel_requested {
+        *cancelled = true;
+        return true;
+    }
+
+    false
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
@@ -71,6 +124,43 @@ impl BackgroundMergeArgs {
     pub fn blockno(&self) -> pg_sys::BlockNumber {
         self.blockno
     }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+static NEXT_WORKER_DELAY_MS: AtomicI32 = AtomicI32::new(0);
+#[cfg(any(test, feature = "pg_test"))]
+static CURRENT_WORKER_DELAY_MS: AtomicI32 = AtomicI32::new(0);
+
+fn background_merge_delay_ms() -> i32 {
+    #[cfg(any(test, feature = "pg_test"))]
+    {
+        CURRENT_WORKER_DELAY_MS.load(Ordering::SeqCst)
+    }
+    #[cfg(not(any(test, feature = "pg_test")))]
+    {
+        0
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pg_extern(name = "__set_background_merge_delay_ms")]
+fn set_background_merge_delay_ms(delay_ms: i32) {
+    NEXT_WORKER_DELAY_MS.store(delay_ms.max(0), Ordering::SeqCst);
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+fn log_background_merge_cancellation() {
+    use pgrx::Spi;
+
+    let pid = unsafe { pg_sys::MyProcPid };
+    let query = format!(
+        "INSERT INTO public.paradedb_background_merge_cancel_log(pid, cancelled_at) VALUES ({}, clock_timestamp())",
+        pid
+    );
+
+    // Try to insert. If the table doesn't exist, silently ignore the error.
+    // This is only called once per cancellation, so the overhead is minimal.
+    let _ = Spi::run(&query);
 }
 
 impl IntoDatum for BackgroundMergeArgs {
@@ -277,11 +367,17 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .to_string_lossy()
         .into_owned();
 
+    #[cfg(any(test, feature = "pg_test"))]
+    let delay_ms = NEXT_WORKER_DELAY_MS.load(Ordering::SeqCst);
+    #[cfg(not(any(test, feature = "pg_test")))]
+    let delay_ms = 0;
+
     let worker_name = format!(
         "background merger for {}.{}",
         index.namespace(),
         index.name()
     );
+    let extra = format!("{dbname}\n{delay_ms}");
 
     if BackgroundWorkerBuilder::new(&worker_name)
         .enable_spi_access()
@@ -289,7 +385,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .set_library("pg_search")
         .set_function("background_merge")
         .set_argument(BackgroundMergeArgs::new(index.oid(), maybe_blockno.unwrap()).into_datum())
-        .set_extra(&dbname)
+        .set_extra(&extra)
         .load_dynamic()
         .is_err()
     {
@@ -303,7 +399,17 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
 #[no_mangle]
 unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
-    BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
+    let extra = BackgroundWorker::get_extra();
+    let dbname = extra.rsplit_once('\n').map(|(db, _)| db).unwrap_or(extra);
+    BackgroundWorker::connect_worker_to_spi(Some(dbname), None);
+
+    #[cfg(any(test, feature = "pg_test"))]
+    {
+        let (_, delay_str) = extra.rsplit_once('\n').unwrap_or((extra, "0"));
+        let worker_delay_ms = delay_str.parse::<i32>().unwrap_or(0);
+        CURRENT_WORKER_DELAY_MS.store(worker_delay_ms.max(0), Ordering::SeqCst);
+    }
+
     BackgroundWorker::transaction(|| {
         set_ps_display_suffix(MERGING.as_ptr());
         pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
@@ -354,7 +460,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             )
         }))
         .execute();
-    })
+    });
 }
 
 #[inline]
@@ -372,6 +478,7 @@ unsafe fn merge_index(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
+    let mut cleanup_lock = Some(cleanup_lock);
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
         .expect("should be able to open merger");
 
@@ -395,6 +502,7 @@ unsafe fn merge_index(
             .add_segment_ids(merge_policy.mergeable_segments(), current_xid)
             .expect("should be able to write current merge segment_id list");
         drop(merge_lock);
+        let mut merge_entry_guard = MergeEntryGuard::new(indexrel.clone(), merge_entry);
 
         // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
         //
@@ -402,12 +510,36 @@ unsafe fn merge_index(
         // `merge_entry` whether the merge worked or not
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
+        let mut cancel_requested = false;
 
         for candidate in merge_candidates {
+            if gc_after_merge {
+                if background_merge_cancel_requested(&metadata, &mut cancel_requested) {
+                    break;
+                }
+                let delay_ms = background_merge_delay_ms(); // test-only delay, 0 in production
+                if delay_ms > 0 {
+                    // Break the sleep into 100ms chunks to check for cancellation more frequently
+                    let chunks = (delay_ms + 99) / 100; // Round up
+                    for _ in 0..chunks {
+                        unsafe {
+                            pg_sys::pg_usleep(100 * 1000); // 100ms
+                        }
+                        if background_merge_cancel_requested(&metadata, &mut cancel_requested) {
+                            break;
+                        }
+                    }
+                }
+            }
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
             if merge_result.is_err() {
+                break;
+            }
+            check_for_interrupts!();
+            if gc_after_merge && background_merge_cancel_requested(&metadata, &mut cancel_requested)
+            {
                 break;
             }
             if gc_after_merge {
@@ -416,12 +548,23 @@ unsafe fn merge_index(
             }
         }
 
+        // If cancelled, release cleanup_lock immediately so VACUUM can proceed
+        if cancel_requested {
+            #[cfg(any(test, feature = "pg_test"))]
+            log_background_merge_cancellation();
+            pgrx::debug1!("background merge: releasing cleanup lock due to cancellation");
+            if let Some(lock) = cleanup_lock.take() {
+                drop(lock);
+            }
+        }
+
         // re-acquire the MergeLock to remove the entry we made above
         let merge_lock = metadata.acquire_merge_lock();
         merge_lock
             .merge_list()
-            .remove_entry(merge_entry)
+            .remove_entry(merge_entry_guard.entry())
             .expect("should be able to remove MergeEntry");
+        merge_entry_guard.disarm();
         drop(merge_lock);
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
@@ -442,7 +585,11 @@ unsafe fn merge_index(
     } else {
         drop(merge_lock);
     }
-    drop(cleanup_lock);
+
+    // Drop cleanup_lock if we still have it (wasn't dropped due to cancellation)
+    if let Some(lock) = cleanup_lock.take() {
+        drop(lock);
+    }
 }
 
 ///

@@ -160,6 +160,7 @@
                         "pages": [
                           "documentation/performance-tuning/overview",
                           "documentation/performance-tuning/create-index",
+                          "documentation/performance-tuning/joins",
                           "documentation/performance-tuning/reads",
                           "documentation/performance-tuning/writes"
                         ]

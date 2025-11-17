@@ -69,10 +69,13 @@ jobs:
           # Otherwise, default to main.
           if [ -n "${{ inputs.commit }}" ]; then
             echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${{ github.sha }}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Determined ref as default: main"
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}

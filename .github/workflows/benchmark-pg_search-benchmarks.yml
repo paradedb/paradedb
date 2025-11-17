@@ -1,9 +1,9 @@
 # workflows/benchmark-pg_search-benchmarks.yml
 #
-# Benchmark pg_search - Benchmarks
-# Run our benchmarks suite against pg_search.
+# Benchmark pg_search - Queries
+# Run our queries benchmark suite against pg_search.
 
-name: Benchmark pg_search - Benchmarks
+name: Benchmark pg_search - Queries
 
 # We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:
@@ -68,10 +68,13 @@ jobs:
           # Otherwise, default to main.
           if [ -n "${{ inputs.commit }}" ]; then
             echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${{ github.sha }}"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Determined ref as default: main"
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
@@ -85,6 +88,7 @@ jobs:
         run: |
           short_commit=$(git rev-parse --short=7 HEAD)
           echo "short_commit=$short_commit" >> "$GITHUB_OUTPUT"
+          echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'

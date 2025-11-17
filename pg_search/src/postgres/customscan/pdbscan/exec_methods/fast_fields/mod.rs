@@ -184,6 +184,7 @@ fn collect_fast_field_try_for_attno(
     index: &PgSearchRelation,
     fieldname: Option<&FieldName>,
 ) -> bool {
+    pgrx::info!("collect ff");
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber

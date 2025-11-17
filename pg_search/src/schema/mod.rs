@@ -300,16 +300,43 @@ impl SearchIndexSchema {
                 };
 
                 for search_field in search_fields {
-                    let (base_oid, is_array) = resolve_base_type(PgOid::from_untagged(
-                        *inner_typoid,
-                    ))
-                    .unwrap_or_else(|| {
-                        pgrx::error!(
-                            "Failed to resolve base type for column {} with type {:?}",
-                            attname,
-                            tantivy_type.typeoid()
-                        )
-                    });
+                    // For tokenizer types, we need to determine if we should index as an array or single value.
+                    // - If the source column (inner_typoid) is an array, we want to index each element separately
+                    //   by reading the array from the heap before the cast is applied
+                    // - If the source is not an array, the result is a single tokenizer value
+                    let (base_oid, is_array) = if matches!(tantivy_type, SearchFieldType::Tokenized(..)) {
+                        // Check if the source type (before cast) is an array
+                        let (resolved_base, is_source_array) = resolve_base_type(PgOid::from_untagged(
+                            *inner_typoid,
+                        ))
+                        .unwrap_or_else(|| {
+                            pgrx::error!(
+                                "Failed to resolve base type for column {} with type {:?}",
+                                attname,
+                                tantivy_type.typeoid()
+                            )
+                        });
+
+                        if is_source_array {
+                            // Source is an array - we want to read the array from heap and index each element separately
+                            // Use the resolved base type (TEXTOID for text[]) and mark as array
+                            (resolved_base, true)
+                        } else {
+                            // Source is not an array - result is a single tokenizer value
+                            (tantivy_type.typeoid(), false)
+                        }
+                    } else {
+                        resolve_base_type(PgOid::from_untagged(
+                            *inner_typoid,
+                        ))
+                        .unwrap_or_else(|| {
+                            pgrx::error!(
+                                "Failed to resolve base type for column {} with type {:?}",
+                                attname,
+                                tantivy_type.typeoid()
+                            )
+                        })
+                    };
                     let is_key_field = key_field_name == *search_field.field_name();
                     let is_json = matches!(
                         base_oid,

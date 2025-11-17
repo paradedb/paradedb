@@ -248,6 +248,7 @@ pub struct ExtractedFieldAttribute {
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
+    pgrx::info!("extract_field_attributes: {:?}", indexrel);
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
@@ -262,7 +263,7 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
-                let source = FieldSource::Expression {
+                let mut source = FieldSource::Expression {
                     att_idx: expression_idx,
                 };
                 let node = expression.cast();
@@ -275,6 +276,7 @@ pub unsafe fn extract_field_attributes(
                 let mut normalizer = None;
 
                 if type_is_tokenizer(typoid) {
+                    pgrx::info!("type_is_tokenizer: {:?}", typoid);
                     if type_is_alias(typoid) {
                         panic!("`pdb.alias` is not allowed in index definitions")
                     }
@@ -317,6 +319,9 @@ pub unsafe fn extract_field_attributes(
                         attname = Some(heap_attname);
                         expression = None;
                         inner_typoid = pg_sys::exprType(inner_expression.cast());
+                        // When expression is None, we're reading from the heap, so change source to Heap
+                        let heap_attno = (*var).varattno as usize - 1;
+                        source = FieldSource::Heap { attno: heap_attno };
                     }
                 }
 
@@ -337,6 +342,7 @@ pub unsafe fn extract_field_attributes(
                     normalizer,
                 )
             } else {
+                pgrx::info!("Is a field -- get the field name from the heap relation.");
                 // Is a field -- get the field name from the heap relation.
                 let attno = (heap_attno - 1) as usize;
                 let att = heap_tupdesc.get(attno).expect("attribute should exist");
@@ -408,6 +414,7 @@ pub unsafe fn row_to_search_document<'a>(
     >,
     document: &mut tantivy::TantivyDocument,
 ) -> Result<(), IndexError> {
+    pgrx::info!("row_to_search_document");
     for (
         datum,
         isnull,
@@ -430,6 +437,7 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         if *is_array {
+            pgrx::info!("is_array");
             for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
@@ -438,6 +446,7 @@ pub unsafe fn row_to_search_document<'a>(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
+            pgrx::info!("else");
             let tv = TantivyValue::try_from_datum(datum, *base_oid)?;
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
         }

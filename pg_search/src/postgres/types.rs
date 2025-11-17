@@ -186,7 +186,6 @@ impl TantivyValue {
                 _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
             },
             PgOid::Custom(custom) if type_is_tokenizer(*custom) => {
-                pgrx::info!("is custom");
                 // For tokenizer types, treat them like text arrays
                 let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
                     .ok_or(TantivyValueError::DatumDeref)?;

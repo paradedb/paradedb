@@ -217,7 +217,6 @@ impl CustomScan for AggregateScan {
             // Fill in values according to the target list mapping
             for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
                 let attr = tupdesc.get(i).expect("missing attribute");
-                pgrx::info!("attr: {:?}", attr);
                 let expected_typoid = attr.type_oid().value();
 
                 let datum = match (entry, row.is_empty()) {

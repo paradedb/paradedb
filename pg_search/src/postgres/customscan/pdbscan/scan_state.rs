@@ -370,7 +370,6 @@ impl PdbScanState {
     ///
     /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
-        pgrx::info!("doc_from_heap: {:?}, {:?}", ctid, field);
         let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);

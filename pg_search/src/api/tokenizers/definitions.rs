@@ -167,7 +167,6 @@ pub(crate) mod pdb {
 
             #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
             fn $text_array_to_name(array: Vec<String>) -> $rust_name {
-                use crate::postgres::catalog::*;
                 use std::ffi::CString;
 
                 // Join array elements with spaces

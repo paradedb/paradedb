@@ -118,7 +118,7 @@
                           {
                             "group": "Bucket",
                             "pages": [
-                              "documentation/aggregates/bucket/date_histogram",
+                              "documentation/aggregates/bucket/datehistogram",
                               "documentation/aggregates/bucket/filters",
                               "documentation/aggregates/bucket/histogram",
                               "documentation/aggregates/bucket/range",
@@ -135,7 +135,7 @@
                               "documentation/aggregates/metrics/percentiles",
                               "documentation/aggregates/metrics/stats",
                               "documentation/aggregates/metrics/sum",
-                              "documentation/aggregates/metrics/top_hits"
+                              "documentation/aggregates/metrics/tophits"
                             ]
                           },
                           "documentation/aggregates/facets",

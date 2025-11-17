@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763417096139,
+  "lastUpdate": 1763418114541,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -57206,6 +57206,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.94800000000001,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0645cc59fb33dd08026d6e45989c69ad46d726c8",
+          "message": "fix: fixed nested aggregations in pdb.agg() (#3553)\n\n# Ticket(s) Closed\n\n- Closes #3552 \n\n## What\n\nFixed a bug where nested sub-aggregations in `pdb.agg()` were not\nincluded in the JSON output. Previously, only the top-level aggregation\nwas returned.\n\nExample that now works:\n```sql\nSELECT pdb.agg('{\"terms\": {\"field\": \"category\", \"aggs\": {\"brand_breakdown\": {\"terms\": {\"field\": \"brand\"}}}}}'::jsonb)\nFROM products WHERE description @@@ 'laptop';\n```\n\nNow correctly returns nested structure with `brand_breakdown` inside\neach category bucket.\n\n## Why\n\nWhen using `pdb.agg()` with nested aggregations\n(Elasticsearch-compatible \"aggs\" format), the nested sub-aggregations\nwere being lost during deserialization. This happened because:\n\n1. The JSON format uses `\"aggs\"` for nested aggregations (e.g.,\n`{\"terms\": {\"field\": \"category\", \"aggs\": {...}}}`)\n2. Tantivy's Rust `Aggregation` struct uses `sub_aggregation` internally\n3. While Tantivy has `#[serde(rename = \"aggs\")]` on the field, the\nautomatic deserialization wasn't working in the ParadeDB fork (v0.23.0)\n4. The code was deserializing as `AggregationVariants` (just the\naggregation type) instead of `Aggregation` (with sub-aggregations)\n\n## How\n\n**Added `parse_custom_aggregation()` function** in `aggregate_type.rs`.\n**Fixed both query execution paths:**\n- **Non-GROUP BY queries** (`build.rs`): Use\n`parse_custom_aggregation()` when building aggregations\n- **TopN/window queries** (`top_n.rs`): Use `parse_custom_aggregation()`\nfor Custom aggregates\n**Simplified output serialization** (`exec.rs`):\n- Custom aggregates serialize as-is (Tantivy's output already includes\nnested aggs correctly)\n\n## Tests\n\nAdded tests for nested aggregations.",
+          "timestamp": "2025-11-17T13:37:55-08:00",
+          "tree_id": "0487a1d5f895a246b3943b8142aaaed293ded505",
+          "url": "https://github.com/paradedb/paradedb/commit/0645cc59fb33dd08026d6e45989c69ad46d726c8"
+        },
+        "date": 1763418112026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1206.7415,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 637.5285,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1485.5005,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 701.356,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 675.117,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1623.1195,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 25.1205,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 67.28800000000001,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 91.75800000000001,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

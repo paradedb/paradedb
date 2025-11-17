@@ -63,20 +63,33 @@ jobs:
       - name: Determine Ref to Benchmark
         id: determine-ref
         run: |
-          # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
-          REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
-          echo "ref=$REF" >> $GITHUB_OUTPUT
+          # If a specific commit was provided via workflow_dispatch, use that.
+          # For pull_request events, benchmark the PR merge commit (github.sha),
+          # which exists in the base repo even for forks.
+          # Otherwise, default to main.
+          if [ -n "${{ inputs.commit }}" ]; then
+            echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from workflow_dispatch input: ${{ inputs.commit }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from pull_request event: ${{ github.sha }}"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Determined ref as default: main"
+          fi
+
+      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
+          fetch-depth: 1
 
       - name: Derive Short Commit
         id: commit_info
         run: |
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
-
-      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
+          echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'

@@ -36,6 +36,12 @@ WITH (key_field='id');
 
 Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
 
+To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
+
+```sql
+SELECT pid, phase, blocks_done, blocks_total FROM pg_stat_progress_create_index;
+```
+
 ## Choosing a Key Field
 
 In the `CREATE INDEX` statement above, note the mandatory `key_field` option.

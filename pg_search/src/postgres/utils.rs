@@ -262,7 +262,7 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
-                let source = FieldSource::Expression {
+                let mut source = FieldSource::Expression {
                     att_idx: expression_idx,
                 };
                 let node = expression.cast();
@@ -281,10 +281,10 @@ pub unsafe fn extract_field_attributes(
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
-                        lookup_generic_typmod(typmod).expect("typmod should be valid");
+                        UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
                     let vars = find_vars(node);
 
-                    normalizer = parsed_typmod.filters.normalizer;
+                    normalizer = parsed_typmod.normalizer();
 
                     attname = parsed_typmod.alias();
                     if attname.is_none() && vars.len() == 1 {
@@ -296,27 +296,89 @@ pub unsafe fn extract_field_attributes(
                             .name()
                             .to_string();
 
-                        let mut inner_expression = var as *mut pg_sys::Node;
-                        if let Some(coerce) =
-                            nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
-                        {
-                            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
-                            {
-                                if (*func_expr).funcid == text_lower_funcoid() {
-                                    normalizer = Some(SearchNormalizer::Lowercase);
-                                }
-                            }
-                        } else if let Some(relabel) =
-                            nodecast!(RelabelType, T_RelabelType, expression.unwrap())
-                        {
-                            if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
-                                inner_expression = (*relabel).arg.cast();
-                            }
+                        // Get inner expression (before cast) and check if it's just this var
+                        // Recursively unwrap CoerceViaIO and RelabelType to get to the base expression
+                        let mut inner_expr = expression.unwrap();
+                        loop {
+                            let next = if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, inner_expr) {
+                                (*coerce).arg
+                            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, inner_expr) {
+                                (*relabel).arg
+                            } else {
+                                break;
+                            };
+                            inner_expr = next;
                         }
 
-                        attname = Some(heap_attname);
-                        expression = None;
-                        inner_typoid = pg_sys::exprType(inner_expression.cast());
+                        // Check if inner expression is just the var (possibly with lower())
+                        // After recursive unwrapping, check if it's a Var or a function wrapping a Var
+                        let inner_is_just_var = if let Some(var_node) = nodecast!(Var, T_Var, inner_expr) {
+                            // Direct var - check if it matches the var we found
+                            unsafe { pg_sys::equal(var_node.cast(), var.cast()) }
+                        } else if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, inner_expr) {
+                            // Only allow lower() function wrapping the var
+                            if (*func_expr).funcid == text_lower_funcoid() {
+                                let func_args = pgrx::PgList::<pg_sys::Node>::from_pg((*func_expr).args.cast());
+                                func_args.len() == 1 && nodecast!(Var, T_Var, func_args.get_ptr(0).unwrap()).map(|v| unsafe { pg_sys::equal(v.cast(), var.cast()) }).unwrap_or(false)
+                            } else {
+                                false // Other functions are complex expressions
+                            }
+                        } else {
+                            false // Not a var or function
+                        };
+
+                        if inner_is_just_var {
+                            // Simple case: just the var (possibly with lower()) - read from heap
+                            let mut inner_expression = var as *mut pg_sys::Node;
+                            if let Some(coerce) =
+                                nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
+                            {
+                                if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
+                                {
+                                    if (*func_expr).funcid == text_lower_funcoid() {
+                                        normalizer = Some(SearchNormalizer::Lowercase);
+                                    }
+                                }
+                            } else if let Some(relabel) =
+                                nodecast!(RelabelType, T_RelabelType, expression.unwrap())
+                            {
+                                if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
+                                    inner_expression = (*relabel).arg.cast();
+                                }
+                            }
+
+                            attname = Some(heap_attname);
+                            expression = None;
+                            // Get type from heap relation for consistency
+                            let heap_attno = (*var).varattno as usize - 1;
+                            inner_typoid = heap_relation
+                                .tuple_desc()
+                                .get(heap_attno)
+                                .expect("attribute should exist")
+                                .type_oid()
+                                .value();
+                            // When expression is None, we're reading from the heap, so change source to Heap
+                            source = FieldSource::Heap { attno: heap_attno };
+                        } else {
+                            // Complex expression with single var - use var name but keep as expression
+                            // Set inner_typoid to the type of the inner expression (before cast)
+                            // If inner_expr is a Var, get type from heap relation; otherwise use exprType
+                            // This handles cases like (metadata->>'color') which returns text, not the var's type
+                            inner_typoid = if let Some(var_node) = nodecast!(Var, T_Var, inner_expr) {
+                                // It's a Var - get type from heap relation
+                                let heap_attno = (*var_node).varattno as usize - 1;
+                                heap_relation
+                                    .tuple_desc()
+                                    .get(heap_attno)
+                                    .expect("attribute should exist")
+                                    .type_oid()
+                                    .value()
+                            } else {
+                                // Complex expression - get type from expression
+                                pg_sys::exprType(inner_expr.cast())
+                            };
+                            attname = Some(heap_attname);
+                        }
                     }
                 }
 

@@ -86,8 +86,8 @@ jobs:
       - name: Derive Short Commit
         id: commit_info
         run: |
-          short_commit=$(git rev-parse --short=7 HEAD)
-          echo "short_commit=$short_commit" >> "$GITHUB_OUTPUT"
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
           echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions

@@ -262,7 +262,7 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
-                let source = FieldSource::Expression {
+                let mut source = FieldSource::Expression {
                     att_idx: expression_idx,
                 };
                 let node = expression.cast();
@@ -317,6 +317,9 @@ pub unsafe fn extract_field_attributes(
                         attname = Some(heap_attname);
                         expression = None;
                         inner_typoid = pg_sys::exprType(inner_expression.cast());
+
+                        // let heap_attno = (*var).varattno as usize - 1;
+                        // source = FieldSource::Heap { attno: heap_attno };
                     }
                 }
 
@@ -380,6 +383,7 @@ pub unsafe fn extract_field_attributes(
             },
         );
     }
+    pgrx::info!("field_attributes: {field_attributes:?}");
     field_attributes
 }
 

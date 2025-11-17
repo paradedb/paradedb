@@ -500,6 +500,7 @@ impl BM25IndexOptions {
 
     /// Returns a `Vec` of aliased text field names and their configs.
     pub fn aliased_text_configs(&self) -> Vec<(FieldName, SearchFieldConfig)> {
+        pgrx::info!("aliased_text_configs");
         if self.lazy.text.borrow().is_none() {
             *self.lazy.text.borrow_mut() = Some(self.options_data().text_configs());
         }
@@ -556,6 +557,7 @@ impl BM25IndexOptions {
     }
 
     pub fn get_field_type(&self, field_name: &FieldName) -> Option<SearchFieldType> {
+        pgrx::info!("get_field_type: {:?}", field_name);
         if field_name.is_ctid() {
             // the "ctid" field isn't an attribute, per se, in the index itself
             // it's one we add directly, so we need to account for it here

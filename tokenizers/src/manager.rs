@@ -40,6 +40,7 @@ use tantivy::tokenizer::{
     RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 use tantivy_jieba;
+use tantivy_stemmers;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
@@ -341,6 +342,7 @@ pub enum SearchTokenizer {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
     },
+    Polish(SearchTokenizerFilters),
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -428,6 +430,7 @@ impl SearchTokenizer {
                     filters,
                 })
             }
+            "polish" => Ok(SearchTokenizer::Polish(filters)),
             _ => Err(anyhow::anyhow!(
                 "unknown tokenizer type: {}",
                 tokenizer_type
@@ -514,6 +517,21 @@ impl SearchTokenizer {
             } => {
                 add_filters!(UnicodeWordsTokenizer::new(*remove_emojis), filters)
             }
+            SearchTokenizer::Polish(filters) => {
+                let polish_stemmer = tantivy_stemmers::StemmerTokenizer::new(
+                    tantivy_stemmers::algorithms::polish_yarovoy_unaccented,
+                );
+                tantivy::tokenizer::TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(filters.token_length_filter())
+                    .filter(filters.trim_filter())
+                    .filter(filters.lower_caser())
+                    .filter(polish_stemmer)
+                    .filter(filters.stopwords_language())
+                    .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
+                    .filter(filters.alpha_num_only())
+                    .build()
+            }
         };
 
         Some(analyzer)
@@ -541,6 +559,7 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba(filters) => filters,
             SearchTokenizer::UnicodeWords { filters, .. } => filters,
+            SearchTokenizer::Polish(filters) => filters,
         }
     }
 
@@ -610,6 +629,7 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
             SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::Polish(_filters) => format!("polish{filters_suffix}"),
         }
     }
 }

@@ -53,8 +53,14 @@ use tantivy::{
 };
 use thiserror::Error;
 
-// F64 can safely represent integers up to 2^53 without precision loss
-pub(crate) const F64_SAFE_INTEGER_MAX: u64 = 1u64 << 53;
+// F64 can exactly represent integers up to 2^53 (permissive boundary).
+// This is used when converting F64 to integer types where 2^53 is losslessly convertible.
+pub(crate) const F64_EXACT_INTEGER_MAX: u64 = 1u64 << 53;
+
+// Conservative boundary (2^53-2) for deciding when to create F64 variants from integers.
+// Matches types.rs classification logic to ensure consistency between indexing and querying.
+// Values > this threshold are stored/queried as I64/U64 only, not F64.
+pub(crate) const F64_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 2;
 
 /// Expands a numeric value into multiple Tantivy term variants to handle
 /// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
@@ -121,8 +127,8 @@ pub(crate) fn expand_json_numeric_to_terms(
                 // Using permissive boundary: 2^53 can be exactly represented in F64
                 if *f64_val >= i64::MIN as f64
                     && *f64_val <= i64::MAX as f64
-                    && *f64_val >= -(F64_SAFE_INTEGER_MAX as f64)
-                    && *f64_val <= F64_SAFE_INTEGER_MAX as f64
+                    && *f64_val >= -(F64_EXACT_INTEGER_MAX as f64)
+                    && *f64_val <= F64_EXACT_INTEGER_MAX as f64
                 {
                     let i64_value = OwnedValue::I64(*f64_val as i64);
                     let i64_term =
@@ -132,7 +138,8 @@ pub(crate) fn expand_json_numeric_to_terms(
 
                 // Create U64 variant if in u64 range (including values > i64::MAX)
                 // Note: We check >= 0 because U64 can't represent negative numbers
-                if *f64_val >= 0.0 && *f64_val <= u64::MAX as f64 {
+                // Using permissive boundary for lossless conversion
+                if *f64_val >= 0.0 && *f64_val <= F64_EXACT_INTEGER_MAX as f64 {
                     let u64_value = OwnedValue::U64(*f64_val as u64);
                     let u64_term =
                         value_to_json_term(tantivy_field, &u64_value, path, true, false)?;

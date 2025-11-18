@@ -350,7 +350,7 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
                             "pdb.agg() can only be used as a window function in TopN queries \
                              (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
                              SQL aggregates like COUNT(*), SUM(), etc. \
-                             Hint: Try using '@@@ paradedb.all()' with ORDER BY and LIMIT, \
+                             Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
                              or see https://github.com/paradedb/paradedb/issues for more information."
                         );
                     }

@@ -782,7 +782,7 @@ pub mod v2 {
                     break;
                 };
 
-                let mut head_blockno = tag as pg_sys::BlockNumber;
+                let head_blockno = tag as pg_sys::BlockNumber;
                 let mut blockno = head_blockno;
                 let mut cnt = 0;
 
@@ -844,6 +844,25 @@ pub mod v2 {
                         // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
+                        // this should never happen, if it does it is indicative of a bug where the metadata is corrupt
+                        // however, we can handle it gracefully -- in 0.19.5 this bug existed and it caused a deadlock
+                        // because the panic would longjmp past Rust frames, including the buffer `Drop`
+                        if contents.len > (MAX_ENTRIES as u32) {
+                            buffer.set_dirty(false);
+                            drop(buffer);
+                            pgrx::warning!(
+                                "drain: blockno {} has more than {} entries",
+                                blockno,
+                                MAX_ENTRIES
+                            );
+
+                            xid = found_xid - 1;
+                            if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                break 'outer;
+                            }
+                            continue 'outer;
+                        }
+
                         // get all that we can/need from this page
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;
@@ -885,9 +904,6 @@ pub mod v2 {
                                 debug1!("drain: actually unlinking head blockno {}", head_blockno);
                                 did_update_head = true;
                                 slot.tag = next_blockno;
-
-                                // and keep local state in sync
-                                head_blockno = next_blockno;
                             }
                             // else: someone else already moved the head, we do nothing
                         }
@@ -897,9 +913,10 @@ pub mod v2 {
                             unlinked_heads.push(old_head);
                         }
 
-                        // Continue with the new head
-                        blockno = next_blockno;
-                        continue;
+                        // Whether we won or lost the race, we need to restart from outer loop
+                        // to re-read the head under a root lock. The head value we have is stale
+                        // because we dropped the root lock.
+                        continue 'outer;
                     }
 
                     // if this was the last block in the list *and* the entire list is empty,
@@ -958,20 +975,32 @@ pub mod v2 {
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
         ) {
-            // if we are creating the index, set the XID to the first normal transaction id
-            // because anything garbage-collected during index creation should be immediately reusable
-            let when_recyclable = if bman.is_create_index() {
-                pg_sys::FullTransactionId {
-                    value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
-                }
-            } else {
-                when_recyclable
-            };
             let mut extend_with = extend_with.peekable();
             if extend_with.peek().is_none() {
                 // caller didn't give us anything to do
                 return;
             }
+
+            let when_recyclable = if bman.is_create_index() {
+                // During index creation, blocks are recycled with XIDs in the range
+                // [FirstNormalTransactionId, FirstNormalTransactionId + MAX_SLOTS - 1].
+                // This reduces contention when parallel workers push/pop from the FSM.
+                //
+                // The hash input is the first block number in the batch. This provides
+                // reasonable distribution while keeping all blocks in a batch together
+                // (same XID slot) for cache locality.
+                let first_normal_xid = pg_sys::FirstNormalTransactionId.into_inner() as u64;
+                let max_xid = first_normal_xid + (MAX_SLOTS as u64 - 1);
+                pg_sys::FullTransactionId {
+                    value: fib_hash_u64_range(
+                        *extend_with.peek().expect("peek() checked above"),
+                        first_normal_xid,
+                        max_xid,
+                    ),
+                }
+            } else {
+                when_recyclable
+            };
 
             // find the starting block of the associated freelist while holding (at least) a share
             // lock on the root page of the tree.  This ensures a concurrent drain that could be
@@ -1354,6 +1383,148 @@ pub mod v2 {
         }
 
         #[pg_test]
+        unsafe fn test_fsmv2_concurrent_drain_empty_head() -> spi::Result<()> {
+            // Test for race condition where multiple processes see an empty head
+            // This simulates the scenario:
+            // - P1 drains B1 completely, tries to unlink
+            // - P2 sees B1 empty, also tries to unlink
+            // - Winner unlinks, loser must handle gracefully
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_race_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_race_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            assert_ne!(index_oid, pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Create a freelist with 3 blocks: B1 -> B2 -> B3
+            // Each block has MAX_ENTRIES elements
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 3));
+
+            // Simulate P1: Drain exactly MAX_ENTRIES (empties B1 completely)
+            let drained1 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(drained1.len(), MAX_ENTRIES);
+
+            // At this point, B1 should be empty and unlinked, B2 should be the new head
+            // Verify the freelist structure
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            // Should have 2 blocks left (B2 and B3), each with MAX_ENTRIES
+            assert_eq!(
+                blocks.len(),
+                2,
+                "Should have 2 blocks after draining first block"
+            );
+            assert_eq!(blocks[0] as usize, MAX_ENTRIES);
+            assert_eq!(blocks[1] as usize, MAX_ENTRIES);
+
+            // Simulate P2: Try to drain from what should now be B2
+            // This tests that we correctly handle the updated head
+            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(
+                drained2.len(),
+                MAX_ENTRIES,
+                "Should drain second block successfully"
+            );
+
+            // Verify only one block remains
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            assert_eq!(blocks.len(), 1, "Should have 1 block remaining");
+            assert_eq!(blocks[0] as usize, MAX_ENTRIES);
+
+            // Drain the last block
+            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert_eq!(drained3.len(), MAX_ENTRIES, "Should drain last block");
+
+            // FSM should be empty now
+            assert!(
+                !slot_exists(&mut bman, &mut fsm, xid),
+                "Slot should be removed when empty"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_partial_drain_with_unlink() -> spi::Result<()> {
+            // Test partial draining that triggers head unlinking
+            // This ensures we handle the case where we drain some but not all
+            // entries from a block, then later drain the rest
+
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_partial_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_partial_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            // Create freelist with multiple blocks
+            fsm.extend_with_when_recyclable(&mut bman, xid, 0..(MAX_ENTRIES as u32 * 2));
+
+            // Drain half of first block
+            let drain_count = MAX_ENTRIES / 2;
+            let drained1 = fsm.drain(&mut bman, drain_count).collect::<Vec<_>>();
+            assert_eq!(drained1.len(), drain_count);
+
+            // Verify head block still has entries (approximately half, may be off by 1 due to rounding)
+            let blocks = freelist_blocks(&mut bman, &mut fsm, xid);
+            let remaining = blocks[0] as usize;
+            assert!(
+                remaining >= drain_count - 1 && remaining <= drain_count + 1,
+                "Head should have approximately half entries remaining, got {}",
+                remaining
+            );
+
+            // Drain the rest of the first block - this should trigger unlinking
+            let drained2 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            // Should drain remaining from first block plus some from second
+            assert!(
+                drained2.len() >= drain_count,
+                "Should drain at least remaining entries"
+            );
+
+            // Verify we can continue draining successfully (tests no deadlock/panic)
+            let drained3 = fsm.drain(&mut bman, MAX_ENTRIES).collect::<Vec<_>>();
+            assert!(!drained3.is_empty(), "Should be able to continue draining");
+
+            // Drain everything remaining
+            let _ = fsm.drain(&mut bman, MAX_ENTRIES * 10).collect::<Vec<_>>();
+
+            // FSM should be empty now
+            assert!(
+                !slot_exists(&mut bman, &mut fsm, xid),
+                "Slot should be removed when empty"
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
         unsafe fn test_fsmv2_extend_with_splice() -> spi::Result<()> {
             Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
             Spi::run("CREATE INDEX IF NOT EXISTS fsm_sparse_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
@@ -1466,6 +1637,102 @@ pub mod v2 {
             Ok(())
         }
 
+        #[pg_test]
+        unsafe fn test_create_index_slot_distribution() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let mut indexrel =
+                PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            indexrel.set_is_create_index();
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let xid = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            for i in 0..1000 {
+                let (start, end) = (i * 3, i * 3 + 3);
+                fsm.extend_with_when_recyclable(&mut bman, xid, start..end);
+            }
+
+            let root = bman.get_buffer(fsm.start_blockno);
+            let page = root.page();
+            let avl_tree = fsm.avl_ref(&page);
+            let keys: Vec<u64> = avl_tree.iter().map(|(k, _v)| k).collect();
+
+            // we should have created approximately MAX_SLOTS keys
+            assert!(keys.len() > 300);
+            assert!(keys.len() <= MAX_SLOTS);
+            assert!(
+                *keys.iter().min().unwrap() >= pg_sys::FirstNormalTransactionId.into_inner() as u64
+            );
+            assert!(
+                *keys.iter().max().unwrap()
+                    < pg_sys::FirstNormalTransactionId.into_inner() as u64 + MAX_SLOTS as u64
+            );
+
+            Ok(())
+        }
+
+        #[pg_test]
+        unsafe fn test_fsmv2_tolerates_corrupt_metadata() -> spi::Result<()> {
+            Spi::run("CREATE TABLE IF NOT EXISTS fsm_test (id serial8, data text)")?;
+            Spi::run("CREATE INDEX IF NOT EXISTS fsm_idx ON fsm_test USING bm25 (id, data) WITH (key_field = 'id')")?;
+
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'fsm_idx'::regclass::oid")?
+                .unwrap_or(pg_sys::InvalidOid);
+
+            let indexrel = PgSearchRelation::with_lock(
+                index_oid,
+                pg_sys::RowExclusiveLock as pg_sys::LOCKMODE,
+            );
+
+            let mut bman = BufferManager::new(&indexrel);
+            let metapage = MetaPage::open(&indexrel);
+            let mut fsm = V2FSM::open(metapage.fsm());
+
+            let slot1_key = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64,
+            };
+
+            let entries = MAX_ENTRIES * 2;
+            fsm.extend_with_when_recyclable(&mut bman, slot1_key, 0..(entries as u32));
+
+            let slot2_key = pg_sys::FullTransactionId {
+                value: pg_sys::FirstNormalTransactionId.into_inner() as u64 + 1,
+            };
+
+            fsm.extend_with_when_recyclable(&mut bman, slot2_key, 0..(entries as u32));
+
+            // corrupt slot 1
+            {
+                let root = bman.get_buffer(fsm.start_blockno);
+                let page = root.page();
+                let tree = fsm.avl_ref(&page);
+                let leaf = tree
+                    .get(&slot1_key.value)
+                    .expect("slot 1 should be present");
+                let (_, blockno) = leaf;
+                let mut buf = bman.get_buffer_mut(blockno);
+                let mut p = buf.page_mut();
+                let contents = p.contents_mut::<AvlLeaf>();
+                contents.len = MAX_ENTRIES as u32 + 1;
+            }
+
+            // now try draining
+            let drained = fsm.drain(&mut bman, entries + 1).collect::<Vec<_>>();
+            assert_eq!(drained.len(), entries);
+
+            Ok(())
+        }
+
         fn freelist_blocks(
             bman: &mut BufferManager,
             fsm: &mut V2FSM,
@@ -1532,6 +1799,19 @@ pub mod v2 {
             let tree = fsm.avl_ref(&page);
             tree.get(&xid.value).is_some()
         }
+    }
+
+    // Fibonacci hashing constant
+    // https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/
+    const FIB64: u64 = 11400714819323198485;
+
+    // Hashes a value in the range [lo, hi] using Fibonacci hashing
+    // We do this so that CREATE INDEX distributes recycled blocks across the freelist slots more evenly
+    #[inline]
+    pub fn fib_hash_u64_range(v: pg_sys::BlockNumber, lo: u64, hi: u64) -> u64 {
+        let range = hi - lo + 1;
+        let mixed = (v as u64).wrapping_mul(FIB64);
+        lo + (((mixed as u128 * range as u128) >> 64) as u64)
     }
 }
 

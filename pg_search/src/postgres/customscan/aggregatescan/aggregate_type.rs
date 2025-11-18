@@ -319,7 +319,18 @@ impl From<AggregateType> for AggregationVariants {
                 AggregationVariants::Max(MaxAggregation { field, missing })
             }
             AggregateType::Custom { agg_json, .. } => {
-                // For Custom aggregates, deserialize the JSON directly into AggregationVariants
+                // NOTE: This conversion extracts only the top-level aggregation variant.
+                //
+                // This trait returns AggregationVariants (just the aggregation type),
+                // not Aggregation (which includes sub_aggregation field).
+                //
+                // Example:
+                //   Input:  {"terms": {"field": "category", "aggs": {"brand": {...}}}}
+                //   Output: TermsAggregation { field: "category" }  // "aggs" is extracted separately
+                //
+                // Nested "aggs" are handled by serde_json::from_value::<Aggregation>().
+                //
+                // This trait is only used when the caller will handle sub_aggregations separately.
                 serde_json::from_value(agg_json)
                     .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
             }

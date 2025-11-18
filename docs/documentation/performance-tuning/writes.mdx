@@ -45,28 +45,26 @@ Since many write operations can be running concurrently, this value should be ra
 
 ## Increase Mutable Segment Size
 
-The `paradedb.global_mutable_segment_rows` setting enables use of mutable segments, which buffer new rows in order to amortize the cost of indexing them.
+The `mutable_segment_rows` setting enables use of mutable segments, which buffer new rows in order to amortize the cost of indexing them.
 By default, it is set to `1000`, which means that 1000 writes are buffered before being flushed.
-
-```ini postgresql.conf
-paradedb.global_mutable_segment_rows = 1000
-```
-
-A higher `paradedb.global_mutable_segment_rows` generally improves write throughput at the expense of read performance,
-since the mutable data structure is slower to search. Additionally, the mutable data structure is read into
-memory, so higher values cause reads to consume more RAM.
-
-Setting `paradedb.global_mutable_segment_rows` to `0` disables mutable segments across the entire database.
-
-The mutable segment size can also be configured per index.
 
 ```sql
 ALTER INDEX search_idx SET (mutable_segment_rows = 1000);
 ```
 
-If both a per-index setting and global setting exist, the global `paradedb.global_mutable_segment_rows` will be used.
-To ignore the global setting, set `paradedb.global_mutable_segment_rows` to `-1`.
+A higher value generally improves write throughput at the expense of read performance,
+since the mutable data structure is slower to search. Additionally, the mutable data structure is read into
+memory, so higher values cause reads to consume more RAM.
 
-```ini postgresql.conf
-paradedb.global_mutable_segment_rows = -1
+Alternatively, this setting can be set to apply to all indexes in the database:
+
+```sql
+SET paradedb.global_mutable_segment_rows = 1000
+```
+
+If both a per-index setting and global setting exist, the global `paradedb.global_mutable_segment_rows` will be used.
+To ignore the global setting, set `paradedb.global_mutable_segment_rows` to `-1` (this is the default).
+
+```sql
+SET paradedb.global_mutable_segment_rows = -1
 ```

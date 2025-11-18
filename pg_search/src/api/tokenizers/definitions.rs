@@ -39,7 +39,7 @@ pub(crate) mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_to_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -166,7 +166,7 @@ pub(crate) mod pdb {
             }
 
             #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            unsafe fn $text_array_to_name(
+            unsafe fn $text_array_cast_name(
                 arr: GenericTypeWrapper<Vec<String>>,
             ) -> GenericTypeWrapper<$rust_name> {
                 GenericTypeWrapper::new(arr.datum)
@@ -180,7 +180,7 @@ pub(crate) mod pdb {
                 custom_typmod = $custom_typmod,
                 json_cast_name = $json_cast_name,
                 jsonb_cast_name = $jsonb_cast_name,
-                text_array_to_name = $text_array_to_name,
+                text_array_cast_name = $text_array_cast_name,
                 schema = pdb
             );
         };

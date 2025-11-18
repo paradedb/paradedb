@@ -36,11 +36,17 @@ WITH (key_field='id');
 
 Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
 
+## Track Create Index Progress
+
 To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 
 ```sql
-SELECT pid, phase, blocks_done, blocks_total FROM pg_stat_progress_create_index;
+SELECT pid, phase, blocks_done, blocks_total
+FROM pg_stat_progress_create_index;
 ```
+
+Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
+`blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
 
 ## Choosing a Key Field
 

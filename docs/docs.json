@@ -51,6 +51,7 @@
                           "documentation/indexing/create-index",
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
+                          "documentation/indexing/indexing-arrays",
                           "documentation/indexing/reindexing"
                         ]
                       },
@@ -87,7 +88,8 @@
                           "documentation/token-filters/lowercase",
                           "documentation/token-filters/stopwords",
                           "documentation/token-filters/stemming",
-                          "documentation/token-filters/token-length"
+                          "documentation/token-filters/token-length",
+                          "documentation/token-filters/trim"
                         ]
                       },
                       {

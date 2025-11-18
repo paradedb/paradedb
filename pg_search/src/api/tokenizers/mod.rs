@@ -91,6 +91,7 @@ pub fn search_field_config_from_type(
             remove_emojis: false,
             filters: SearchTokenizerFilters::default(),
         },
+        "polish" => SearchTokenizer::Polish(SearchTokenizerFilters::default()),
         _ => return None,
     };
 
@@ -201,6 +202,12 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         SearchTokenizer::Keyword => {}
         #[allow(deprecated)]
         SearchTokenizer::KeywordDeprecated => {}
+        SearchTokenizer::Polish(filters) => {
+            let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *filters = generic_typmod.filters;
+        }
     }
 }
 

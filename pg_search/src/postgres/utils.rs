@@ -23,7 +23,7 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::customscan::pdbscan::text_lower_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{find_one_var, find_vars};
+use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
@@ -262,7 +262,7 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
-                let mut source = FieldSource::Expression {
+                let source = FieldSource::Expression {
                     att_idx: expression_idx,
                 };
                 let node = expression.cast();
@@ -317,9 +317,6 @@ pub unsafe fn extract_field_attributes(
                         attname = Some(heap_attname);
                         expression = None;
                         inner_typoid = pg_sys::exprType(inner_expression.cast());
-
-                        // let heap_attno = (*var).varattno as usize - 1;
-                        // source = FieldSource::Heap { attno: heap_attno };
                     }
                 }
 
@@ -383,7 +380,6 @@ pub unsafe fn extract_field_attributes(
             },
         );
     }
-    pgrx::info!("field_attributes: {field_attributes:?}");
     field_attributes
 }
 

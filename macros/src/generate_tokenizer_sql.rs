@@ -64,7 +64,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         "CREATE CAST (text[] AS {schema}.{sql_name}) WITH FUNCTION {schema}.{text_array_to_func} AS ASSIGNMENT;",
         schema = schema.to_string(),
         sql_name = sql_name.value(),
-        text_array_to_func = text_array_to_name.to_string()
+        text_array_to_func = text_array_to_name
     );
 
     let typmod = if !custom_typmod {

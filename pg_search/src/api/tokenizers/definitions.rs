@@ -80,8 +80,7 @@ pub(crate) mod pdb {
 
                 fn type_oid() -> pg_sys::Oid {
                     use crate::postgres::catalog::*;
-                    let name = CString::new($sql_name)
-                        .expect("type name should be valid utf8");
+                    let name = CString::new($sql_name).expect("type name should be valid utf8");
                     lookup_typoid(c"pdb", name.as_c_str())
                         .expect("should not fail to lookup type oid")
                 }
@@ -166,50 +165,10 @@ pub(crate) mod pdb {
             }
 
             #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            fn $text_array_to_name(array: Vec<String>) -> $rust_name {
-                use std::ffi::CString;
-
-                // Join array elements with spaces
-                let joined = array.join(" ");
-                let cstring = CString::new(joined).expect("string should not contain null bytes");
-
-                // Get the type OID for this tokenizer type
-                let type_oid = $rust_name::type_oid();
-
-                // Get the input function OID for this type from pg_type.typinput
-                let input_func_oid = unsafe {
-                    let entry = pg_sys::SearchSysCache1(
-                        pg_sys::SysCacheIdentifier::TYPEOID as _,
-                        type_oid.into_datum().unwrap(),
-                    );
-                    if entry.is_null() {
-                        panic!("type OID {} not found in system cache", type_oid);
-                    }
-
-                    let mut is_null = false;
-                    let typinput_datum = pg_sys::SysCacheGetAttr(
-                        pg_sys::SysCacheIdentifier::TYPEOID as _,
-                        entry,
-                        pg_sys::Anum_pg_type_typinput as _,
-                        &mut is_null,
-                    );
-                    let input_oid = pg_sys::Oid::from_datum(typinput_datum, is_null)
-                        .expect("typinput should not be null");
-                    pg_sys::ReleaseSysCache(entry);
-                    input_oid
-                };
-
-                // Call the input function (which is textin for all tokenizer types)
-                // Use OidFunctionCall1Coll to call the function by OID
-                let datum = unsafe {
-                    pg_sys::OidFunctionCall1Coll(
-                        input_func_oid,
-                        pg_sys::InvalidOid, // default collation
-                        cstring.as_c_str().into_datum().expect("should not fail to convert to datum"),
-                    )
-                };
-
-                $rust_name(datum)
+            unsafe fn $text_array_to_name(
+                arr: GenericTypeWrapper<Vec<String>>,
+            ) -> GenericTypeWrapper<$rust_name> {
+                GenericTypeWrapper::new(arr.datum)
             }
 
             generate_tokenizer_sql!(

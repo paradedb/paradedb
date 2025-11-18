@@ -330,12 +330,9 @@ impl SearchIndexSchema {
             }
         }
 
-        pgrx::info!("categorized_fields: {:?}", self.categorized.borrow());
-
         self.categorized.borrow()
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct SearchField {

@@ -80,8 +80,9 @@ pub(crate) mod pdb {
 
                 fn type_oid() -> pg_sys::Oid {
                     use crate::postgres::catalog::*;
-                    let name = CString::new($sql_name).expect("type name should be valid utf8");
-                    lookup_typoid(c"pdb", name.as_c_str())
+                    let name = CString::new(stringify!($rust_name))
+                        .expect("type name should be valid utf8");
+                    lookup_typoid(c"paradedb", name.as_c_str())
                         .expect("should not fail to lookup type oid")
                 }
             }

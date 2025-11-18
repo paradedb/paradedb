@@ -19,3 +19,17 @@ These settings can be changed in several ways:
 ```sql
 SET maintenance_work_mem = '8GB'
 ```
+
+If ParadeDB is deployed with [CloudNativePG](/deploy/self-hosted/kubernetes), these settings should be set in your
+`.tfvars` file.
+
+```hcl .tfvars
+postgresql = {
+    parameters = {
+      max_worker_processes                   = 76
+      max_parallel_workers                   = 64
+      # Note that paradedb.* settings must be wrapped in double quotes
+      "paradedb.global_mutable_segment_rows" = 1000
+    }
+}
+```

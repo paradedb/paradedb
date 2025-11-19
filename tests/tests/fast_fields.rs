@@ -141,6 +141,7 @@ WITH (
         "latest_available_time": {}
     }'
 );
+SET paradedb.enable_aggregate_custom_scan = false;
     "#
     .execute(&mut conn);
 

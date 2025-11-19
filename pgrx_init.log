@@ -1,0 +1,4 @@
+[1m[37m   Discovered[39m[0m Postgres v13.23, v14.20, v15.15, v16.11, v17.7, v18.1
+[32m[1m  Downloading[0m[39m Postgres v16.11 from https://ftp.postgresql.org/pub/source/v16.11/postgresql-16.11.tar.bz2
+[32m[1m     Removing[0m[39m /home/jules/.pgrx/16.11_unpack
+[32m[1m    Untarring[0m[39m Postgres v16.11 to /home/jules/.pgrx/16.11_unpack

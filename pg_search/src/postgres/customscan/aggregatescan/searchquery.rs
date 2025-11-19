@@ -25,7 +25,7 @@ use crate::postgres::customscan::qual_inspect::{
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, PgList};
+use pgrx::pg_sys;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
@@ -87,8 +87,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         // and would need to evaluate correlation conditions at execution time
         unsafe {
             // restrict_info is a list of RestrictInfo nodes
-            let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg(restrict_info.as_ptr());
-            for rinfo in restrict_list.iter_ptr() {
+            for rinfo in restrict_info.iter_ptr() {
                 if !(*rinfo).clause.is_null() && contains_exec_param((*rinfo).clause.cast()) {
                     return None;
                 }

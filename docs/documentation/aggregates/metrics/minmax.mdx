@@ -40,7 +40,13 @@ See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregati
 
 ## SQL Min/Max Syntax
 
-SQL's `MIN`/`MAX` syntax is supported. The following query is equivalent to the above and is executed in the same way.
+SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
 <CodeGroup>
 ```sql Min

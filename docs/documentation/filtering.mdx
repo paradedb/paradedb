@@ -92,7 +92,7 @@ FROM mock_items
 WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
 
-To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer:
+To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
 
 ```sql
 CREATE INDEX search_idx ON mock_items

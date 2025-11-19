@@ -31,7 +31,7 @@ GROUP BY rating;
 The `sort` value returned by the aggregation is Tantivy's internal sort ID and should be ignored.
 To get the actual fields, pass a list of fields to `docvalue_fields`.
 
-If a text or JSON field is passed to `docvalue_fields`, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/exact)
+If a text or JSON field is passed to `docvalue_fields`, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal)
 tokenizer.
 
 To specify an offset, use `from`:

@@ -8,7 +8,7 @@ After a [tokenizer](/documentation/tokenizers) splits up text into tokens, token
 apply additional processing to each token. Common examples include [stemming](/documentation/token-filters/stemming)
 to reduce words to their root form, or [ASCII folding](/documentation/token-filters/ascii-folding) to remove accents.
 
-Token filters can be added to any tokenizer besides the [literal](/documentation/tokenizers/available-tokenizers/exact) tokenizer, which by definition
+Token filters can be added to any tokenizer besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer, which by definition
 must preserve the source text exactly.
 
 To add a token filter to a tokenizer, append a configuration string to the argument list:

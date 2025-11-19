@@ -22,7 +22,13 @@ See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregati
 
 ## SQL Average Syntax
 
-SQL's `AVERAGE` syntax is supported. The following query is equivalent to the above and is executed in the same way.
+SQL's `AVERAGE` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
 ```sql
 SELECT AVG(rating) FROM mock_items

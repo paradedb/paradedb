@@ -1099,6 +1099,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
     r#"
     SET max_parallel_workers = 8;
     SET max_parallel_workers_per_gather = 2;
+    SET paradedb.enable_aggregate_custom_scan = false;
 
     CREATE TABLE t (id bigint);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;

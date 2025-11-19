@@ -775,7 +775,13 @@ pub mod v2 {
 
             'outer: while blocks.len() < many {
                 let mut root = Some(bman.get_buffer(self.start_blockno));
-                let page = root.as_ref().unwrap().page();
+                // Safely access root - this should never be None since we just created it,
+                // but if it is, we break gracefully instead of panicking and leaking locks
+                let Some(root_ref) = root.as_ref() else {
+                    pgrx::warning!("drain: root buffer unexpectedly None");
+                    break;
+                };
+                let page = root_ref.page();
                 let tree = self.avl_ref(&page);
 
                 let Some((found_xid, _unit, tag)) = tree.get_lte(&xid) else {

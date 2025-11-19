@@ -149,7 +149,7 @@ matching_books AS (
 SELECT
   COALESCE(ma.name, a.name) AS name,
   COALESCE(mb.title, b.title) AS title,
-  ma.author_score, 
+  ma.author_score,
   mb.book_score
 FROM matching_authors ma
 FULL JOIN matching_books mb ON ma.id = mb.author_id

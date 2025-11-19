@@ -864,31 +864,35 @@ pub mod v2 {
                         }
 
                         // get all that we can/need from this page
-                        // Use checked array access to prevent panics that could leak locks
+                        // Use .get() instead of indexing to avoid panics that could leak locks
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;
                             let idx = contents.len as usize;
 
-                            // Bounds check: this should never fail if contents.len was valid,
-                            // but if it does, we need to handle it gracefully to avoid lock leaks
-                            if idx >= MAX_ENTRIES {
-                                buffer.set_dirty(false);
-                                drop(buffer);
-                                pgrx::warning!(
-                                    "drain: blockno {} index {} out of bounds (corrupt metadata)",
-                                    blockno,
-                                    idx
-                                );
-
-                                xid = found_xid - 1;
-                                if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
-                                    break 'outer;
+                            // Use .get() which returns None on out-of-bounds instead of panicking
+                            // This handles corrupt metadata gracefully without risking lock leaks
+                            match contents.entries.get(idx) {
+                                Some(&entry) => {
+                                    blocks.push(entry);
+                                    modified = true;
                                 }
-                                continue 'outer;
-                            }
+                                None => {
+                                    // Out of bounds - metadata is corrupt
+                                    buffer.set_dirty(false);
+                                    drop(buffer);
+                                    pgrx::warning!(
+                                        "drain: blockno {} index {} out of bounds (corrupt metadata)",
+                                        blockno,
+                                        idx
+                                    );
 
-                            blocks.push(contents.entries[idx]);
-                            modified = true;
+                                    xid = found_xid - 1;
+                                    if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                        break 'outer;
+                                    }
+                                    continue 'outer;
+                                }
+                            }
                         }
                         cnt += contents.len as usize;
 

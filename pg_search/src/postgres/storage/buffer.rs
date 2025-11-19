@@ -719,7 +719,14 @@ impl BufferManager {
 
         let buffer_access = self.buffer_access().clone();
 
-        let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
+        // Eagerly collect all block numbers from FSM drain before acquiring locks.
+        // This prevents deadlocks in parallel index builds where:
+        // - Worker A: holds FSM lock, tries to lock data block
+        // - Worker B: holds data block lock, tries to lock FSM
+        // By collecting all block numbers first, we release all FSM locks before
+        // attempting to acquire any data block locks.
+        let fsm_blocknos: Vec<_> = self.fsm().drain(self, npages).collect();
+        let mut fsm_buffers = fsm_blocknos.into_iter().map(move |blockno| {
             block_tracker::track!(Write, blockno);
             let pg_buffer = buffer_access.get_buffer_extended(
                 blockno,
@@ -742,7 +749,7 @@ impl BufferManager {
                 return None;
             }
 
-            if let Some(from_fsm) = fsm_blocknos.next() {
+            if let Some(from_fsm) = fsm_buffers.next() {
                 remaining_from_fsm -= 1;
                 return Some(from_fsm);
             }

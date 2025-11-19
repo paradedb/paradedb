@@ -63,7 +63,7 @@
                             "group": "Available Tokenizers",
                             "pages": [
                               "documentation/tokenizers/available-tokenizers/unicode",
-                              "documentation/tokenizers/available-tokenizers/exact",
+                              "documentation/tokenizers/available-tokenizers/literal",
                               "documentation/tokenizers/available-tokenizers/literal-normalized",
                               "documentation/tokenizers/available-tokenizers/whitespace",
                               "documentation/tokenizers/available-tokenizers/ngrams",

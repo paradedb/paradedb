@@ -716,9 +716,9 @@ fn term_set(
 
     if is_json_numeric_field && has_numeric_terms && !is_date_time {
         // For JSON numeric fields, each term may expand to multiple type variants
-        let all_terms: Vec<Term> = terms
-            .into_iter()
-            .flat_map(|term_value| {
+        // Pass iterator directly to avoid allocating an intermediate Vec
+        return Ok(Box::new(TermSetQuery::new(terms.into_iter().flat_map(
+            |term_value| {
                 if matches!(
                     term_value,
                     OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
@@ -741,10 +741,8 @@ fn term_set(
                     )
                     .expect("could not convert argument to search term")]
                 }
-            })
-            .collect();
-
-        return Ok(Box::new(TermSetQuery::new(all_terms)));
+            },
+        ))));
     }
 
     // Standard term set for non-JSON or non-numeric fields

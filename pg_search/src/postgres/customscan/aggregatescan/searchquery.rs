@@ -19,11 +19,13 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
+};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgList};
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
@@ -78,6 +80,19 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
                 query: SearchQueryInput::All,
                 uses_our_operator: false,
             });
+        }
+
+        // Check if the WHERE clause contains PARAM_EXEC nodes (correlation parameters from outer queries)
+        // If so, we can't use the aggregate custom scan because it doesn't support it yet
+        // and would need to evaluate correlation conditions at execution time
+        unsafe {
+            // restrict_info is a list of RestrictInfo nodes
+            let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg(restrict_info.as_ptr());
+            for rinfo in restrict_list.iter_ptr() {
+                if !(*rinfo).clause.is_null() && contains_exec_param((*rinfo).clause.cast()) {
+                    return None;
+                }
+            }
         }
 
         let mut where_qual_state = QualExtractState::default();

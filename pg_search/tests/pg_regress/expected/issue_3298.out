@@ -17,17 +17,20 @@ INSERT INTO allowed_categories (category) VALUES
     ('Electronics'),
     ('Clothing');
 EXPLAIN SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.10..0.10 rows=0 width=8)
-   Index: search_idx
-   Tantivy Query: {}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Aggregate  (cost=10.11..10.12 rows=1 width=8)
    InitPlan 1
      ->  Limit  (cost=0.00..0.10 rows=5 width=32)
            ->  Seq Scan on allowed_categories  (cost=0.00..27.00 rows=1360 width=32)
-(8 rows)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=0)
+         Table: mock_items
+         Index: search_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {}
+(11 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
  count 

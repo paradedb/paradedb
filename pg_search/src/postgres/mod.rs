@@ -610,7 +610,22 @@ impl ParallelScanState {
         }
     }
 
+    /// Returns a map of segment IDs to their deleted document counts.
+    ///
+    /// This function acquires the mutex to ensure consistent reads, preventing race conditions
+    /// where the leader might be modifying the segment list via init_without_mutex() while
+    /// workers are reading it.
     pub fn segments(&self) -> HashMap<SegmentId, u32> {
+        // SAFETY: We need to acquire mutex for consistent reads, but self is &self (immutable)
+        // We cast to *mut to acquire the mutex, which is safe because:
+        // 1. The mutex itself is designed for interior mutability
+        // 2. We're only reading the segment data, not modifying it
+        // 3. The mutex ensures no one else is modifying while we read
+        let _mutex = unsafe {
+            let self_mut = (self as *const Self as *mut Self).as_mut().unwrap();
+            self_mut.acquire_mutex()
+        };
+
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));

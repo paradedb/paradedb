@@ -965,9 +965,9 @@ fn determine_types_for_range(
             }
             OwnedValue::U64(u64_val) => {
                 needs_u64 = true;
-                // Only generate F64 if within safe range AND not at boundary values
-                // u64::MAX can't be safely round-tripped through F64
-                if *u64_val <= F64_SAFE_INTEGER_MAX && *u64_val < u64::MAX {
+                // Only generate F64 if within safe range
+                // Values > F64_SAFE_INTEGER_MAX can't be safely round-tripped through F64
+                if *u64_val <= F64_SAFE_INTEGER_MAX {
                     needs_f64 = true; // Within F64 safe range
                 }
                 // Only generate I64 if within range AND not at max boundary

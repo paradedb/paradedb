@@ -138,21 +138,26 @@ WITH matching_authors AS (
   SELECT id, name, paradedb.score(id) AS author_score
   FROM authors
   WHERE bio ||| 'science'
+  LIMIT 100
 ),
 matching_books AS (
   SELECT id, title, author_id, paradedb.score(id) AS book_score
   FROM books
   WHERE content ||| 'artificial'
+  LIMIT 100
 )
 SELECT
   COALESCE(ma.name, a.name) AS name,
   COALESCE(mb.title, b.title) AS title,
-  GREATEST(ma.author_score, mb.book_score) AS combined_score
+  ma.author_score, 
+  mb.book_score
 FROM matching_authors ma
 FULL JOIN matching_books mb ON ma.id = mb.author_id
 LEFT JOIN authors a ON mb.author_id = a.id AND ma.id IS NULL
 LEFT JOIN books b ON ma.id = b.author_id AND mb.id IS NULL;
 ```
+
+BM25 scores should not be added, if you want to combine scores then consider using [reciprocal rank fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion).
 
 ## Roadmap
 

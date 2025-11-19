@@ -844,14 +844,14 @@ pub mod v2 {
                         // if it is empty and the only page, the entire slot will be removed below (cnt == 0)
                         next_blockno != pg_sys::InvalidBlockNumber
                     } else {
-                        // this should never happen, if it does it is indicative of a bug where the metadata is corrupt
-                        // however, we can handle it gracefully -- in 0.19.5 this bug existed and it caused a deadlock
-                        // because the panic would longjmp past Rust frames, including the buffer `Drop`
+                        // Validate metadata before accessing the array to prevent panics that could leak locks.
+                        // If metadata is corrupt, we drop the buffer before issuing a warning to ensure
+                        // locks are released even if the warning triggers a Postgres error/longjmp.
                         if contents.len > (MAX_ENTRIES as u32) {
                             buffer.set_dirty(false);
                             drop(buffer);
                             pgrx::warning!(
-                                "drain: blockno {} has more than {} entries",
+                                "drain: blockno {} has more than {} entries (corrupt metadata)",
                                 blockno,
                                 MAX_ENTRIES
                             );
@@ -864,9 +864,30 @@ pub mod v2 {
                         }
 
                         // get all that we can/need from this page
+                        // Use checked array access to prevent panics that could leak locks
                         while contents.len > 0 && blocks.len() < many {
                             contents.len -= 1;
-                            blocks.push(contents.entries[contents.len as usize]);
+                            let idx = contents.len as usize;
+
+                            // Bounds check: this should never fail if contents.len was valid,
+                            // but if it does, we need to handle it gracefully to avoid lock leaks
+                            if idx >= MAX_ENTRIES {
+                                buffer.set_dirty(false);
+                                drop(buffer);
+                                pgrx::warning!(
+                                    "drain: blockno {} index {} out of bounds (corrupt metadata)",
+                                    blockno,
+                                    idx
+                                );
+
+                                xid = found_xid - 1;
+                                if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
+                                    break 'outer;
+                                }
+                                continue 'outer;
+                            }
+
+                            blocks.push(contents.entries[idx]);
                             modified = true;
                         }
                         cnt += contents.len as usize;

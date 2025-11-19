@@ -29,7 +29,10 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 pgrx = "=0.16.1"
 pgrx-tests = "=0.16.1"
 tantivy-jieba = "0.11.0"
-tantivy-stemmers = { version = "0.4.0", features = ["polish_yarovoy", "polish_yarovoy_unaccented"] }
+tantivy-stemmers = { version = "0.4.0", features = [
+  "polish_yarovoy",
+  "polish_yarovoy_unaccented",
+] }
 
 [patch.crates-io]
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "6d9eeb123a10f7432a47b8faad88683d8761a00a" }

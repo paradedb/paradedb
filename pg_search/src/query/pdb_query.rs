@@ -954,18 +954,29 @@ fn determine_types_for_range(
         match value {
             OwnedValue::I64(i64_val) => {
                 needs_i64 = true;
-                needs_f64 = true; // I64 values can also match F64 representation
+                // Only generate F64 if not at boundary values (i64::MAX, i64::MIN)
+                // to avoid precision/overflow issues
+                if *i64_val != i64::MAX && *i64_val != i64::MIN {
+                    needs_f64 = true; // I64 values can also match F64 representation
+                }
                 if *i64_val >= 0 {
                     needs_u64 = true; // Non-negative I64 can also match U64
                 }
             }
             OwnedValue::U64(u64_val) => {
                 needs_u64 = true;
-                if *u64_val <= F64_SAFE_INTEGER_MAX {
+                // Only generate F64 if within safe range AND not at boundary values
+                // u64::MAX can't be safely round-tripped through F64
+                if *u64_val <= F64_SAFE_INTEGER_MAX && *u64_val < u64::MAX {
                     needs_f64 = true; // Within F64 safe range
                 }
-                if *u64_val <= i64::MAX as u64 {
+                // Only generate I64 if within range AND not at max boundary
+                // i64::MAX conversion through F64 can cause issues
+                if *u64_val < i64::MAX as u64 {
                     needs_i64 = true; // Within I64 range
+                } else if *u64_val == i64::MAX as u64 {
+                    // At exact i64::MAX boundary, include I64 but not F64
+                    needs_i64 = true;
                 }
             }
             OwnedValue::F64(f64_val) => {
@@ -976,10 +987,13 @@ fn determine_types_for_range(
                 }
                 if f64_val.fract() == 0.0 {
                     // Whole number: could match integer types
-                    if *f64_val >= i64::MIN as f64 && *f64_val <= i64::MAX as f64 {
+                    // Avoid boundaries where F64<->I64/U64 conversion can overflow
+                    if *f64_val > i64::MIN as f64 && *f64_val < i64::MAX as f64 {
                         needs_i64 = true;
                     }
-                    if *f64_val >= 0.0 && *f64_val <= u64::MAX as f64 {
+                    // For U64, be conservative: u64::MAX as f64 can round to a value > u64::MAX
+                    // Use a safe upper bound that's definitely within range
+                    if *f64_val >= 0.0 && *f64_val < (u64::MAX as f64) {
                         needs_u64 = true;
                     }
                 }

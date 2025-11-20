@@ -184,7 +184,7 @@ $$ LANGUAGE plpgsql;
 SELECT insert_random_data(1_000_000);
 
 CREATE INDEX wide_table_idx ON wide_table USING bm25 (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)
-WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', datetime_fields='{"date_1":{}, "timestamp_3":{}}', layer_sizes='10MB, 100MB', mutable_segment_rows=0);
+WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', datetime_fields='{"date_1":{}, "timestamp_3":{}}', layer_sizes='10kb, 1MB, 100MB', mutable_segment_rows=1000);
 """
 
 [server.teardown]
@@ -209,59 +209,49 @@ SELECT
 """
 
 [[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
+refresh_ms = 15
+title = "Single Insert"
 sql = """
-SELECT update_random_data(1000);
+SELECT insert_random_data(1);
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Single Update"
+sql = """
+SELECT update_random_data(1);
 """
 
 [[jobs]]
 refresh_ms = 5
 title = "Bulk Update"
 sql = """
-SELECT update_random_data(1000);
+SELECT update_random_data(10);
 """
 
 [[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
+refresh_ms = 500
+title = "Top N"
 sql = """
-SELECT update_random_data(1000);
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
-sql = """
-SELECT update_random_data(1000);
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
-sql = """
-SELECT update_random_data(1000);
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
-sql = """
-SELECT update_random_data(1000);
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
-sql = """
-SELECT update_random_data(1000);
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Bulk Update"
-sql = """
-SELECT update_random_data(1000);
+SELECT COUNT(*) FROM (
+    SELECT
+        *
+    FROM
+        wide_table
+    WHERE
+        wide_table.field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+        AND wide_table.bool_1 = true
+        AND 1 = 1
+        AND true
+        AND wide_table.number_3 >= '100'
+        AND wide_table.number_3 <= '900'
+        AND wide_table.timestamp_3 IS NULL
+    ORDER BY
+        wide_table.date_1 DESC,
+        wide_table.timestamp_1 DESC,
+        wide_table.id DESC
+    LIMIT 100
+);
 """
 
 [[jobs]]

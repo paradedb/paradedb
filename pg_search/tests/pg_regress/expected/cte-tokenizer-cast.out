@@ -1,0 +1,55 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+-- Test 1: Create index with tokenizer cast
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+-- Test 2: Direct query (should work)
+SELECT id, description FROM mock_items WHERE description ||| 'shoes' ORDER BY id;
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
+-- Test 3: CTE without LIMIT or ORDER BY (currently fails)
+WITH q AS (
+  SELECT * FROM mock_items WHERE description ||| 'shoes'
+)
+SELECT id, description FROM q ORDER BY id;
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `shoes`
+-- Test 4: CTE with LIMIT (should work)
+WITH q AS (
+  SELECT * FROM mock_items WHERE description ||| 'shoes' LIMIT 10
+)
+SELECT id, description FROM q ORDER BY id;
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
+-- Test 5: CTE with ORDER BY (should work)
+WITH q AS (
+  SELECT * FROM mock_items WHERE description ||| 'shoes' ORDER BY rating
+)
+SELECT id, description FROM q ORDER BY id;
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
+-- Clean up
+DROP TABLE mock_items CASCADE;

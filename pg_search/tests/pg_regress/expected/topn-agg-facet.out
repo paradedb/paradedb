@@ -40,6 +40,188 @@ WITH (
         "in_stock": {"fast": true}
     }'
 );
+-- =============================================================================
+-- OPERATOR SUPPORT TESTS
+-- Testing that window aggregate pushdown works with all search operators
+-- =============================================================================
+-- Test 1a: Window aggregate with ||| operator (match disjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, count(*) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1b: Window aggregate with &&& operator (match conjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, count(*) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+ id | name | rating | total_count 
+----+------+--------+-------------
+(0 rows)
+
+-- Test 1c: Window aggregate with === operator (term search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, count(*) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1d: Window aggregate with ### operator (phrase search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (count(*) OVER (?))
+   ->  Sort
+         Output: id, name, rating, (count(*) OVER (?))
+         Sort Key: products.rating DESC
+         ->  WindowAgg
+               Output: id, name, rating, count(*) OVER (?)
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: id, name, rating
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
+(14 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           1
+(1 row)
+
+-- =============================================================================
+-- BASIC TOPN TESTS
+-- =============================================================================
 -- Test 1: Basic TopN without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 

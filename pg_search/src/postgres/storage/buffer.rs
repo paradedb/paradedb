@@ -326,11 +326,7 @@ impl BufferMut {
                 pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
             },
         );
-
-        block_tracker::forget!(unsafe { pg_sys::BufferGetBlockNumber(inner.pg_buffer) });
-        ImmutablePage {
-            pinned_buffer: PinnedBuffer::new(inner.pg_buffer),
-        }
+        unsafe { inner.into_immutable_page() }
     }
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making

@@ -39,7 +39,7 @@ pub(crate) mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -165,6 +165,13 @@ pub(crate) mod pdb {
                 GenericTypeWrapper::new(jsonb.datum)
             }
 
+            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+            unsafe fn $text_array_cast_name(
+                arr: GenericTypeWrapper<Vec<String>>,
+            ) -> GenericTypeWrapper<$rust_name> {
+                GenericTypeWrapper::new(arr.datum)
+            }
+
             generate_tokenizer_sql!(
                 rust_name = $rust_name,
                 sql_name = $sql_name,
@@ -173,6 +180,7 @@ pub(crate) mod pdb {
                 custom_typmod = $custom_typmod,
                 json_cast_name = $json_cast_name,
                 jsonb_cast_name = $jsonb_cast_name,
+                text_array_cast_name = $text_array_cast_name,
                 schema = pdb
             );
         };
@@ -180,10 +188,11 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Alias,
-        SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         tokenize_alias,
         json_to_alias,
         jsonb_to_alias,
+        text_array_to_alias,
         "alias",
         preferred = false,
         custom_typmod = false
@@ -191,10 +200,11 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Simple,
-        SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         tokenize_simple,
         json_to_simple,
         jsonb_to_simple,
+        text_array_to_simple,
         "simple",
         preferred = true,
         custom_typmod = false
@@ -206,6 +216,7 @@ pub(crate) mod pdb {
         tokenize_whitespace,
         json_to_whitespace,
         jsonb_to_whitespace,
+        text_array_to_whitespace,
         "whitespace",
         preferred = false,
         custom_typmod = false
@@ -217,6 +228,7 @@ pub(crate) mod pdb {
         tokenize_literal,
         json_to_literal,
         jsonb_to_literal,
+        text_array_to_literal,
         "literal",
         preferred = false,
         custom_typmod = true
@@ -228,6 +240,7 @@ pub(crate) mod pdb {
         tokenize_literal_normalized,
         json_to_literal_normalized,
         jsonb_to_literal_normalized,
+        text_array_to_literal_normalized,
         "literal_normalized",
         preferred = false,
         custom_typmod = false
@@ -239,6 +252,7 @@ pub(crate) mod pdb {
         tokenize_chinese_compatible,
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,
+        text_array_to_chinese_compatible,
         "chinese_compatible",
         preferred = false,
         custom_typmod = false
@@ -250,6 +264,7 @@ pub(crate) mod pdb {
         tokenize_lindera,
         json_to_lindera,
         jsonb_to_lindera,
+        text_array_to_lindera,
         "lindera",
         preferred = false,
         custom_typmod = false
@@ -261,6 +276,7 @@ pub(crate) mod pdb {
         tokenize_jieba,
         json_to_jieba,
         jsonb_to_jieba,
+        text_array_to_jieba,
         "jieba",
         preferred = false,
         custom_typmod = false
@@ -272,6 +288,7 @@ pub(crate) mod pdb {
         tokenize_source_code,
         json_to_source_code,
         jsonb_to_source_code,
+        text_array_to_source_code,
         "source_code",
         preferred = false,
         custom_typmod = false
@@ -284,6 +301,7 @@ pub(crate) mod pdb {
         tokenize_icu,
         json_to_icu,
         jsonb_to_icu,
+        text_array_to_icu,
         "icu",
         preferred = false,
         custom_typmod = false
@@ -300,6 +318,7 @@ pub(crate) mod pdb {
         tokenize_ngram,
         json_to_ngram,
         jsonb_to_ngram,
+        text_array_to_ngram,
         "ngram",
         preferred = false,
         custom_typmod = false
@@ -314,6 +333,7 @@ pub(crate) mod pdb {
         tokenize_regex,
         json_to_regex,
         jsonb_to_regex,
+        text_array_to_regex_pattern,
         "regex_pattern",
         preferred = false,
         custom_typmod = false
@@ -328,6 +348,7 @@ pub(crate) mod pdb {
         tokenize_unicode_words,
         json_to_unicode_words,
         jsonb_to_unicode_words,
+        text_array_to_unicode_words,
         "unicode_words",
         preferred = false,
         custom_typmod = false

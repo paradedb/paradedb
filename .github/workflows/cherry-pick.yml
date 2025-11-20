@@ -23,7 +23,7 @@ jobs:
 
   cherry-pick:
     name: Cherry Pick
-    needs: get-branches
+    needs: [get-branches]
     if: needs.get-branches.outputs.branches != '[]'
     runs-on: ubuntu-latest
     strategy:

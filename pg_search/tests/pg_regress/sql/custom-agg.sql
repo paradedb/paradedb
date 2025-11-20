@@ -807,3 +807,233 @@ LIMIT 1;
 -- Cleanup
 DROP TABLE logs CASCADE;
 RESET paradedb.enable_filter_pushdown;
+
+-- =====================================================================
+-- SECTION 13: Nested Aggregations with pdb.agg()
+-- =====================================================================
+-- Tests for nested aggregations using "aggs" field in JSON
+-- This demonstrates the difference between:
+-- 1. Using GROUP BY with multiple columns (creates nested terms aggregations)
+-- 2. Using pdb.agg() with nested "aggs" in JSON (creates nested structure)
+-- 3. Using multiple pdb.agg() calls (creates parallel aggregations)
+
+DROP TABLE IF EXISTS products CASCADE;
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    brand TEXT,
+    rating INTEGER,
+    price NUMERIC
+);
+
+INSERT INTO products (description, category, brand, rating, price) VALUES
+    ('Laptop with fast processor', 'Electronics', 'Apple', 5, 1299.99),
+    ('Gaming laptop with RGB', 'Electronics', 'Dell', 5, 1499.99),
+    ('Budget laptop', 'Electronics', 'HP', 3, 499.99),
+    ('Wireless keyboard', 'Electronics', 'Logitech', 4, 79.99),
+    ('Mechanical keyboard', 'Electronics', 'Corsair', 5, 149.99),
+    ('Running shoes', 'Sports', 'Nike', 5, 89.99),
+    ('Basketball shoes', 'Sports', 'Adidas', 4, 119.99),
+    ('Winter jacket', 'Clothing', 'North Face', 4, 199.99),
+    ('Summer jacket', 'Clothing', 'Patagonia', 3, 129.99),
+    ('Toy laptop', 'Toys', 'Fisher Price', 3, 29.99);
+
+CREATE INDEX products_idx ON products
+USING bm25 (id, description, category, brand, rating, price)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
+);
+
+-- Test 52: GROUP BY with two columns creates NESTED terms aggregations
+-- This groups first by category, then within each category bucket, groups by brand
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, brand, COUNT(*), AVG(price)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand
+ORDER BY category, brand;
+
+SELECT category, brand, COUNT(*), AVG(price)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand
+ORDER BY category, brand;
+
+-- Test 53: GROUP BY with three columns creates TRIPLE-NESTED terms aggregations
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, brand, rating, COUNT(*), AVG(price)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand, rating
+ORDER BY category, brand, rating;
+
+SELECT category, brand, rating, COUNT(*), AVG(price)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand, rating
+ORDER BY category, brand, rating;
+
+-- Test 54: Using pdb.agg() with nested terms (equivalent to GROUP BY category, brand)
+-- This should produce the same nested structure as Test 52
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 55: Using pdb.agg() with triple-nested terms
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 56: Multiple pdb.agg() calls with one term each
+-- These run as SEPARATE, INDEPENDENT aggregations (not nested)
+-- Each pdb.agg() returns its own complete breakdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 57: Multiple pdb.agg() calls with different aggregation types
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 58: One GROUP BY column with pdb.agg() for sub-aggregation
+-- This groups by category, and within each category, gets brand breakdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    COUNT(*) AS count
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY category;
+
+SELECT 
+    category,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    COUNT(*) AS count
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY category;
+
+-- Test 59: Multiple pdb.agg() with GROUP BY
+-- Each pdb.agg() is computed independently for each category group
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
+    COUNT(*) AS count
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY category;
+
+SELECT 
+    category,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
+    pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
+    COUNT(*) AS count
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY category;
+
+-- Test 60: pdb.agg() with terms and metric sub-aggregations
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 61: Comparing GROUP BY vs pdb.agg() with same nesting
+-- GROUP BY approach
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, brand, AVG(price) AS avg_price, MAX(rating) AS max_rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand
+ORDER BY category, brand;
+
+SELECT category, brand, AVG(price) AS avg_price, MAX(rating) AS max_rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, brand
+ORDER BY category, brand;
+
+-- pdb.agg() approach (returns JSON structure)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Test 62: Multiple independent terms vs nested terms - showing the difference
+-- Independent: Each field gets its own top-level breakdown
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
+    pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT 
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
+    pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
+    pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Nested: Shows category -> brand -> rating hierarchy
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+FROM products
+WHERE description @@@ 'laptop OR keyboard';
+
+-- Cleanup
+DROP TABLE products CASCADE;

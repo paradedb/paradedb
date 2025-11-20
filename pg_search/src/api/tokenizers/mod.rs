@@ -60,7 +60,7 @@ pub fn search_field_config_from_type(
 
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
-        "simple" => SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         "lindera" => SearchTokenizer::Lindera(
             LinderaLanguage::default(),
             SearchTokenizerFilters::default(),
@@ -165,7 +165,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         #[allow(deprecated)]
         SearchTokenizer::Raw(filters)
         | SearchTokenizer::LiteralNormalized(filters)
-        | SearchTokenizer::Default(filters)
+        | SearchTokenizer::Simple(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)
@@ -364,6 +364,20 @@ impl DatumWrapper for pgrx::JsonB {
 
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe { <pgrx::JsonB as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for Vec<String> {
+    fn sql_name() -> &'static str {
+        "text[]"
+    }
+
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
     }
 
     fn as_datum(&self) -> pg_sys::Datum {

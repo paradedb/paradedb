@@ -17,13 +17,13 @@ INSERT INTO allowed_categories (category) VALUES
     ('Electronics'),
     ('Clothing');
 EXPLAIN SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.10..0.10 rows=0 width=8)
    Index: search_idx
    Tantivy Query: {}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
    InitPlan 1
      ->  Limit  (cost=0.00..0.10 rows=5 width=32)
            ->  Seq Scan on allowed_categories  (cost=0.00..27.00 rows=1360 width=32)
@@ -40,13 +40,13 @@ EXPLAIN SELECT
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2))),
   COUNT(*) FILTER (WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 2 OFFSET 2)))
 FROM mock_items;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.12..0.12 rows=0 width=24)
    Index: search_idx
    Tantivy Query: "all"
      Applies to Aggregates: COUNT(*), COUNT(*), COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{}},"2":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{}},"2":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{}}}
    InitPlan 1
      ->  Limit  (cost=0.00..0.04 rows=2 width=32)
            ->  Seq Scan on allowed_categories  (cost=0.00..27.00 rows=1360 width=32)

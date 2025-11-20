@@ -682,3 +682,21 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
         )
     }
 }
+
+#[macro_export]
+macro_rules! debug1 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pg_sys::debug1!($($arg)*);
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! debug2 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG2 as _) } {
+            pg_sys::debug2!($($arg)*);
+        }
+    }};
+}

@@ -46,7 +46,15 @@ jobs:
           approvers: philippemnoel,rebasedming,stuhood
           minimum-approvals: 1
           issue-title: "Promote ${{ github.event.inputs.branch_name }} to main?"
-          issue-body: "Please approve or deny the promotion of branch `${{ github.event.inputs.branch_name }}` to `main`."
+          issue-body: |
+            Please approve or deny the promotion of branch `${{ github.event.inputs.branch_name }}` to `main`.
+
+            Run:
+            ```console
+            git fetch community && git fetch origin
+            git range-diff community/main origin/main origin/${{ github.event.inputs.branch_name }}
+            ```
+            ...to view the diff between this branch and `main`.
 
       - name: Promote branch to main
         id: promote

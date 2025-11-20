@@ -265,8 +265,8 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
+            RETRIES,
+            RETRY_DELAY,
             |result| !result.is_empty(),
         );
 
@@ -305,8 +305,8 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(i32,)> =
         "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
+            RETRIES,
+            RETRY_DELAY,
             |result| !result.is_empty(),
         );
 
@@ -325,9 +325,9 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
-            |result| !result.is_empty(),
+            RETRIES,
+            RETRY_DELAY,
+            |result| result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 0);
@@ -351,7 +351,7 @@ async fn test_logical_replication() -> Result<()> {
     std::thread::sleep(std::time::Duration::from_secs(1)); // give a little time for the data to replicate
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
-            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
+            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| result.len() == 3);
     assert_eq!(target_results.len(), 3);
 
     Ok(())
@@ -713,9 +713,12 @@ async fn test_physical_streaming_replication() -> Result<()> {
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Verify that the initial data replicated
-    let standby_data: Vec<(String,)> =
-        "SELECT info FROM test_data"
-            .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+    let standby_data: Vec<(String,)> = "SELECT info FROM test_data".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| !result.is_empty(),
+    );
 
     assert_eq!(standby_data.len(), 1);
     assert_eq!(standby_data[0].0, "initial");
@@ -724,7 +727,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
     "INSERT INTO test_data (info) VALUES ('from_primary');".execute(&mut primary_conn);
 
     let standby_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='from_primary'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
 
     assert_eq!(standby_data.len(), 1);
 
@@ -733,7 +738,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     // Now, check for 'from_primary_2'
     let standby_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='from_primary_2'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
 
     assert_eq!(standby_data.len(), 1);
 
@@ -754,8 +761,8 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     let sync_row: Vec<(String,)> = "SELECT info FROM test_data WHERE info='sync_test'".fetch_retry(
         &mut standby_conn,
-        60,
-        1000,
+        RETRIES,
+        RETRY_DELAY,
         |result| !result.is_empty(),
     );
     assert_eq!(sync_row.len(), 1);
@@ -777,7 +784,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
     // Ensure we can read back the inserted row from the now promoted standby
     let promoted_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='promoted_standby'"
-        .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+        .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+            !result.is_empty()
+        });
     assert_eq!(promoted_data.len(), 1);
 
     Ok(())
@@ -882,8 +891,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let standby_data: Vec<(i32,)> =
         "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
             &mut standby_conn,
-            60,
-            1000,
+            RETRIES,
+            RETRY_DELAY,
             |result| !result.is_empty(),
         );
 
@@ -896,7 +905,9 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
 
     let new_item_standby: Vec<(String,)> =
         "SELECT description FROM items WHERE items @@@ 'description:hiking' ORDER BY id"
-            .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+            .fetch_retry(&mut standby_conn, RETRIES, RETRY_DELAY, |result| {
+                !result.is_empty()
+            });
 
     assert_eq!(new_item_standby.len(), 1);
     assert_eq!(new_item_standby[0].0, "Green hiking shoes");

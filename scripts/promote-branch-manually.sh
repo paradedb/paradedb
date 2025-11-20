@@ -147,7 +147,7 @@ else
     log_error "Branch '$BRANCH_NAME' will NOT be promoted to main"
     log_error ""
     log_error "Next steps:"
-    log_error "1. Check CI logs for details"
+    log_error "1. Check CI logs at https://github.com/paradedb/paradedb-enterprise/commit/${BRANCH_NAME}"
     log_error "2. Fix any issues in the branch"
     log_error "3. Push fixes to '$BRANCH_NAME'"
     log_error "4. Re-run this script to try again"

@@ -27,7 +27,13 @@ WITH q AS (
   SELECT * FROM mock_items WHERE description ||| 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
-ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `shoes`
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
 -- Test 3: CTE with LIMIT
 WITH q AS (
   SELECT * FROM mock_items WHERE description ||| 'shoes' LIMIT 10
@@ -60,22 +66,45 @@ q2 AS (
   SELECT * FROM q1 WHERE rating > 3
 )
 SELECT id, description, rating FROM q2 ORDER BY id;
-ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `shoes`
+ id |     description     | rating 
+----+---------------------+--------
+  3 | Sleek running shoes |      5
+  5 | Generic shoes       |      4
+(2 rows)
+
 -- Test 6: CTE with other operators
 WITH q AS (
   SELECT * FROM mock_items WHERE description @@@ 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
-ERROR:  query is incompatible with pg_search's `@@@(field, TEXT)` operator: `shoes`
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
 WITH q AS (
   SELECT * FROM mock_items WHERE description &&& 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
-ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `shoes`
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
 WITH q AS (
   SELECT * FROM mock_items WHERE description === 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
-ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `shoes`
+ id |     description     
+----+---------------------
+  3 | Sleek running shoes
+  4 | White jogging shoes
+  5 | Generic shoes
+(3 rows)
+
 -- Clean up
 DROP TABLE mock_items CASCADE;

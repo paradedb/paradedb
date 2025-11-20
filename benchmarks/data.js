@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763601916441,
+  "lastUpdate": 1763602982968,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -58862,6 +58862,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.547,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a6acb77fc7aa3b216245966cf687c4eb3b0d165",
+          "message": "feat: push down `numeric` (#2978)\n\n## Summary\n- Implements multi-type term expansion for JSON numeric fields to\n  handle type ambiguity during queries\n- Fixes query parameter precision loss for large integers when cast\n  to `::numeric`\n- Adds range query support for JSON numeric fields with proper type\n  variant generation\n\n## What Changed\n\n### Query Module (mod.rs)\n- Added `expand_json_numeric_to_terms()` to generate I64/F64/U64\n  term variants for JSON numeric equality/IN queries\n- Modified `TermSet` query handling to apply multi-type expansion\n  for JSON numeric fields\n\n### Query Construction (pdb_query.rs)\n- Added `create_json_numeric_range_query()` to handle BETWEEN, >, <,\n  >=, <= operators for JSON numeric fields\n- Implemented 5 helper functions for type classification and bound\n  conversion in range queries\n- Modified `term()` to use multi-type expansion for single-term\n  JSON numeric queries\n\n### Type Conversion (types.rs)\n- Added `classify_numeric_for_tantivy()` to preserve precision for\n  large integers in query parameters\n- Updated `TryFrom<AnyNumeric>` to use smart I64/U64/F64 selection\n  instead of always converting to F64\n\n## Why These Changes\n\nJSON stores numbers without type information - 1, 1.0, and 1.00 are\nsemantically equivalent but may be indexed as different Tantivy\ntypes (I64, F64, U64). This caused query mismatches.\n\nAdditionally, always converting query parameters to F64 caused\nprecision loss for integers beyond 2^53-1, failing queries for\nvalues like 9223372036854775808.\n\n## How It Works\n\nFor JSON numeric field queries:\n1. Detects if the query target is a JSON numeric field\n2. Generates up to 3 term variants (I64, F64, U64) with lossless\n   conversions\n3. Combines variants with OR logic (TermSetQuery or BooleanQuery)\n4. For range queries, determines minimal type set and creates\n   per-type ranges\n\nFor query parameters with `::numeric` cast:\n- Classifies value based on F64 safe integer range (±(2^53-2))\n- Within range: uses F64 for JSON compatibility\n- Outside range: uses I64/U64 to preserve precision\n\n## Note\n\nThe types.rs change to `TryFrom<AnyNumeric>` may affect NUMERIC\ncolumn indexing as a side effect. This needs review to determine\nif it's intended behavior or requires a separate fix.\n\n## Test Coverage\n\nAll tests in `pushdown_numeric.sql` pass, including edge cases:\n- I2: Query for 2^53 (9007199254740992)\n- I3: Query for i64::MIN (-9223372036854775808)\n- J4: Query for 2^63 (9223372036854775808)\n- J6: Range query at 2^53 boundary\n- J7: Range crossing 2^53 boundary\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-11-19T16:58:14-08:00",
+          "tree_id": "26b8a5d0ef49eae6e711d26e80b571ce39b1c65b",
+          "url": "https://github.com/paradedb/paradedb/commit/9a6acb77fc7aa3b216245966cf687c4eb3b0d165"
+        },
+        "date": 1763602980447,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1203.069,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 643.1165000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1494.3835,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 712.4725,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 681.6785,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1629.2265,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 25.6435,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 68.1585,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 92.0945,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

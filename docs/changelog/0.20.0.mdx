@@ -4,8 +4,13 @@ noindex: true
 ---
 
 <Note>
-  `0.20.0` promotes the v2 API to default and introduces breaking changes for new indexes by changing the default tokenizer. 
-The v2 API should be used for all new indexes. The original API is now referred to as the legacy API and will be removed in a future version.
+  `0.20.0` promotes the v2 API to default.
+   The v2 API should be used for all new indexes. The original API is now referred to as the legacy API and will be removed in a future version.
+</Note>
+
+<Note>
+   While there are no breaking changes, the default tokenizer has been changed from `simple` to `unicode_words`, which will affect new indexes that 
+   don't specifiy tokenizers for all columns.
 </Note>
 
 A massive thank you to our external contributors for this release:

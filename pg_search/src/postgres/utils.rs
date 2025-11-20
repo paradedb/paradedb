@@ -430,15 +430,21 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         if *is_array {
-            for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_array(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
-            for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_json(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(datum, *base_oid)?;
+            let tv = TantivyValue::try_from_datum(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
         }
     }

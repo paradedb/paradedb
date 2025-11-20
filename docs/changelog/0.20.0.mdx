@@ -4,13 +4,15 @@ noindex: true
 ---
 
 <Note>
-  `0.20.0` promotes the v2 API to default.
-   The v2 API should be used for all new indexes. The original API is now referred to as the legacy API and will be removed in a future version.
+  `0.20.0` promotes the v2 API to default. The v2 API should be used for all new
+  indexes. The original API is now referred to as the legacy API and will be
+  removed in a future version.
 </Note>
 
 <Note>
-   While there are no breaking changes, the default tokenizer has been changed from `simple` to `unicode_words`, which will affect new indexes that 
-   don't specifiy tokenizers for all columns.
+  While there are no breaking changes, the default tokenizer has been changed
+  from `simple` to `unicode_words`, which will affect new indexes that don't
+  specifiy tokenizers for all columns.
 </Note>
 
 A massive thank you to our external contributors for this release:
@@ -28,14 +30,14 @@ ParadeDB 0.20 introduces powerful [search aggregation capabilities](/documentati
 The first is as a **window function** for fast faceting alongside TopN queries:
 
 ```sql
-SELECT 
-  id, 
-  title, 
+SELECT
+  id,
+  title,
   price,
   pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_facets
-FROM products 
-WHERE description @@@ 'electronics' 
-ORDER BY price DESC 
+FROM products
+WHERE description @@@ 'electronics'
+ORDER BY price DESC
 LIMIT 10;
 ```
 
@@ -44,24 +46,25 @@ This returns both your search results and facet counts in a single, efficient qu
 The second is as a **standard aggregate function** that pushes complex aggregations into the search index:
 
 ```sql
-SELECT 
+SELECT
   brand,
   pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price,
   pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown
-FROM products 
+FROM products
 WHERE description @@@ 'electronics'
 GROUP BY brand;
 ```
 
 Standard PostgreSQL aggregations like [`COUNT(*)`](/documentation/aggregates/metrics/count) are automatically routed to use this optimized path when possible.
 
-### v2 API 
+### v2 API
 
-The v2 API has reached feature parity (except for custom stopwords and dismax) with the legacy API. 
+The v2 API has reached feature parity (except for custom stopwords and dismax) with the legacy API.
 
 It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found at [https://docs.paradedb.com/legacy](/legacy) and will be removed in a future version.
 
 As a reminder the v2 API has the following improvements:
+
 - Index creation using SQL rather than JSON blobs
 - Tokenizers as Postgres types
 - Columnar fast fields by default for all non-text and literal tokenized types, removing the need to confugure manually.
@@ -94,6 +97,5 @@ The second improvement is [default background merging](https://github.com/parade
 **Numeric Data Type Support**: ParadeDB now supports pushing down `numeric` data types in aggregate queries, enabling efficient calculations on decimal fields like prices and financial data.
 
 **JSON Key Sorting**: Added fast [sorting](/documentation/full-text/sorting) support for JSON keys, allowing efficient ordering by nested JSON field values.
-
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.0).

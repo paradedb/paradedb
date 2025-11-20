@@ -168,6 +168,16 @@ pub fn phrase_text_opoid() -> pg_sys::Oid {
     }
 }
 
+pub fn proximity_clause_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, pdb.proximityclause)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, pdb.proximityclause)` operator should exist")
+    }
+}
+
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(

@@ -17,7 +17,7 @@
 
 use crate::api::operator::{
     anyelement_query_input_opoid, anyelement_text_opoid, match_conjunction_text_opoid,
-    match_disjunction_text_opoid, phrase_text_opoid, term_text_opoid,
+    match_disjunction_text_opoid, phrase_text_opoid, proximity_clause_opoid, term_text_opoid,
 };
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
@@ -371,7 +371,7 @@ pub unsafe fn try_extract_quals_from_query(
 ///
 /// Returns `true` if:
 /// - Query has window functions AND is a TopN query (ORDER BY + LIMIT)
-/// - Query uses `pdb.agg()` OR the `@@@` search operator
+/// - Query uses `pdb.agg()` OR any ParadeDB search operator (`@@@`, `|||`, `&&&`, `===`, `###`, proximity)
 /// - WHERE clause can be handled (or no WHERE clause)
 ///
 /// Errors if `pdb.agg()` is used but requirements aren't met.
@@ -524,8 +524,9 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
-/// Check if the query contains the @@@ search operator.
+/// Check if the query contains any ParadeDB search operator.
 ///
+/// Detects: `@@@`, `|||`, `&&&`, `===`, `###`, and proximity operators (`##`, `##>`).
 /// This indicates that our custom scans will likely handle this query.
 /// Uses expression_tree_walker via expr_contains_any_operator for complete traversal.
 ///
@@ -541,6 +542,7 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     let match_conj_opno = match_conjunction_text_opoid();
     let term_opno = term_text_opoid();
     let phrase_opno = phrase_text_opoid();
+    let proximity_opno = proximity_clause_opoid();
     let target_ops = [
         searchqueryinput_opno,
         text_opno,
@@ -548,6 +550,7 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
         match_conj_opno,
         term_opno,
         phrase_opno,
+        proximity_opno,
     ];
 
     // Check WHERE clause (jointree->quals)

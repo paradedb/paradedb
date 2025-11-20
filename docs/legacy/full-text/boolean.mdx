@@ -1,0 +1,41 @@
+---
+title: Boolean
+noindex: true
+---
+
+<Danger>
+  **Legacy Docs:** This page describes our legacy API. It will be deprecated in
+  a future version. Please use the [v2 API](/) where possible.
+</Danger>
+
+Query strings can be combined using SQL `AND` and `OR` operators. To combine query builder functions, see the
+[boolean query](/legacy/advanced/compound/boolean).
+
+## Multiple Terms
+
+`AND` and `OR` can be used to combine and filter multiple terms.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'keyboard' OR category @@@ 'toy';
+```
+
+If multiple terms are passed into the same query string, they are `OR`ed together by default.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'keyboard headphones';
+```
+
+## Not Term
+
+`-` omits results that contain a specific term. The following query finds documents that match
+`shoes` or `running` but not `white`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '(shoes running -white)';
+```

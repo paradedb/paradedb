@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+use crate::api::operator::{
+    anyelement_query_input_opoid, anyelement_text_opoid, match_conjunction_text_opoid,
+    match_disjunction_text_opoid, phrase_text_opoid, term_text_opoid,
+};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
@@ -534,7 +537,18 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     let searchqueryinput_opno = anyelement_query_input_opoid();
     let text_opno = anyelement_text_opoid();
-    let target_ops = [searchqueryinput_opno, text_opno];
+    let match_disj_opno = match_disjunction_text_opoid();
+    let match_conj_opno = match_conjunction_text_opoid();
+    let term_opno = term_text_opoid();
+    let phrase_opno = phrase_text_opoid();
+    let target_ops = [
+        searchqueryinput_opno,
+        text_opno,
+        match_disj_opno,
+        match_conj_opno,
+        term_opno,
+        phrase_opno,
+    ];
 
     // Check WHERE clause (jointree->quals)
     if !(*parse).jointree.is_null() {

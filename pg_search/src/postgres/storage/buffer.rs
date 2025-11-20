@@ -320,6 +320,11 @@ impl BufferMut {
     }
 
     pub fn into_immutable_page(mut self) -> ImmutablePage {
+        assert!(
+            !self.dirty,
+            "BufferMut::into_immutable_page called on a dirty page"
+        );
+
         let inner = std::mem::replace(
             &mut self.inner,
             Buffer {

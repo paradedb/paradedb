@@ -139,6 +139,50 @@ WHERE description ### 'laptop for'
 ORDER BY rating DESC
 LIMIT 3;
 
+-- Test 1e: Window aggregate with proximity operator (## - any order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+
+-- Test 1f: Window aggregate with proximity operator (##> - in order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+
 -- =============================================================================
 -- BASIC TOPN TESTS
 -- =============================================================================

@@ -319,15 +319,18 @@ impl BufferMut {
         self.inner.page_size()
     }
 
-    pub fn exchange_pinned(self) -> PinnedBuffer {
-        let pg_buffer = self.inner.pg_buffer;
-        // prevent Drop of BufferMut/Buffer from running
-        // since we want to control the unlock order ourselves
-        std::mem::forget(self);
-        block_tracker::forget!(unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
+    pub fn into_immutable_page(mut self) -> ImmutablePage {
+        let inner = std::mem::replace(
+            &mut self.inner,
+            Buffer {
+                pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            },
+        );
 
-        unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _) };
-        PinnedBuffer::new(pg_buffer)
+        block_tracker::forget!(unsafe { pg_sys::BufferGetBlockNumber(inner.pg_buffer) });
+        ImmutablePage {
+            pinned_buffer: PinnedBuffer::new(inner.pg_buffer),
+        }
     }
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making

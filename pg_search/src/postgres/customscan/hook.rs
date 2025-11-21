@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
+use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
@@ -29,7 +29,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathl
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
@@ -368,7 +368,7 @@ pub unsafe fn try_extract_quals_from_query(
 ///
 /// Returns `true` if:
 /// - Query has window functions AND is a TopN query (ORDER BY + LIMIT)
-/// - Query uses `pdb.agg()` OR the `@@@` search operator
+/// - Query uses `pdb.agg()` OR any ParadeDB search operator (`@@@`, `|||`, `&&&`, `===`, `###`, proximity)
 /// - WHERE clause can be handled (or no WHERE clause)
 ///
 /// Errors if `pdb.agg()` is used but requirements aren't met.
@@ -521,8 +521,10 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
-/// Check if the query contains the @@@ search operator.
+/// Check if the query contains any ParadeDB search operator.
 ///
+/// Detects: `@@@`, `|||`, `&&&`, `===`, `###`, and proximity operators (`##`, `##>`).
+/// Covers all argument type variants (text, text[], pdb.query, pdb.boost, pdb.fuzzy, proximityclause).
 /// This indicates that our custom scans will likely handle this query.
 /// Uses expression_tree_walker via expr_contains_any_operator for complete traversal.
 ///
@@ -532,24 +534,32 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 /// - This function: Quick boolean check for planner decisions
 /// - extract_quals: Detailed extraction and validation for execution
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
+    // We still need to check for the @@@(anyelement, searchqueryinput) variant
+    // because it's the most common and we want fast-path for it
     let searchqueryinput_opno = anyelement_query_input_opoid();
-    let text_opno = anyelement_text_opoid();
-    let target_ops = [searchqueryinput_opno, text_opno];
+    let target_ops = [searchqueryinput_opno];
+
+    // Helper closure to check if expression contains our operators
+    let contains_search_op = |node: *mut pg_sys::Node| -> bool {
+        // Fast path: check for common @@@(anyelement, searchqueryinput) first
+        if expr_contains_any_operator(node, &target_ops) {
+            return true;
+        }
+
+        // Slow path: walk the expression tree and check operator names
+        expr_contains_paradedb_operator(node)
+    };
 
     // Check WHERE clause (jointree->quals)
     if !(*parse).jointree.is_null() {
         let jointree = (*parse).jointree;
-        if !(*jointree).quals.is_null()
-            && expr_contains_any_operator((*jointree).quals, &target_ops)
-        {
+        if !(*jointree).quals.is_null() && contains_search_op((*jointree).quals) {
             return true;
         }
     }
 
     // Check HAVING clause
-    if !(*parse).havingQual.is_null()
-        && expr_contains_any_operator((*parse).havingQual, &target_ops)
-    {
+    if !(*parse).havingQual.is_null() && contains_search_op((*parse).havingQual) {
         return true;
     }
 
@@ -557,9 +567,7 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     if !(*parse).targetList.is_null() {
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
         for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null()
-                && expr_contains_any_operator((*te).expr as *mut pg_sys::Node, &target_ops)
-            {
+            if !(*te).expr.is_null() && contains_search_op((*te).expr as *mut pg_sys::Node) {
                 return true;
             }
         }
@@ -579,6 +587,69 @@ unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     }
 
     false
+}
+
+/// Recursively check if an expression tree contains any ParadeDB search operator.
+/// Uses expression tree walker to examine all OpExpr nodes.
+unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
+    struct WalkerContext {
+        found: bool,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let ctx = context.cast::<WalkerContext>();
+
+        // Check if this is an OpExpr
+        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
+            if is_paradedb_search_operator((*opexpr).opno) {
+                (*ctx).found = true;
+                return true; // Stop walking
+            }
+        }
+
+        // Continue walking the tree
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut context = WalkerContext { found: false };
+    walker(node, &mut context as *mut _ as *mut core::ffi::c_void);
+    context.found
+}
+
+/// Check if an operator OID is a ParadeDB search operator.
+///
+/// Checks operator name regardless of argument types (text, text[], pdb.query, pdb.boost, pdb.fuzzy, etc.)
+unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
+    // Look up the operator from pg_catalog.pg_operator
+    let opertup = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier::OPEROID as _,
+        opno.into_datum().unwrap(),
+    );
+
+    if opertup.is_null() {
+        return false;
+    }
+
+    let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+    let opername = pgrx::name_data_to_str(&(*operform).oprname);
+
+    // Check if it's one of our search operators
+    // Note: This covers all argument type variants (text, text[], pdb.query, pdb.boost, pdb.fuzzy, etc.)
+    let is_our_operator = matches!(
+        opername,
+        "@@@" | "|||" | "&&&" | "===" | "###" | "##" | "##>"
+    );
+
+    pg_sys::ReleaseSysCache(opertup);
+    is_our_operator
 }
 
 /// Check if the query is a TopN query (has ORDER BY and LIMIT)

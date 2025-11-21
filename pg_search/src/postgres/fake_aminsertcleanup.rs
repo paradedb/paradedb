@@ -113,7 +113,11 @@ pub unsafe fn register() {
         execute_once: bool,
     ) {
         EXECUTOR_RUN_STACK.push(None);
-        pg_sys::standard_ExecutorRun(query_desc, direction, count, execute_once);
+        if let Some(prev_hook) = PREV_EXECUTOR_RUN_HOOK {
+            prev_hook(query_desc, direction, count, execute_once);
+        } else {
+            pg_sys::standard_ExecutorRun(query_desc, direction, count, execute_once);
+        }
     }
 
     #[pg_guard]

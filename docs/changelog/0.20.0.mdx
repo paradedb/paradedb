@@ -61,7 +61,7 @@ Standard PostgreSQL aggregations like [`COUNT(*)`](/documentation/aggregates/met
 
 The v2 API has reached feature parity (except for custom stopwords and dismax) with the legacy API.
 
-It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found at [https://docs.paradedb.com/legacy](/legacy) and will be removed in a future version.
+It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found [here](/legacy) and will be removed in a future version.
 
 As a reminder the v2 API has the following improvements:
 
@@ -72,19 +72,19 @@ As a reminder the v2 API has the following improvements:
 
 Most of the v2 API was introduced in 0.19.x, but the following additions have been made:
 
-**Improved Default Tokenizer**: The default [tokenizer](/documentation/indexing/tokenizers) has been changed to `pdb.unicode_words`, which splits text based on the [Unicode Standard Annex #29](http://www.unicode.org/reports/tr29/) rules for better international text support.
+**Improved Default Tokenizer**: The default [tokenizer](/documentation/tokenizers) has been changed to `pdb.unicode_words`, which splits text based on the [Unicode Standard Annex #29](http://www.unicode.org/reports/tr29/) rules for better international text support.
 
 **Text Array Tokenization**: Arrays of text can now be tokenized directly in the v2 API, enabling more flexible document structures.
 
-**New Token Filters**: Added a `trim` [token filter](/documentation/indexing/token-filters) that removes leading and trailing whitespace from tokens, improving search precision.
+**New Token Filters**: Added a `trim` [token filter](/documentation/token-filters) that removes leading and trailing whitespace from tokens, improving search precision.
 
 ## Performance Improvements 🚀
 
 ### Write Throughput
 
-We have made significant improvements to ParadeDB's [write throughput](/documentation/configuration/write-throughput) through two major architectural changes. The first is enabling [mutable segments](https://github.com/paradedb/paradedb/pull/3516) by default, which are designed to incur minimal overhead during single-row writes. The overhead of tokenizing, serializing, and flushing an immutable segment is now completely eliminated for these operations.
+We have made significant improvements to ParadeDB's [write throughput](/documentation/performance-tuning/writes) through two major architectural changes. The first is enabling [mutable segments](https://github.com/paradedb/paradedb/pull/3516) by default, which are designed to incur minimal overhead during single-row writes. The overhead of tokenizing, serializing, and flushing an immutable segment is now completely eliminated for these operations.
 
-The second improvement is [default background merging](https://github.com/paradedb/paradedb/pull/3518). All [index](/documentation/concepts/index) merging operations now happen in background threads by default, dramatically improving write performance by removing merge overhead from the critical write path. The system allows up to 2 concurrent background mergers for optimal resource utilization.
+The second improvement is [default background merging](https://github.com/paradedb/paradedb/pull/3518). All merging operations now happen in background threads by default, dramatically improving write performance by removing merge overhead from the critical write path. The system allows up to 2 concurrent background mergers for optimal resource utilization.
 
 ### Query Performance
 
@@ -95,7 +95,5 @@ The second improvement is [default background merging](https://github.com/parade
 **Reduced Memory Copying**: Eliminated unnecessary Postgres buffer copies during query processing, reducing CPU overhead and improving throughput for complex queries.
 
 **Numeric Data Type Support**: ParadeDB now supports pushing down `numeric` data types in aggregate queries, enabling efficient calculations on decimal fields like prices and financial data.
-
-**JSON Key Sorting**: Added fast [sorting](/documentation/full-text/sorting) support for JSON keys, allowing efficient ordering by nested JSON field values.
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.0).

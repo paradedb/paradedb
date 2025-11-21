@@ -17,21 +17,21 @@ SELECT 'this is a test.'::pdb.jieba::text[];
 (1 row)
 
 SELECT 'this is a test.'::pdb.lindera(chinese)::text[];
-              text              
---------------------------------
- {this," ",is," ",a," ",test,.}
+        text        
+--------------------
+ {this,is,a,test,.}
 (1 row)
 
 SELECT 'this is a test.'::pdb.lindera(japanese)::text[];
-              text              
---------------------------------
- {this," ",is," ",a," ",test,.}
+        text        
+--------------------
+ {this,is,a,test,.}
 (1 row)
 
 SELECT 'this is a test.'::pdb.lindera(korean)::text[];
-              text              
---------------------------------
- {this," ",is," ",a," ",test,.}
+        text        
+--------------------
+ {this,is,a,test,.}
 (1 row)
 
 SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];

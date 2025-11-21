@@ -923,6 +923,11 @@ unsafe fn replace_windowfuncs_in_query(
 }
 
 // Helper function to recursively replace WindowFunc nodes in an expression
+//
+// Note: This follows a similar recursive pattern to replace_window_agg_with_const() in mod.rs,
+// but operates at a different stage:
+// - This function: Planning stage - replaces WindowFunc → window_agg() placeholder
+// - That function: Execution stage - replaces window_agg() → Const placeholder for value injection
 unsafe fn replace_in_node(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,

@@ -1465,6 +1465,11 @@ unsafe fn inject_window_aggregate_placeholders(
 }
 
 // Helper function to recursively search and replace window_agg calls
+//
+// Note: This follows a similar recursive pattern to replace_in_node() in hook.rs,
+// but operates at a different stage:
+// - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
+// - This function: Execution stage - replaces window_agg() → Const placeholder for value injection
 unsafe fn replace_window_agg_with_const(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,

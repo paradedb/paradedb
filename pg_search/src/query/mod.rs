@@ -592,9 +592,57 @@ fn check_range_bounds(
     let one_day_nanos: i64 = 86_400_000_000_000;
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
-        (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
+        (_, Bound::Excluded(OwnedValue::U64(n))) => {
+            // Determine if this is for a signed integer field (int2, int4, int8)
+            let is_signed_int_field = matches!(
+                typeoid,
+                PgOid::BuiltIn(
+                    PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID
+                )
+            );
+
+            if is_signed_int_field {
+                // For signed integer fields, check against i64::MAX
+                let i64_max = i64::MAX as u64;
+
+                if n >= i64_max {
+                    // field > i64::MAX is impossible for i64 field
+                    Bound::Excluded(OwnedValue::U64(n))
+                } else {
+                    // Safe to increment within i64 range
+                    match n.checked_add(1) {
+                        Some(next) if next <= i64_max => {
+                            Bound::Included(OwnedValue::U64(next))
+                        }
+                        _ => {
+                            // Would reach or exceed i64::MAX
+                            Bound::Excluded(OwnedValue::U64(n))
+                        }
+                    }
+                }
+            } else {
+                // For unsigned integer fields (OID, XID, etc.), check against u64::MAX
+                if n == u64::MAX {
+                    Bound::Excluded(OwnedValue::U64(n))
+                } else {
+                    match n.checked_add(1) {
+                        Some(next) => Bound::Included(OwnedValue::U64(next)),
+                        None => Bound::Excluded(OwnedValue::U64(n)),
+                    }
+                }
+            }
+        }
         // Excluded I64 needs to be canonicalized
-        (_, Bound::Excluded(OwnedValue::I64(n))) => Bound::Included(OwnedValue::I64(n + 1)),
+        (_, Bound::Excluded(OwnedValue::I64(n))) => {
+            match n.checked_add(1) {
+                Some(next) => Bound::Included(OwnedValue::I64(next)),
+                None => {
+                    // n is i64::MAX, field > i64::MAX is impossible
+                    // Keep as Excluded to match no results
+                    Bound::Excluded(OwnedValue::I64(n))
+                }
+            }
+        }
         // Excluded Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
@@ -637,9 +685,61 @@ fn check_range_bounds(
 
     let upper_bound = match (typeoid, upper_bound.clone()) {
         // Included U64 needs to be canonicalized
-        (_, Bound::Included(OwnedValue::U64(n))) => Bound::Excluded(OwnedValue::U64(n + 1)),
+        (_, Bound::Included(OwnedValue::U64(n))) => {
+            // Determine if this is for a signed integer field (int2, int4, int8)
+            let is_signed_int_field = matches!(
+                typeoid,
+                PgOid::BuiltIn(
+                    PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID
+                )
+            );
+
+            if is_signed_int_field {
+                // For signed integer fields, check against i64::MAX
+                let i64_max = i64::MAX as u64;
+
+                if n > i64_max {
+                    // Value exceeds i64 range - this shouldn't match any i64 values
+                    Bound::Unbounded
+                } else if n == i64_max {
+                    // At boundary: convert to I64 and keep as Included (don't canonicalize)
+                    // Incrementing would overflow, so keep as-is to avoid type mismatch
+                    Bound::Included(OwnedValue::I64(i64::MAX))
+                } else {
+                    // Safe to increment within i64 range
+                    match n.checked_add(1) {
+                        Some(next) if next <= i64_max => {
+                            Bound::Excluded(OwnedValue::U64(next))
+                        }
+                        _ => {
+                            // Shouldn't reach here since n < i64_max
+                            Bound::Unbounded
+                        }
+                    }
+                }
+            } else {
+                // For unsigned integer fields (OID, XID, etc.), check against u64::MAX
+                if n == u64::MAX {
+                    Bound::Unbounded
+                } else {
+                    match n.checked_add(1) {
+                        Some(next) => Bound::Excluded(OwnedValue::U64(next)),
+                        None => Bound::Unbounded,
+                    }
+                }
+            }
+        }
         // Included I64 needs to be canonicalized
-        (_, Bound::Included(OwnedValue::I64(n))) => Bound::Excluded(OwnedValue::I64(n + 1)),
+        (_, Bound::Included(OwnedValue::I64(n))) => {
+            match n.checked_add(1) {
+                Some(next) => Bound::Excluded(OwnedValue::I64(next)),
+                None => {
+                    // n is i64::MAX, cannot increment without overflow
+                    // Return Unbounded for upper bound
+                    Bound::Unbounded
+                }
+            }
+        }
         // Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),

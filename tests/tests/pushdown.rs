@@ -1029,3 +1029,272 @@ mod pushdown_is_bool_operator {
         }
     }
 }
+
+/// Tests for numeric boundary value handling
+/// Verifies that range queries with u64::MAX, i64::MAX, and i64::MIN
+/// do not cause overflow panics and return correct results
+mod numeric_boundary_values {
+    use super::*;
+
+    #[fixture]
+    fn setup_boundary_test_table(mut conn: PgConnection) -> PgConnection {
+        let sql = r#"
+            CREATE TABLE boundary_test (
+                id SERIAL8 NOT NULL PRIMARY KEY,
+                col_int8 int8,
+                col_int4 int4,
+                col_int2 int2
+            );
+        "#;
+        sql.execute(&mut conn);
+
+        let sql = r#"
+            CREATE INDEX idx_boundary_test ON boundary_test USING bm25 (id, col_int8, col_int4, col_int2)
+            WITH (key_field='id');
+        "#;
+        sql.execute(&mut conn);
+
+        // Insert test data including boundary values
+        "INSERT INTO boundary_test (id, col_int8) VALUES (1, 9223372036854775807);".execute(&mut conn); // i64::MAX
+        "INSERT INTO boundary_test (id, col_int8) VALUES (2, -9223372036854775808);".execute(&mut conn); // i64::MIN
+        "INSERT INTO boundary_test (id, col_int8) VALUES (3, 0);".execute(&mut conn);
+        "INSERT INTO boundary_test (id, col_int8) VALUES (4, 42);".execute(&mut conn);
+        "INSERT INTO boundary_test (id, col_int4) VALUES (5, 2147483647);".execute(&mut conn); // i32::MAX
+        "INSERT INTO boundary_test (id, col_int4) VALUES (6, -2147483648);".execute(&mut conn); // i32::MIN
+        "INSERT INTO boundary_test (id, col_int2) VALUES (7, 32767);".execute(&mut conn); // i16::MAX
+        "INSERT INTO boundary_test (id, col_int2) VALUES (8, -32768);".execute(&mut conn); // i16::MIN
+
+        "SET enable_indexscan TO off;".execute(&mut conn);
+        "SET enable_bitmapscan TO off;".execute(&mut conn);
+        "SET max_parallel_workers TO 0;".execute(&mut conn);
+        conn
+    }
+
+    /// Test that field <= i64::MAX returns all i64 values
+    /// This tests the upper bound overflow fix where Included(i64::MAX) becomes Unbounded
+    #[rstest]
+    fn test_i64_max_upper_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 <= 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 <= i64::MAX");
+
+        // Should match all rows with non-null col_int8 (4 rows: ids 1,2,3,4)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 <= 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(4,)]);
+    }
+
+    /// Test that field >= i64::MIN returns all i64 values
+    /// This tests the lower bound overflow fix for negative values
+    #[rstest]
+    fn test_i64_min_lower_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 >= -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 >= i64::MIN");
+
+        // Should match all rows with non-null col_int8 (4 rows: ids 1,2,3,4)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 >= -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(4,)]);
+    }
+
+    /// Test that field > i64::MAX returns no results
+    /// This tests that Excluded(i64::MAX) stays as Excluded when overflow occurs
+    #[rstest]
+    fn test_i64_max_excluded_lower_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 > 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 > i64::MAX");
+
+        // Should match no rows (field > i64::MAX is impossible)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 > 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(0,)]);
+    }
+
+    /// Test that field < i64::MIN returns no results
+    /// This tests that Excluded(i64::MIN) for upper bound works correctly
+    #[rstest]
+    fn test_i64_min_excluded_upper_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 < -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 < i64::MIN");
+
+        // Should match no rows (field < i64::MIN is impossible)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int8 < -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(0,)]);
+    }
+
+    /// Test range queries with i32::MAX
+    #[rstest]
+    fn test_i32_max_upper_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int4 <= 2147483647
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int4 <= i32::MAX");
+
+        // Should match all rows with non-null col_int4 (2 rows: ids 5,6)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int4 <= 2147483647
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(2,)]);
+    }
+
+    /// Test range queries with i16::MAX
+    #[rstest]
+    fn test_i16_max_upper_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int2 <= 32767
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int2 <= i16::MAX");
+
+        // Should match all rows with non-null col_int2 (2 rows: ids 7,8)
+        let count = r#"
+            SELECT count(*)
+            FROM boundary_test
+            WHERE col_int2 <= 32767
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64,)>(&mut conn);
+        assert_eq!(count, vec![(2,)]);
+    }
+
+    /// Test that exact match on i64::MAX works
+    #[rstest]
+    fn test_i64_max_equality(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT id, col_int8
+            FROM boundary_test
+            WHERE col_int8 = 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 = i64::MAX");
+
+        // Should match exactly row with id=1
+        let results = r#"
+            SELECT id, col_int8
+            FROM boundary_test
+            WHERE col_int8 = 9223372036854775807
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64, i64)>(&mut conn);
+        assert_eq!(results, vec![(1, 9223372036854775807)]);
+    }
+
+    /// Test that exact match on i64::MIN works
+    #[rstest]
+    fn test_i64_min_equality(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+        let sql = r#"
+            EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            SELECT id, col_int8
+            FROM boundary_test
+            WHERE col_int8 = -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#;
+
+        eprintln!("{sql}");
+        let (plan,) = sql.fetch_one::<(Value,)>(&mut conn);
+        eprintln!("{plan:#?}");
+
+        verify_custom_scan(&plan, "col_int8 = i64::MIN");
+
+        // Should match exactly row with id=2
+        let results = r#"
+            SELECT id, col_int8
+            FROM boundary_test
+            WHERE col_int8 = -9223372036854775808
+            AND id @@@ paradedb.all();
+        "#
+        .fetch::<(i64, i64)>(&mut conn);
+        assert_eq!(results, vec![(2, -9223372036854775808)]);
+    }
+}

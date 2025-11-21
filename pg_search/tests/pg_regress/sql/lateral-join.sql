@@ -505,6 +505,116 @@ ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 11: Nested JOIN with LATERAL (exercises nested join detection)
+-- =============================================================================
+-- This test exercises the code path where rarg is a JoinExpr containing LATERAL
+-- Note: This complex nested join pattern won't use TopN optimization, but it's
+-- important to verify the nested LATERAL detection code path works correctly
+EXPLAIN (COSTS OFF)
+SELECT 
+    a.id,
+    a.title,
+    au.name as author_name,
+    comment_stats.comment_count
+FROM articles a
+LEFT JOIN (
+    authors au
+    INNER JOIN LATERAL (
+        SELECT 
+            COUNT(*) as comment_count
+        FROM comments c
+        WHERE c.article_id IN (
+            SELECT id FROM articles WHERE author_id = au.id
+        )
+    ) comment_stats ON true
+) ON a.author_id = au.id
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 5;
+
+-- Execute to verify results
+SELECT 
+    a.id,
+    a.title,
+    au.name as author_name,
+    comment_stats.comment_count
+FROM articles a
+LEFT JOIN (
+    authors au
+    INNER JOIN LATERAL (
+        SELECT 
+            COUNT(*) as comment_count
+        FROM comments c
+        WHERE c.article_id IN (
+            SELECT id FROM articles WHERE author_id = au.id
+        )
+    ) comment_stats ON true
+) ON a.author_id = au.id
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 12: Deep nested joins with multiple LATERAL references
+-- =============================================================================
+-- This test exercises the recursive LATERAL detection for complex nesting
+EXPLAIN (COSTS OFF)
+SELECT 
+    a.id,
+    a.title,
+    complex.name as author_name,
+    complex.total_activity
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        au.id,
+        au.name,
+        article_stats.article_count + COALESCE(comment_stats.comment_count, 0) as total_activity
+    FROM authors au
+    INNER JOIN LATERAL (
+        SELECT COUNT(*) as article_count
+        FROM articles
+        WHERE author_id = au.id
+    ) article_stats ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) as comment_count
+        FROM comments c
+        WHERE c.author_name = au.name
+    ) comment_stats ON true
+) complex ON a.author_id = complex.id
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+
+-- Execute to verify the complex nested structure works
+SELECT 
+    a.id,
+    a.title,
+    complex.name as author_name,
+    complex.total_activity
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        au.id,
+        au.name,
+        article_stats.article_count + COALESCE(comment_stats.comment_count, 0) as total_activity
+    FROM authors au
+    INNER JOIN LATERAL (
+        SELECT COUNT(*) as article_count
+        FROM articles
+        WHERE author_id = au.id
+    ) article_stats ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) as comment_count
+        FROM comments c
+        WHERE c.author_name = au.name
+    ) comment_stats ON true
+) complex ON a.author_id = complex.id
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS articles CASCADE;

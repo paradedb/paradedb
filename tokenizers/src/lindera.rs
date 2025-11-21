@@ -25,8 +25,8 @@ static CMN_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
 });
 
 static JPN_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://ipadic")
-        .expect("Lindera `ipadic` dictionary must be present");
+    let dictionary =
+        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
     LinderaTokenizer::new(lindera::segmenter::Segmenter::new(
         Mode::Normal,
         dictionary,
@@ -35,8 +35,8 @@ static JPN_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
 });
 
 static KOR_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://ko-dic")
-        .expect("Lindera `ko-dic` dictionary must be present");
+    let dictionary =
+        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
     LinderaTokenizer::new(lindera::segmenter::Segmenter::new(
         Mode::Normal,
         dictionary,

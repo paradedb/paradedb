@@ -611,9 +611,7 @@ fn check_range_bounds(
                 } else {
                     // Safe to increment within i64 range
                     match n.checked_add(1) {
-                        Some(next) if next <= i64_max => {
-                            Bound::Included(OwnedValue::U64(next))
-                        }
+                        Some(next) if next <= i64_max => Bound::Included(OwnedValue::U64(next)),
                         _ => {
                             // Would reach or exceed i64::MAX
                             Bound::Excluded(OwnedValue::U64(n))
@@ -708,9 +706,7 @@ fn check_range_bounds(
                 } else {
                     // Safe to increment within i64 range
                     match n.checked_add(1) {
-                        Some(next) if next <= i64_max => {
-                            Bound::Excluded(OwnedValue::U64(next))
-                        }
+                        Some(next) if next <= i64_max => Bound::Excluded(OwnedValue::U64(next)),
                         _ => {
                             // Shouldn't reach here since n < i64_max
                             Bound::Unbounded

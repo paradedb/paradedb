@@ -1055,8 +1055,10 @@ mod numeric_boundary_values {
         sql.execute(&mut conn);
 
         // Insert test data including boundary values
-        "INSERT INTO boundary_test (id, col_int8) VALUES (1, 9223372036854775807);".execute(&mut conn); // i64::MAX
-        "INSERT INTO boundary_test (id, col_int8) VALUES (2, -9223372036854775808);".execute(&mut conn); // i64::MIN
+        "INSERT INTO boundary_test (id, col_int8) VALUES (1, 9223372036854775807);"
+            .execute(&mut conn); // i64::MAX
+        "INSERT INTO boundary_test (id, col_int8) VALUES (2, -9223372036854775808);"
+            .execute(&mut conn); // i64::MIN
         "INSERT INTO boundary_test (id, col_int8) VALUES (3, 0);".execute(&mut conn);
         "INSERT INTO boundary_test (id, col_int8) VALUES (4, 42);".execute(&mut conn);
         "INSERT INTO boundary_test (id, col_int4) VALUES (5, 2147483647);".execute(&mut conn); // i32::MAX
@@ -1131,7 +1133,9 @@ mod numeric_boundary_values {
     /// Test that field > i64::MAX returns no results
     /// This tests that Excluded(i64::MAX) stays as Excluded when overflow occurs
     #[rstest]
-    fn test_i64_max_excluded_lower_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+    fn test_i64_max_excluded_lower_bound(
+        #[from(setup_boundary_test_table)] mut conn: PgConnection,
+    ) {
         let sql = r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
             SELECT count(*)
@@ -1160,7 +1164,9 @@ mod numeric_boundary_values {
     /// Test that field < i64::MIN returns no results
     /// This tests that Excluded(i64::MIN) for upper bound works correctly
     #[rstest]
-    fn test_i64_min_excluded_upper_bound(#[from(setup_boundary_test_table)] mut conn: PgConnection) {
+    fn test_i64_min_excluded_upper_bound(
+        #[from(setup_boundary_test_table)] mut conn: PgConnection,
+    ) {
         let sql = r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
             SELECT count(*)

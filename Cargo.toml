@@ -16,11 +16,9 @@ panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
-[profile.prof]
+[profile.release-with-debug]
 inherits = "release"
 debug = true
-lto = "thin"
-codegen-units = 32
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "d5a1844142607c5dbe8f485a1c08a60dc5178da0", features = [

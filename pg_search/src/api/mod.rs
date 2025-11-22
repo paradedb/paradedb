@@ -320,6 +320,7 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
+    #[serde(default = "default_orderby_field_semantic")]
     pub semantic: Option<OrderByFieldSemantic>,
 }
 
@@ -333,4 +334,8 @@ impl OrderByInfo {
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn agg_funcoid() -> pg_sys::Oid {
     lookup_pdb_function("agg", &[pg_sys::JSONBOID])
+}
+
+fn default_orderby_field_semantic() -> Option<OrderByFieldSemantic> {
+    Some(OrderByFieldSemantic::Natural)
 }

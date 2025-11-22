@@ -4,7 +4,7 @@ description: Explore the different ways to deploy ParadeDB into production
 canonical: https://docs.paradedb.com/deploy/overview
 ---
 
-There are two ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted) or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
+There are two ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted/kubernetes) or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
 
 ## Self-Hosted ParadeDB
 
@@ -12,7 +12,7 @@ For hobby, development, or staging environments, [ParadeDB Community](https://gi
 inside [Kubernetes](/deploy/self-hosted/kubernetes), or as an [extension](/deploy/self-hosted/extension) inside an existing self-hosted Postgres.
 
 For production environments, we recommend deploying the [ParadeDB Enterprise](/deploy/enterprise) binary inside Kubernetes. This unlocks support for
-[logical replication](/deploy/self-hosted/logical-replication) and [high availability](/deploy/self-hosted/high-availability), which must be configured separately.
+[logical replication](/deploy/self-hosted/logical-replication/getting-started) and [high availability](/deploy/self-hosted/high-availability/configuration), which must be configured separately.
 
 <Note>
 Running ParadeDB Community in a production application that serves paying customers is discouraged.

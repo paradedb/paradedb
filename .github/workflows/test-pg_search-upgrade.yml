@@ -16,6 +16,7 @@ on:
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
+      - "Cargo.toml"
   workflow_dispatch:
 
 # This is the first pg_search version that has a rust-toolchain.toml file which allows us to use a version of rust known

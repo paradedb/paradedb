@@ -15,6 +15,9 @@ lto = "fat"
 panic = "unwind"
 opt-level = 3
 codegen-units = 1
+
+[profile.release-with-debug]
+inherits = "release"
 debug = true
 
 [workspace.dependencies]

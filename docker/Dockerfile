@@ -79,12 +79,12 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
 
-# Build the extension
+# Build the extension in release mode, but with debug symbols (which will be split out later)
 WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Strip debug symbols from the extension and add a debug link
-RUN LIB_PATH="/tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
+RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
     objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg" && \
     objcopy --strip-debug "${LIB_PATH}" && \
     objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
@@ -170,8 +170,8 @@ COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERS
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.

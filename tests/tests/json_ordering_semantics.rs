@@ -77,10 +77,10 @@ async fn json_lexical_ordering_matches_postgres() {
         r#"INSERT INTO json_ordering_test (metadata) VALUES ('{"code": "2"}'), ('{"code": "10"}'), ('{"code": "1"}');"#.execute(&mut conn);
 
         // Baseline Postgres query
-        let pg_query = "SELECT metadata->>'code' FROM json_ordering_test ORDER BY metadata->>'code', id LIMIT 100";
+        let pg_query = "SELECT metadata->>'code' FROM json_ordering_test ORDER BY metadata->>'code' LIMIT 100";
 
         // BM25 query to trigger custom scan + fast ordering pushdown.
-        let bm25_query = "SELECT metadata->>'code' FROM json_ordering_test WHERE id @@@ paradedb.all() ORDER BY metadata->>'code', id LIMIT 100";
+        let bm25_query = "SELECT metadata->>'code' FROM json_ordering_test WHERE id @@@ paradedb.all() ORDER BY metadata->>'code' LIMIT 100";
 
         let gucs = PgGucs::with_custom_scan();
 

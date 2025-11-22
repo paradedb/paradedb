@@ -309,11 +309,6 @@ pub enum OrderByFieldSemantic {
     Lexical,
 }
 
-fn default_orderby_field_semantic() -> Option<OrderByFieldSemantic> {
-    // if older serialized data lacks this field, treat as Natural
-    Some(OrderByFieldSemantic::Natural)
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score,
@@ -325,8 +320,6 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
-    // sorting semantic for field-based ordering; none defaults to Natural.
-    #[serde(default = "default_orderby_field_semantic")]
     pub semantic: Option<OrderByFieldSemantic>,
 }
 

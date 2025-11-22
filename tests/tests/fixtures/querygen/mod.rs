@@ -335,13 +335,8 @@ impl PgGucs {
     /// Convenience constructor enabling only the custom scan while keeping other defaults.
     pub fn with_custom_scan() -> Self {
         Self {
-            aggregate_custom_scan: false,
             custom_scan: true,
-            custom_scan_without_operator: false,
-            filter_pushdown: false,
-            seqscan: true,
-            indexscan: true,
-            parallel_workers: true,
+            ..Self::default()
         }
     }
 }

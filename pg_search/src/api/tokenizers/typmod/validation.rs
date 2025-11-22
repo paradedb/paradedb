@@ -212,6 +212,7 @@ impl TypmodSchema {
                     "normalizer",
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
+                rule!("keep_whitespace", ValueConstraint::Boolean),
                 rule!("alias", ValueConstraint::String),
             ]
         });

@@ -8,10 +8,10 @@ icu = ["rust_icu_ubrk", "rust_icu_sys", "rust_icu_uloc", "rust_icu_ustring"]
 
 [dependencies]
 anyhow = "1.0.98"
-lindera = { version = "0.43.1", features = [
-  "cc-cedict",
-  "ipadic",
-  "ko-dic",
+lindera = { version = "1.4.1", features = [
+  "embedded-cc-cedict",
+  "embedded-ipadic",
+  "embedded-ko-dic",
   "compress",
 ] }
 once_cell = "1.21.3"

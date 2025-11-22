@@ -341,6 +341,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
             trim: value.get("trim").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
+            keep_whitespace: value.get("keep_whitespace").and_then(|p| p.as_bool()),
         }
     }
 }

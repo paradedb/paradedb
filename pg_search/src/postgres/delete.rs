@@ -88,6 +88,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let directory = MvccSatisfies::Vacuum.directory(&index_relation);
     let index = Index::open(directory.clone()).unwrap();
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
+    let mut did_delete = false;
 
     for segment_reader in reader.segment_readers() {
         let segment_id = segment_reader.segment_id();
@@ -117,6 +118,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
+                did_delete = true;
                 needs_commit = true;
                 deleter.delete_document(ctid, doc_id);
             }
@@ -145,13 +147,14 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         stats.pages_deleted = 0;
     }
 
-    let did_delete = !old_metas.is_empty();
-    if did_delete {
+    if !old_metas.is_empty() {
         // Save the new delete metas entries in one atomic operation
         assert_eq!(old_metas.len(), new_metas.len());
         save_delete_metas(&index, old_metas, new_metas)
             .expect("ambulkdelete: should be able to save delete metas entries");
+    }
 
+    if did_delete {
         // As soon as ambulkdelete returns, Postgres will update the visibility map
         // This can cause concurrent scans that have just read ctids, which are dead but
         // are about to be marked visible, to return wrong results. To guard against this,
@@ -161,14 +164,11 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
         // scans have finished too
         drop(metadata.cleanup_lock_for_cleanup());
+        metadata.increment_ambulkdelete_epoch();
     }
 
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
-
-    if did_delete {
-        metadata.increment_ambulkdelete_epoch();
-    }
 
     stats.into_pg()
 }

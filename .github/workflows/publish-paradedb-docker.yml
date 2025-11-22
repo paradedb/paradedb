@@ -103,8 +103,9 @@ jobs:
           npm install semver
 
           echo ""
-          echo "Comparing versions to determine if the current version is the latest..."
-          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
+          echo "Comparing versions to determine if we need to mark this release as latest..."
+          echo "We should mark as latest if the current version of the tag triggering this workflow is equal to the latest tag found in GitHub Releases."
+          if npx semver -r ">=$latest_tag_version" "$current_tag_version"; then
             echo "is_latest=true"
             echo "is_latest=true" >> $GITHUB_OUTPUT
           else

@@ -6,7 +6,7 @@ noindex: true
 ## Performance Improvements 🚀
 
 - We have significantly improved write throughput by optimizing our segment merge policy. We introduced a new setting,
-  [paradedb.segment_merge_scale_factor](/documentation/configuration/write-throughput#segment-merge-scale-factor), which allows
+  [paradedb.segment_merge_scale_factor](/documentation/performance-tuning/writes), which allows
   expensive merge operations to be deferred until a certain number of small segments have accumulated.
 - Implemented pushdown of `IS NOT NULL` into the custom scan
 

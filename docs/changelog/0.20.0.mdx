@@ -25,7 +25,7 @@ A massive thank you to our external contributors for this release:
 
 ### Search Aggregation and Faceting
 
-ParadeDB 0.20 introduces powerful [search aggregation capabilities](/documentation/aggregates) through the new `pdb.agg()` function. This function can be used in two ways to push analytics down into the Tantivy index for optimal performance.
+ParadeDB 0.20 introduces powerful [search aggregation capabilities](/documentation/aggregates/overview) through the new `pdb.agg()` function. This function can be used in two ways to push analytics down into the Tantivy index for optimal performance.
 
 The first is as a **window function** for fast faceting alongside TopN queries:
 
@@ -61,7 +61,7 @@ Standard PostgreSQL aggregations like [`COUNT(*)`](/documentation/aggregates/met
 
 The v2 API has reached feature parity (except for custom stopwords and dismax) with the legacy API.
 
-It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found [here](/legacy) and will be removed in a future version.
+It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found [here](/legacy/indexing/create-index) and will be removed in a future version.
 
 As a reminder the v2 API has the following improvements:
 
@@ -76,7 +76,7 @@ Most of the v2 API was introduced in 0.19.x, but the following additions have be
 
 **Text Array Tokenization**: Arrays of text can now be tokenized directly in the v2 API, enabling more flexible document structures.
 
-**New Token Filters**: Added a `trim` [token filter](/documentation/token-filters) that removes leading and trailing whitespace from tokens, improving search precision.
+**New Token Filters**: Added a `trim` [token filter](/documentation/token-filters/overview) that removes leading and trailing whitespace from tokens, improving search precision.
 
 ## Performance Improvements 🚀
 

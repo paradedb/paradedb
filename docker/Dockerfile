@@ -83,6 +83,12 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
 WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
+# Strip debug symbols from the extension and add a debug link
+RUN LIB_PATH="/tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
+    objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg" && \
+    objcopy --strip-debug "${LIB_PATH}" && \
+    objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
+
 ######################
 # pgvector
 ######################

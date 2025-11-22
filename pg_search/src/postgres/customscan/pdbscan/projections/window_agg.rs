@@ -84,6 +84,7 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ptr::addr_of_mut;
 
 /// Feature flags for window functions.
 ///
@@ -97,9 +98,6 @@ pub mod window_aggregates {
     /// When true, window functions are only replaced with window_agg in TopN execution context.
     /// When false, window functions can be replaced in any query context.
     pub const ONLY_ALLOW_TOP_N: bool = true;
-
-    /// Enable support for window functions in subqueries.
-    pub const SUBQUERY_SUPPORT: bool = false;
 
     /// Enable support for window functions in queries with HAVING clauses.
     pub const HAVING_SUPPORT: bool = false;
@@ -228,15 +226,56 @@ pub unsafe fn extract_and_convert_window_functions(
         }
     }
 
-    // Note: SUBQUERY_SUPPORT is checked at a higher level in the planner hook
-    // since subqueries are processed recursively
-
     let mut window_aggs = HashMap::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
     // Extract all window functions and check if they're supported
+    // Use expression_tree_walker to find WindowFunc nodes even when wrapped in other functions
     for (idx, te) in tlist.iter_ptr().enumerate() {
-        if let Some(window_agg) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+        // Helper to find WindowFunc nodes in the expression tree
+        struct WindowFuncFinder {
+            window_funcs: Vec<*mut pg_sys::WindowFunc>,
+        }
+
+        unsafe extern "C-unwind" fn find_window_func(
+            node: *mut pg_sys::Node,
+            context: *mut core::ffi::c_void,
+        ) -> bool {
+            if node.is_null() {
+                return false;
+            }
+
+            let ctx = context.cast::<WindowFuncFinder>();
+
+            // Check if this node is a WindowFunc
+            if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
+                (*ctx).window_funcs.push(window_func);
+            }
+
+            // Continue walking the tree
+            pg_sys::expression_tree_walker(node, Some(find_window_func), context)
+        }
+
+        let mut finder = WindowFuncFinder {
+            window_funcs: Vec::new(),
+        };
+
+        // Walk the expression tree to find all WindowFunc nodes
+        find_window_func(
+            (*te).expr as *mut pg_sys::Node,
+            addr_of_mut!(finder) as *mut core::ffi::c_void,
+        );
+
+        // Process each WindowFunc found in this target entry
+        // Note: We only support one WindowFunc per target entry for now
+        if !finder.window_funcs.is_empty() {
+            if finder.window_funcs.len() > 1 {
+                // Multiple window functions in one target entry - not supported
+                return HashMap::new();
+            }
+
+            let window_agg = finder.window_funcs[0];
+
             // Extract the aggregate function and its details first
             if let Some(agg_type) = convert_window_func_to_aggregate_type(parse, window_agg) {
                 // Build TargetList and validate OVER clause

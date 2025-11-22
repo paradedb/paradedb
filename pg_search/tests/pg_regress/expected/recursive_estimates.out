@@ -1,0 +1,974 @@
+-- Recursive Estimates Feature Tests
+-- Tests recursive cost estimation in EXPLAIN VERBOSE output
+-- Organized by complexity: Simple → Complex → Nested
+-- Each test MUST show estimated_docs in output
+\i common/recursive_estimates_setup.sql
+-- Setup for recursive estimates tests
+-- Ensures the GUC is enabled and creates test data if needed
+-- First, run common setup for extension and GUCs
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Create regress.mock_items table (drop first for idempotency)
+CREATE SCHEMA IF NOT EXISTS regress;
+DROP TABLE IF EXISTS regress.mock_items CASCADE;
+CALL paradedb.create_bm25_test_table(
+        schema_name => 'regress',
+        table_name => 'mock_items'
+     );
+-- Create index without sku column to match original test setup
+CREATE INDEX idxregress_mock_items
+    ON regress.mock_items
+        USING bm25 (id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+    WITH (key_field='id');
+-- Enable recursive estimates feature
+SET paradedb.explain_recursive_estimates = ON;
+-- ============================================================================
+-- STAGE 1: SIMPLE LEAF QUERIES (No Nesting)
+-- Expected: Each query should show estimated_docs for single term
+-- ============================================================================
+-- Test 1.1: Simple parse query (single term)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}
+(8 rows)
+
+-- Test 1.2: Simple phrase query
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description ### 'running shoes';
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 2: BOOLEAN QUERIES (Two-Level Nesting)
+-- Expected: Parent boolean AND/OR + each child term show estimated_docs
+-- ============================================================================
+-- Test 2.1: Simple AND (conjunction) - 2 children
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- Test 2.2: Simple OR (disjunction) - 2 children
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":3}},"estimated_docs":3}
+(8 rows)
+
+-- Test 2.3: AND with array (multiple terms)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& ARRAY['running', 'shoes', 'athletic'];
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match_array":{"field":"description","tokens":["running","shoes","athletic"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- Test 2.4: OR with array (multiple terms)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description ||| ARRAY['running', 'walking', 'hiking'];
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.02 rows=2 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match_array":{"field":"description","tokens":["running","walking","hiking"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false},"estimated_docs":2}},"estimated_docs":2}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 3: NESTED BOOLEAN QUERIES (Three-Level Nesting)
+-- Expected: Recursive estimates showing boolean parent + term children
+-- ============================================================================
+-- Test 3.1: Boolean with two MUST clauses
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('description', 'shoes'),
+        paradedb.term('description', 'running')
+    ]
+);
+                                                                                                                                        QUERY PLAN                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":1}
+(8 rows)
+
+-- Test 3.2: Boolean with two SHOULD clauses (OR)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    should := ARRAY[
+        paradedb.term('description', 'running'),
+        paradedb.term('description', 'walking')
+    ]
+);
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"walking","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":1}
+(8 rows)
+
+-- Test 3.3: Boolean with MUST and SHOULD mixed
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[paradedb.term('description', 'shoes')],
+    should := ARRAY[paradedb.term('description', 'running'), paradedb.term('description', 'athletic')]
+);
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0}],"should":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"athletic","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":3}
+(8 rows)
+
+-- Test 3.4: Boolean with MUST_NOT clause (CRITICAL: Tests negation)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[paradedb.term('description', 'shoes')],
+    must_not := ARRAY[paradedb.term('description', 'athletic')]
+);
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0}],"must_not":[{"term":{"field":"description","value":"athletic","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":3}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 4: COMPLEX NESTED QUERIES (Four+ Level Nesting)
+-- Expected: Deep recursion with estimates at each nested level
+-- ============================================================================
+-- Test 4.1: Nested boolean - boolean inside boolean (must within must)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.boolean(
+            must := ARRAY[
+                paradedb.term('description', 'running'),
+                paradedb.term('description', 'shoes')
+            ]
+        ),
+        paradedb.term('description', 'athletic')
+    ]
+);
+                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"shoes","is_datetime":false}}]},"estimated_docs":0},{"term":{"field":"description","value":"athletic","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- Test 4.2: Nested boolean - OR containing AND ((A AND B) OR C)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    should := ARRAY[
+        paradedb.boolean(
+            must := ARRAY[
+                paradedb.term('description', 'running'),
+                paradedb.term('description', 'shoes')
+            ]
+        ),
+        paradedb.term('description', 'boots')
+    ]
+);
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.02 rows=2 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"shoes","is_datetime":false}}]},"estimated_docs":0},{"term":{"field":"description","value":"boots","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":2}
+(8 rows)
+
+-- Test 4.3: Deep nesting - three levels of boolean queries
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.boolean(
+            should := ARRAY[
+                paradedb.boolean(
+                    must := ARRAY[
+                        paradedb.term('description', 'running'),
+                        paradedb.term('description', 'shoes')
+                    ]
+                ),
+                paradedb.term('description', 'walking')
+            ]
+        ),
+        paradedb.term('description', 'athletic')
+    ]
+);
+                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0},{"term":{"field":"description","value":"walking","is_datetime":false}}]},"estimated_docs":0},{"term":{"field":"description","value":"athletic","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 5: SPECIAL QUERY TYPES
+-- Expected: Specialized queries also show estimates
+-- ============================================================================
+-- Test 5.1: Term equality
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description === 'shoes';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":3}},"estimated_docs":3}
+(8 rows)
+
+-- Test 5.2: Term set (array of exact matches)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'boots'];
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.04 rows=4 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description","terms":["shoes","boots"]},"estimated_docs":4}},"estimated_docs":4}
+(8 rows)
+
+-- Test 5.3: Range query on numeric field (CRITICAL: Tests range estimates)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(4, 5)
+);
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.41 rows=41 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":41}},"estimated_docs":41}
+(8 rows)
+
+-- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.regex(
+    field => 'description',
+    pattern => 'run.*'
+);
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":"run.*"},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- Test 5.5: Fuzzy query (CRITICAL: Tests typo-tolerance estimates)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 1::integer
+);
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":null,"prefix":null},"estimated_docs":3}},"estimated_docs":3}
+(8 rows)
+
+-- Test 5.6: Exists query (CRITICAL: Tests field presence estimates)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE id @@@ paradedb.exists('description');
+ERROR:  weight should be constructable: SchemaError("Field description is not a fast field.")
+-- ============================================================================
+-- STAGE 6: GUC TOGGLE TEST
+-- Expected: WITH GUC=ON shows estimates, WITH GUC=OFF hides them
+-- ============================================================================
+-- Test 6.1: Verify estimates shown with GUC=ON (should already be ON)
+SHOW paradedb.explain_recursive_estimates;
+ paradedb.explain_recursive_estimates 
+--------------------------------------
+ on
+(1 row)
+
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- Test 6.2: Turn GUC OFF and verify estimates NOT shown
+SET paradedb.explain_recursive_estimates = OFF;
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(8 rows)
+
+-- Test 6.3: Turn GUC back ON
+SET paradedb.explain_recursive_estimates = ON;
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 7: EXPLAIN vs EXPLAIN ANALYZE
+-- Expected: Both should show estimates when VERBOSE + GUC enabled
+-- ============================================================================
+-- Test 7.1: EXPLAIN VERBOSE (planning only)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
+(8 rows)
+
+-- Test 7.2: EXPLAIN ANALYZE VERBOSE (planning + execution)
+EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items (actual rows=1 loops=1)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Heap Fetches: 1
+   Virtual Tuples: 0
+   Invisible Tuples: 0
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
+(10 rows)
+
+-- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
+EXPLAIN SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(7 rows)
+
+-- ============================================================================
+-- STAGE 8: EDGE CASES
+-- Expected: Handle edge cases gracefully
+-- ============================================================================
+-- Test 8.1: Empty result query
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description @@@ 'nonexistentterm123456';
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistentterm123456","lenient":null,"conjunction_mode":null},"estimated_docs":0}},"estimated_docs":0}
+(8 rows)
+
+-- Test 8.2: Match all query (very broad)
+EXPLAIN (VERBOSE) SELECT * FROM regress.mock_items WHERE description @@@ paradedb.all();
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.41 rows=41 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Full Index Scan: true
+   Tantivy Query: {"with_index":{"query":"all"},"estimated_docs":41}
+(9 rows)
+
+-- Test 8.3: Many AND clauses (wide tree)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ 'running'
+  AND description @@@ 'shoes'
+  AND description @@@ 'athletic'
+  AND description @@@ 'footwear';
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"boolean":{},"estimated_docs":0}
+(8 rows)
+
+-- Test 8.4: Many OR clauses (wide tree)
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ 'running'
+   OR description @@@ 'walking'
+   OR description @@@ 'hiking'
+   OR description @@@ 'jogging';
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"boolean":{},"estimated_docs":0}
+(8 rows)
+
+-- ============================================================================
+-- STAGE 9: PROTECTION LIMITS
+-- Expected: Verify depth limits and timeout handling work correctly
+-- ============================================================================
+-- Test 9.1: Deep nesting (should work - well within 100 level limit)
+-- This tests 10 levels of nesting, which is typical for complex queries
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.boolean(
+            must := ARRAY[
+                paradedb.boolean(
+                    must := ARRAY[
+                        paradedb.boolean(
+                            must := ARRAY[
+                                paradedb.boolean(
+                                    must := ARRAY[
+                                        paradedb.boolean(
+                                            must := ARRAY[
+                                                paradedb.boolean(
+                                                    must := ARRAY[
+                                                        paradedb.boolean(
+                                                            must := ARRAY[
+                                                                paradedb.boolean(
+                                                                    must := ARRAY[
+                                                                        paradedb.term('description', 'shoes')
+                                                                    ]
+                                                                )
+                                                            ]
+                                                        )
+                                                    ]
+                                                )
+                                            ]
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+    ]
+);
+                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.03 rows=3 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"boolean":{"must":[{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":3}
+(8 rows)
+
+-- Test 9.2: Verify statement_timeout is respected during estimation
+-- This test ensures that check_for_interrupts() is being called
+-- Note: We use a short timeout to verify it works, but the query should
+-- complete quickly so we don't expect it to actually timeout
+SET statement_timeout = '5s';
+EXPLAIN (VERBOSE)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('description', 'running'),
+        paradedb.term('description', 'shoes')
+    ]
+);
+                                                                                                                                        QUERY PLAN                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on regress.mock_items  (cost=10.00..10.01 rows=1 width=641)
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idxregress_mock_items
+   Segment Count: 1
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"running","is_datetime":false},"estimated_docs":0},{"term":{"field":"description","value":"shoes","is_datetime":false},"estimated_docs":0}]},"estimated_docs":0}},"estimated_docs":1}
+(8 rows)
+
+-- Reset timeout
+RESET statement_timeout;
+-- ============================================================================
+-- STAGE 10: JSON FORMAT OUTPUT
+-- Expected: All query types should produce valid JSON with estimates
+-- ============================================================================
+-- Test 10.1: Simple query in JSON format
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                       +
+   {                                                                                                                                                                                                                     +
+     "Plan": {                                                                                                                                                                                                           +
+       "Node Type": "Custom Scan",                                                                                                                                                                                       +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                          +
+       "Async Capable": false,                                                                                                                                                                                           +
+       "Relation Name": "mock_items",                                                                                                                                                                                    +
+       "Schema": "regress",                                                                                                                                                                                              +
+       "Alias": "mock_items",                                                                                                                                                                                            +
+       "Startup Cost": 10.00,                                                                                                                                                                                            +
+       "Total Cost": 10.03,                                                                                                                                                                                              +
+       "Plan Rows": 3,                                                                                                                                                                                                   +
+       "Plan Width": 641,                                                                                                                                                                                                +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
+       "Table": "mock_items",                                                                                                                                                                                            +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                 +
+       "Segment Count": 1,                                                                                                                                                                                               +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
+       "Scores": false,                                                                                                                                                                                                  +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                   +
+   }                                                                                                                                                                                                                     +
+ ]
+(1 row)
+
+-- Test 10.2: Nested boolean query in JSON format
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('description', 'shoes'),
+        paradedb.term('description', 'running')
+    ]
+);
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                                       +
+   {                                                                                                                                                                                                                                                                                                                                     +
+     "Plan": {                                                                                                                                                                                                                                                                                                                           +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                       +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                          +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                           +
+       "Relation Name": "mock_items",                                                                                                                                                                                                                                                                                                    +
+       "Schema": "regress",                                                                                                                                                                                                                                                                                                              +
+       "Alias": "mock_items",                                                                                                                                                                                                                                                                                                            +
+       "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                            +
+       "Total Cost": 10.01,                                                                                                                                                                                                                                                                                                              +
+       "Plan Rows": 1,                                                                                                                                                                                                                                                                                                                   +
+       "Plan Width": 641,                                                                                                                                                                                                                                                                                                                +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                        +
+       "Table": "mock_items",                                                                                                                                                                                                                                                                                                            +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                                                                                                                                 +
+       "Segment Count": 1,                                                                                                                                                                                                                                                                                                               +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                             +
+       "Scores": false,                                                                                                                                                                                                                                                                                                                  +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"shoes\",\"is_datetime\":false},\"estimated_docs\":0},{\"term\":{\"field\":\"description\",\"value\":\"running\",\"is_datetime\":false},\"estimated_docs\":0}]},\"estimated_docs\":0}},\"estimated_docs\":1}"+
+     }                                                                                                                                                                                                                                                                                                                                   +
+   }                                                                                                                                                                                                                                                                                                                                     +
+ ]
+(1 row)
+
+-- Test 10.3: Complex nested query in JSON format (3 levels deep)
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.boolean(
+            must := ARRAY[
+                paradedb.term('description', 'running'),
+                paradedb.term('description', 'shoes')
+            ]
+        ),
+        paradedb.term('description', 'athletic')
+    ]
+);
+                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                                                                                                                                                                                                                                                                           +
+   {                                                                                                                                                                                                                                                                                                                                                                                                                                                                         +
+     "Plan": {                                                                                                                                                                                                                                                                                                                                                                                                                                                               +
+       "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                                                                           +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                                                                                                                                                              +
+       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                                                              +
+       "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                                                               +
+       "Relation Name": "mock_items",                                                                                                                                                                                                                                                                                                                                                                                                                                        +
+       "Schema": "regress",                                                                                                                                                                                                                                                                                                                                                                                                                                                  +
+       "Alias": "mock_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                +
+       "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                                                                                                                                                                +
+       "Total Cost": 10.01,                                                                                                                                                                                                                                                                                                                                                                                                                                                  +
+       "Plan Rows": 1,                                                                                                                                                                                                                                                                                                                                                                                                                                                       +
+       "Plan Width": 641,                                                                                                                                                                                                                                                                                                                                                                                                                                                    +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                                                                            +
+       "Table": "mock_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                                                                                                                                                                                                                                                                     +
+       "Segment Count": 1,                                                                                                                                                                                                                                                                                                                                                                                                                                                   +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                                                                 +
+       "Scores": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                      +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"boolean\":{\"must\":[{\"term\":{\"field\":\"description\",\"value\":\"running\",\"is_datetime\":false},\"estimated_docs\":0},{\"term\":{\"field\":\"description\",\"value\":\"shoes\",\"is_datetime\":false}}]},\"estimated_docs\":0},{\"term\":{\"field\":\"description\",\"value\":\"athletic\",\"is_datetime\":false},\"estimated_docs\":0}]},\"estimated_docs\":0}},\"estimated_docs\":0}"+
+     }                                                                                                                                                                                                                                                                                                                                                                                                                                                                       +
+   }                                                                                                                                                                                                                                                                                                                                                                                                                                                                         +
+ ]
+(1 row)
+
+-- Test 10.4: Range query in JSON format
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items
+WHERE rating @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(4, 5)
+);
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                           +
+   {                                                                                                                                                                                                                         +
+     "Plan": {                                                                                                                                                                                                               +
+       "Node Type": "Custom Scan",                                                                                                                                                                                           +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                              +
+       "Parallel Aware": false,                                                                                                                                                                                              +
+       "Async Capable": false,                                                                                                                                                                                               +
+       "Relation Name": "mock_items",                                                                                                                                                                                        +
+       "Schema": "regress",                                                                                                                                                                                                  +
+       "Alias": "mock_items",                                                                                                                                                                                                +
+       "Startup Cost": 10.00,                                                                                                                                                                                                +
+       "Total Cost": 10.41,                                                                                                                                                                                                  +
+       "Plan Rows": 41,                                                                                                                                                                                                      +
+       "Plan Width": 641,                                                                                                                                                                                                    +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                            +
+       "Table": "mock_items",                                                                                                                                                                                                +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                     +
+       "Segment Count": 1,                                                                                                                                                                                                   +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                 +
+       "Scores": false,                                                                                                                                                                                                      +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":41}},\"estimated_docs\":41}"+
+     }                                                                                                                                                                                                                       +
+   }                                                                                                                                                                                                                         +
+ ]
+(1 row)
+
+-- Test 10.5: Fuzzy query in JSON format
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items
+WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 1::integer
+);
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                              +
+   {                                                                                                                                                                                                                            +
+     "Plan": {                                                                                                                                                                                                                  +
+       "Node Type": "Custom Scan",                                                                                                                                                                                              +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                 +
+       "Parallel Aware": false,                                                                                                                                                                                                 +
+       "Async Capable": false,                                                                                                                                                                                                  +
+       "Relation Name": "mock_items",                                                                                                                                                                                           +
+       "Schema": "regress",                                                                                                                                                                                                     +
+       "Alias": "mock_items",                                                                                                                                                                                                   +
+       "Startup Cost": 10.00,                                                                                                                                                                                                   +
+       "Total Cost": 10.03,                                                                                                                                                                                                     +
+       "Plan Rows": 3,                                                                                                                                                                                                          +
+       "Plan Width": 641,                                                                                                                                                                                                       +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                               +
+       "Table": "mock_items",                                                                                                                                                                                                   +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                        +
+       "Segment Count": 1,                                                                                                                                                                                                      +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                    +
+       "Scores": false,                                                                                                                                                                                                         +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"fuzzy_term\":{\"field\":\"description\",\"value\":\"sheos\",\"distance\":1,\"transposition_cost_one\":null,\"prefix\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                          +
+   }                                                                                                                                                                                                                            +
+ ]
+(1 row)
+
+-- Test 10.6: JSON format with GUC OFF (verify no estimates shown)
+SET paradedb.explain_recursive_estimates = OFF;
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                             +
+   {                                                                                                                                                                           +
+     "Plan": {                                                                                                                                                                 +
+       "Node Type": "Custom Scan",                                                                                                                                             +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                +
+       "Parallel Aware": false,                                                                                                                                                +
+       "Async Capable": false,                                                                                                                                                 +
+       "Relation Name": "mock_items",                                                                                                                                          +
+       "Schema": "regress",                                                                                                                                                    +
+       "Alias": "mock_items",                                                                                                                                                  +
+       "Startup Cost": 10.00,                                                                                                                                                  +
+       "Total Cost": 10.03,                                                                                                                                                    +
+       "Plan Rows": 3,                                                                                                                                                         +
+       "Plan Width": 641,                                                                                                                                                      +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],              +
+       "Table": "mock_items",                                                                                                                                                  +
+       "Index": "idxregress_mock_items",                                                                                                                                       +
+       "Segment Count": 1,                                                                                                                                                     +
+       "Exec Method": "NormalScanExecState",                                                                                                                                   +
+       "Scores": false,                                                                                                                                                        +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null}}}}"+
+     }                                                                                                                                                                         +
+   }                                                                                                                                                                           +
+ ]
+(1 row)
+
+-- Test 10.7: JSON format with GUC back ON
+SET paradedb.explain_recursive_estimates = ON;
+EXPLAIN (VERBOSE, FORMAT JSON)
+SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                       +
+   {                                                                                                                                                                                                                     +
+     "Plan": {                                                                                                                                                                                                           +
+       "Node Type": "Custom Scan",                                                                                                                                                                                       +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                          +
+       "Parallel Aware": false,                                                                                                                                                                                          +
+       "Async Capable": false,                                                                                                                                                                                           +
+       "Relation Name": "mock_items",                                                                                                                                                                                    +
+       "Schema": "regress",                                                                                                                                                                                              +
+       "Alias": "mock_items",                                                                                                                                                                                            +
+       "Startup Cost": 10.00,                                                                                                                                                                                            +
+       "Total Cost": 10.03,                                                                                                                                                                                              +
+       "Plan Rows": 3,                                                                                                                                                                                                   +
+       "Plan Width": 641,                                                                                                                                                                                                +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
+       "Table": "mock_items",                                                                                                                                                                                            +
+       "Index": "idxregress_mock_items",                                                                                                                                                                                 +
+       "Segment Count": 1,                                                                                                                                                                                               +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                             +
+       "Scores": false,                                                                                                                                                                                                  +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"+
+     }                                                                                                                                                                                                                   +
+   }                                                                                                                                                                                                                     +
+ ]
+(1 row)
+
+-- Test 10.8: YAML format (verify it works with estimates)
+EXPLAIN (VERBOSE, FORMAT YAML)
+SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ - Plan:                                                                                                                                                                                                             +
+     Node Type: "Custom Scan"                                                                                                                                                                                        +
+     Custom Plan Provider: "ParadeDB Scan"                                                                                                                                                                           +
+     Parallel Aware: false                                                                                                                                                                                           +
+     Async Capable: false                                                                                                                                                                                            +
+     Relation Name: "mock_items"                                                                                                                                                                                     +
+     Schema: "regress"                                                                                                                                                                                               +
+     Alias: "mock_items"                                                                                                                                                                                             +
+     Startup Cost: 10.00                                                                                                                                                                                             +
+     Total Cost: 10.03                                                                                                                                                                                               +
+     Plan Rows: 3                                                                                                                                                                                                    +
+     Plan Width: 641                                                                                                                                                                                                 +
+     Output:                                                                                                                                                                                                         +
+       - "id"                                                                                                                                                                                                        +
+       - "description"                                                                                                                                                                                               +
+       - "rating"                                                                                                                                                                                                    +
+       - "category"                                                                                                                                                                                                  +
+       - "in_stock"                                                                                                                                                                                                  +
+       - "metadata"                                                                                                                                                                                                  +
+       - "created_at"                                                                                                                                                                                                +
+       - "last_updated_date"                                                                                                                                                                                         +
+       - "latest_available_time"                                                                                                                                                                                     +
+       - "weight_range"                                                                                                                                                                                              +
+     Table: "mock_items"                                                                                                                                                                                             +
+     Index: "idxregress_mock_items"                                                                                                                                                                                  +
+     Segment Count: 1                                                                                                                                                                                                +
+     Exec Method: "NormalScanExecState"                                                                                                                                                                              +
+     Scores: false                                                                                                                                                                                                   +
+     Tantivy Query: "{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"shoes\",\"lenient\":null,\"conjunction_mode\":null},\"estimated_docs\":3}},\"estimated_docs\":3}"
+(1 row)
+
+-- Test 10.9: XML format (verify it works with estimates)
+EXPLAIN (VERBOSE, FORMAT XML)
+SELECT * FROM regress.mock_items WHERE description @@@ 'shoes';
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ <explain xmlns="http://www.postgresql.org/2009/explain">                                                                                                                                                      +
+   <Query>                                                                                                                                                                                                     +
+     <Plan>                                                                                                                                                                                                    +
+       <Node-Type>Custom Scan</Node-Type>                                                                                                                                                                      +
+       <Custom-Plan-Provider>ParadeDB Scan</Custom-Plan-Provider>                                                                                                                                              +
+       <Parallel-Aware>false</Parallel-Aware>                                                                                                                                                                  +
+       <Async-Capable>false</Async-Capable>                                                                                                                                                                    +
+       <Relation-Name>mock_items</Relation-Name>                                                                                                                                                               +
+       <Schema>regress</Schema>                                                                                                                                                                                +
+       <Alias>mock_items</Alias>                                                                                                                                                                               +
+       <Startup-Cost>10.00</Startup-Cost>                                                                                                                                                                      +
+       <Total-Cost>10.03</Total-Cost>                                                                                                                                                                          +
+       <Plan-Rows>3</Plan-Rows>                                                                                                                                                                                +
+       <Plan-Width>641</Plan-Width>                                                                                                                                                                            +
+       <Output>                                                                                                                                                                                                +
+         <Item>id</Item>                                                                                                                                                                                       +
+         <Item>description</Item>                                                                                                                                                                              +
+         <Item>rating</Item>                                                                                                                                                                                   +
+         <Item>category</Item>                                                                                                                                                                                 +
+         <Item>in_stock</Item>                                                                                                                                                                                 +
+         <Item>metadata</Item>                                                                                                                                                                                 +
+         <Item>created_at</Item>                                                                                                                                                                               +
+         <Item>last_updated_date</Item>                                                                                                                                                                        +
+         <Item>latest_available_time</Item>                                                                                                                                                                    +
+         <Item>weight_range</Item>                                                                                                                                                                             +
+       </Output>                                                                                                                                                                                               +
+       <Table>mock_items</Table>                                                                                                                                                                               +
+       <Index>idxregress_mock_items</Index>                                                                                                                                                                    +
+       <Segment-Count>1</Segment-Count>                                                                                                                                                                        +
+       <Exec-Method>NormalScanExecState</Exec-Method>                                                                                                                                                          +
+       <Scores>false</Scores>                                                                                                                                                                                  +
+       <Tantivy-Query>{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null},"estimated_docs":3}},"estimated_docs":3}</Tantivy-Query>+
+     </Plan>                                                                                                                                                                                                   +
+   </Query>                                                                                                                                                                                                    +
+ </explain>
+(1 row)
+
+\i common/recursive_estimates_cleanup.sql
+-- Cleanup for recursive estimates tests
+-- Resets the GUC to default value
+-- Reset the GUC to default (OFF)
+SET paradedb.explain_recursive_estimates = OFF;

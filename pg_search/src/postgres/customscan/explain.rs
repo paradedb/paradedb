@@ -21,6 +21,7 @@
 //! ensuring deterministic output for regression tests by removing variabilities
 //! like OIDs and internal pointers.
 
+use crate::query::estimate_tree::QueryWithEstimates;
 use serde::Serialize;
 
 /// Trait for objects that can be formatted for EXPLAIN output
@@ -79,6 +80,115 @@ pub fn format_for_explain<T: Serialize>(value: &T) -> String {
     let mut json_value = serde_json::to_value(value)
         .unwrap_or_else(|_| serde_json::Value::String("Error serializing".to_string()));
     cleanup_json_for_explain(&mut json_value);
+    serde_json::to_string(&json_value).unwrap_or_else(|_| "Error".to_string())
+}
+
+/// Recursively inject estimated_docs from QueryWithEstimates tree into JSON
+///
+/// This function walks both the QueryWithEstimates tree and the corresponding JSON
+/// structure in parallel, injecting `estimated_docs` fields at matching query nodes.
+fn inject_estimates_into_json(
+    json_value: &mut serde_json::Value,
+    estimate_tree: &QueryWithEstimates,
+) {
+    use serde_json::Value;
+
+    // Inject estimate at this node if available
+    if let Some(estimated_docs) = estimate_tree.estimated_docs {
+        if let Value::Object(obj) = json_value {
+            obj.insert(
+                "estimated_docs".to_string(),
+                Value::Number(estimated_docs.into()),
+            );
+        }
+    }
+
+    // Recursively process children based on query structure
+    if let Value::Object(obj) = json_value {
+        // Handle boolean queries (must, should, must_not)
+        if let Some(Value::Object(boolean)) = obj.get_mut("boolean") {
+            inject_into_boolean_query(boolean, estimate_tree);
+        }
+        // Handle with_index wrapper
+        else if let Some(Value::Object(with_index)) = obj.get_mut("with_index") {
+            if let Some(first_child) = estimate_tree.children().first() {
+                if let Some(query) = with_index.get_mut("query") {
+                    inject_estimates_into_json(query, first_child);
+                }
+            }
+        }
+        // Handle score_adjusted
+        else if let Some(Value::Object(score_adjusted)) = obj.get_mut("score_adjusted") {
+            if let Some(first_child) = estimate_tree.children().first() {
+                if let Some(query) = score_adjusted.get_mut("query") {
+                    inject_estimates_into_json(query, first_child);
+                }
+            }
+        }
+        // Handle heap_filter
+        else if let Some(Value::Object(heap_filter)) = obj.get_mut("heap_filter") {
+            if let Some(first_child) = estimate_tree.children().first() {
+                if let Some(indexed_query) = heap_filter.get_mut("indexed_query") {
+                    inject_estimates_into_json(indexed_query, first_child);
+                }
+            }
+        }
+    }
+}
+
+/// Helper to inject estimates into boolean query clauses
+fn inject_into_boolean_query(
+    boolean: &mut serde_json::Map<String, serde_json::Value>,
+    estimate_tree: &QueryWithEstimates,
+) {
+    use serde_json::Value;
+
+    let children = estimate_tree.children();
+    let mut child_idx = 0;
+
+    // Process "must" clauses
+    if let Some(Value::Array(must)) = boolean.get_mut("must") {
+        for must_item in must.iter_mut() {
+            if child_idx < children.len() {
+                inject_estimates_into_json(must_item, &children[child_idx]);
+                child_idx += 1;
+            }
+        }
+    }
+
+    // Process "should" clauses
+    if let Some(Value::Array(should)) = boolean.get_mut("should") {
+        for should_item in should.iter_mut() {
+            if child_idx < children.len() {
+                inject_estimates_into_json(should_item, &children[child_idx]);
+                child_idx += 1;
+            }
+        }
+    }
+
+    // Process "must_not" clauses
+    if let Some(Value::Array(must_not)) = boolean.get_mut("must_not") {
+        for must_not_item in must_not.iter_mut() {
+            if child_idx < children.len() {
+                inject_estimates_into_json(must_not_item, &children[child_idx]);
+                child_idx += 1;
+            }
+        }
+    }
+}
+
+/// Format a query with recursive cost estimates for EXPLAIN output
+///
+/// This function:
+/// 1. Serializes the query to JSON
+/// 2. Cleans up variabilities
+/// 3. Injects estimated_docs fields from the estimate tree
+/// 4. Returns a deterministic string with embedded estimates
+pub fn format_for_explain_with_estimates(estimate_tree: &QueryWithEstimates) -> String {
+    let mut json_value = serde_json::to_value(&estimate_tree.query)
+        .unwrap_or_else(|_| serde_json::Value::String("Error serializing".to_string()));
+    cleanup_json_for_explain(&mut json_value);
+    inject_estimates_into_json(&mut json_value, estimate_tree);
     serde_json::to_string(&json_value).unwrap_or_else(|_| "Error".to_string())
 }
 

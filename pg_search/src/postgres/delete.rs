@@ -20,6 +20,7 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
+use crate::postgres::storage::buffer::BufferMut;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
@@ -52,7 +53,12 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let mut metadata = MetaPage::open(&index_relation);
+    let _cancel_guard = request_background_merge_cancellation(&mut metadata);
     let cleanup_lock = metadata.cleanup_lock_exclusive();
+
+    // Once we have the cleanup_lock, background workers have detected cancellation and released
+    // their shared locks. We can now release the cancel_sentinel.
+    drop(_cancel_guard);
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
@@ -171,6 +177,11 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(vacuum_sentinel);
 
     stats.into_pg()
+}
+
+pub(crate) unsafe fn request_background_merge_cancellation(metadata: &mut MetaPage) -> BufferMut {
+    pgrx::debug1!("ambulkdelete: requesting cancellation of background merges");
+    metadata.cancel_sentinel_exclusive()
 }
 
 struct SegmentDeleterImmutable {

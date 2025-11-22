@@ -189,7 +189,7 @@ jobs:
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
-          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto; then
+          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features="icu,pg_test" --auto; then
             git diff
             exit 1
           fi

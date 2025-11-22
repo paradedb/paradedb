@@ -31,7 +31,7 @@ SELECT * FROM array_demo WHERE categories === 'food';
 (1 row)
 ```
 
-Text arrays can be [tokenized](/documentation/tokenizers) and [filtered](/documentation/token-filters) in the same way as text fields:
+Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered](/documentation/token-filters) in the same way as text fields:
 
 ```sql
 CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))

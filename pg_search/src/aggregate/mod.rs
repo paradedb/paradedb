@@ -1113,7 +1113,9 @@ mod vischeck {
         fn drop(&mut self) {
             unsafe {
                 if !pg_sys::IsTransactionState() {
-                    // we are not in a transaction, so we can't do things like release buffers and close relations
+                    // TODO: None of the below operations care about the transaction state: in
+                    // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
+                    // lock. Consider removing this guard.
                     return;
                 }
 

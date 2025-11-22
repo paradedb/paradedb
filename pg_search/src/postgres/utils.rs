@@ -65,7 +65,10 @@ impl ExprContextGuard {
 impl Drop for ExprContextGuard {
     fn drop(&mut self) {
         unsafe {
-            pg_sys::FreeExprContext(self.0, true);
+            // If this is an abort or other unclean shutdown, setting `isCommit = false` will avoid
+            // complex cleanup logic.
+            let is_commit = pg_sys::IsTransactionState() && !std::thread::panicking();
+            pg_sys::FreeExprContext(self.0, is_commit);
         }
     }
 }

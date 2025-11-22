@@ -108,6 +108,11 @@ pub extern "C-unwind" fn amrescan(
     let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
 
     // Create the index and scan state
+    //
+    // IMPORTANT: amrescan is called by BOTH the leader and all parallel workers.
+    // This creates a potential race condition:
+    // - Leader calls maybe_init_parallel_scan() which may modify parallel state
+    // - Workers simultaneously call list_segment_ids() below to read segment IDs
     let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
         if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
             // the leader only sees snapshot-visible segments.

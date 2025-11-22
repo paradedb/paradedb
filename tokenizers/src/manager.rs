@@ -53,6 +53,7 @@ pub struct SearchTokenizerFilters {
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
+    pub keep_whitespace: Option<bool>,
 }
 
 impl SearchTokenizerFilters {
@@ -73,6 +74,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            keep_whitespace: None,
         }
     }
 
@@ -88,6 +90,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            keep_whitespace: None,
         }
     }
 
@@ -488,15 +491,18 @@ impl SearchTokenizer {
             }
             SearchTokenizer::ChineseLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
-                add_filters!(LinderaChineseTokenizer::default(), filters)
+                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
+                add_filters!(LinderaChineseTokenizer::new(keep_whitespace), filters)
             }
             SearchTokenizer::JapaneseLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
-                add_filters!(LinderaJapaneseTokenizer::default(), filters)
+                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
+                add_filters!(LinderaJapaneseTokenizer::new(keep_whitespace), filters)
             }
             SearchTokenizer::KoreanLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
-                add_filters!(LinderaKoreanTokenizer::default(), filters)
+                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
+                add_filters!(LinderaKoreanTokenizer::new(keep_whitespace), filters)
             }
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => {
@@ -682,6 +688,7 @@ mod tests {
                     trim: None,
                     normalizer: None,
                     alpha_num_only: None,
+                    keep_whitespace: None,
                 }
             }
         );
@@ -707,6 +714,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                keep_whitespace: None,
             },
         };
 
@@ -752,6 +760,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                keep_whitespace: None,
             })
         );
 
@@ -805,6 +814,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                keep_whitespace: None,
             })
         );
 
@@ -857,6 +867,7 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
+                keep_whitespace: None,
             })
         );
 
@@ -908,6 +919,7 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
+                keep_whitespace: None,
             })
         );
 

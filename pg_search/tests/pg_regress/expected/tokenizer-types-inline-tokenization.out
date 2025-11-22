@@ -34,6 +34,24 @@ SELECT 'this is a test.'::pdb.lindera(korean)::text[];
  {this,is,a,test,.}
 (1 row)
 
+SELECT 'this is a test.'::pdb.lindera(chinese, 'keep_whitespace=true')::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.lindera(japanese, 'keep_whitespace=true')::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::pdb.lindera(korean, 'keep_whitespace=true')::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
 SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
                                                                                                                    text                                                                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

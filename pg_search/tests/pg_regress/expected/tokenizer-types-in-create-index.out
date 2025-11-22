@@ -16,6 +16,9 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
      (t::pdb.lindera(chinese, 'alias=lindera_chinese')),
      (t::pdb.lindera(japanese, 'alias=lindera_japanese')),
      (t::pdb.lindera(korean, 'alias=lindera_korean')),
+     (t::pdb.lindera(chinese, 'keep_whitespace=true', 'alias=lindera_chinese_ws')),
+     (t::pdb.lindera(japanese, 'keep_whitespace=true', 'alias=lindera_japanese_ws')),
+     (t::pdb.lindera(korean, 'keep_whitespace=true', 'alias=lindera_korean_ws')),
      (t::pdb.ngram(3, 5, 'alias=ngram')),
      (t::pdb.regex_pattern('is|a', 'alias=regex')),
      (t::pdb.simple('alias=simple')),
@@ -25,24 +28,27 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
         )
     WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
-        name        | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
---------------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- chinese_compatible | Str        | f      | t       | f    | t          |             | chinese_compatible                         | position | 
- ctid               | U64        | f      | t       | t    | f          |             |                                            |          | 
- id                 | I64        | f      | t       | t    | f          |             |                                            |          | 
- jieba              | Str        | f      | t       | f    | t          |             | jieba                                      | position | 
- lindera_chinese    | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
- lindera_japanese   | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
- lindera_korean     | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
- literal            | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
- ngram              | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | 
- regex              | Str        | f      | t       | f    | t          |             | regex                                      | position | 
- simple             | Str        | f      | t       | f    | t          |             | default                                    | position | 
- source_code        | Str        | f      | t       | f    | t          |             | source_code                                | position | 
- stemmed            | Str        | f      | t       | f    | t          |             | default[stemmer=English]                   | position | 
- t                  | Str        | f      | t       | f    | t          |             | remove_emojis:false                        | position | 
- whitespace         | Str        | f      | t       | f    | t          |             | whitespace                                 | position | 
-(15 rows)
+        name         | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
+---------------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
+ chinese_compatible  | Str        | f      | t       | f    | t          |             | chinese_compatible                         | position | 
+ ctid                | U64        | f      | t       | t    | f          |             |                                            |          | 
+ id                  | I64        | f      | t       | t    | f          |             |                                            |          | 
+ jieba               | Str        | f      | t       | f    | t          |             | jieba                                      | position | 
+ lindera_chinese     | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
+ lindera_chinese_ws  | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
+ lindera_japanese    | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
+ lindera_japanese_ws | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
+ lindera_korean      | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
+ lindera_korean_ws   | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
+ literal             | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
+ ngram               | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | 
+ regex               | Str        | f      | t       | f    | t          |             | regex                                      | position | 
+ simple              | Str        | f      | t       | f    | t          |             | default                                    | position | 
+ source_code         | Str        | f      | t       | f    | t          |             | source_code                                | position | 
+ stemmed             | Str        | f      | t       | f    | t          |             | default[stemmer=English]                   | position | 
+ t                   | Str        | f      | t       | f    | t          |             | remove_emojis:false                        | position | 
+ whitespace          | Str        | f      | t       | f    | t          |             | whitespace                                 | position | 
+(18 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t @@@ 'test';
                                                                    QUERY PLAN                                                                    

@@ -301,6 +301,14 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     }
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub enum OrderByFieldSemantic {
+    // use the underlying Tantivy fast-field type when available (numeric/bool/date) or string.
+    Natural,
+    // force lexical (string) ordering semantics, matching Postgres' JSON key ordering.
+    Lexical,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score,
@@ -312,6 +320,8 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
+    #[serde(default = "default_orderby_field_semantic")]
+    pub semantic: Option<OrderByFieldSemantic>,
 }
 
 impl OrderByInfo {
@@ -324,4 +334,8 @@ impl OrderByInfo {
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn agg_funcoid() -> pg_sys::Oid {
     lookup_pdb_function("agg", &[pg_sys::JSONBOID])
+}
+
+fn default_orderby_field_semantic() -> Option<OrderByFieldSemantic> {
+    Some(OrderByFieldSemantic::Natural)
 }

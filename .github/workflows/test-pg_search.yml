@@ -179,7 +179,7 @@ jobs:
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit tests
       - name: Install pgvector

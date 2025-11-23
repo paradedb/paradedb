@@ -68,7 +68,7 @@ can be set globally in `postgresql.conf` or for a specific table.
 ALTER TABLE mock_items SET (autovacuum_vacuum_threshold = 500);
 ```
 
-There are several [autovacuum settings](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html), but the important ones to
+There are several [autovacuum settings](https://www.postgresql.org/docs/current/routine-vacuuming.html#AUTOVACUUM), but the important ones to
 note are:
 
 1. `autovacuum_vacuum_scale_factor` triggers an autovacuum if a certain percentage of rows in a table have been updated.

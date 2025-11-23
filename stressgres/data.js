@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763941990219,
+  "lastUpdate": 1763942021198,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -194,6 +194,70 @@ window.BENCHMARK_DATA = {
             "value": 21.704564051022327,
             "unit": "median tps",
             "extra": "avg tps: 27.175835120487587, max tps: 873.688266279215, count: 54945"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f4cc34211b69c210cad6133141ec34b114d4e528",
+          "message": "docs: fix more-like-this (MLT) JSON syntax example (#3335)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T19:24:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f4cc34211b69c210cad6133141ec34b114d4e528"
+        },
+        "date": 1763942018808,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 790.3830119159277,
+            "unit": "median tps",
+            "extra": "avg tps: 789.3770220533647, max tps: 832.3569104153414, count: 55247"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3497.977138740746,
+            "unit": "median tps",
+            "extra": "avg tps: 3476.1515400901562, max tps: 3504.974426304614, count: 55247"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 782.950236836777,
+            "unit": "median tps",
+            "extra": "avg tps: 781.9976307415394, max tps: 784.8310959713369, count: 55247"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 688.2606844263283,
+            "unit": "median tps",
+            "extra": "avg tps: 685.4956359379728, max tps: 690.7594419840556, count: 55247"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1758.7407967571337,
+            "unit": "median tps",
+            "extra": "avg tps: 1753.57585720799, max tps: 1771.1217287748789, count: 110494"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1274.5909120288939,
+            "unit": "median tps",
+            "extra": "avg tps: 1264.9508144652457, max tps: 1277.4202325281817, count: 55247"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 143.61598592756357,
+            "unit": "median tps",
+            "extra": "avg tps: 152.16327747733683, max tps: 486.9414477256183, count: 55247"
           }
         ]
       }

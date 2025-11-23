@@ -178,8 +178,23 @@ jobs:
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+      # ---------- System-managed Postgres setup ----------
+      - name: Install & Configure Supported PostgreSQL Version (system)
+        if: matrix.pg_impl == 'system'
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Initialize cargo-pgrx environment (system)
+        if: matrix.pg_impl == 'system'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      # ---------- pgrx-managed Postgres setup ----------
+      - name: Initialize cargo-pgrx environment (pgrx download)
+        if: matrix.pg_impl == 'pgrx'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit tests
       - name: Install pgvector

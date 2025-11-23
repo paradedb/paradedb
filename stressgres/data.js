@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763941888397,
+  "lastUpdate": 1763941944890,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -66,6 +66,70 @@ window.BENCHMARK_DATA = {
             "value": 38.557477603385635,
             "unit": "median tps",
             "extra": "avg tps: 64.02303712895271, max tps: 702.6690885327918, count: 55475"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763941942513,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 149.58352251515538,
+            "unit": "median tps",
+            "extra": "avg tps: 165.63954835406065, max tps: 578.4240464281928, count: 55470"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3184.4783879388183,
+            "unit": "median tps",
+            "extra": "avg tps: 3145.107350427964, max tps: 3205.783486273771, count: 55470"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 140.69165855730824,
+            "unit": "median tps",
+            "extra": "avg tps: 156.6071047933291, max tps: 627.3151205928477, count: 55470"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 119.99774655181447,
+            "unit": "median tps",
+            "extra": "avg tps: 134.3358910052554, max tps: 465.55346625505535, count: 55470"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3368.619330233573,
+            "unit": "median tps",
+            "extra": "avg tps: 3388.568257316892, max tps: 3528.0936568938687, count: 110940"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2202.950210204094,
+            "unit": "median tps",
+            "extra": "avg tps: 2175.836584300534, max tps: 2212.761035304369, count: 55470"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 56.32962927394826,
+            "unit": "median tps",
+            "extra": "avg tps: 75.92195832714017, max tps: 371.4813748525683, count: 55470"
           }
         ]
       }

@@ -46,7 +46,8 @@ jobs:
 
   test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
@@ -71,7 +72,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}-1-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
 
@@ -142,7 +143,8 @@ jobs:
 
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
         pg_version: [17]
@@ -165,7 +167,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}-1-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
 

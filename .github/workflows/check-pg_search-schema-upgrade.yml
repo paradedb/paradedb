@@ -27,9 +27,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-pg_search-schema-upgrade:
+  schemabot-generate-diff:
     name: SchemaBot
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
     strategy:
       matrix:
         pg_version: [14] # pg_search's minimum supported Postgres version

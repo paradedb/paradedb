@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763944295513,
+  "lastUpdate": 1763944801805,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2800,6 +2800,54 @@ window.BENCHMARK_DATA = {
             "value": 160.75390625,
             "unit": "median mem",
             "extra": "avg mem: 158.97907740187068, max mem: 162.4140625, count: 55488"
+          }
+        ]
+      }
+    ],
+    "pg_search logical-replication.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763944799420,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 149.45212203835968,
+            "unit": "median tps",
+            "extra": "avg tps: 195.80947198688028, max tps: 676.663167797579, count: 53550"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 158.7159558513585,
+            "unit": "median tps",
+            "extra": "avg tps: 210.54052866711078, max tps: 789.094421995804, count: 53550"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 75.82256049359339,
+            "unit": "median tps",
+            "extra": "avg tps: 77.04139187464918, max tps: 94.2394952522582, count: 53550"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 87.64276341304725,
+            "unit": "median tps",
+            "extra": "avg tps: 94.1144142726411, max tps: 512.0496061954491, count: 107100"
           }
         ]
       }

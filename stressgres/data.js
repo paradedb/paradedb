@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764021146557,
+  "lastUpdate": 1764021150188,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -982,6 +982,126 @@ window.BENCHMARK_DATA = {
             "value": 54.8359375,
             "unit": "median mem",
             "extra": "avg mem: 53.922033753281134, max mem: 74.3203125, count: 55240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a90bb936041bd4583034d9d1a538943756064dc4",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3620)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [ ] Verify prop tests pass without flaky failures",
+          "timestamp": "2025-11-25T03:05:45+05:30",
+          "tree_id": "95bf53a51121e3433d5f9df4eaa3649da9add90e",
+          "url": "https://github.com/paradedb/paradedb/commit/a90bb936041bd4583034d9d1a538943756064dc4"
+        },
+        "date": 1764021147831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 11.320755,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.647973079403217, max cpu: 33.005894, count: 55298"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 47.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.354404629236136, max mem: 54.9765625, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584284438880107, max cpu: 9.320388, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.10084840037162, max mem: 28.81640625, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.02601107247161, max cpu: 33.20158, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 51.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.4344720875981, max mem: 58.828125, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.014860977035393, max cpu: 13.967022, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 48.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.074702563270826, max mem: 60.0078125, count: 55298"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655185615052189, max cpu: 9.580839, count: 110596"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 35.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.8486745960523, max mem: 45.171875, count: 110596"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1384,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1382.812705703642, max block_count: 2375.0, count: 55298"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.485207421606567, max segment_count: 50.0, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.627576289058713, max cpu: 4.7904196, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 37.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 37.796232529318424, max mem: 46.55078125, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.762824632602695, max cpu: 9.311348, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 40.875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.5199392665648, max mem: 49.99609375, count: 55298"
           }
         ]
       }

@@ -149,20 +149,28 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     /// Return a Vec of all the items in this linked list
-    pub unsafe fn list(&self) -> Vec<T> {
+    pub unsafe fn list(&self, many: Option<usize>) -> Vec<T> {
         let mut items = vec![];
         let (mut blockno, mut buffer) = self.get_start_blockno();
+        let mut found = 0;
 
-        while blockno != pg_sys::InvalidBlockNumber {
+        'outer: while blockno != pg_sys::InvalidBlockNumber {
             buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
+                if let Some(many) = many {
+                    if found >= many {
+                        break 'outer;
+                    }
+                }
+
                 if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     items.push(deserialized);
                 }
                 offsetno += 1;
+                found += 1;
             }
             blockno = page.next_blockno();
         }
@@ -861,10 +869,10 @@ mod tests {
         // Atomically modify the list, and then confirm that it contains unique blocks, and the
         // same contents.
         let list_block_numbers = linked_list_block_numbers(&list);
-        let list_contents = list.list();
+        let list_contents = list.list(None);
         let guard = list.atomically();
         let duplicate_block_numbers = linked_list_block_numbers(&guard);
-        let duplicate_contents = guard.list();
+        let duplicate_contents = guard.list(None);
         assert_eq!(
             list_block_numbers
                 .intersection(&duplicate_block_numbers)
@@ -878,7 +886,7 @@ mod tests {
         // matches afterwards.
         guard.commit();
         assert_eq!(linked_list_block_numbers(&list), duplicate_block_numbers);
-        assert_eq!(list.list(), duplicate_contents);
+        assert_eq!(list.list(None), duplicate_contents);
     }
 
     fn init_bm25_index() -> pg_sys::Oid {

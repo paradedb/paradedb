@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764021150188,
+  "lastUpdate": 1764021870545,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1276,6 +1276,42 @@ window.BENCHMARK_DATA = {
             "value": 5.34495446803367,
             "unit": "median tps",
             "extra": "avg tps: 4.83736165928994, max tps: 5.896420368839919, count: 57766"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a90bb936041bd4583034d9d1a538943756064dc4",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3620)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [ ] Verify prop tests pass without flaky failures",
+          "timestamp": "2025-11-25T03:05:45+05:30",
+          "tree_id": "95bf53a51121e3433d5f9df4eaa3649da9add90e",
+          "url": "https://github.com/paradedb/paradedb/commit/a90bb936041bd4583034d9d1a538943756064dc4"
+        },
+        "date": 1764021868101,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.015303584556252,
+            "unit": "median tps",
+            "extra": "avg tps: 6.830792649211418, max tps: 10.40389315114134, count: 57350"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.440383004820123,
+            "unit": "median tps",
+            "extra": "avg tps: 4.910683936816494, max tps: 6.070997648033656, count: 57350"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763943398105,
+  "lastUpdate": 1763943482210,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -1750,6 +1750,82 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 90.7445,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763943473968,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1173.5505,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 642.923,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1447.607,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 702.3905,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 676.222,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1597.3319999999999,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 23.534,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 65.803,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 89.15350000000001,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

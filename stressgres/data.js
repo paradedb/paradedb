@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763942680814,
+  "lastUpdate": 1763942684186,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1050,6 +1050,64 @@ window.BENCHMARK_DATA = {
             "value": 82,
             "unit": "median segment_count",
             "extra": "avg segment_count: 84.06394954917393, max segment_count: 133.0, count: 57561"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763942681870,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.802978061160335, max cpu: 42.772278, count: 57776"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.93548480878738, max mem: 231.34765625, count: 57776"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.480638469590303, max cpu: 33.267326, count: 57776"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.4524166473752, max mem: 168.13671875, count: 57776"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34881,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33927.377717391304, max block_count: 36677.0, count: 57776"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 81,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 83.66934367211299, max segment_count: 134.0, count: 57776"
           }
         ]
       }

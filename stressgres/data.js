@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763943413659,
+  "lastUpdate": 1763943417102,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1584,6 +1584,106 @@ window.BENCHMARK_DATA = {
             "value": 156.38671875,
             "unit": "median mem",
             "extra": "avg mem: 174.4673708952094, max mem: 216.26171875, count: 56329"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763943414761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07220794161528644, max background_merging: 2.0, count: 55631"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.811873574652832, max cpu: 9.687184, count: 55631"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.998594322971904, max mem: 20.703125, count: 55631"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.980828052795571, max cpu: 9.696969, count: 55631"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 155.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 153.86234286807266, max mem: 155.56640625, count: 55631"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51511,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51383.21906850497, max block_count: 51511.0, count: 55631"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.87165429346947, max segment_count: 56.0, count: 55631"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.615781780613182, max cpu: 9.523809, count: 55631"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 107.85171381794773, max mem: 132.6875, count: 55631"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7881110146322, max cpu: 9.628887, count: 55631"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 155.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 151.95916458730295, max mem: 155.51171875, count: 55631"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.552504,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.94906118363031, max cpu: 33.432835, count: 55631"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.96192721066043, max mem: 217.7578125, count: 55631"
           }
         ]
       }

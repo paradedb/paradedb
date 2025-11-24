@@ -8,7 +8,6 @@ name: Check Typo
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]

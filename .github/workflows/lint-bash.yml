@@ -8,7 +8,6 @@ name: Lint Bash
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - "**/*.sh"

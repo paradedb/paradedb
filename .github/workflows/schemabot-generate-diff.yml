@@ -8,7 +8,6 @@ name: SchemaBot Generate Diff
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
@@ -16,9 +15,6 @@ on:
       - "!pg_search/README.md"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - main
-      - enterprise-patch-*
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
       - "pg_search/**"

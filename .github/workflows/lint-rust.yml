@@ -8,7 +8,6 @@ name: Lint Rust
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - "**/*.rs"

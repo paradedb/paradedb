@@ -8,16 +8,12 @@ name: Test Docs
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - ".github/workflows/test-docs.yml"
       - "docs/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - main
-      - enterprise-patch-*
     paths:
       - ".github/workflows/test-docs.yml"
       - "docs/**"

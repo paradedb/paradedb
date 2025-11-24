@@ -8,7 +8,6 @@ name: Lint Docker
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - ".github/workflows/lint-docker.yml"

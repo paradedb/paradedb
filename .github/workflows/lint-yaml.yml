@@ -8,7 +8,6 @@ name: Lint YAML
 on:
   push:
     branches:
-      - main
       - enterprise-patch-*
     paths:
       - "**/*.yml"

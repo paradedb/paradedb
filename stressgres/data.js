@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764023686881,
+  "lastUpdate": 1764024012666,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3770,6 +3770,54 @@ window.BENCHMARK_DATA = {
             "value": 116.16742390090482,
             "unit": "median tps",
             "extra": "avg tps: 114.99810431009746, max tps: 128.0043278628977, count: 107282"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a90bb936041bd4583034d9d1a538943756064dc4",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3620)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [ ] Verify prop tests pass without flaky failures",
+          "timestamp": "2025-11-25T03:05:45+05:30",
+          "tree_id": "95bf53a51121e3433d5f9df4eaa3649da9add90e",
+          "url": "https://github.com/paradedb/paradedb/commit/a90bb936041bd4583034d9d1a538943756064dc4"
+        },
+        "date": 1764024010279,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 152.5022687348075,
+            "unit": "median tps",
+            "extra": "avg tps: 198.0852514689509, max tps: 619.6428921294965, count: 53598"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 161.0148123565702,
+            "unit": "median tps",
+            "extra": "avg tps: 212.40525216719817, max tps: 787.1667057451205, count: 53598"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 76.50339722098897,
+            "unit": "median tps",
+            "extra": "avg tps: 77.82234103752951, max tps: 95.82919932225624, count: 53598"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 89.29155620933024,
+            "unit": "median tps",
+            "extra": "avg tps: 96.6488292661769, max tps: 485.578107646273, count: 107196"
           }
         ]
       }

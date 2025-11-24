@@ -403,9 +403,10 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
         .collect::<Vec<_>>();
 
     let mut segment_metas = MetaPage::open(indexrel).segment_metas();
+    let mut guard = segment_metas.atomically();
 
     // Attempt to insert into an existing mutable segment.
-    let inserted = segment_metas.update_item(
+    let inserted = guard.update_item(
         |entry| {
             matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen)
         },
@@ -417,6 +418,7 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
     // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
     // `Result`.
     if inserted.is_ok() {
+        guard.commit();
         return false;
     }
 
@@ -429,7 +431,8 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
         pg_sys::InvalidTransactionId,
         content,
     );
-    segment_metas.add_items(&[entry], None);
+    guard.add_items(&[entry], None);
+    guard.commit();
 
     true
 }

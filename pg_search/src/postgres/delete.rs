@@ -244,19 +244,20 @@ impl SegmentDeleter {
                 Ok(Some((old_meta, inner.segment_entry.meta().clone())))
             }
             Self::Mutable(inner) => unsafe {
-                MetaPage::open(&inner.indexrel)
-                    .segment_metas()
-                    .update_item(
-                        |entry| {
-                            entry.segment_id() == inner.segment_id
-                                && matches!(entry.content, SegmentMetaEntryContent::Mutable(_))
-                        },
-                        |entry| {
-                            entry
-                                .mutable_delete_items(&inner.indexrel, inner.deleted_ctids)
-                                .expect("update_item guard not executed properly")
-                        },
-                    )?;
+                let mut segment_metas = MetaPage::open(&inner.indexrel).segment_metas();
+                let mut guard = segment_metas.atomically();
+                guard.update_item(
+                    |entry| {
+                        entry.segment_id() == inner.segment_id
+                            && matches!(entry.content, SegmentMetaEntryContent::Mutable(_))
+                    },
+                    |entry| {
+                        entry
+                            .mutable_delete_items(&inner.indexrel, inner.deleted_ctids)
+                            .expect("update_item guard not executed properly")
+                    },
+                )?;
+                guard.commit();
                 Ok(None)
             },
         }

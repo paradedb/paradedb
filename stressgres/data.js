@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763942787076,
+  "lastUpdate": 1763942790670,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1326,6 +1326,64 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.6907679454153, max segment_count: 97.0, count: 57452"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f4cc34211b69c210cad6133141ec34b114d4e528",
+          "message": "docs: fix more-like-this (MLT) JSON syntax example (#3335)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T19:24:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f4cc34211b69c210cad6133141ec34b114d4e528"
+        },
+        "date": 1763942788253,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.934912,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.640873315586106, max cpu: 42.72997, count: 57766"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.43168599933352, max mem: 229.50390625, count: 57766"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.553256402624143, max cpu: 33.136093, count: 57766"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.12713895013937, max mem: 167.0390625, count: 57766"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24330,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23158.445002250457, max block_count: 25777.0, count: 57766"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.83064432365059, max segment_count: 105.0, count: 57766"
           }
         ]
       }

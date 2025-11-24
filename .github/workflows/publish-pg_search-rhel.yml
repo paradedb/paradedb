@@ -6,7 +6,8 @@
 # out by the `if` condition of the job.
 #
 # Note: Prebuilt binaries for RHEL do not support the ICU tokenizer due to the lack of the
-# required ICU library versions on RHEL 8/9.
+# required ICU library versions on RHEL 8/9. EL 10 support uses Rocky Linux 10 as the build
+# environment, which may have updated ICU support (to be tested).
 
 name: Publish pg_search (Red Hat)
 
@@ -81,6 +82,47 @@ jobs:
             image: redhat/ubi8:latest
             pg_version: 17
             arch: aarch64
+          # Enterprise Linux 10
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 14
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 14
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 15
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 15
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 16
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 16
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 17
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 17
+            arch: aarch64
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-8
@@ -127,7 +169,16 @@ jobs:
       - name: Install Dependencies
         run: |
           # Extract RHEL version from the image name
-          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          # Handles formats: redhat/ubi8:latest, redhat/ubi9:latest, rockylinux:10
+          if [[ "${{ matrix.image }}" == *"ubi"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          elif [[ "${{ matrix.image }}" == *"rockylinux"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          elif [[ "${{ matrix.image }}" == *"almalinux"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          else
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          fi
 
           # Install dependencies
           dnf install -y sudo wget git ca-certificates gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
@@ -209,7 +260,17 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         run: |
           # Extract RHEL version from the image name
-          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          # Handles formats: redhat/ubi8:latest, redhat/ubi9:latest, rockylinux:10
+          if [[ "${{ matrix.image }}" == *"ubi"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          elif [[ "${{ matrix.image }}" == *"rockylinux"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          elif [[ "${{ matrix.image }}" == *"almalinux"* ]]; then
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          else
+            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
+          fi
+          echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install the repository RPM:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm

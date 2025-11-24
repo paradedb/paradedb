@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764024016353,
+  "lastUpdate": 1764024426499,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2206,6 +2206,54 @@ window.BENCHMARK_DATA = {
             "value": 5.540596829545507,
             "unit": "median tps",
             "extra": "avg tps: 5.56667233721975, max tps: 6.661181782974747, count: 56133"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "799b8f38d6953f1bb21fce531ac87cb9f4656d8c",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3621)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [x] Verify prop tests pass without flaky failures\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-11-24T14:05:46-08:00",
+          "tree_id": "7b6eed5a50c508b34c97163193ded91671efa67f",
+          "url": "https://github.com/paradedb/paradedb/commit/799b8f38d6953f1bb21fce531ac87cb9f4656d8c"
+        },
+        "date": 1764024424055,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1185.4627485318538,
+            "unit": "median tps",
+            "extra": "avg tps: 1189.4504514870112, max tps: 1256.5814601009497, count: 56676"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1251.5329266529402,
+            "unit": "median tps",
+            "extra": "avg tps: 1239.2587409581574, max tps: 1280.7218773242978, count: 56676"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1985.1362678590535,
+            "unit": "median tps",
+            "extra": "avg tps: 1957.130317080321, max tps: 2160.982680028903, count: 56676"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.367287738238424,
+            "unit": "median tps",
+            "extra": "avg tps: 5.360477912614448, max tps: 6.464384337126435, count: 56676"
           }
         ]
       }

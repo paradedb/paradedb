@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764024429786,
+  "lastUpdate": 1764025137600,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3196,6 +3196,60 @@ window.BENCHMARK_DATA = {
             "value": 14.80934253309894,
             "unit": "median tps",
             "extra": "avg tps: 14.713892382489057, max tps: 19.356459657073216, count: 55653"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "799b8f38d6953f1bb21fce531ac87cb9f4656d8c",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3621)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [x] Verify prop tests pass without flaky failures\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-11-24T14:05:46-08:00",
+          "tree_id": "7b6eed5a50c508b34c97163193ded91671efa67f",
+          "url": "https://github.com/paradedb/paradedb/commit/799b8f38d6953f1bb21fce531ac87cb9f4656d8c"
+        },
+        "date": 1764025135164,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.677477326876748,
+            "unit": "median tps",
+            "extra": "avg tps: 30.5576646535103, max tps: 33.61023523351582, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 237.56464882647802,
+            "unit": "median tps",
+            "extra": "avg tps: 263.56960364714695, max tps: 2776.955576085142, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2006.0710677406892,
+            "unit": "median tps",
+            "extra": "avg tps: 1995.7165859501536, max tps: 2366.1746655584643, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 177.55078179565888,
+            "unit": "median tps",
+            "extra": "avg tps: 206.2783881160192, max tps: 1733.7533666091829, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.272906682442402,
+            "unit": "median tps",
+            "extra": "avg tps: 14.496933648243903, max tps: 20.088341696746113, count: 55541"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763942684186,
+  "lastUpdate": 1763942740718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -988,6 +988,40 @@ window.BENCHMARK_DATA = {
             "value": 5.581768085809889,
             "unit": "median tps",
             "extra": "avg tps: 5.038465274852335, max tps: 6.240692151442822, count: 57776"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "60c4cf138fc2eeb08d4326b839ba91c1e8e0fbba",
+          "message": "chore: upgrade to `0.18.0` (#2980)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nNote: `cargo.toml` is already on `0.18.0` so this is docs-only\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-18T19:09:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/60c4cf138fc2eeb08d4326b839ba91c1e8e0fbba"
+        },
+        "date": 1763942738277,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.555935051803763,
+            "unit": "median tps",
+            "extra": "avg tps: 5.624031659835579, max tps: 8.390601415795693, count: 57170"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.839083771446801,
+            "unit": "median tps",
+            "extra": "avg tps: 5.225632531156277, max tps: 6.6419316095954875, count: 57170"
           }
         ]
       }

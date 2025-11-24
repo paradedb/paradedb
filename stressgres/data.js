@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764023683608,
+  "lastUpdate": 1764023686881,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1888,6 +1888,66 @@ window.BENCHMARK_DATA = {
             "value": 83,
             "unit": "median segment_count",
             "extra": "avg segment_count: 84.91471665213601, max segment_count: 134.0, count: 57350"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "799b8f38d6953f1bb21fce531ac87cb9f4656d8c",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3621)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [x] Verify prop tests pass without flaky failures\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-11-24T14:05:46-08:00",
+          "tree_id": "7b6eed5a50c508b34c97163193ded91671efa67f",
+          "url": "https://github.com/paradedb/paradedb/commit/799b8f38d6953f1bb21fce531ac87cb9f4656d8c"
+        },
+        "date": 1764023684468,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.92911921122951, max cpu: 42.687748, count: 57746"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.12106013024712, max mem: 230.35546875, count: 57746"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.46257273377845, max cpu: 33.20158, count: 57746"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 168.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.32285576327797, max mem: 168.8203125, count: 57746"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35118,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34091.13796626606, max block_count: 37182.0, count: 57746"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 83,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 85.04544037682264, max segment_count: 138.0, count: 57746"
           }
         ]
       }

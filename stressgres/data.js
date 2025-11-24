@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764023312953,
+  "lastUpdate": 1764023683608,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1498,6 +1498,42 @@ window.BENCHMARK_DATA = {
             "value": 5.440383004820123,
             "unit": "median tps",
             "extra": "avg tps: 4.910683936816494, max tps: 6.070997648033656, count: 57350"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "799b8f38d6953f1bb21fce531ac87cb9f4656d8c",
+          "message": "fix: Skip flaky edge case numeric values in json_pushdown prop tests (#3621)\n\n## Summary\n- Skip edge case numeric values added in PR #2978 that cause\nintermittent prop test failures on main\n\n## Test plan\n- [x] Verify prop tests pass without flaky failures\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-11-24T14:05:46-08:00",
+          "tree_id": "7b6eed5a50c508b34c97163193ded91671efa67f",
+          "url": "https://github.com/paradedb/paradedb/commit/799b8f38d6953f1bb21fce531ac87cb9f4656d8c"
+        },
+        "date": 1764023681016,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.130501032476094,
+            "unit": "median tps",
+            "extra": "avg tps: 6.933815216801957, max tps: 10.647401957777339, count: 57746"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.448093759447688,
+            "unit": "median tps",
+            "extra": "avg tps: 4.918359000399434, max tps: 6.056986486635658, count: 57746"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763944805335,
+  "lastUpdate": 1763945050703,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2848,6 +2848,52 @@ window.BENCHMARK_DATA = {
             "value": 87.64276341304725,
             "unit": "median tps",
             "extra": "avg tps: 94.1144142726411, max tps: 512.0496061954491, count: 107100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f4cc34211b69c210cad6133141ec34b114d4e528",
+          "message": "docs: fix more-like-this (MLT) JSON syntax example (#3335)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T19:24:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f4cc34211b69c210cad6133141ec34b114d4e528"
+        },
+        "date": 1763945048275,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 703.6041232559899,
+            "unit": "median tps",
+            "extra": "avg tps: 704.6267639960389, max tps: 1024.1685863426608, count: 53641"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 741.6295070703356,
+            "unit": "median tps",
+            "extra": "avg tps: 740.5003784168845, max tps: 1082.0490345204944, count: 53641"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 115.19407045358635,
+            "unit": "median tps",
+            "extra": "avg tps: 115.23437929122811, max tps: 126.88949025108047, count: 53641"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 116.16742390090482,
+            "unit": "median tps",
+            "extra": "avg tps: 114.99810431009746, max tps: 128.0043278628977, count: 107282"
           }
         ]
       }

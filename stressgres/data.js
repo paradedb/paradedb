@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763943338733,
+  "lastUpdate": 1763943413659,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1434,6 +1434,52 @@ window.BENCHMARK_DATA = {
             "value": 5.46320954536466,
             "unit": "median tps",
             "extra": "avg tps: 5.47455586851817, max tps: 6.528366657304772, count: 56329"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "21ae4f92dc730f588c957d8cb5c893b916d95409",
+          "message": "feat: supported window aggregate pushdown for all search operators (#3582)\n\n# Ticket(s) Closed\n\n- Closes #3566\n\n## What\n\nWindow aggregate queries with `|||`, `&&&`, `===`, and `###` operators\nnow properly push down to TopN scans, just like queries using the `@@@`\noperator.\n\n## Why\n\nPreviously, queries like `SELECT *, COUNT(*) OVER () FROM table WHERE\nfield ||| 'term' ORDER BY rating LIMIT 10` would fall back to\nPostgreSQL's standard WindowAgg execution path instead of using\noptimized TopN scan. This happened because the window function\nreplacement logic only checked for the `@@@` operator when deciding\nwhether to enable pushdown.\n\n## How\n\n- Added helper functions to get OIDs for all ParadeDB search operators:\n`match_disjunction_text_opoid()` for `|||`,\n`match_conjunction_text_opoid()` for `&&&`, `term_text_opoid()` for\n`===`, and `phrase_text_opoid()` for `###`\n- Updated `query_has_search_operator()` to check for all search\noperators, not just `@@@`\n\n## Tests\n\nAdded tests in `topn-agg-facet.sql` (Tests 1a-1d) verifying that window\naggregate queries with `|||`, `&&&`, `===`, and `###` operators properly\nuse TopNScanExecState execution.",
+          "timestamp": "2025-11-21T21:49:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/21ae4f92dc730f588c957d8cb5c893b916d95409"
+        },
+        "date": 1763943411243,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1168.575776369992,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.775034039699, max tps: 1228.466671039507, count: 55631"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1312.6370057481695,
+            "unit": "median tps",
+            "extra": "avg tps: 1305.7170090588936, max tps: 1327.0519916277499, count: 55631"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2016.2804100444746,
+            "unit": "median tps",
+            "extra": "avg tps: 1978.927985969312, max tps: 2186.943141635492, count: 55631"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.571159523427133,
+            "unit": "median tps",
+            "extra": "avg tps: 5.5628321764950925, max tps: 6.522935479342578, count: 55631"
           }
         ]
       }

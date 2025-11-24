@@ -20,9 +20,11 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
+use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
+use libc::{kill, SIGUSR2};
 use pgrx::pg_sys;
 use pgrx::{pg_sys::ItemPointerData, *};
 use tantivy::index::SegmentId;
@@ -52,6 +54,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
     let mut metadata = MetaPage::open(&index_relation);
+    let merge_lock = metadata.acquire_merge_lock();
+    cancel_background_merges(&merge_lock);
+    drop(merge_lock);
+
     let cleanup_lock = metadata.cleanup_lock_exclusive();
 
     // take the MergeLock
@@ -171,6 +177,47 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     drop(vacuum_sentinel);
 
     stats.into_pg()
+}
+
+/// Send SIGUSR2 to each background merge worker recorded in the merge list so it can
+/// finish its current candidate and exit.
+unsafe fn cancel_background_merges(merge_lock: &MergeLock) {
+    let merge_entries = merge_lock.merge_list().list();
+
+    if merge_entries.is_empty() {
+        return;
+    }
+
+    pgrx::debug1!(
+        "ambulkdelete: requesting cancellation of {} background merge worker(s)",
+        merge_entries.len()
+    );
+
+    for entry in merge_entries {
+        let proc = pg_sys::BackendPidGetProc(entry.pid);
+        if proc.is_null() {
+            pgrx::debug1!(
+                "ambulkdelete: skipping PID {} because it is no longer registered",
+                entry.pid
+            );
+            continue;
+        }
+
+        if (*proc).isBackgroundWorker {
+            let result = kill(entry.pid, SIGUSR2);
+            if result != 0 {
+                pgrx::warning!(
+                    "ambulkdelete: failed to send SIGUSR2 to background worker PID {}",
+                    entry.pid
+                );
+            }
+        } else {
+            pgrx::debug1!(
+                "ambulkdelete: PID {} is not a background worker (skipping)",
+                entry.pid
+            );
+        }
+    }
 }
 
 struct SegmentDeleterImmutable {

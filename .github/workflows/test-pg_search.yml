@@ -116,7 +116,7 @@ jobs:
       # ---------- pgrx-managed Postgres setup ----------
       - name: Initialize cargo-pgrx environment (pgrx download)
         if: matrix.pg_impl == 'pgrx'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit/integration tests
       - name: Install pgvector (system)

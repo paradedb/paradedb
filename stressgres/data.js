@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1763942771248,
+  "lastUpdate": 1763942787076,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1056,6 +1056,40 @@ window.BENCHMARK_DATA = {
             "value": 5.777401739518307,
             "unit": "median tps",
             "extra": "avg tps: 5.180194883590186, max tps: 6.514421359546129, count: 57452"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f4cc34211b69c210cad6133141ec34b114d4e528",
+          "message": "docs: fix more-like-this (MLT) JSON syntax example (#3335)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-10-14T19:24:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f4cc34211b69c210cad6133141ec34b114d4e528"
+        },
+        "date": 1763942784581,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.002876331543701,
+            "unit": "median tps",
+            "extra": "avg tps: 6.80195240291271, max tps: 10.731169189036867, count: 57766"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.34495446803367,
+            "unit": "median tps",
+            "extra": "avg tps: 4.83736165928994, max tps: 5.896420368839919, count: 57766"
           }
         ]
       }

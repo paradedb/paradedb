@@ -46,29 +46,13 @@ jobs:
 
   test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
-        pg_impl: [system]
-        # TODO: See https://github.com/paradedb/paradedb/issues/3613
-        runner: [ubicloud-standard-8-ubuntu-2204]
-        arch: [amd64]
-        include:
-          # Add pgrx-managed Postgres for PG 17 (regular runner)
-          - pg_version: 17
-            pg_impl: pgrx
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-ubuntu-2204
-            arch: amd64
-          # Add ARM run for PG 17 (system Postgres)
-          - pg_version: 17
-            pg_impl: system
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-arm-ubuntu-2204
-            arch: arm64
 
     steps:
       - name: Checkout Git Repository

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764108706515,
+  "lastUpdate": 1764108710568,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2842,6 +2842,126 @@ window.BENCHMARK_DATA = {
             "value": 44.59765625,
             "unit": "median mem",
             "extra": "avg mem: 45.080209363208404, max mem: 56.05078125, count: 55124"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9443fa70145d75d83031faac47cd0a2d350054e",
+          "message": "feat: enable TopN optimization for LEFT JOIN LATERAL queries (#3628)\n\n# Ticket(s) Closed\n\n- Closes #3239\n\n## What\n\nEnables TopN optimization for `LEFT JOIN LATERAL` queries, allowing\nefficient execution of queries that combine lateral joins with `ORDER\nBY` and `LIMIT` clauses.\n\n## Why\n\nPreviously, `LEFT JOIN LATERAL` queries would default to a Normal scan\neven when they could benefit from TopN optimization. This was due to:\n1. The LIMIT from joined relations not being extracted\n2. The `paradedb.score()` function being wrapped in `PlaceHolderVar`\nduring joins, preventing proper pathkey extraction\n\nThis resulted in suboptimal performance for common query patterns like\nfetching the latest comment for each article.\n\n## How\n\n- Added `is_left_join_lateral()` to detect LEFT JOIN LATERAL patterns in\nthe query tree\n- Added `where_clause_only_references_left()` to ensure WHERE clauses\nonly reference the driving (left) table\n- Added `extract_funcexpr_from_placeholder()` to unwrap score functions\nfrom PlaceHolderVar nodes\n- Used `contains_lateral_reference()` for recursive detection of LATERAL\nin nested joins\n- Modified `create_custom_path()` to extract LIMIT for LEFT JOIN LATERAL\nqueries when conditions are met\n- Updated pathkey extraction to handle PlaceHolderVar-wrapped score\nfunctions\n\nThe optimization applies when:\n- The query uses LEFT JOIN LATERAL\n- The WHERE clause only references the left table\n- ORDER BY columns are from the left table and are indexed/fast fields\n- A LIMIT clause is present\n\n## Tests\n\nAdded regression tests in `lateral-join.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:55:10-08:00",
+          "tree_id": "ce780eccdee87051222fc572c504f16853489793",
+          "url": "https://github.com/paradedb/paradedb/commit/f9443fa70145d75d83031faac47cd0a2d350054e"
+        },
+        "date": 1764108708048,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5795221057162365, max cpu: 19.393938, count: 55198"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 52.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.12820861942462, max mem: 64.859375, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5996310396912055, max cpu: 9.4395275, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.420865282709517, max mem: 29.22265625, count: 55198"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.695203917423101, max cpu: 19.335348, count: 55198"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 54.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.9850322928367, max mem: 65.41015625, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.595943923721855, max cpu: 9.266409, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 50.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.104980380290044, max mem: 62.078125, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576404159488241, max cpu: 9.467456, count: 110396"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 37.97405023732744, max mem: 48.0390625, count: 110396"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1725.5,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1722.910069205406, max block_count: 3012.0, count: 55198"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.169064096525236, max segment_count: 17.0, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.514676807843376, max cpu: 4.819277, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 41.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.77039433607196, max mem: 50.87890625, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.738401,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.989037333776974, max cpu: 4.738401, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.63226659593645, max mem: 55.14453125, count: 55198"
           }
         ]
       }

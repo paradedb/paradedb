@@ -97,6 +97,7 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
     create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
 }
 
+// Check if there is a unique single row index which matches the passed field (first field in index)
 unsafe fn check_first_column_has_unique_index(heap_relation: &PgSearchRelation, first_field: &FieldName) -> bool {
     // Get list of indexes on this relation
     let index_list = pg_sys::RelationGetIndexList(heap_relation.as_ptr());

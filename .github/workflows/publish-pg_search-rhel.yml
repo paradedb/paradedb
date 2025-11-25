@@ -220,8 +220,13 @@ jobs:
           # Install the repository RPM:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
-          # Disable the built-in PostgreSQL module:
-          sudo dnf -qy module disable postgresql
+          # Disable the built-in PostgreSQL module **if it exists**
+          if dnf -q module list postgresql &>/dev/null; then
+            echo "Disabling built-in PostgreSQL module on EL${RHEL_VERSION}..."
+            sudo dnf -qy module disable postgresql
+          else
+            echo "No 'postgresql' module found on EL${RHEL_VERSION}, skipping module disable."
+          fi
 
           # Install PostgreSQL:
           sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel

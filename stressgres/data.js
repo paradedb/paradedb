@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764093718924,
+  "lastUpdate": 1764094425071,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5626,6 +5626,60 @@ window.BENCHMARK_DATA = {
             "value": 14.619872838038624,
             "unit": "median tps",
             "extra": "avg tps: 14.629631787932324, max tps: 18.447075727127462, count: 55434"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1478d17163b3a319c78213f973161105f4fe8172",
+          "message": "feat: `pdb.agg()` support for wrapped functions and CTEs (#3588)\n\n## What\n\nFixes `pdb.agg()` to work correctly when:\n- Wrapped in other functions (e.g., `jsonb_pretty(pdb.agg(...))`)\n- Used inside Common Table Expressions (CTEs)\n- Used in subqueries\n\nAlso removes the `SUBQUERY_SUPPORT` feature flag - subqueries and CTEs\nare now always supported.\n\n- Closes #3504\n\n## Why\n\nPreviously, `pdb.agg()` would fail with errors like:\n- \"pdb.agg() must be handled by ParadeDB's custom scan\"\n- \"window_agg placeholder should not be executed\"\n\nThis happened because the planner hook only checked top-level\nexpressions and didn't recursively process CTEs or nested function\ncalls.\n\n## How\n\n**Planning stage:**\n- Added recursive CTE and subquery processing to the planner hook\n- Implemented `replace_in_node()` to walk expression trees and find\n`WindowFunc` nodes even when wrapped in other functions\n- Split `pdb.agg()` detection into two helpers:\n  - `query_has_paradedb_agg()` - recursive check for feature enablement\n- `query_has_paradedb_agg_at_current_level()` - non-recursive check for\nper-level validation\n\n**Execution stage:**\n- Implemented `replace_window_agg_with_const()` to recursively find and\nreplace `window_agg()` placeholders with `Const` nodes, even when\nwrapped\n- Updated `inject_window_aggregate_placeholders()` to handle nested\nexpressions\n\n**Detection:**\n- Changed `extract_and_convert_window_functions()` to use\n`expression_tree_walker` instead of only checking top-level nodes\n\n## Tests\n\nAdded regression tests in `fn_wrapped_agg.sql` covering:\n1. Basic `pdb.agg()` in TopN queries\n2. `pdb.agg()` wrapped in `jsonb_pretty()`\n3. `pdb.agg()` inside CTEs\n4. `pdb.agg()` in CTEs with outer function wrapping",
+          "timestamp": "2025-11-25T09:13:06-08:00",
+          "tree_id": "2564b4cb5637090acfaaf73c71de54b14cbe6a19",
+          "url": "https://github.com/paradedb/paradedb/commit/1478d17163b3a319c78213f973161105f4fe8172"
+        },
+        "date": 1764094422635,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.180812441390337,
+            "unit": "median tps",
+            "extra": "avg tps: 31.133478771314316, max tps: 32.601267760428094, count: 55457"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.80460761723185,
+            "unit": "median tps",
+            "extra": "avg tps: 263.1589923937564, max tps: 2676.3278464195246, count: 55457"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1957.3918625193608,
+            "unit": "median tps",
+            "extra": "avg tps: 1953.6832017553984, max tps: 2231.0808048340828, count: 55457"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 170.8857090411135,
+            "unit": "median tps",
+            "extra": "avg tps: 200.5474193942084, max tps: 1695.4055272366666, count: 110914"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.550770678250506,
+            "unit": "median tps",
+            "extra": "avg tps: 14.735157176628567, max tps: 20.844439076769778, count: 55457"
           }
         ]
       }

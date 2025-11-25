@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764108112111,
+  "lastUpdate": 1764108295117,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -916,6 +916,72 @@ window.BENCHMARK_DATA = {
             "value": 213.37436597181986,
             "unit": "median tps",
             "extra": "avg tps: 259.1845792136651, max tps: 870.2318906919126, count: 55174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8fb05f9b58d7d1256b9cf0f59311da8be77c4104",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3550)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:48:12-08:00",
+          "tree_id": "73b0e83903c8a05b3e5d24776ac1e9a1fdae60bb",
+          "url": "https://github.com/paradedb/paradedb/commit/8fb05f9b58d7d1256b9cf0f59311da8be77c4104"
+        },
+        "date": 1764108292665,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 493.5092953035172,
+            "unit": "median tps",
+            "extra": "avg tps: 494.35718247317607, max tps: 593.7339034587667, count: 55124"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3156.6022476190315,
+            "unit": "median tps",
+            "extra": "avg tps: 3136.3335222375968, max tps: 3172.9155252103224, count: 55124"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 451.7871187871741,
+            "unit": "median tps",
+            "extra": "avg tps: 452.8125730978931, max tps: 591.396713222383, count: 55124"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 410.9107130789275,
+            "unit": "median tps",
+            "extra": "avg tps: 409.7216451357401, max tps: 451.2796728522549, count: 55124"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3380.4731301362535,
+            "unit": "median tps",
+            "extra": "avg tps: 3360.8692417487728, max tps: 3403.0638980439976, count: 110248"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2152.321045052469,
+            "unit": "median tps",
+            "extra": "avg tps: 2138.6360640324333, max tps: 2166.4353248270713, count: 55124"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 107.76049920919743,
+            "unit": "median tps",
+            "extra": "avg tps: 104.12868380109337, max tps: 284.3777509103998, count: 55124"
           }
         ]
       }

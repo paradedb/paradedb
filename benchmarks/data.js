@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764110236845,
+  "lastUpdate": 1764110347705,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -6944,6 +6944,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 91.414,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39b43c1a235f814cac17c033c9c015015c0ce498",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3635)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-25T13:56:58-08:00",
+          "tree_id": "0732e1ddd6ca9f74c80e49ab5c165fb772392790",
+          "url": "https://github.com/paradedb/paradedb/commit/39b43c1a235f814cac17c033c9c015015c0ce498"
+        },
+        "date": 1764110345207,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1187.2069999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 639.693,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1466.511,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 693.235,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 669.9945,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1626.3975,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 23.823999999999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 65.6665,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 89.88149999999999,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

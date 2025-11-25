@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764112671233,
+  "lastUpdate": 1764113200824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6352,6 +6352,54 @@ window.BENCHMARK_DATA = {
             "value": 5.374538791126368,
             "unit": "median tps",
             "extra": "avg tps: 5.386253816606474, max tps: 6.664335748595239, count: 55917"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f4cd86fa82780074a064ce4ab5b331ffe6f6c45",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3638)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T14:42:51-08:00",
+          "tree_id": "4b8bf14150321315144b3a87bc29c3332910ddb2",
+          "url": "https://github.com/paradedb/paradedb/commit/5f4cd86fa82780074a064ce4ab5b331ffe6f6c45"
+        },
+        "date": 1764113198197,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1157.1392924771608,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.0202491233076, max tps: 1206.8870802811534, count: 55990"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1325.4747266106576,
+            "unit": "median tps",
+            "extra": "avg tps: 1314.8292489044688, max tps: 1336.616888865058, count: 55990"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1871.3338886482338,
+            "unit": "median tps",
+            "extra": "avg tps: 1850.9788782072874, max tps: 2002.8580939374904, count: 55990"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.438145373822545,
+            "unit": "median tps",
+            "extra": "avg tps: 5.450119077200231, max tps: 6.567119036532187, count: 55990"
           }
         ]
       }

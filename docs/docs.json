@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy).",
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
     "dismissible": false
   },
   "navigation": {
@@ -321,6 +321,8 @@
                 "group": "Changelog",
                 "pages": [
                   "changelog/0.20.0",
+                  "changelog/0.19.10",
+                  "changelog/0.19.9",
                   "changelog/0.19.8",
                   "changelog/0.19.7",
                   "changelog/0.19.6",

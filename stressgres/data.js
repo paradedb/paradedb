@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764111663277,
+  "lastUpdate": 1764111756197,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10964,6 +10964,54 @@ window.BENCHMARK_DATA = {
             "value": 114.63952041377462,
             "unit": "median tps",
             "extra": "avg tps: 113.87966649771906, max tps: 516.7055933410874, count: 107428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39b43c1a235f814cac17c033c9c015015c0ce498",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3635)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-25T13:56:58-08:00",
+          "tree_id": "0732e1ddd6ca9f74c80e49ab5c165fb772392790",
+          "url": "https://github.com/paradedb/paradedb/commit/39b43c1a235f814cac17c033c9c015015c0ce498"
+        },
+        "date": 1764111753763,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 526.1184504156464,
+            "unit": "median tps",
+            "extra": "avg tps: 529.3454535049865, max tps: 670.3698174704492, count: 53741"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 547.6939949623617,
+            "unit": "median tps",
+            "extra": "avg tps: 553.4921768457222, max tps: 751.9880513200397, count: 53741"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.54022079442177,
+            "unit": "median tps",
+            "extra": "avg tps: 87.7471069457091, max tps: 97.80680793655505, count: 53741"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 113.66318638768897,
+            "unit": "median tps",
+            "extra": "avg tps: 114.38327680551198, max tps: 533.5787528807208, count: 107482"
           }
         ]
       }

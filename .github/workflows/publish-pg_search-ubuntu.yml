@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/fix-releases2
   workflow_dispatch:
     inputs:
       version:
@@ -178,12 +176,12 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
         run: |

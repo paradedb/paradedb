@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764065590783,
+  "lastUpdate": 1764066298791,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6602,6 +6602,54 @@ window.BENCHMARK_DATA = {
             "value": 88.53789793839186,
             "unit": "median tps",
             "extra": "avg tps: 95.4033554429455, max tps: 497.43071508649876, count: 107274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "555dbffd8e840906924893fe14ba577711ca9a30",
+          "message": "feat: enable TopN optimization for LEFT JOIN LATERAL queries (#3590)\n\n# Ticket(s) Closed\n\n- Closes #3239\n\n## What\n\nEnables TopN optimization for `LEFT JOIN LATERAL` queries, allowing\nefficient execution of queries that combine lateral joins with `ORDER\nBY` and `LIMIT` clauses.\n\n## Why\n\nPreviously, `LEFT JOIN LATERAL` queries would default to a Normal scan\neven when they could benefit from TopN optimization. This was due to:\n1. The LIMIT from joined relations not being extracted\n2. The `paradedb.score()` function being wrapped in `PlaceHolderVar`\nduring joins, preventing proper pathkey extraction\n\nThis resulted in suboptimal performance for common query patterns like\nfetching the latest comment for each article.\n\n## How\n\n- Added `is_left_join_lateral()` to detect LEFT JOIN LATERAL patterns in\nthe query tree\n- Added `where_clause_only_references_left()` to ensure WHERE clauses\nonly reference the driving (left) table\n- Added `extract_funcexpr_from_placeholder()` to unwrap score functions\nfrom PlaceHolderVar nodes\n- Used `contains_lateral_reference()` for recursive detection of LATERAL\nin nested joins\n- Modified `create_custom_path()` to extract LIMIT for LEFT JOIN LATERAL\nqueries when conditions are met\n- Updated pathkey extraction to handle PlaceHolderVar-wrapped score\nfunctions\n\nThe optimization applies when:\n- The query uses LEFT JOIN LATERAL\n- The WHERE clause only references the left table\n- ORDER BY columns are from the left table and are indexed/fast fields\n- A LIMIT clause is present\n\n## Tests\n\nAdded regression tests in `lateral-join.sql`.",
+          "timestamp": "2025-11-25T01:19:32-08:00",
+          "tree_id": "ae5b3b7155e76725f727456e012ee1875f64b665",
+          "url": "https://github.com/paradedb/paradedb/commit/555dbffd8e840906924893fe14ba577711ca9a30"
+        },
+        "date": 1764066296302,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 146.01731221223343,
+            "unit": "median tps",
+            "extra": "avg tps: 189.33309383591669, max tps: 662.4172965105126, count: 53606"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 156.00949521166422,
+            "unit": "median tps",
+            "extra": "avg tps: 206.20292608754352, max tps: 749.6459205314563, count: 53606"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 76.5822192937546,
+            "unit": "median tps",
+            "extra": "avg tps: 77.87136251258549, max tps: 96.73547885070845, count: 53606"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 89.67287696762303,
+            "unit": "median tps",
+            "extra": "avg tps: 96.06441530360108, max tps: 535.258241559209, count: 107212"
           }
         ]
       }

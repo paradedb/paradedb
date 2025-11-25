@@ -831,9 +831,22 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
             .map_err(|err: time::error::ComponentRange| {
                 TantivyValueError::DateOutOfRange(val, err.to_string())
             })?;
+        let min_date = tantivy::DateTime::MIN.into_primitive();
+        let max_date = tantivy::DateTime::MAX.into_primitive();
         let date = time::Date::from_calendar_date(val.year(), month, val.day())
-            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
-        let date = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+            .map(|date| time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT))
+            .ok()
+            .filter(|date| (min_date..=max_date).contains(date))
+            .ok_or_else(|| {
+                TantivyValueError::DateOutOfRange(
+                    val,
+                    format!(
+                        "date must be in the range {}..{}",
+                        min_date.date(),
+                        max_date.date()
+                    ),
+                )
+            })?;
         let tantivy_date = tantivy::DateTime::from_primitive(date);
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }

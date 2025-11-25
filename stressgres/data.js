@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764108299188,
+  "lastUpdate": 1764108706515,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -982,6 +982,72 @@ window.BENCHMARK_DATA = {
             "value": 107.76049920919743,
             "unit": "median tps",
             "extra": "avg tps: 104.12868380109337, max tps: 284.3777509103998, count: 55124"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9443fa70145d75d83031faac47cd0a2d350054e",
+          "message": "feat: enable TopN optimization for LEFT JOIN LATERAL queries (#3628)\n\n# Ticket(s) Closed\n\n- Closes #3239\n\n## What\n\nEnables TopN optimization for `LEFT JOIN LATERAL` queries, allowing\nefficient execution of queries that combine lateral joins with `ORDER\nBY` and `LIMIT` clauses.\n\n## Why\n\nPreviously, `LEFT JOIN LATERAL` queries would default to a Normal scan\neven when they could benefit from TopN optimization. This was due to:\n1. The LIMIT from joined relations not being extracted\n2. The `paradedb.score()` function being wrapped in `PlaceHolderVar`\nduring joins, preventing proper pathkey extraction\n\nThis resulted in suboptimal performance for common query patterns like\nfetching the latest comment for each article.\n\n## How\n\n- Added `is_left_join_lateral()` to detect LEFT JOIN LATERAL patterns in\nthe query tree\n- Added `where_clause_only_references_left()` to ensure WHERE clauses\nonly reference the driving (left) table\n- Added `extract_funcexpr_from_placeholder()` to unwrap score functions\nfrom PlaceHolderVar nodes\n- Used `contains_lateral_reference()` for recursive detection of LATERAL\nin nested joins\n- Modified `create_custom_path()` to extract LIMIT for LEFT JOIN LATERAL\nqueries when conditions are met\n- Updated pathkey extraction to handle PlaceHolderVar-wrapped score\nfunctions\n\nThe optimization applies when:\n- The query uses LEFT JOIN LATERAL\n- The WHERE clause only references the left table\n- ORDER BY columns are from the left table and are indexed/fast fields\n- A LIMIT clause is present\n\n## Tests\n\nAdded regression tests in `lateral-join.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:55:10-08:00",
+          "tree_id": "ce780eccdee87051222fc572c504f16853489793",
+          "url": "https://github.com/paradedb/paradedb/commit/f9443fa70145d75d83031faac47cd0a2d350054e"
+        },
+        "date": 1764108704081,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 510.4180577936462,
+            "unit": "median tps",
+            "extra": "avg tps: 510.51070114892553, max tps: 597.0893922233048, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3173.511808442142,
+            "unit": "median tps",
+            "extra": "avg tps: 3149.0386548128376, max tps: 3180.5762208994192, count: 55198"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 495.96308888103647,
+            "unit": "median tps",
+            "extra": "avg tps: 496.6750673131165, max tps: 577.1523562461375, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.6694834314238,
+            "unit": "median tps",
+            "extra": "avg tps: 424.77571120527574, max tps: 469.5161268984988, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3310.1381173882573,
+            "unit": "median tps",
+            "extra": "avg tps: 3295.1649572685938, max tps: 3318.197362153667, count: 110396"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2168.4095579503573,
+            "unit": "median tps",
+            "extra": "avg tps: 2154.314376717109, max tps: 2180.2620632661074, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 88.61215886824762,
+            "unit": "median tps",
+            "extra": "avg tps: 103.38117932081956, max tps: 382.8602514834964, count: 55198"
           }
         ]
       }

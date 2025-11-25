@@ -14,8 +14,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/fix-releases2
   workflow_dispatch:
     inputs:
       version:

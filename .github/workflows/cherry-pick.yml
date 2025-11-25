@@ -32,10 +32,6 @@ jobs:
       matrix:
         branch: ${{ fromJSON(needs.get-branches.outputs.branches) }}
 
-    # We define the cherry-pick branch name once so we can reuse it
-    env:
-      CHERRY_PICK_BRANCH: cherry-pick/${{ matrix.branch }}/${{ github.event.pull_request.number }}
-
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v5
@@ -50,19 +46,14 @@ jobs:
         with:
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           branch: ${{ matrix.branch }}
-          # Force a predictable branch name so we can reuse it if the action fails
-          cherry-pick-branch: ${{ env.CHERRY_PICK_BRANCH }}
           inherit_labels: false
           labels: automated-cherry-pick
 
-      # If the action succeeded, it already opened the PR. Nothing else to do.
       - name: Cherry pick succeeded
         if: steps.cherry_pick_action.outcome == 'success'
-        run: |
-          echo "Cherry-pick via github-cherry-pick-action succeeded; PR already opened."
+        run: echo "Cherry-pick via github-cherry-pick-action succeeded; PR already opened."
 
-      # If the action failed (most likely due to conflicts), fix it up and open a PR ourselves.
-      - name: Resolve conflicts / push / open PR (fallback)
+      - name: Open PR from original branch to target (fallback)
         if: steps.cherry_pick_action.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
@@ -71,40 +62,20 @@ jobs:
 
           TARGET_BRANCH="${{ matrix.branch }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
-          NEW_BRANCH="${CHERRY_PICK_BRANCH}"
+          HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
+          REPO="${{ github.repository }}"
 
-          git config user.name "paradedb-bot"
-          git config user.email "bot@paradedb.com"
-
-          # Make sure we're on the cherry-pick branch the action created
-          git checkout "${NEW_BRANCH}"
-
-          # If there are conflicted files, auto-resolve by taking "theirs"
-          if git diff --name-only --diff-filter=U | grep .; then
-            for f in $(git diff --name-only --diff-filter=U); do
-              # Prefer the changes from the original PR side
-              git checkout --theirs -- "$f"
-              git add "$f"
-            done
-
-            # If a cherry-pick is still in progress, finish it
-            if [ -f .git/CHERRY_PICK_HEAD ]; then
-              git cherry-pick --continue
-            fi
-          else
-            echo "Action failed but no conflicted files were found. Likely a non-conflict error."
-          fi
-
-          # Push the branch (may be first push, since the action failed before pushing)
-          git push --force-with-lease origin "${NEW_BRANCH}"
-
-          # Create the PR manually
           TITLE="Cherry pick #${PR_NUMBER} to ${TARGET_BRANCH}"
-          BODY="Cherry pick of #${PR_NUMBER} to \`${TARGET_BRANCH}\`. The automatic cherry-pick via \`github-cherry-pick-action\` failed due to conflicts. A commit has been created by preferring the changes from the original PR (\"theirs\") in all conflicted files. Please review and adjust manually if needed."
+          BODY="Backport of #${PR_NUMBER} to \`${TARGET_BRANCH}\`.
 
+          # The automated cherry-pick via \`github-cherry-pick-action\` failed due to conflicts.
+          # This PR is raised directly from the original branch (\`${HEAD_BRANCH}\`) against \`${TARGET_BRANCH}\` without any rebase or cherry-pick. Please resolve any conflicts and adjust the changes manually."
+
+          # If a PR already exists with this base/head, this will fail; that's usually fine.
           gh pr create \
+            --repo "${REPO}" \
             --base "${TARGET_BRANCH}" \
-            --head "${NEW_BRANCH}" \
+            --head "${HEAD_BRANCH}" \
             --title "${TITLE}" \
             --body "${BODY}" \
             --label "automated-cherry-pick"

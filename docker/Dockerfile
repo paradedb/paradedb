@@ -74,7 +74,7 @@ RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/do
 
 # Compile and install the ICU library
 WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local --enable-static && \
+RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make "-j$(nproc)" && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice

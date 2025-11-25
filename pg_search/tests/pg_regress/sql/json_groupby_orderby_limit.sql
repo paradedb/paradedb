@@ -24,7 +24,8 @@ INSERT INTO json_test_single (metadata, data) VALUES
     ('{"category": "electronics", "brand": "Apple", "price": 1299}', '{"color": "gold", "stock": 5}'),
     ('{"category": "clothing", "brand": "Nike", "price": 89}', '{"size": "M", "stock": 20}'),
     ('{"category": "clothing", "brand": "Adidas", "price": 79}', '{"size": "L", "stock": 25}'),
-    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}');
+    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}'),
+    ('{"category": "clothing", "brand": "Puma", "price": 99}', '{"size": "S", "stock": 30}');
 
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single

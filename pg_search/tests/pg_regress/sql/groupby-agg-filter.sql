@@ -327,7 +327,7 @@ SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test
 GROUP BY category
-ORDER BY apple_count DESC;
+ORDER BY apple_count DESC, category ASC;
 
 -- =====================================================================
 -- SECTION 9: Multiple Aggregates with Same Filter (MultiCollector Optimization)

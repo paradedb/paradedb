@@ -8,6 +8,8 @@ SET paradedb.enable_mixed_fast_field_exec = true;
 -- more permutations of selected columns.
 SET paradedb.mixed_fast_field_exec_column_threshold = 100;
 
+SET paradedb.enable_aggregate_custom_scan = false;
+
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -113,4 +115,4 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte1', 'file_cte1', 1, 'Page 1 with searchable content for CTE testing'),
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
-('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing'); 
+('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');

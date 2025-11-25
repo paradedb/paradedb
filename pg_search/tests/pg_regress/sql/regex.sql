@@ -1,3 +1,5 @@
+\i sql/setup.sql
+
 -- ensure a cast to `::pdb.regex` works to tokenize using a regular expression
 SELECT 'ooh lala'::pdb.regex_pattern('oo|a')::text[];
 

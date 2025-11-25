@@ -1,3 +1,5 @@
+\i sql/setup.sql
+
 --
 -- these are designed to validate that the EXPLAIN output is correct
 -- and that each operator returns the expected number of rows

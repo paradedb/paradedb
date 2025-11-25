@@ -513,8 +513,10 @@ impl CustomScan for PdbScan {
                 if rel_is_single_or_partitioned || is_left_driven_lateral {
                     // We can use the limit for estimates if:
                     // a) we have a limit, and
-                    // b) we're querying a single relation OR partitions of a partitioned table OR
-                    // c) we're in a LEFT JOIN LATERAL where the left side drives the query
+                    // b) we're either:
+                    //    * querying a single relation OR
+                    //    * querying partitions of a partitioned table OR
+                    //    * we're in a LEFT JOIN LATERAL where the left side drives the query
                     Some((*builder.args().root).limit_tuples)
                 } else {
                     None
@@ -1994,6 +1996,11 @@ unsafe fn contains_lateral_reference(node: *mut pg_sys::Node, rtable: *mut pg_sy
 }
 
 /// Verify WHERE clause only references the left table (current relation)
+///
+/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as TopN.
+/// Because TopN eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
+/// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
+/// limit which would be filtered by conditions on the right hand side.
 unsafe fn where_clause_only_references_left(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,

@@ -1,5 +1,7 @@
 \i common/common_setup.sql
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
@@ -15,3 +17,4 @@ EXPLAIN SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
 
 DROP TABLE mock_items;
+RESET paradedb.enable_aggregate_custom_scan;

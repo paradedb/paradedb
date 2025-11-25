@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764038968603,
+  "lastUpdate": 1764039626500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2866,6 +2866,54 @@ window.BENCHMARK_DATA = {
             "value": 5.428522429651481,
             "unit": "median tps",
             "extra": "avg tps: 5.442147042204411, max tps: 6.7767471535052906, count: 56112"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "553484d76445895df38c2d1102f1a6e9b3b6fbf8",
+          "message": "fix: Mutable segment corruption when reading beyond number of entries (#3624)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUnder physical replication, we've observed a rare issue where entries of\nthe mutable segment fail to deserialize.\n\nThis always seems to happen when we are reading beyond the actual length\nof the mutable segment list. For instance, the mutable segment list only\ncontains 400 entries, but we try and deserialize entry 401.\n\nI don't yet have a perfect theory for why this is happening, but\nstopping the reading of the merge segment list when we've reached the\nnumber of entries seems to be working as a stopgap.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-24T21:19:04-05:00",
+          "tree_id": "15acd09158f6c1da87843db016cc4d76c3c2a3c1",
+          "url": "https://github.com/paradedb/paradedb/commit/553484d76445895df38c2d1102f1a6e9b3b6fbf8"
+        },
+        "date": 1764039624028,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1158.0049122089,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.3234649991646, max tps: 1211.9155631988974, count: 56054"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1323.3249004008549,
+            "unit": "median tps",
+            "extra": "avg tps: 1314.1997034726205, max tps: 1335.7815612588452, count: 56054"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1896.876957502432,
+            "unit": "median tps",
+            "extra": "avg tps: 1874.2398210064553, max tps: 2036.0091045549245, count: 56054"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.506037309699507,
+            "unit": "median tps",
+            "extra": "avg tps: 5.509015604284041, max tps: 6.522061816532353, count: 56054"
           }
         ]
       }

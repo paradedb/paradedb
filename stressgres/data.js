@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764109050094,
+  "lastUpdate": 1764109053446,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4516,6 +4516,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.28045973002197, max segment_count: 133.0, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8fb05f9b58d7d1256b9cf0f59311da8be77c4104",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3550)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:48:12-08:00",
+          "tree_id": "73b0e83903c8a05b3e5d24776ac1e9a1fdae60bb",
+          "url": "https://github.com/paradedb/paradedb/commit/8fb05f9b58d7d1256b9cf0f59311da8be77c4104"
+        },
+        "date": 1764109050944,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.076923,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.15640555271077, max cpu: 42.72997, count: 57265"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 229.79243143172096, max mem: 231.04296875, count: 57265"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.385422430768276, max cpu: 33.20158, count: 57265"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.6180300057845, max mem: 167.92578125, count: 57265"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34908,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33947.082563520475, max block_count: 36907.0, count: 57265"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.91823976250764, max segment_count: 133.0, count: 57265"
           }
         ]
       }

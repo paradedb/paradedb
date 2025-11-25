@@ -1417,6 +1417,8 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
 
 /// Inject placeholder Const nodes for window aggregates at execution time
 /// At this point, the WindowFunc has been replaced with paradedb.window_agg(json) calls
+/// This function finds those calls (which may be wrapped in other functions)
+/// and replaces them with placeholder Const nodes that will be filled in during execution.
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
@@ -1430,41 +1432,111 @@ unsafe fn inject_window_aggregate_placeholders(
         return (targetlist, const_nodes);
     }
 
-    for agg_info in window_aggs {
-        let te_idx = agg_info.target_entry_index;
+    // Process each window aggregate target entry
+    let mut new_tlist = PgList::<pg_sys::TargetEntry>::new();
 
-        // Get the target entry at this index
-        if let Some(te) = tlist.get_ptr(te_idx) {
-            let node_type = (*(*te).expr).type_;
+    for (idx, te) in tlist.iter_ptr().enumerate() {
+        // Check if this target entry is one of our window aggregates
+        let agg_info = window_aggs.iter().find(|a| a.target_entry_index == idx);
 
-            // Check if this is our window_agg FuncExpr
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if (*funcexpr).funcid == window_agg_procid {
-                    // Create a placeholder Const node with the appropriate type
-                    let const_node = pg_sys::makeConst(
-                        agg_info.result_type_oid(),
-                        -1,
-                        pg_sys::DEFAULT_COLLATION_OID,
-                        if agg_info.result_type_oid() == pg_sys::INT8OID {
-                            8
-                        } else {
-                            -1
-                        },
-                        pg_sys::Datum::null(),
-                        true,                                          // constisnull
-                        agg_info.result_type_oid() == pg_sys::INT8OID, // constbyval (true for INT8)
-                    );
+        if let Some(agg_info) = agg_info {
+            // This target entry should contain a window_agg call (possibly wrapped)
+            let (new_expr, const_node_opt) = replace_window_agg_with_const(
+                (*te).expr as *mut pg_sys::Node,
+                window_agg_procid,
+                agg_info.result_type_oid(),
+            );
 
-                    // Replace the window_agg FuncExpr with our Const node
-                    (*te).expr = const_node.cast();
+            // Create a new target entry with the modified expression
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+            (*new_te).expr = new_expr.cast();
+            new_tlist.push(new_te);
 
-                    const_nodes.insert(te_idx, const_node);
-                }
+            if let Some(const_node) = const_node_opt {
+                const_nodes.insert(idx, const_node);
             }
+        } else {
+            // Not a window aggregate - just copy it
+            new_tlist.push(te);
         }
     }
 
-    (tlist.into_pg(), const_nodes)
+    (new_tlist.into_pg(), const_nodes)
+}
+
+// Helper function to recursively search and replace window_agg calls
+//
+// Note: This follows a similar recursive pattern to replace_in_node() in hook.rs,
+// but operates at a different stage:
+// - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
+// - This function: Execution stage - replaces window_agg() → Const placeholder for value injection
+//
+// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
+// See https://github.com/paradedb/paradedb/issues/3455
+unsafe fn replace_window_agg_with_const(
+    node: *mut pg_sys::Node,
+    window_agg_procid: pg_sys::Oid,
+    result_type_oid: pg_sys::Oid,
+) -> (*mut pg_sys::Node, Option<*mut pg_sys::Const>) {
+    if node.is_null() {
+        return (node, None);
+    }
+
+    // Check if this is the window_agg FuncExpr
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if (*funcexpr).funcid == window_agg_procid {
+            // Found it! Replace with a Const node
+            let const_node = pg_sys::makeConst(
+                result_type_oid,
+                -1,
+                pg_sys::DEFAULT_COLLATION_OID,
+                if result_type_oid == pg_sys::INT8OID {
+                    8
+                } else {
+                    -1
+                },
+                pg_sys::Datum::null(),
+                true,                               // constisnull
+                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+            );
+
+            return (const_node.cast(), Some(const_node));
+        }
+
+        // Not window_agg, but might have window_agg as an argument
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        let mut new_args = PgList::<pg_sys::Node>::new();
+        let mut found_const = None;
+        let mut modified = false;
+
+        for arg in args.iter_ptr() {
+            let (new_arg, const_opt) =
+                replace_window_agg_with_const(arg, window_agg_procid, result_type_oid);
+            if const_opt.is_some() {
+                found_const = const_opt;
+                modified = true;
+            }
+            if new_arg != arg {
+                modified = true;
+            }
+            new_args.push(new_arg);
+        }
+
+        if modified {
+            // Create a new FuncExpr with modified arguments
+            let new_funcexpr = pg_sys::makeFuncExpr(
+                (*funcexpr).funcid,
+                (*funcexpr).funcresulttype,
+                new_args.into_pg(),
+                (*funcexpr).funccollid,
+                (*funcexpr).inputcollid,
+                (*funcexpr).funcformat,
+            );
+            return (new_funcexpr.cast(), found_const);
+        }
+    }
+
+    (node, None)
 }
 
 #[derive(Debug, Clone)]

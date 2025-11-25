@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764109447863,
+  "lastUpdate": 1764109451235,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4612,6 +4612,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.91823976250764, max segment_count: 133.0, count: 57265"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9443fa70145d75d83031faac47cd0a2d350054e",
+          "message": "feat: enable TopN optimization for LEFT JOIN LATERAL queries (#3628)\n\n# Ticket(s) Closed\n\n- Closes #3239\n\n## What\n\nEnables TopN optimization for `LEFT JOIN LATERAL` queries, allowing\nefficient execution of queries that combine lateral joins with `ORDER\nBY` and `LIMIT` clauses.\n\n## Why\n\nPreviously, `LEFT JOIN LATERAL` queries would default to a Normal scan\neven when they could benefit from TopN optimization. This was due to:\n1. The LIMIT from joined relations not being extracted\n2. The `paradedb.score()` function being wrapped in `PlaceHolderVar`\nduring joins, preventing proper pathkey extraction\n\nThis resulted in suboptimal performance for common query patterns like\nfetching the latest comment for each article.\n\n## How\n\n- Added `is_left_join_lateral()` to detect LEFT JOIN LATERAL patterns in\nthe query tree\n- Added `where_clause_only_references_left()` to ensure WHERE clauses\nonly reference the driving (left) table\n- Added `extract_funcexpr_from_placeholder()` to unwrap score functions\nfrom PlaceHolderVar nodes\n- Used `contains_lateral_reference()` for recursive detection of LATERAL\nin nested joins\n- Modified `create_custom_path()` to extract LIMIT for LEFT JOIN LATERAL\nqueries when conditions are met\n- Updated pathkey extraction to handle PlaceHolderVar-wrapped score\nfunctions\n\nThe optimization applies when:\n- The query uses LEFT JOIN LATERAL\n- The WHERE clause only references the left table\n- ORDER BY columns are from the left table and are indexed/fast fields\n- A LIMIT clause is present\n\n## Tests\n\nAdded regression tests in `lateral-join.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:55:10-08:00",
+          "tree_id": "ce780eccdee87051222fc572c504f16853489793",
+          "url": "https://github.com/paradedb/paradedb/commit/f9443fa70145d75d83031faac47cd0a2d350054e"
+        },
+        "date": 1764109448737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.392248046856952, max cpu: 42.985077, count: 57338"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 229.52888961345442, max mem: 230.75390625, count: 57338"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39651487019282, max cpu: 33.3996, count: 57338"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 168.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.16449231149065, max mem: 168.84765625, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35080,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33944.93077889009, max block_count: 36815.0, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.2843663887823, max segment_count: 132.0, count: 57338"
           }
         ]
       }

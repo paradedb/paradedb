@@ -86,42 +86,42 @@ jobs:
           # Enterprise Linux 10
           - name: Enterprise Linux 10
             runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 14
             arch: x86_64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 14
             arch: aarch64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 15
             arch: aarch64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 16
             arch: x86_64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 16
             arch: aarch64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 17
             arch: x86_64
           - name: Enterprise Linux 10
             runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
+            image: redhat/ubi10:latest
             pg_version: 17
             arch: aarch64
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764107584347,
+  "lastUpdate": 1764108108648,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8528,6 +8528,54 @@ window.BENCHMARK_DATA = {
             "value": 87.00839354260636,
             "unit": "median tps",
             "extra": "avg tps: 93.93980937056111, max tps: 555.1328196567495, count: 107156"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a962c20e6aad98012c54f62de8c8c1b878ac7d",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3617)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-25T15:55:52-05:00",
+          "tree_id": "ec73649f28ae80c2baba8f839f0ba68b5a6a0f4c",
+          "url": "https://github.com/paradedb/paradedb/commit/77a962c20e6aad98012c54f62de8c8c1b878ac7d"
+        },
+        "date": 1764108106165,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 486.9200076331729,
+            "unit": "median tps",
+            "extra": "avg tps: 487.93051957246234, max tps: 694.3353189535015, count: 53781"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 538.4310080154983,
+            "unit": "median tps",
+            "extra": "avg tps: 539.7986728795236, max tps: 724.4519809682325, count: 53781"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 89.6571320967131,
+            "unit": "median tps",
+            "extra": "avg tps: 89.69459141364275, max tps: 96.03198068711691, count: 53781"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 118.15447654232709,
+            "unit": "median tps",
+            "extra": "avg tps: 117.60039914946145, max tps: 531.4204599719033, count: 107562"
           }
         ]
       }

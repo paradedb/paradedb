@@ -130,14 +130,6 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         }
 
         let target_segment_count = index_options.target_segment_count();
-        if segment_cnt <= target_segment_count {
-            return Self {
-                user_configured_bg_layers: false,
-                foreground_layer_sizes: Vec::new(),
-                background_layer_sizes: Vec::new(),
-            };
-        }
-
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does
@@ -168,6 +160,13 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         let mut background_layer_sizes = index_options.background_layer_sizes();
         let has_bg_layers = !background_layer_sizes.is_empty();
 
+        if segment_cnt <= target_segment_count {
+            return Self {
+                user_configured_bg_layers: has_bg_layers,
+                foreground_layer_sizes: Vec::new(),
+                background_layer_sizes: Vec::new(),
+            };
+        }
         if !background_layer_sizes.is_empty() {
             // additionally, ensure that the background layer sizes are <= to the target segment size
             background_layer_sizes.retain(|&layer_size| layer_size <= target_segment_byte_size);
@@ -192,6 +191,7 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         }
     }
 }
+
 impl IndexLayerSizes {
     fn user_configured_background_layers(&self) -> bool {
         self.user_configured_bg_layers

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764107374329,
+  "lastUpdate": 1764107378344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8038,6 +8038,114 @@ window.BENCHMARK_DATA = {
             "value": 162.0859375,
             "unit": "median mem",
             "extra": "avg mem: 159.56807647031695, max mem: 162.2109375, count: 55562"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a962c20e6aad98012c54f62de8c8c1b878ac7d",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3617)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-25T15:55:52-05:00",
+          "tree_id": "ec73649f28ae80c2baba8f839f0ba68b5a6a0f4c",
+          "url": "https://github.com/paradedb/paradedb/commit/77a962c20e6aad98012c54f62de8c8c1b878ac7d"
+        },
+        "date": 1764107375874,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.640994985471536, max cpu: 41.860466, count: 55684"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 138.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.23497962554325, max mem: 164.63671875, count: 55684"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.738401,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.650158833993737, max cpu: 47.33728, count: 55684"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 111.7532192679899, max mem: 113.15625, count: 55684"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.795422325823506, max cpu: 9.421001, count: 55684"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 66.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 83.7918780529416, max mem: 146.171875, count: 55684"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13849,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13840.838158178292, max block_count: 23974.0, count: 55684"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5964293782903374, max cpu: 4.6647234, count: 55684"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 56.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 68.53852044853548, max mem: 119.72265625, count: 55684"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.815261116299116, max segment_count: 42.0, count: 55684"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.18830277510983, max cpu: 28.015566, count: 111368"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 144.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 123.10374901508962, max mem: 158.15625, count: 111368"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.758347455890961, max cpu: 27.906979, count: 55684"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 162.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.84103890087368, max mem: 162.9296875, count: 55684"
           }
         ]
       }

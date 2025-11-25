@@ -615,6 +615,48 @@ ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
 -- =============================================================================
+-- TEST 13: LEFT JOIN LATERAL with paradedb.snippet function
+-- =============================================================================
+-- Demonstrates TopN optimization with snippet generation for matched content
+EXPLAIN (COSTS OFF)
+SELECT 
+    a.id,
+    a.title,
+    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    latest_comment.comment_content
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        c.content as comment_content
+    FROM comments c
+    WHERE c.article_id = a.id
+    ORDER BY c.created_at DESC
+    LIMIT 1
+) latest_comment ON true
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+
+-- Execute to verify snippet generation works with LEFT JOIN LATERAL
+SELECT 
+    a.id,
+    a.title,
+    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    latest_comment.comment_content
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        c.content as comment_content
+    FROM comments c
+    WHERE c.article_id = a.id
+    ORDER BY c.created_at DESC
+    LIMIT 1
+) latest_comment ON true
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS articles CASCADE;

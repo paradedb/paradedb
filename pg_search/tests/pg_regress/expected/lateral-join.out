@@ -877,6 +877,72 @@ LIMIT 3;
 (3 rows)
 
 -- =============================================================================
+-- TEST 13: LEFT JOIN LATERAL with paradedb.snippet function
+-- =============================================================================
+-- Demonstrates TopN optimization with snippet generation for matched content
+EXPLAIN (COSTS OFF)
+SELECT 
+    a.id,
+    a.title,
+    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    latest_comment.comment_content
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        c.content as comment_content
+    FROM comments c
+    WHERE c.article_id = a.id
+    ORDER BY c.created_at DESC
+    LIMIT 1
+) latest_comment ON true
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Nested Loop Left Join
+         ->  Custom Scan (ParadeDB Scan) on articles a
+               Table: articles
+               Index: articles_bm25_idx
+               Exec Method: TopNScanExecState
+               Scores: true
+                  TopN Order By: pdb.score() desc
+                  TopN Limit: 3
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+         ->  Limit
+               ->  Sort
+                     Sort Key: c.created_at DESC
+                     ->  Seq Scan on comments c
+                           Filter: (article_id = a.id)
+(15 rows)
+
+-- Execute to verify snippet generation works with LEFT JOIN LATERAL
+SELECT 
+    a.id,
+    a.title,
+    paradedb.snippet(a.content, '<b>', '</b>') as content_snippet,
+    latest_comment.comment_content
+FROM articles a
+LEFT JOIN LATERAL (
+    SELECT 
+        c.content as comment_content
+    FROM comments c
+    WHERE c.article_id = a.id
+    ORDER BY c.created_at DESC
+    LIMIT 1
+) latest_comment ON true
+WHERE a.content @@@ 'database'
+ORDER BY paradedb.score(a.id) DESC
+LIMIT 3;
+ id |              title               |                            content_snippet                             |     comment_content      
+----+----------------------------------+------------------------------------------------------------------------+--------------------------
+  4 | Database Security Best Practices | How to secure your <b>database</b> systems effectively                 | Comment 93 about article
+ 12 | Database Indexing Strategies     | How to optimize <b>database</b> performance with indexes               | Comment 86 about article
+  1 | Understanding PostgreSQL         | PostgreSQL is a powerful <b>database</b> system with advanced features | Comment 90 about article
+(3 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS articles CASCADE;

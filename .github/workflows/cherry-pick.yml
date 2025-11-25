@@ -49,10 +49,6 @@ jobs:
           inherit_labels: false
           labels: automated-cherry-pick
 
-      - name: Cherry pick succeeded
-        if: steps.cherry_pick_action.outcome == 'success'
-        run: echo "Cherry-pick via github-cherry-pick-action succeeded; PR already opened."
-
       - name: Open PR from original branch to target on conflict
         if: steps.cherry_pick_action.outcome == 'failure'
         env:

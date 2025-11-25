@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764111116451,
+  "lastUpdate": 1764111119857,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3214,6 +3214,126 @@ window.BENCHMARK_DATA = {
             "value": 45.4375,
             "unit": "median mem",
             "extra": "avg mem: 42.72755204936225, max mem: 56.4140625, count: 55194"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c7dd16286eceeb5c6ca5945950135639a3c7ae3",
+          "message": "feat: Upgrade rust_icu (#3630)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n~We've had many reports over the months of incompatible `icu4c`\nversions. We used to depend on a runtime version of libicu. This PR\nupgrades us to latest rust_icu and enables the `static` flag so that\nthis issue is no longer present for our users.~\n\nStatic compilation doesn't work since it conflicts with Postgres' icu\ncompilation. I had tested upgrading the version, so I figured I'd at\nleast PR that.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n`cargo test -p tokenizers` still works and all tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Upgrade rust_icu dependencies and lockfile, adding rust_icu_release.\n> \n> - **Dependencies**:\n> - Update `tokenizers/Cargo.toml` to bump `rust_icu_*` crates\n(`rust_icu_ubrk`, `rust_icu_sys`, `rust_icu_ustring`, `rust_icu_uloc`,\n`rust_icu_common`) from `5.0.0` to `5.2.0`.\n> - Refresh `Cargo.lock` to `5.4.0` series for `rust_icu_*` crates and\nadd `rust_icu_release`; update related checksums and transitive deps.\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n79a8c9df7ef63cbfab62379c380d8924a9e65720. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->",
+          "timestamp": "2025-11-25T17:33:35-05:00",
+          "tree_id": "ab3e023177f1daf270eea7dfbc2f04dc2cb91b0f",
+          "url": "https://github.com/paradedb/paradedb/commit/5c7dd16286eceeb5c6ca5945950135639a3c7ae3"
+        },
+        "date": 1764111117348,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.750744777246736, max cpu: 19.21922, count: 55187"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 54.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.02525284770417, max mem: 67.234375, count: 55187"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580369248125526, max cpu: 9.284333, count: 55187"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 28.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.669957584553426, max mem: 28.89453125, count: 55187"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.801467626740175, max cpu: 18.934912, count: 55187"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 53.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.16255944278091, max mem: 66.09375, count: 55187"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.57657525910086, max cpu: 4.7619047, count: 55187"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 53.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.88025755046478, max mem: 63.60546875, count: 55187"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.645646361627972, max cpu: 9.347614, count: 110374"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 39.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 38.82750537377462, max mem: 50.08203125, count: 110374"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1782,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1785.2827658687734, max block_count: 3186.0, count: 55187"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.144689872614927, max segment_count: 31.0, count: 55187"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.513884979935811, max cpu: 4.819277, count: 55187"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.384657363826626, max mem: 53.90234375, count: 55187"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.389275062603291, max cpu: 4.733728, count: 55187"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.06754930962002, max mem: 55.9375, count: 55187"
           }
         ]
       }

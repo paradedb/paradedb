@@ -175,30 +175,16 @@ pub fn check_for_concurrent_vacuum(
     // while the segments were being scanned
     if old_ambulkdelete_epoch == new_ambulkdelete_epoch {
         return;
-    }
-
-    let directory =
-        MVCCDirectory::parallel_worker(indexrel, old_segments.keys().cloned().collect());
-    let index = Index::open(directory).expect("end_custom_scan: should be able to open index");
-    let new_metas = index
-        .searchable_segment_metas()
-        .expect("end_custom_scan: should be able to get segment metas");
-
-    let new_segments: FxHashMap<_, _> = new_metas
-        .iter()
-        .map(|meta| (meta.id(), meta.num_deleted_docs()))
-        .collect();
-
-    for (segment_id, num_deleted_docs) in old_segments {
-        if new_segments.get(&segment_id).unwrap_or(&0) != &num_deleted_docs {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_QUERY_CANCELED,
-                "cancelling query due to conflict with vacuum",
-                function_name!(),
-            )
-            .set_detail("a concurrent vacuum operation on the WAL sender is running")
-            .set_hint("retry the query when the vacuum operation has completed")
-            .report(PgLogLevel::ERROR);
-        }
+    // TODO: an optimization we can make in the future to make cancels less frequent is to inspect the segments
+    // assigned to each parallel worker and see if any of them have new deletes vs. when they were first read
+    } else {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_QUERY_CANCELED,
+            "cancelling query due to conflict with vacuum",
+            function_name!(),
+        )
+        .set_detail("a concurrent vacuum operation on the WAL sender is running")
+        .set_hint("retry the query when the vacuum operation has completed")
+        .report(PgLogLevel::ERROR);
     }
 }

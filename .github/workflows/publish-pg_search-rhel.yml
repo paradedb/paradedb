@@ -133,7 +133,7 @@ jobs:
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
-          dnf install -y sudo wget git ca-certificates gcc lvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
+          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF

@@ -297,6 +297,7 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test: Aggregation query'
 Test: Aggregation query
 -- Check execution plan for COUNT
@@ -353,6 +354,7 @@ WHERE content @@@ 'Socienty';
      2 |        1 |        1 |        1
 (1 row)
 
+RESET paradedb.enable_aggregate_custom_scan;
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)

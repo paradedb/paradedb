@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764106863735,
+  "lastUpdate": 1764106867343,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7876,6 +7876,114 @@ window.BENCHMARK_DATA = {
             "value": 161.59765625,
             "unit": "median mem",
             "extra": "avg mem: 159.13081461199667, max mem: 161.97265625, count: 55457"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "distinct": true,
+          "id": "7e097b9cb300e6a9e857775c9addda291518ab75",
+          "message": "feat: `pdb.agg()` support for wrapped functions and CTEs (#3588)\n\n## What\n\nFixes `pdb.agg()` to work correctly when:\n- Wrapped in other functions (e.g., `jsonb_pretty(pdb.agg(...))`)\n- Used inside Common Table Expressions (CTEs)\n- Used in subqueries\n\nAlso removes the `SUBQUERY_SUPPORT` feature flag - subqueries and CTEs\nare now always supported.\n\n- Closes #3504\n\n## Why\n\nPreviously, `pdb.agg()` would fail with errors like:\n- \"pdb.agg() must be handled by ParadeDB's custom scan\"\n- \"window_agg placeholder should not be executed\"\n\nThis happened because the planner hook only checked top-level\nexpressions and didn't recursively process CTEs or nested function\ncalls.\n\n## How\n\n**Planning stage:**\n- Added recursive CTE and subquery processing to the planner hook\n- Implemented `replace_in_node()` to walk expression trees and find\n`WindowFunc` nodes even when wrapped in other functions\n- Split `pdb.agg()` detection into two helpers:\n  - `query_has_paradedb_agg()` - recursive check for feature enablement\n- `query_has_paradedb_agg_at_current_level()` - non-recursive check for\nper-level validation\n\n**Execution stage:**\n- Implemented `replace_window_agg_with_const()` to recursively find and\nreplace `window_agg()` placeholders with `Const` nodes, even when\nwrapped\n- Updated `inject_window_aggregate_placeholders()` to handle nested\nexpressions\n\n**Detection:**\n- Changed `extract_and_convert_window_functions()` to use\n`expression_tree_walker` instead of only checking top-level nodes\n\n## Tests\n\nAdded regression tests in `fn_wrapped_agg.sql` covering:\n1. Basic `pdb.agg()` in TopN queries\n2. `pdb.agg()` wrapped in `jsonb_pretty()`\n3. `pdb.agg()` inside CTEs\n4. `pdb.agg()` in CTEs with outer function wrapping",
+          "timestamp": "2025-11-25T15:47:31-05:00",
+          "tree_id": "2dcdb7c6fe1bade242f3c3ac309be5e09f8c7a98",
+          "url": "https://github.com/paradedb/paradedb/commit/7e097b9cb300e6a9e857775c9addda291518ab75"
+        },
+        "date": 1764106864856,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.83491961748269, max cpu: 46.466602, count: 55562"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 134.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 121.8552197320111, max mem: 158.18359375, count: 55562"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.756149394233221, max cpu: 42.352943, count: 55562"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 111.60137668561697, max mem: 112.57421875, count: 55562"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.866429302584111, max cpu: 9.338522, count: 55562"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 117.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.00134168811418, max mem: 141.16015625, count: 55562"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14813.226629710953, max block_count: 25958.0, count: 55562"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.509607435675406, max cpu: 4.64666, count: 55562"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 83.73167953142435, max mem: 123.59765625, count: 55562"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.606061696843167, max segment_count: 41.0, count: 55562"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.676773514617828, max cpu: 37.64706, count: 111124"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 146.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 129.01518517601957, max mem: 152.36328125, count: 111124"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.027118242621182, max cpu: 27.87996, count: 55562"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 162.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.56807647031695, max mem: 162.2109375, count: 55562"
           }
         ]
       }

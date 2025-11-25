@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764038156686,
+  "lastUpdate": 1764038258084,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3868,6 +3868,60 @@ window.BENCHMARK_DATA = {
             "value": 14.272906682442402,
             "unit": "median tps",
             "extra": "avg tps: 14.496933648243903, max tps: 20.088341696746113, count: 55541"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bd02ab4267eaf048ba63da91b81c4415e153ea2",
+          "message": "fix: Mutable segment corruption when reading beyond number of entries (#3618)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUnder physical replication, we've observed a rare issue where entries of\nthe mutable segment fail to deserialize.\n\nThis always seems to happen when we are reading beyond the actual length\nof the mutable segment list. For instance, the mutable segment list only\ncontains 400 entries, but we try and deserialize entry 401.\n\nI don't yet have a perfect theory for why this is happening, but\nstopping the reading of the merge segment list when we've reached the\nnumber of entries seems to be working as a stopgap.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-24T20:44:24-05:00",
+          "tree_id": "db68d25211a34973b28339f0956e1982636fbffe",
+          "url": "https://github.com/paradedb/paradedb/commit/6bd02ab4267eaf048ba63da91b81c4415e153ea2"
+        },
+        "date": 1764038255734,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.6460039189894,
+            "unit": "median tps",
+            "extra": "avg tps: 31.42480477851542, max tps: 36.91924734467815, count: 55620"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 236.71617842676818,
+            "unit": "median tps",
+            "extra": "avg tps: 260.010773665949, max tps: 2683.3139463900707, count: 55620"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1890.53888805519,
+            "unit": "median tps",
+            "extra": "avg tps: 1876.0175440829776, max tps: 2253.8966524170078, count: 55620"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 176.34151444227075,
+            "unit": "median tps",
+            "extra": "avg tps: 202.68393611393708, max tps: 1670.856402967766, count: 111240"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.474215466145667,
+            "unit": "median tps",
+            "extra": "avg tps: 14.622138560380266, max tps: 19.64032129680171, count: 55620"
           }
         ]
       }

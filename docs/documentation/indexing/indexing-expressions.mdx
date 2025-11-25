@@ -16,7 +16,7 @@ WITH (key_field='id');
 To index an expression:
 
 1. Add the expression to the column list. In this example, the expression is `description || ' ' || category`.
-2. Cast it to a [tokenizer](/documentation/tokenizers), in this example `pdb.simple`.
+2. Cast it to a [tokenizer](/documentation/tokenizers/overview), in this example `pdb.simple`.
 3. ParadeDB will try and infer a field name based on the field used in the expression. However,
    if the field name cannot be inferred (e.g. because the expression involves more than one field), you will be required
    to add an `alias=<alias_name>` to the tokenizer.

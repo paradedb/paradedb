@@ -55,18 +55,21 @@ jobs:
         # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        runner: [ubicloud-standard-8]
+        # TODO: See https://github.com/paradedb/paradedb/issues/3613
+        runner: [ubicloud-standard-8-ubuntu-2204]
         arch: [amd64]
         include:
           # Add pgrx-managed Postgres for PG 17 (regular runner)
           - pg_version: 17
             pg_impl: pgrx
-            runner: ubicloud-standard-8
+            # TODO: See https://github.com/paradedb/paradedb/issues/3613
+            runner: ubicloud-standard-8-ubuntu-2204
             arch: amd64
           # Add ARM run for PG 17 (system Postgres)
           - pg_version: 17
             pg_impl: system
-            runner: ubicloud-standard-8-arm
+            # TODO: See https://github.com/paradedb/paradedb/issues/3613
+            runner: ubicloud-standard-8-arm-ubuntu-2204
             arch: arm64
 
     steps:
@@ -116,7 +119,7 @@ jobs:
       # ---------- pgrx-managed Postgres setup ----------
       - name: Initialize cargo-pgrx environment (pgrx download)
         if: matrix.pg_impl == 'pgrx'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit/integration tests
       - name: Install pgvector (system)

@@ -93,8 +93,8 @@ These examples assume that the index uses the default tokenizer and token filter
 | ------------------- | ------------------------- | ----- | -------------------------------------------- | --------------------------------------------------------------------- |
 | Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         |
 | Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Phrase](/documentation/full-text/phrase)                             |
-| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Lowercasing](/documentation/indexing)                                |
-| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](/documentation/indexing)                                   |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Lowercasing](/documentation/indexing/create-index)                   |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](/documentation/indexing/create-index)                      |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy](/documentation/full-text/fuzzy)                               |
 | White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/documentation/full-text/match#match-conjunction) |
 

@@ -285,7 +285,7 @@ impl MergeList {
     }
 
     pub unsafe fn list(&self) -> Vec<MergeEntry> {
-        self.entries.list()
+        self.entries.list(None)
     }
 
     pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) {
@@ -331,7 +331,7 @@ impl MergeList {
     pub unsafe fn list_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
         Box::new(
             self.entries
-                .list()
+                .list(None)
                 .into_iter()
                 .flat_map(move |merge_entry| {
                     merge_entry

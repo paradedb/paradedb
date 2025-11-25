@@ -31,7 +31,8 @@ concurrency:
 jobs:
   test-pg_search-upgrade:
     name: Test upgrading pg_search via ALTER EXTENSION
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
         pg_version: [17]

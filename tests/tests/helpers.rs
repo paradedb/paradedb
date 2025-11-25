@@ -108,7 +108,6 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("jieba".into(),),
                 ("lindera".into(),),
                 ("unicode_words".into(),),
-
             ]
         );
     } else {

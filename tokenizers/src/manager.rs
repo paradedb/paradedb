@@ -335,12 +335,11 @@ pub enum SearchTokenizer {
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba(SearchTokenizerFilters),
-
     Lindera(LinderaLanguage, SearchTokenizerFilters),
     UnicodeWords {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
-    }
+    },
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764106660036,
+  "lastUpdate": 1764106663353,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5800,6 +5800,108 @@ window.BENCHMARK_DATA = {
             "value": 156.33203125,
             "unit": "median mem",
             "extra": "avg mem: 176.24212209302326, max mem: 216.2109375, count: 55900"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a962c20e6aad98012c54f62de8c8c1b878ac7d",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3617)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-25T15:55:52-05:00",
+          "tree_id": "ec73649f28ae80c2baba8f839f0ba68b5a6a0f4c",
+          "url": "https://github.com/paradedb/paradedb/commit/77a962c20e6aad98012c54f62de8c8c1b878ac7d"
+        },
+        "date": 1764106660867,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07763545399709045, max background_merging: 2.0, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.806246577816689, max cpu: 9.67742, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.655269452662065, max mem: 21.078125, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.92927763246864, max cpu: 13.9265, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 155.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 153.8544684517262, max mem: 155.06640625, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53303,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53163.964038604834, max block_count: 53303.0, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.81648511514033, max segment_count: 58.0, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589420430801962, max cpu: 9.458128, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 117.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 105.4246938397039, max mem: 130.85546875, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714319951208036, max cpu: 9.628887, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 154.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.87959552301032, max mem: 154.44140625, count: 56366"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.974106812504633, max cpu: 33.333336, count: 56366"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.23748622285598, max mem: 216.703125, count: 56366"
           }
         ]
       }

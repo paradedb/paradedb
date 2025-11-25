@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764036065909,
+  "lastUpdate": 1764036070776,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1354,6 +1354,126 @@ window.BENCHMARK_DATA = {
             "value": 43.6875,
             "unit": "median mem",
             "extra": "avg mem: 42.25248440846668, max mem: 50.328125, count: 55559"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bd02ab4267eaf048ba63da91b81c4415e153ea2",
+          "message": "fix: Mutable segment corruption when reading beyond number of entries (#3618)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUnder physical replication, we've observed a rare issue where entries of\nthe mutable segment fail to deserialize.\n\nThis always seems to happen when we are reading beyond the actual length\nof the mutable segment list. For instance, the mutable segment list only\ncontains 400 entries, but we try and deserialize entry 401.\n\nI don't yet have a perfect theory for why this is happening, but\nstopping the reading of the merge segment list when we've reached the\nnumber of entries seems to be working as a stopgap.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-24T20:44:24-05:00",
+          "tree_id": "db68d25211a34973b28339f0956e1982636fbffe",
+          "url": "https://github.com/paradedb/paradedb/commit/6bd02ab4267eaf048ba63da91b81c4415e153ea2"
+        },
+        "date": 1764036068419,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.325565465219645, max cpu: 38.63179, count: 55497"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 51.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.81645854730886, max mem: 58.99609375, count: 55497"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622668897414468, max cpu: 9.320388, count: 55497"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.126266608442798, max mem: 28.20703125, count: 55497"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.35493283521767, max cpu: 38.63179, count: 55497"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 51.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.68879075107664, max mem: 58.9375, count: 55497"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.349929852488862, max cpu: 14.007783, count: 55497"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 49.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.19146354476368, max mem: 59.484375, count: 55497"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609607223437717, max cpu: 9.347614, count: 110994"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 37.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.45810806073977, max mem: 46.9375, count: 110994"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1502,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1475.172117411752, max block_count: 2477.0, count: 55497"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.860334792871686, max segment_count: 49.0, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.548733933193364, max cpu: 4.819277, count: 55497"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 38.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.94495007894571, max mem: 47.83984375, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.801358510981222, max cpu: 9.338522, count: 55497"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 40.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.685650167464004, max mem: 49.0390625, count: 55497"
           }
         ]
       }

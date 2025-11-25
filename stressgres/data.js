@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764113204416,
+  "lastUpdate": 1764113387653,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9160,6 +9160,60 @@ window.BENCHMARK_DATA = {
             "value": 14.685728298496267,
             "unit": "median tps",
             "extra": "avg tps: 14.764125326055769, max tps: 18.93664453945001, count: 55482"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c7dd16286eceeb5c6ca5945950135639a3c7ae3",
+          "message": "feat: Upgrade rust_icu (#3630)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n~We've had many reports over the months of incompatible `icu4c`\nversions. We used to depend on a runtime version of libicu. This PR\nupgrades us to latest rust_icu and enables the `static` flag so that\nthis issue is no longer present for our users.~\n\nStatic compilation doesn't work since it conflicts with Postgres' icu\ncompilation. I had tested upgrading the version, so I figured I'd at\nleast PR that.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n`cargo test -p tokenizers` still works and all tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Upgrade rust_icu dependencies and lockfile, adding rust_icu_release.\n> \n> - **Dependencies**:\n> - Update `tokenizers/Cargo.toml` to bump `rust_icu_*` crates\n(`rust_icu_ubrk`, `rust_icu_sys`, `rust_icu_ustring`, `rust_icu_uloc`,\n`rust_icu_common`) from `5.0.0` to `5.2.0`.\n> - Refresh `Cargo.lock` to `5.4.0` series for `rust_icu_*` crates and\nadd `rust_icu_release`; update related checksums and transitive deps.\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n79a8c9df7ef63cbfab62379c380d8924a9e65720. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->",
+          "timestamp": "2025-11-25T17:33:35-05:00",
+          "tree_id": "ab3e023177f1daf270eea7dfbc2f04dc2cb91b0f",
+          "url": "https://github.com/paradedb/paradedb/commit/5c7dd16286eceeb5c6ca5945950135639a3c7ae3"
+        },
+        "date": 1764113385102,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.009994555415304,
+            "unit": "median tps",
+            "extra": "avg tps: 30.95011155372689, max tps: 33.22387657466685, count: 55519"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 76.15191336632901,
+            "unit": "median tps",
+            "extra": "avg tps: 125.80191320812229, max tps: 2787.5047522354016, count: 55519"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1973.9333376637219,
+            "unit": "median tps",
+            "extra": "avg tps: 1971.7391450197792, max tps: 2435.2762883392106, count: 55519"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.32486463571576,
+            "unit": "median tps",
+            "extra": "avg tps: 137.0943924263239, max tps: 1730.0090344731414, count: 111038"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.04050249584862,
+            "unit": "median tps",
+            "extra": "avg tps: 15.091711653537613, max tps: 19.613839203274868, count: 55519"
           }
         ]
       }

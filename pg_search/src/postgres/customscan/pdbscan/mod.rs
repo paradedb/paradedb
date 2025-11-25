@@ -507,7 +507,7 @@ impl CustomScan for PdbScan {
                     );
 
                 // Check for LEFT JOIN LATERAL where left side drives the query
-                let is_left_driven_lateral = is_left_join_lateral(builder.args().root)
+                let is_left_driven_lateral = is_left_join_lateral(builder.args().root, rel)
                     && where_clause_only_references_left(builder.args().root, rti);
 
                 if rel_is_single_or_partitioned || is_left_driven_lateral {
@@ -1920,75 +1920,131 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
     }
 }
 
-/// Check if the query involves a LEFT JOIN LATERAL pattern
-unsafe fn is_left_join_lateral(root: *mut pg_sys::PlannerInfo) -> bool {
-    // Check if this is a join
+/// Check if the query contains a LEFT JOIN LATERAL pattern
+///
+/// This function verifies that the query has the specific structure:
+/// `... LEFT JOIN LATERAL (...) ...`
+///
+/// We verify:
+/// 1. The parse tree contains a LEFT JOIN node
+/// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
+///
+/// This enables TopN optimization because LEFT JOIN semantics guarantee all
+/// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
+/// left table, we can safely apply TopN to the left scan before the join.
+unsafe fn is_left_join_lateral(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    // Check if this is a join query
     if !(*root).hasJoinRTEs {
         return false;
     }
 
-    // Check if this relation is part of a join
-    let rtable = (*(*root).parse).rtable;
-    if rtable.is_null() {
+    // Check if this is a base relation (not a join itself)
+    if (*rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
         return false;
     }
 
-    // Walk the join tree to find if there's any LEFT JOIN LATERAL
+    // Check the parse tree for LEFT JOIN patterns with LATERAL
+    // We need to verify:
+    // 1. There's a LEFT JOIN in the query
+    // 2. The right side of that LEFT JOIN is LATERAL
+    //
+    // We use a combination of checks:
+    // - Parse tree: to find LEFT JOIN structure
+    // - RTE lateral flag: to confirm the right side is LATERAL
+
+    // First, quickly check if any LATERAL references exist at all
+    let simple_rel_array = (*root).simple_rel_array;
+    if simple_rel_array.is_null() {
+        return false;
+    }
+
+    let mut has_lateral = false;
+    let simple_rel_array_size = (*root).simple_rel_array_size;
+    for i in 1..simple_rel_array_size {
+        let other_rel = *simple_rel_array.add(i as usize);
+        if !other_rel.is_null() && !(*other_rel).lateral_relids.is_null() {
+            has_lateral = true;
+            break;
+        }
+    }
+
+    if !has_lateral {
+        return false;
+    }
+
+    // Now check the parse tree for LEFT JOIN structure
     let jointree = (*(*root).parse).jointree;
-    if !jointree.is_null() && !(*jointree).fromlist.is_null() {
-        let fromlist = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
-        for node in fromlist.iter_ptr() {
-            if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
-                // Check for LEFT JOIN LATERAL (right side is lateral)
-                if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT
-                    && !(*join_expr).rarg.is_null()
-                {
-                    // Recursively check if the right side contains any LATERAL references
-                    if contains_lateral_reference((*join_expr).rarg, rtable) {
-                        return true;
-                    }
-                }
-                // Note: RIGHT JOIN LATERAL is not supported by PostgreSQL
-                // LATERAL can only reference the left side in LEFT or INNER joins
-            }
+    if jointree.is_null() || (*jointree).fromlist.is_null() {
+        return false;
+    }
+
+    let fromlist = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in fromlist.iter_ptr() {
+        if has_left_join_lateral_pattern(node, (*root).parse) {
+            return true;
         }
     }
 
     false
 }
 
-/// Recursively check if a node contains any LATERAL references
-unsafe fn contains_lateral_reference(node: *mut pg_sys::Node, rtable: *mut pg_sys::List) -> bool {
+/// Recursively check if a node contains a LEFT JOIN LATERAL pattern
+unsafe fn has_left_join_lateral_pattern(
+    node: *mut pg_sys::Node,
+    query: *mut pg_sys::Query,
+) -> bool {
     if node.is_null() {
         return false;
     }
 
-    // Check if this is a RangeTblRef
-    if let Some(range_tbl_ref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
-        let rtindex = (*range_tbl_ref).rtindex;
-        let rte = pg_sys::rt_fetch(rtindex as pg_sys::Index, rtable);
-        return (*rte).lateral;
-    }
-
-    // Check if this is a JoinExpr - recursively check both sides
     if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
-        // Check left side
-        if contains_lateral_reference((*join_expr).larg, rtable) {
-            return true;
-        }
-        // Check right side
-        if contains_lateral_reference((*join_expr).rarg, rtable) {
-            return true;
-        }
-    }
-
-    // Check if this is a List (for FROM lists with multiple items)
-    if let Some(list_node) = nodecast!(List, T_List, node) {
-        let list = PgList::<pg_sys::Node>::from_pg(list_node);
-        for item in list.iter_ptr() {
-            if contains_lateral_reference(item, rtable) {
+        // Check if this is a LEFT JOIN
+        if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT {
+            // Check if the right side has LATERAL
+            if is_lateral_subquery((*join_expr).rarg, query) {
                 return true;
             }
+        }
+
+        // Recursively check nested joins
+        if has_left_join_lateral_pattern((*join_expr).larg, query) {
+            return true;
+        }
+        if has_left_join_lateral_pattern((*join_expr).rarg, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a node represents a LATERAL subquery
+unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
+    if node.is_null() || query.is_null() {
+        return false;
+    }
+
+    // Check if it's a RangeTblRef pointing to a LATERAL RTE
+    if let Some(rtref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
+        let rtable = (*query).rtable;
+        if !rtable.is_null() {
+            let rte = pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable);
+            if !rte.is_null() && (*rte).lateral {
+                return true;
+            }
+        }
+    }
+
+    // For nested joins, recursively check
+    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+        if is_lateral_subquery((*join_expr).larg, query) {
+            return true;
+        }
+        if is_lateral_subquery((*join_expr).rarg, query) {
+            return true;
         }
     }
 

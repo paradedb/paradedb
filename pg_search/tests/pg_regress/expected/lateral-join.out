@@ -709,9 +709,10 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 11: Nested JOIN with LATERAL (exercises nested join detection)
 -- =============================================================================
--- This test exercises the code path where rarg is a JoinExpr containing LATERAL
--- Note: This complex nested join pattern won't use TopN optimization, but it's
--- important to verify the nested LATERAL detection code path works correctly
+-- With the relaxed logic, this now uses TopN optimization because:
+-- 1. There's a LEFT JOIN in the query
+-- 2. There are LATERAL references (even if not to 'articles')
+-- 3. WHERE/ORDER BY only reference the left table ('articles')
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -789,7 +790,10 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 12: Deep nested joins with multiple LATERAL references
 -- =============================================================================
--- This test exercises the recursive LATERAL detection for complex nesting
+-- With the relaxed logic, this uses TopN optimization even though the LATERAL
+-- subquery doesn't directly reference 'articles'. TopN applies when:
+-- 1. There's any LEFT JOIN + LATERAL in the query
+-- 2. WHERE/ORDER BY only reference the left table
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,

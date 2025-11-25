@@ -1,6 +1,23 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS issue_3544_test;
-CREATE TABLE issue_3544_test (id SERIAL PRIMARY KEY, dates DATE);
-INSERT INTO issue_3544_test (dates) VALUES ('57439-03-01');
-CREATE INDEX ON issue_3544_test using bm25 (id, dates) WITH (key_field = 'id');
+CREATE TABLE issue_3544_test (id SERIAL PRIMARY KEY, dates DATE, info TEXT);
+INSERT INTO issue_3544_test (dates, info) VALUES ('57439-03-01', 'test');
+CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
+ERROR:  could not parse field `dates`: date 03-01-57439 is out of range: date must be in the range 1677-09-21..2262-04-11
+DELETE FROM issue_3544_test;
+INSERT INTO issue_3544_test (dates, info) VALUES ('2020-01-01', 'test');
+CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
+EXPLAIN SELECT count(*) FROM issue_3544_test WHERE info ||| 'xyz' AND dates <@ '[1677-09-22, 2262-04-10]'::daterange;
+                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=10.01..10.02 rows=1 width=8)
+   ->  Custom Scan (ParadeDB Scan) on issue_3544_test  (cost=10.00..10.01 rows=1 width=0)
+         Table: issue_3544_test
+         Index: issue_3544_test_id_dates_info_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"info","value":"xyz","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"dates","lower_bound":{"included":"1677-09-22T00:00:00Z"},"upper_bound":null,"is_datetime":true}},{"range":{"field":"dates","lower_bound":null,"upper_bound":{"excluded":"2262-04-11T00:00:00Z"},"is_datetime":true}}]}}
+(8 rows)
+
 DROP TABLE IF EXISTS issue_3544_test;

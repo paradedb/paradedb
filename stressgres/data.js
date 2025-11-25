@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764114119787,
+  "lastUpdate": 1764114123253,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14036,6 +14036,186 @@ window.BENCHMARK_DATA = {
             "value": 24.18359375,
             "unit": "median mem",
             "extra": "avg mem: 24.152093562759347, max mem: 24.18359375, count: 53741"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c7dd16286eceeb5c6ca5945950135639a3c7ae3",
+          "message": "feat: Upgrade rust_icu (#3630)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n~We've had many reports over the months of incompatible `icu4c`\nversions. We used to depend on a runtime version of libicu. This PR\nupgrades us to latest rust_icu and enables the `static` flag so that\nthis issue is no longer present for our users.~\n\nStatic compilation doesn't work since it conflicts with Postgres' icu\ncompilation. I had tested upgrading the version, so I figured I'd at\nleast PR that.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n`cargo test -p tokenizers` still works and all tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Upgrade rust_icu dependencies and lockfile, adding rust_icu_release.\n> \n> - **Dependencies**:\n> - Update `tokenizers/Cargo.toml` to bump `rust_icu_*` crates\n(`rust_icu_ubrk`, `rust_icu_sys`, `rust_icu_ustring`, `rust_icu_uloc`,\n`rust_icu_common`) from `5.0.0` to `5.2.0`.\n> - Refresh `Cargo.lock` to `5.4.0` series for `rust_icu_*` crates and\nadd `rust_icu_release`; update related checksums and transitive deps.\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n79a8c9df7ef63cbfab62379c380d8924a9e65720. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->",
+          "timestamp": "2025-11-25T17:33:35-05:00",
+          "tree_id": "ab3e023177f1daf270eea7dfbc2f04dc2cb91b0f",
+          "url": "https://github.com/paradedb/paradedb/commit/5c7dd16286eceeb5c6ca5945950135639a3c7ae3"
+        },
+        "date": 1764114120731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.005581368015035, max cpu: 9.257474, count: 53670"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 43.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.00271683435811, max mem: 52.44140625, count: 53670"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2186491954198866, max cpu: 4.5845275, count: 53670"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 23.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.5559699319918, max mem: 23.84375, count: 53670"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.430708830099105, max cpu: 18.461538, count: 53670"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 40.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.02476476616359, max mem: 44.36328125, count: 53670"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.986416596239446, max cpu: 9.239654, count: 53670"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 38.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 40.47639640977268, max mem: 47.74609375, count: 53670"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.619683410938095, max cpu: 9.151573, count: 53670"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 22.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.3280905009782, max mem: 30.203125, count: 53670"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1121,
+            "unit": "median pages",
+            "extra": "avg pages: 1114.8429849077697, max pages: 1843.0, count: 53670"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7578125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.709710819591951, max relation_size:MB: 14.3984375, count: 53670"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.489957145518912, max segment_count: 15.0, count: 53670"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.230327260765755, max cpu: 4.5845275, count: 53670"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.469068351732812, max mem: 22.36328125, count: 53670"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6585043721973065, max cpu: 4.562738, count: 53670"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.050327231227875, max mem: 21.4921875, count: 53670"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.732097388797978, max cpu: 18.303146, count: 53670"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 46.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.986861476965714, max mem: 55.2421875, count: 53670"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000023377619132618898, max replication_lag:MB: 0.262481689453125, count: 53670"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.055385497159526, max cpu: 13.766731, count: 107340"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 44.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.55178113937023, max mem: 53.828125, count: 107340"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.325851587301953, max cpu: 4.6065254, count: 53670"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 24.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.423073804616173, max mem: 24.74609375, count: 53670"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.093375071718979, max cpu: 4.5933013, count: 53670"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 24.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.224892572666295, max mem: 24.234375, count: 53670"
           }
         ]
       }

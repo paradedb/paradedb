@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764110210780,
+  "lastUpdate": 1764110316384,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5506,6 +5506,54 @@ window.BENCHMARK_DATA = {
             "value": 5.518240918837797,
             "unit": "median tps",
             "extra": "avg tps: 5.54296059734687, max tps: 6.889021719331537, count: 55879"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39b43c1a235f814cac17c033c9c015015c0ce498",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3635)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-25T13:56:58-08:00",
+          "tree_id": "0732e1ddd6ca9f74c80e49ab5c165fb772392790",
+          "url": "https://github.com/paradedb/paradedb/commit/39b43c1a235f814cac17c033c9c015015c0ce498"
+        },
+        "date": 1764110313835,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1154.8871404513397,
+            "unit": "median tps",
+            "extra": "avg tps: 1158.4218843193387, max tps: 1211.6266665625933, count: 55666"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1322.7703219568323,
+            "unit": "median tps",
+            "extra": "avg tps: 1311.9252280599437, max tps: 1332.4503686854305, count: 55666"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1984.7207947574598,
+            "unit": "median tps",
+            "extra": "avg tps: 1955.2074974700254, max tps: 2155.9273531835174, count: 55666"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.6209185086894,
+            "unit": "median tps",
+            "extra": "avg tps: 5.61407440425178, max tps: 6.484346806262723, count: 55666"
           }
         ]
       }

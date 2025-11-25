@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764109451235,
+  "lastUpdate": 1764109555491,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3718,6 +3718,42 @@ window.BENCHMARK_DATA = {
             "value": 5.482706550469811,
             "unit": "median tps",
             "extra": "avg tps: 4.940103798775679, max tps: 6.081393569045452, count: 57338"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39b43c1a235f814cac17c033c9c015015c0ce498",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3635)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-25T13:56:58-08:00",
+          "tree_id": "0732e1ddd6ca9f74c80e49ab5c165fb772392790",
+          "url": "https://github.com/paradedb/paradedb/commit/39b43c1a235f814cac17c033c9c015015c0ce498"
+        },
+        "date": 1764109552950,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.129395267021511,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9271571005640755, max tps: 10.680254601220087, count: 57333"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.415881298730538,
+            "unit": "median tps",
+            "extra": "avg tps: 4.895986857580242, max tps: 6.027543192155077, count: 57333"
           }
         ]
       }

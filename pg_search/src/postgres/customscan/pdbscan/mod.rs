@@ -506,10 +506,17 @@ impl CustomScan for PdbScan {
                         baserels,
                     );
 
-                if rel_is_single_or_partitioned {
+                // Check for LEFT JOIN LATERAL where left side drives the query
+                let is_left_driven_lateral = is_left_join_lateral(builder.args().root, rel)
+                    && where_clause_only_references_left(builder.args().root, rti);
+
+                if rel_is_single_or_partitioned || is_left_driven_lateral {
                     // We can use the limit for estimates if:
                     // a) we have a limit, and
-                    // b) we're querying a single relation OR partitions of a partitioned table
+                    // b) we're either:
+                    //    * querying a single relation OR
+                    //    * querying partitions of a partitioned table OR
+                    //    * we're in a LEFT JOIN LATERAL where the left side drives the query
                     Some((*builder.args().root).limit_tuples)
                 } else {
                     None
@@ -1567,8 +1574,18 @@ where
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
+            // Check if this is a PlaceHolderVar containing a score function
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
+                    if is_score_func(funcexpr.cast(), rti) {
+                        pathkey_styles.push(OrderByStyle::Score(pathkey));
+                        found_valid_member = true;
+                        break;
+                    }
+                }
+            }
             // Check if this is a score function
-            if is_score_func(expr.cast(), rti) {
+            else if is_score_func(expr.cast(), rti) {
                 pathkey_styles.push(OrderByStyle::Score(pathkey));
                 found_valid_member = true;
                 break;
@@ -1901,4 +1918,196 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
             }
         }
     }
+}
+
+/// Check if the query contains a LEFT JOIN LATERAL pattern
+///
+/// This function verifies that the query has the specific structure:
+/// `... LEFT JOIN LATERAL (...) ...`
+///
+/// We verify:
+/// 1. The parse tree contains a LEFT JOIN node
+/// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
+///
+/// This enables TopN optimization because LEFT JOIN semantics guarantee all
+/// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
+/// left table, we can safely apply TopN to the left scan before the join.
+unsafe fn is_left_join_lateral(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    // Check if this is a join query
+    if !(*root).hasJoinRTEs {
+        return false;
+    }
+
+    // Check if this is a base relation (not a join itself)
+    if (*rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        return false;
+    }
+
+    // Check the parse tree for LEFT JOIN patterns with LATERAL
+    // We need to verify:
+    // 1. There's a LEFT JOIN in the query
+    // 2. The right side of that LEFT JOIN is LATERAL
+    //
+    // We use a combination of checks:
+    // - Parse tree: to find LEFT JOIN structure
+    // - RTE lateral flag: to confirm the right side is LATERAL
+
+    // First, quickly check if any LATERAL references exist at all
+    let simple_rel_array = (*root).simple_rel_array;
+    if simple_rel_array.is_null() {
+        return false;
+    }
+
+    let mut has_lateral = false;
+    let simple_rel_array_size = (*root).simple_rel_array_size;
+    for i in 1..simple_rel_array_size {
+        let other_rel = *simple_rel_array.add(i as usize);
+        if !other_rel.is_null() && !(*other_rel).lateral_relids.is_null() {
+            has_lateral = true;
+            break;
+        }
+    }
+
+    if !has_lateral {
+        return false;
+    }
+
+    // Now check the parse tree for LEFT JOIN structure
+    let jointree = (*(*root).parse).jointree;
+    if jointree.is_null() || (*jointree).fromlist.is_null() {
+        return false;
+    }
+
+    let fromlist = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in fromlist.iter_ptr() {
+        if has_left_join_lateral_pattern(node, (*root).parse) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Recursively check if a node contains a LEFT JOIN LATERAL pattern
+unsafe fn has_left_join_lateral_pattern(
+    node: *mut pg_sys::Node,
+    query: *mut pg_sys::Query,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+        // Check if this is a LEFT JOIN
+        if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT {
+            // Check if the right side has LATERAL
+            if is_lateral_subquery((*join_expr).rarg, query) {
+                return true;
+            }
+        }
+
+        // Recursively check nested joins
+        if has_left_join_lateral_pattern((*join_expr).larg, query) {
+            return true;
+        }
+        if has_left_join_lateral_pattern((*join_expr).rarg, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a node represents a LATERAL subquery
+unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
+    if node.is_null() || query.is_null() {
+        return false;
+    }
+
+    // Check if it's a RangeTblRef pointing to a LATERAL RTE
+    if let Some(rtref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
+        let rtable = (*query).rtable;
+        if !rtable.is_null() {
+            let rte = pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable);
+            if !rte.is_null() && (*rte).lateral {
+                return true;
+            }
+        }
+    }
+
+    // For nested joins, recursively check
+    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+        if is_lateral_subquery((*join_expr).larg, query) {
+            return true;
+        }
+        if is_lateral_subquery((*join_expr).rarg, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Verify WHERE clause only references the left table (current relation)
+///
+/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as TopN.
+/// Because TopN eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
+/// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
+/// limit which would be filtered by conditions on the right hand side.
+unsafe fn where_clause_only_references_left(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> bool {
+    // Get WHERE clause
+    let quals = if !(*root).parse.is_null()
+        && !(*(*root).parse).jointree.is_null()
+        && !(*(*(*root).parse).jointree).quals.is_null()
+    {
+        (*(*(*root).parse).jointree).quals
+    } else {
+        return true; // No WHERE clause means it only references left
+    };
+
+    // Walk the quals to check if they only reference our relation
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let rti = *(data as *const pg_sys::Index);
+            // If we find a Var that's not from our relation, return true (fail)
+            if (*var).varno as i32 != rti as i32 && (*var).varno > 0 {
+                return true;
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    // If walker returns true, it found a reference to another relation
+    !walker(quals, &rti as *const _ as *mut _)
+}
+
+/// Extract FuncExpr from PlaceHolderVar node
+unsafe fn extract_funcexpr_from_placeholder(
+    phv: *mut pg_sys::PlaceHolderVar,
+) -> Option<*mut pg_sys::FuncExpr> {
+    if phv.is_null() || (*phv).phexpr.is_null() {
+        return None;
+    }
+
+    // The phexpr should contain our FuncExpr
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+        return Some(funcexpr);
+    }
+
+    None
 }

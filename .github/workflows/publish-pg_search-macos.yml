@@ -12,7 +12,7 @@ on:
     tags:
       - "v*"
     branches:
-      - phil/fix-releases
+      - phil/fix-releases2
   workflow_dispatch:
     inputs:
       version:
@@ -33,7 +33,7 @@ jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
-    if: ${{ !contains(github.ref, '-') }}
+    if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:

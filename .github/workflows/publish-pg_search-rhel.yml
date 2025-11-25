@@ -181,6 +181,7 @@ jobs:
           else
             RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
           fi
+          echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
           dnf install -y sudo wget git ca-certificates gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
@@ -210,6 +211,7 @@ jobs:
           EOF
 
           # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
+          echo "Importing Oracle GPG Key..."
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           sudo dnf install -y epel-release
 

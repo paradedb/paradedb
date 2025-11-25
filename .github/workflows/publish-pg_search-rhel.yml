@@ -6,8 +6,7 @@
 # out by the `if` condition of the job.
 #
 # Note: Prebuilt binaries for RHEL do not support the ICU tokenizer due to the lack of the
-# required ICU library versions on RHEL 8/9. EL 10 support uses Rocky Linux 10 as the build
-# environment, which may have updated ICU support (to be tested).
+# required ICU library versions on RHEL.
 
 name: Publish pg_search (Red Hat)
 
@@ -43,47 +42,6 @@ jobs:
     strategy:
       matrix:
         include:
-          # Red Hat Enterprise Linux 8
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 17
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 17
-            arch: aarch64
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-8
@@ -171,16 +129,7 @@ jobs:
       - name: Install Dependencies
         run: |
           # Extract RHEL version from the image name
-          # Handles formats: redhat/ubi8:latest, redhat/ubi9:latest, rockylinux:10
-          if [[ "${{ matrix.image }}" == *"ubi"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
-          elif [[ "${{ matrix.image }}" == *"rockylinux"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          elif [[ "${{ matrix.image }}" == *"almalinux"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          else
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          fi
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
@@ -264,16 +213,7 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         run: |
           # Extract RHEL version from the image name
-          # Handles formats: redhat/ubi8:latest, redhat/ubi9:latest, rockylinux:10
-          if [[ "${{ matrix.image }}" == *"ubi"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
-          elif [[ "${{ matrix.image }}" == *"rockylinux"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          elif [[ "${{ matrix.image }}" == *"almalinux"* ]]; then
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          else
-            RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F':' '{print $2}')
-          fi
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install the repository RPM:

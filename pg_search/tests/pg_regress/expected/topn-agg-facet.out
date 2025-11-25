@@ -1056,28 +1056,25 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+   Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Sort
-         Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+         Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
          Sort Key: products.price DESC
          ->  Limit
-               Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-               ->  Sort
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     Sort Key: products.rating DESC
-                     ->  WindowAgg
-                           Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                           ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: products.id, products.name, products.rating, products.price
-                                 Table: products
-                                 Index: products_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+               Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                     Table: products
+                     Index: products_idx
+                     Exec Method: TopNScanExecState
+                     Scores: false
+                        TopN Order By: rating desc
+                        TopN Limit: 5
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT * FROM (
     SELECT 
@@ -1746,8 +1743,8 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
    ->  Sort
@@ -1757,20 +1754,17 @@ LIMIT 3;
                Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
                Filter: (subq.total_count > 0)
                ->  Limit
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     ->  Sort
-                           Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                           Sort Key: products.rating DESC
-                           ->  WindowAgg
-                                 Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                                 ->  Custom Scan (ParadeDB Scan) on public.products
-                                       Output: products.id, products.name, products.rating, products.price
-                                       Table: products
-                                       Index: products_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                     Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+                     ->  Custom Scan (ParadeDB Scan) on public.products
+                           Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                           Table: products
+                           Index: products_idx
+                           Exec Method: TopNScanExecState
+                           Scores: false
+                              TopN Order By: rating desc
+                              TopN Limit: 5
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT *
 FROM (

@@ -198,22 +198,40 @@ impl LayeredMergePolicy {
                 .map(|entry| (entry.num_docs() + entry.num_deleted_docs()) as u64)
                 .sum::<u64>();
 
-        let mut candidates = Vec::new();
+        let mut candidates: Vec<(u64, MergeCandidate)> = Vec::new();
         let mut merged_segments = HashSet::default();
 
-        // aggressively convert any mutable segments into immutable ones
+        // aggressively merge away any mutable or completely empty segments
         for (segment_id, segment_meta_entry) in &self.mergeable_segments {
             if segment_meta_entry.is_mutable() {
+                // If a segment is mutable, then it makes sense to merge it away, even if it is the only item in the segment.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
                 {
-                    candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                        mc.0.push(segment_meta.id());
+                    } else {
+                        candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                    }
+
                     merged_segments.insert(segment_meta.id());
+                }
+            } else if segment_meta_entry.num_docs() == 0 {
+                // If it is not mutable, but is still empty for some reason, then we should include it in any other candidate level
+                // that is planned (in order to get rid of it), but there is no point in doing a single-entry merge.
+                if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
+                {
+                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                        mc.0.push(segment_meta.id());
+                        merged_segments.insert(segment_meta.id());
+                    }
                 }
             }
         }
 
         let mut layer_sizes = self.layer_sizes.clone();
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
+
+        logger(directory, &format!("merged segments: {merged_segments:?}"));
 
         for layer_size in layer_sizes {
             // individual segments that total a certain byte amount typically merge together into

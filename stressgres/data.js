@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764038884606,
+  "lastUpdate": 1764038965288,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5054,6 +5054,54 @@ window.BENCHMARK_DATA = {
             "value": 91.11828219781762,
             "unit": "median tps",
             "extra": "avg tps: 97.506113918912, max tps: 557.037685841524, count: 107258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bd02ab4267eaf048ba63da91b81c4415e153ea2",
+          "message": "fix: Mutable segment corruption when reading beyond number of entries (#3618)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUnder physical replication, we've observed a rare issue where entries of\nthe mutable segment fail to deserialize.\n\nThis always seems to happen when we are reading beyond the actual length\nof the mutable segment list. For instance, the mutable segment list only\ncontains 400 entries, but we try and deserialize entry 401.\n\nI don't yet have a perfect theory for why this is happening, but\nstopping the reading of the merge segment list when we've reached the\nnumber of entries seems to be working as a stopgap.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-24T20:44:24-05:00",
+          "tree_id": "db68d25211a34973b28339f0956e1982636fbffe",
+          "url": "https://github.com/paradedb/paradedb/commit/6bd02ab4267eaf048ba63da91b81c4415e153ea2"
+        },
+        "date": 1764038962857,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 147.9569208383489,
+            "unit": "median tps",
+            "extra": "avg tps: 192.99124203151197, max tps: 679.2763913142829, count: 53637"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 156.35205369208916,
+            "unit": "median tps",
+            "extra": "avg tps: 209.65447168940398, max tps: 757.4576593385489, count: 53637"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 76.29745049492712,
+            "unit": "median tps",
+            "extra": "avg tps: 77.73465761999938, max tps: 96.00097223106347, count: 53637"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 88.53789793839186,
+            "unit": "median tps",
+            "extra": "avg tps: 95.4033554429455, max tps: 497.43071508649876, count: 107274"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764113200824,
+  "lastUpdate": 1764113204416,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8146,6 +8146,108 @@ window.BENCHMARK_DATA = {
             "value": 156.62109375,
             "unit": "median mem",
             "extra": "avg mem: 175.30073716959959, max mem: 216.4921875, count: 55917"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f4cd86fa82780074a064ce4ab5b331ffe6f6c45",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3638)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T14:42:51-08:00",
+          "tree_id": "4b8bf14150321315144b3a87bc29c3332910ddb2",
+          "url": "https://github.com/paradedb/paradedb/commit/5f4cd86fa82780074a064ce4ab5b331ffe6f6c45"
+        },
+        "date": 1764113201829,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07819253438113949, max background_merging: 2.0, count: 55990"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.829511026821058, max cpu: 9.667674, count: 55990"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.76924771722629, max mem: 20.046875, count: 55990"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.015404422736576, max cpu: 14.201183, count: 55990"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 154.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 153.43288080181728, max mem: 154.91796875, count: 55990"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52953,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52810.05077692445, max block_count: 52953.0, count: 55990"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.228290766208254, max segment_count: 58.0, count: 55990"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.591793198277934, max cpu: 9.365853, count: 55990"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 107.72457860778711, max mem: 134.34375, count: 55990"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.753474462788163, max cpu: 9.638554, count: 55990"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 154.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 151.19224512747812, max mem: 154.6953125, count: 55990"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.89011389315475, max cpu: 33.333336, count: 55990"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.80596883930167, max mem: 217.01171875, count: 55990"
           }
         ]
       }

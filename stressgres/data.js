@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764105898164,
+  "lastUpdate": 1764105901953,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3862,6 +3862,66 @@ window.BENCHMARK_DATA = {
             "value": 82,
             "unit": "median segment_count",
             "extra": "avg segment_count: 84.19589055311495, max segment_count: 134.0, count: 57818"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a962c20e6aad98012c54f62de8c8c1b878ac7d",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3617)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-25T15:55:52-05:00",
+          "tree_id": "ec73649f28ae80c2baba8f839f0ba68b5a6a0f4c",
+          "url": "https://github.com/paradedb/paradedb/commit/77a962c20e6aad98012c54f62de8c8c1b878ac7d"
+        },
+        "date": 1764105899504,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.57792344157355, max cpu: 43.32999, count: 57338"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 229.49483456379278, max mem: 230.67578125, count: 57338"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.452521736519166, max cpu: 33.432835, count: 57338"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 169.625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.47555620018574, max mem: 169.625, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34544,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33903.63539014266, max block_count: 37094.0, count: 57338"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.28045973002197, max segment_count: 133.0, count: 57338"
           }
         ]
       }

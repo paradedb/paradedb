@@ -37,47 +37,6 @@ jobs:
     strategy:
       matrix:
         include:
-          # Debian 12 (Bookworm)
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
-            image: debian:12-slim
-            pg_version: 14
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
-            image: debian:12-slim
-            pg_version: 14
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
-            image: debian:12-slim
-            pg_version: 15
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
-            image: debian:12-slim
-            pg_version: 15
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
-            image: debian:12-slim
-            pg_version: 16
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
-            image: debian:12-slim
-            pg_version: 16
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
-            image: debian:12-slim
-            pg_version: 17
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
-            image: debian:12-slim
-            pg_version: 17
-            arch: arm64
           # Debian 13 (Trixie)
           - name: Debian 13 (Trixie)
             runner: ubicloud-standard-8
@@ -117,6 +76,47 @@ jobs:
           - name: Debian 13 (Trixie)
             runner: ubicloud-standard-4-arm
             image: debian:13-slim
+            pg_version: 17
+            arch: arm64
+          # Debian 12 (Bookworm)
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 14
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 14
+            arch: arm64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 15
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 15
+            arch: arm64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 16
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 16
+            arch: arm64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 17
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
             pg_version: 17
             arch: arm64
           # Debian 11 (Bullseye)

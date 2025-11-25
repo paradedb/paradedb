@@ -15,6 +15,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - phil/fix-releases
   workflow_dispatch:
     inputs:
       version:
@@ -82,47 +84,6 @@ jobs:
             image: redhat/ubi8:latest
             pg_version: 17
             arch: aarch64
-          # Enterprise Linux 10
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
-            pg_version: 14
-            arch: x86_64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
-            pg_version: 14
-            arch: aarch64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
-            pg_version: 15
-            arch: x86_64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
-            pg_version: 15
-            arch: aarch64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
-            pg_version: 16
-            arch: x86_64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
-            pg_version: 16
-            arch: aarch64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-8
-            image: rockylinux/rockylinux:10
-            pg_version: 17
-            arch: x86_64
-          - name: Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
-            image: rockylinux/rockylinux:10
-            pg_version: 17
-            arch: aarch64
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-8
@@ -162,6 +123,47 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
+            pg_version: 17
+            arch: aarch64
+          # Enterprise Linux 10
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 14
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 14
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 15
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 15
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 16
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
+            pg_version: 16
+            arch: aarch64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: rockylinux/rockylinux:10
+            pg_version: 17
+            arch: x86_64
+          - name: Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: rockylinux/rockylinux:10
             pg_version: 17
             arch: aarch64
 

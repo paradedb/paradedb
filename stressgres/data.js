@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764111038014,
+  "lastUpdate": 1764111116451,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1114,6 +1114,72 @@ window.BENCHMARK_DATA = {
             "value": 170.32254769966937,
             "unit": "median tps",
             "extra": "avg tps: 203.3099447168339, max tps: 779.7447271712186, count: 55194"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c7dd16286eceeb5c6ca5945950135639a3c7ae3",
+          "message": "feat: Upgrade rust_icu (#3630)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n~We've had many reports over the months of incompatible `icu4c`\nversions. We used to depend on a runtime version of libicu. This PR\nupgrades us to latest rust_icu and enables the `static` flag so that\nthis issue is no longer present for our users.~\n\nStatic compilation doesn't work since it conflicts with Postgres' icu\ncompilation. I had tested upgrading the version, so I figured I'd at\nleast PR that.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n`cargo test -p tokenizers` still works and all tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Upgrade rust_icu dependencies and lockfile, adding rust_icu_release.\n> \n> - **Dependencies**:\n> - Update `tokenizers/Cargo.toml` to bump `rust_icu_*` crates\n(`rust_icu_ubrk`, `rust_icu_sys`, `rust_icu_ustring`, `rust_icu_uloc`,\n`rust_icu_common`) from `5.0.0` to `5.2.0`.\n> - Refresh `Cargo.lock` to `5.4.0` series for `rust_icu_*` crates and\nadd `rust_icu_release`; update related checksums and transitive deps.\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n79a8c9df7ef63cbfab62379c380d8924a9e65720. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->",
+          "timestamp": "2025-11-25T17:33:35-05:00",
+          "tree_id": "ab3e023177f1daf270eea7dfbc2f04dc2cb91b0f",
+          "url": "https://github.com/paradedb/paradedb/commit/5c7dd16286eceeb5c6ca5945950135639a3c7ae3"
+        },
+        "date": 1764111113971,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 460.95855410622954,
+            "unit": "median tps",
+            "extra": "avg tps: 464.1931858021132, max tps: 578.4145495607713, count: 55187"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3171.143309803817,
+            "unit": "median tps",
+            "extra": "avg tps: 3155.668272176611, max tps: 3319.621682081353, count: 55187"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 461.1570703166822,
+            "unit": "median tps",
+            "extra": "avg tps: 463.56655804350186, max tps: 615.3329747480424, count: 55187"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 388.35457782597916,
+            "unit": "median tps",
+            "extra": "avg tps: 391.1702862664263, max tps: 443.9679619954545, count: 55187"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3413.286424570585,
+            "unit": "median tps",
+            "extra": "avg tps: 3398.72636689878, max tps: 3481.1268736098073, count: 110374"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2198.72253622028,
+            "unit": "median tps",
+            "extra": "avg tps: 2193.0061642079927, max tps: 2213.500126025454, count: 55187"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 165.18351664521654,
+            "unit": "median tps",
+            "extra": "avg tps: 187.34384962726813, max tps: 500.752704955652, count: 55187"
           }
         ]
       }

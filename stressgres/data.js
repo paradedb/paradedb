@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764104660408,
+  "lastUpdate": 1764105159909,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -850,6 +850,72 @@ window.BENCHMARK_DATA = {
             "value": 53.630831530306644,
             "unit": "median tps",
             "extra": "avg tps: 56.88536999221607, max tps: 348.3694220829983, count: 55523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a962c20e6aad98012c54f62de8c8c1b878ac7d",
+          "message": "fix: Actually merge away mutable/fully empty segments (#3617)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf you run the `logical-replication.toml` stressgres, you'll see lots of\ncompletely deleted segments pile up, not getting merged away.\n\nThere are two reasons for this:\n\n1. We have some code that does not kick off a merge if we are below the\ntarget segment count. While this is good, we should make an exception\nfor fully deleted segments.\n\n2. Inside the merge policy, completely empty segments would get thrown\naway from the merge candidates list because they would end up in a layer\non their own, and discarded because a merge candidate must have at least\n2 segments.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-25T15:55:52-05:00",
+          "tree_id": "ec73649f28ae80c2baba8f839f0ba68b5a6a0f4c",
+          "url": "https://github.com/paradedb/paradedb/commit/77a962c20e6aad98012c54f62de8c8c1b878ac7d"
+        },
+        "date": 1764105157455,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 479.76911878216447,
+            "unit": "median tps",
+            "extra": "avg tps: 485.0653965163963, max tps: 607.6218951233216, count: 55174"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3223.83413466232,
+            "unit": "median tps",
+            "extra": "avg tps: 3213.4450100942463, max tps: 3234.6002218881345, count: 55174"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 481.5239784776413,
+            "unit": "median tps",
+            "extra": "avg tps: 485.6355426870746, max tps: 581.6498456942202, count: 55174"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 380.39550275791476,
+            "unit": "median tps",
+            "extra": "avg tps: 385.0922508394293, max tps: 438.4718499321214, count: 55174"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3396.6993299012424,
+            "unit": "median tps",
+            "extra": "avg tps: 3390.658943016852, max tps: 3419.3687848909744, count: 110348"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2172.9205891320144,
+            "unit": "median tps",
+            "extra": "avg tps: 2164.7979517884, max tps: 2184.1561072281042, count: 55174"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 213.37436597181986,
+            "unit": "median tps",
+            "extra": "avg tps: 259.1845792136651, max tps: 870.2318906919126, count: 55174"
           }
         ]
       }

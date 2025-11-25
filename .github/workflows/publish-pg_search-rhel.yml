@@ -165,9 +165,6 @@ jobs:
           echo "Importing Oracle GPG Key..."
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol9 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
 
-          # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
-          sudo dnf install -y epel-release
-
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools

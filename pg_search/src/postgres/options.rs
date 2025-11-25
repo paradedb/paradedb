@@ -302,7 +302,7 @@ pub struct BM25IndexOptions {
 
 impl BM25IndexOptions {
     pub const MISSING_KEY_FIELD_CONFIG: &'static str =
-        "index should have a `WITH (key_field='...')` option";
+        "index key field is corrupt";
 
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
@@ -597,6 +597,9 @@ impl BM25IndexOptions {
     #[inline(always)]
     pub fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {
+            // Needed to set defaults when there is no rd_options (no WITH clause)
+            // We might want to think about putting these on the struct as defaults
+            // in the future
             if (*self.indexrel).rd_options.is_null() {
                 static EMPTY_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
                     vl_len_: std::mem::size_of::<BM25IndexOptionsData>() as i32,
@@ -678,6 +681,8 @@ impl BM25IndexOptionsData {
         }
     }
 
+    // Always returns the first field in the index. 
+    // Previously used WITH key_field (deprecated option)
     pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {

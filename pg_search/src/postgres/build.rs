@@ -21,7 +21,7 @@ use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
+use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
@@ -244,10 +244,7 @@ fn validate_field_config(
     if field_name.root() == key_field_name.root() {
         match config {
             // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Keyword,
-                ..
-            } => {
+            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
                 // noop
             }
 

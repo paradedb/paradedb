@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764108295117,
+  "lastUpdate": 1764108299188,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2656,6 +2656,126 @@ window.BENCHMARK_DATA = {
             "value": 45.02734375,
             "unit": "median mem",
             "extra": "avg mem: 43.80658901271432, max mem: 54.12109375, count: 55174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8fb05f9b58d7d1256b9cf0f59311da8be77c4104",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3550)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:48:12-08:00",
+          "tree_id": "73b0e83903c8a05b3e5d24776ac1e9a1fdae60bb",
+          "url": "https://github.com/paradedb/paradedb/commit/8fb05f9b58d7d1256b9cf0f59311da8be77c4104"
+        },
+        "date": 1764108296659,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6770342550235755, max cpu: 23.738873, count: 55124"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 53.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.23032695321004, max mem: 64.71484375, count: 55124"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.754253166387118, max cpu: 9.467456, count: 55124"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.744824948638524, max mem: 28.60546875, count: 55124"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.980672340959227, max cpu: 23.976025, count: 55124"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 53.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.20352636782527, max mem: 64.36328125, count: 55124"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.616241189310913, max cpu: 4.833837, count: 55124"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 49.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.63362005433205, max mem: 62.01171875, count: 55124"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.587364978286622, max cpu: 9.365853, count: 110248"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 37.997177705321185, max mem: 48.703125, count: 110248"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1742,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1758.6208366591684, max block_count: 3091.0, count: 55124"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.024472099267108, max segment_count: 30.0, count: 55124"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.454362219269177, max cpu: 4.828974, count: 55124"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 41.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.03844067749528, max mem: 53.51953125, count: 55124"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2932045109183745, max cpu: 4.7477746, count: 55124"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.080209363208404, max mem: 56.05078125, count: 55124"
           }
         ]
       }

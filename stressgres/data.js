@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764093715580,
+  "lastUpdate": 1764093718924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4936,6 +4936,108 @@ window.BENCHMARK_DATA = {
             "value": 157.3359375,
             "unit": "median mem",
             "extra": "avg mem: 176.19344583847158, max mem: 216.8125, count: 55953"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1478d17163b3a319c78213f973161105f4fe8172",
+          "message": "feat: `pdb.agg()` support for wrapped functions and CTEs (#3588)\n\n## What\n\nFixes `pdb.agg()` to work correctly when:\n- Wrapped in other functions (e.g., `jsonb_pretty(pdb.agg(...))`)\n- Used inside Common Table Expressions (CTEs)\n- Used in subqueries\n\nAlso removes the `SUBQUERY_SUPPORT` feature flag - subqueries and CTEs\nare now always supported.\n\n- Closes #3504\n\n## Why\n\nPreviously, `pdb.agg()` would fail with errors like:\n- \"pdb.agg() must be handled by ParadeDB's custom scan\"\n- \"window_agg placeholder should not be executed\"\n\nThis happened because the planner hook only checked top-level\nexpressions and didn't recursively process CTEs or nested function\ncalls.\n\n## How\n\n**Planning stage:**\n- Added recursive CTE and subquery processing to the planner hook\n- Implemented `replace_in_node()` to walk expression trees and find\n`WindowFunc` nodes even when wrapped in other functions\n- Split `pdb.agg()` detection into two helpers:\n  - `query_has_paradedb_agg()` - recursive check for feature enablement\n- `query_has_paradedb_agg_at_current_level()` - non-recursive check for\nper-level validation\n\n**Execution stage:**\n- Implemented `replace_window_agg_with_const()` to recursively find and\nreplace `window_agg()` placeholders with `Const` nodes, even when\nwrapped\n- Updated `inject_window_aggregate_placeholders()` to handle nested\nexpressions\n\n**Detection:**\n- Changed `extract_and_convert_window_functions()` to use\n`expression_tree_walker` instead of only checking top-level nodes\n\n## Tests\n\nAdded regression tests in `fn_wrapped_agg.sql` covering:\n1. Basic `pdb.agg()` in TopN queries\n2. `pdb.agg()` wrapped in `jsonb_pretty()`\n3. `pdb.agg()` inside CTEs\n4. `pdb.agg()` in CTEs with outer function wrapping",
+          "timestamp": "2025-11-25T09:13:06-08:00",
+          "tree_id": "2564b4cb5637090acfaaf73c71de54b14cbe6a19",
+          "url": "https://github.com/paradedb/paradedb/commit/1478d17163b3a319c78213f973161105f4fe8172"
+        },
+        "date": 1764093716460,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07145638629283489, max background_merging: 2.0, count: 56496"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819546348251376, max cpu: 9.514371, count: 56496"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 17.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.55305609301986, max mem: 20.125, count: 56496"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.951857181999158, max cpu: 14.501511, count: 56496"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 153.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 152.4985330819881, max mem: 153.7890625, count: 56496"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51180,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51052.42627796658, max block_count: 51180.0, count: 56496"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.54504743698669, max segment_count: 56.0, count: 56496"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622596664892166, max cpu: 9.514371, count: 56496"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 117.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.61159480593759, max mem: 131.0, count: 56496"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.783369567937312, max cpu: 9.667674, count: 56496"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 154.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.72504420943517, max mem: 154.2265625, count: 56496"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.04709291538006, max cpu: 33.667336, count: 56496"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.02108604757416, max mem: 217.28125, count: 56496"
           }
         ]
       }

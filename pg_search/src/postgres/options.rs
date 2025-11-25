@@ -279,6 +279,7 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
+
 #[derive(Debug, Clone, Default)]
 struct LazyInfo {
     // these are ordered in an order that's likely most common to least common
@@ -344,10 +345,11 @@ impl BM25IndexOptions {
     }
 
     pub fn key_field_name(&self) -> FieldName {
-        self.options_data()
-            .key_field_name()
+        // Always return first field in index (ignore any WITH key_field option)
+        unsafe { get_first_index_field_from_relation(self.indexrel) }
             .expect(Self::MISSING_KEY_FIELD_CONFIG)
     }
+    
 
     pub fn key_field_type(&self) -> SearchFieldType {
         self.get_field_type(&self.key_field_name())
@@ -593,10 +595,28 @@ impl BM25IndexOptions {
     }
 
     #[inline(always)]
-    fn options_data(&self) -> &BM25IndexOptionsData {
+    pub fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {
-            assert!(!(*self.indexrel).rd_options.is_null());
-            &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            if (*self.indexrel).rd_options.is_null() {
+                static EMPTY_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
+                    vl_len_: std::mem::size_of::<BM25IndexOptionsData>() as i32,
+                    text_fields_offset: 0,
+                    numeric_fields_offset: 0,
+                    boolean_fields_offset: 0,
+                    json_fields_offset: 0,
+                    range_fields_offset: 0,
+                    datetime_fields_offset: 0,
+                    key_field_offset: 0,
+                    layer_sizes_offset: 0,
+                    inet_fields_offset: 0,
+                    target_segment_count: 0,
+                    background_layer_sizes_offset: 0,
+                    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+                };
+                &EMPTY_OPTIONS
+            } else {
+                &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            }
         }
     }
 }
@@ -604,7 +624,7 @@ impl BM25IndexOptions {
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-struct BM25IndexOptionsData {
+pub struct BM25IndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -913,4 +933,15 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             fast: true,
         },
     }
+}
+
+pub unsafe fn get_first_index_field_from_relation(indexrel: pg_sys::Relation) -> Result<FieldName, &'static str> {
+    let tupdesc = (*indexrel).rd_att;
+    if (*tupdesc).natts == 0 {
+        return Err("index has no fields");
+    }
+    
+    let first_attr = (*tupdesc).attrs.as_ptr();
+    let attr_name = pgrx::name_data_to_str(&(*first_attr).attname);
+    Ok(attr_name.into())
 }

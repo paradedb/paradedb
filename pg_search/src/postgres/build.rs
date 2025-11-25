@@ -21,7 +21,7 @@ use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
@@ -97,14 +97,84 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
     create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
 }
 
-unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
-    // quick check to make sure we have "WITH" options
-    if index_relation.rd_options.is_null() {
-        panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
+unsafe fn check_first_column_has_unique_index(heap_relation: &PgSearchRelation, first_field: &FieldName) -> bool {
+    // Get list of indexes on this relation
+    let index_list = pg_sys::RelationGetIndexList(heap_relation.as_ptr());
+    if index_list.is_null() {
+        return false;
     }
+    
+    let mut has_unique = false;
+    
+    // Use pgrx's PgList to iterate through indexes
+    let pg_list = PgList::<pg_sys::Oid>::from_pg(index_list);
+    for index_oid in pg_list.iter_oid() {
+        if index_oid == pg_sys::InvalidOid {
+            continue;
+        }
+        
+        // Get pg_index row for this index
+        let index_tuple = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::INDEXRELID as _, index_oid.into());
+        if index_tuple.is_null() {
+            continue;
+        }
+        
+        let index_form = pg_sys::GETSTRUCT(index_tuple) as *const pg_sys::FormData_pg_index;
+        
+        // Check if index is unique and valid (including primary keys)
+        if (*index_form).indisunique && (*index_form).indisvalid {
+            // Check if this is a single-column index on our field
+            if (*index_form).indnatts == 1 {
+                let attno_ptr = (*index_form).indkey.values.as_ptr();
+                let attno = *attno_ptr;
+                
+                // Get column name from attribute number
+                let tupdesc = heap_relation.tuple_desc();
+                if attno > 0 && (attno as usize) <= tupdesc.len() {
+                    let column_name = tupdesc.get((attno - 1) as usize).unwrap().name();
+                    if column_name == first_field.as_ref() {
+                        has_unique = true;
+                    }
+                }
+            }
+        }
+        
+        pg_sys::ReleaseSysCache(index_tuple);
+        
+        if has_unique {
+            break;
+        }
+    }
+    
+    has_unique
+}
 
-    let options = index_relation.options();
-    let key_field_name = options.key_field_name();
+unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
+    // Check if key_field was explicitly provided (show deprecation warning)
+    if !index_relation.rd_options.is_null() {
+        let options = index_relation.options();
+        if let Some(_) = options.options_data().key_field_name() {
+            pgrx::notice!("WITH (key_field='...') is deprecated. The first column in the index definition is automatically used as the key field.");
+        }
+    }
+    
+    // Always use custom logic - check that first column has unique constraint
+    let key_field_name = {
+        let first_field = unsafe { 
+            crate::postgres::options::get_first_index_field_from_relation(index_relation.as_ptr())
+        }.unwrap_or_else(|e| panic!("{}", e));
+        
+        if let Some(heap_relation) = index_relation.heap_relation() {
+            if check_first_column_has_unique_index(&heap_relation, &first_field) {
+                first_field
+            } else {
+                panic!("First column '{}' in index must have a unique constraint (primary key or unique index)", 
+                       first_field.as_ref());
+            }
+        } else {
+            panic!("Could not access table information");
+        }
+    };
 
     let options = index_relation.options();
     let text_configs = options.text_config();
@@ -174,12 +244,17 @@ fn validate_field_config(
     if field_name.root() == key_field_name.root() {
         match config {
             // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
+            SearchFieldConfig::Text {
+                tokenizer: SearchTokenizer::Keyword,
+                ..
+            } => {
                 // noop
             }
 
             // but not to anything else
-            _ => panic!("cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key")
+            _ => panic!(
+                "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
+            ),
         }
     }
 

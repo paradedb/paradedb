@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764110554660,
+  "lastUpdate": 1764110558297,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9496,6 +9496,114 @@ window.BENCHMARK_DATA = {
             "value": 162.28515625,
             "unit": "median mem",
             "extra": "avg mem: 159.84103890087368, max mem: 162.9296875, count: 55684"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8fb05f9b58d7d1256b9cf0f59311da8be77c4104",
+          "message": "fix: custom scan issues with target list handling (in preparation for enabling the GUC by default) (#3550)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Fixed unsafe list manipulation in `replace_aggrefs_in_target_list`\nwhen replacing aggregate references\n- Added early bailout for queries containing `PARAM_EXEC` nodes\n(correlated subqueries)\n- Updated tests to explicitly control `enable_aggregate_custom_scan`\nsetting\n\n## Why\n\nThe aggregate custom scan had two issues:\n1. The target list replacement logic used `PgList::from_pg` which could\ncause issues when the list was already processed or empty\n2. Correlated subqueries with `PARAM_EXEC` parameters would fail because\nthe custom scan doesn't support evaluating correlation conditions at\nexecution time\n\n## How\n\n- Added a pre-check in `replace_aggrefs_in_target_list` to verify\nT_Aggref nodes exist before processing\n- Switched to safer `list_nth`/`lappend` pattern instead of\n`PgList::from_pg`/`into_pg` for list manipulation\n- Added `contains_exec_param` check in the planner to fall back to\nregular scan for correlated queries\n- Made tests deterministic by explicitly setting aggregate custom scan\non/off as needed\n\n## Tests\n\n- Updated pg_regress expected outputs to reflect correct query plans\n- Modified test fixtures to use `CREATE EXTENSION IF NOT EXISTS`\n- Added explicit GUC settings in tests that depend on specific scan\nbehavior\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T13:48:12-08:00",
+          "tree_id": "73b0e83903c8a05b3e5d24776ac1e9a1fdae60bb",
+          "url": "https://github.com/paradedb/paradedb/commit/8fb05f9b58d7d1256b9cf0f59311da8be77c4104"
+        },
+        "date": 1764110555816,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.528849433974216, max cpu: 42.60355, count: 55547"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 164.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.37851567422632, max mem: 164.9453125, count: 55547"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.716867708300474, max cpu: 46.466602, count: 55547"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.349655964206, max mem: 113.4140625, count: 55547"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.763217301544764, max cpu: 9.365853, count: 55547"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 112.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.39191135434857, max mem: 147.67578125, count: 55547"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13907,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14200.52355662772, max block_count: 25572.0, count: 55547"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.57859538109414, max cpu: 4.669261, count: 55547"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 90.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 82.91809392552703, max mem: 127.4296875, count: 55547"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.008641330764938, max segment_count: 36.0, count: 55547"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.690642515593288, max cpu: 41.819942, count: 111094"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.125,
+            "unit": "median mem",
+            "extra": "avg mem: 128.9650903387559, max mem: 154.42578125, count: 111094"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.940993392989258, max cpu: 27.853, count: 55547"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 161.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 158.35280349580086, max mem: 162.3359375, count: 55547"
           }
         ]
       }

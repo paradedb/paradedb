@@ -1470,6 +1470,9 @@ unsafe fn inject_window_aggregate_placeholders(
 // but operates at a different stage:
 // - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
 // - This function: Execution stage - replaces window_agg() → Const placeholder for value injection
+//
+// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
+// See https://github.com/paradedb/paradedb/issues/3455
 unsafe fn replace_window_agg_with_const(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,

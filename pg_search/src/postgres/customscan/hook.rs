@@ -933,6 +933,9 @@ unsafe fn replace_windowfuncs_in_query(
 // but operates at a different stage:
 // - This function: Planning stage - replaces WindowFunc → window_agg() placeholder
 // - That function: Execution stage - replaces window_agg() → Const placeholder for value injection
+//
+// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
+// See https://github.com/paradedb/paradedb/issues/3455
 unsafe fn replace_in_node(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,

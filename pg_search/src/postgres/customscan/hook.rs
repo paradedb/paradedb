@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
@@ -202,7 +203,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     // Otherwise, respect the enable_aggregate_custom_scan GUC setting
     let has_paradedb_agg = unsafe {
         let parse = (*root).parse;
-        !parse.is_null() && query_has_paradedb_agg(parse)
+        !parse.is_null() && query_has_paradedb_agg(parse, true)
     };
 
     if !has_paradedb_agg && !gucs::enable_aggregate_custom_scan() {
@@ -364,88 +365,6 @@ pub unsafe fn try_extract_quals_from_query(
     false
 }
 
-/// Check if this specific query level contains pdb.agg() (non-recursive)
-///
-/// This checks only the current query level, not subqueries or CTEs, because each
-/// query level is processed independently by the planner hook. This is used for:
-/// - Error messages specific to this query level
-/// - Validation that this level meets requirements (e.g., TopN)
-unsafe fn query_has_paradedb_agg_at_current_level(parse: *mut pg_sys::Query) -> bool {
-    use crate::api::agg_funcoid;
-
-    let paradedb_agg_oid = agg_funcoid().to_u32();
-
-    struct WalkerContext {
-        paradedb_agg_oid: u32,
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check for window function usage
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            if (*window_func).winfnoid.to_u32() == (*ctx).paradedb_agg_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
-        }
-
-        // Check for aggregate function usage (GROUP BY context)
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
-            if (*aggref).aggfnoid.to_u32() == (*ctx).paradedb_agg_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext {
-        paradedb_agg_oid,
-        found: false,
-    };
-
-    // Check target list (only current level, not subqueries/CTEs)
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-        for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null() {
-                walker(
-                    (*te).expr as *mut pg_sys::Node,
-                    &mut context as *mut _ as *mut core::ffi::c_void,
-                );
-                if context.found {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // Check HAVING clause (only current level)
-    if !(*parse).havingQual.is_null() {
-        walker(
-            (*parse).havingQual,
-            &mut context as *mut _ as *mut core::ffi::c_void,
-        );
-        if context.found {
-            return true;
-        }
-    }
-
-    false
-}
-
 /// Check if we should replace window functions in this query.
 ///
 /// Returns `true` if:
@@ -467,7 +386,7 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     }
 
     // Check if pdb.agg() is used at the CURRENT level (not in subqueries/CTEs)
-    let has_paradedb_agg_current_level = query_has_paradedb_agg_at_current_level(parse);
+    let has_paradedb_agg_current_level = query_has_paradedb_agg(parse, false);
 
     // Check if this is a TopN query
     if !query_is_topn(parse) {
@@ -786,27 +705,25 @@ unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
 }
 
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)
-/// If it does, we MUST handle it (even without @@@ operator)
-/// Uses expression_tree_walker for complete traversal
-/// Recursively checks subqueries and CTEs
 ///
-/// NOTE: This logic is duplicated with similar checks in other parts of the codebase.
-/// Both need to identify pdb.agg() calls, so changes to one should be reflected in the other.
-/// Check if the query tree contains pdb.agg() anywhere (recursive)
+/// Parameters:
+/// - `parse`: The query to check
+/// - `recursive`: If true, recursively checks subqueries and CTEs. If false, only checks current level.
 ///
-/// This recursively checks the entire query tree including subqueries and CTEs.
-/// Used by the upper_paths_callback to decide if aggregate custom scan should be enabled.
+/// When `recursive = false`: Used for per-level validation and error messages (e.g., checking if
+/// a specific query level meets TopN requirements).
 ///
-/// Note: This is different from query_has_paradedb_agg_at_current_level, which only
-/// checks the current level for validation purposes.
+/// When `recursive = true`: Used for global feature enablement (e.g., deciding if aggregate
+/// custom scan should be enabled for the entire query tree).
+///
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
-unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
-    use crate::api::agg_funcoid;
-
+unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oid = agg_funcoid().to_u32();
+    let window_agg_proc_oid = window_agg_oid();
 
     struct WalkerContext {
         paradedb_agg_oid: u32,
+        window_agg_proc_oid: pg_sys::Oid,
         found: bool,
     }
 
@@ -821,7 +738,7 @@ unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
 
         let ctx = context.cast::<WalkerContext>();
 
-        // Check for window function usage
+        // Check for window function usage (before planner hook replacement)
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
             if (*window_func).winfnoid.to_u32() == (*ctx).paradedb_agg_oid {
                 (*ctx).found = true;
@@ -837,12 +754,24 @@ unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
             }
         }
 
+        // Check for window_agg() placeholder (after planner hook replacement)
+        // This allows detection even after WindowFunc → window_agg() replacement
+        if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid {
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+                if (*funcexpr).funcid == (*ctx).window_agg_proc_oid {
+                    (*ctx).found = true;
+                    return true; // Stop walking
+                }
+            }
+        }
+
         // Continue walking the tree
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
 
     let mut context = WalkerContext {
         paradedb_agg_oid,
+        window_agg_proc_oid,
         found: false,
     };
 
@@ -873,25 +802,30 @@ unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query) -> bool {
         }
     }
 
-    // Check subqueries
-    if !(*parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_has_paradedb_agg((*rte).subquery)
-            {
-                return true;
+    // Only check subqueries and CTEs if recursive mode is enabled
+    if recursive {
+        // Check subqueries
+        if !(*parse).rtable.is_null() {
+            let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+            for rte in rtable.iter_ptr() {
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                    && !(*rte).subquery.is_null()
+                    && query_has_paradedb_agg((*rte).subquery, recursive)
+                {
+                    return true;
+                }
             }
         }
-    }
 
-    // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
-        let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
-        for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_has_paradedb_agg((*cte).ctequery.cast()) {
-                return true;
+        // Check CTEs (Common Table Expressions)
+        if !(*parse).cteList.is_null() {
+            let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+            for cte in ctelist.iter_ptr() {
+                if !(*cte).ctequery.is_null()
+                    && query_has_paradedb_agg((*cte).ctequery.cast(), recursive)
+                {
+                    return true;
+                }
             }
         }
     }

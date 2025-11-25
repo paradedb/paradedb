@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764092738803,
+  "lastUpdate": 1764093742238,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -4874,6 +4874,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 92.5295,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1478d17163b3a319c78213f973161105f4fe8172",
+          "message": "feat: `pdb.agg()` support for wrapped functions and CTEs (#3588)\n\n## What\n\nFixes `pdb.agg()` to work correctly when:\n- Wrapped in other functions (e.g., `jsonb_pretty(pdb.agg(...))`)\n- Used inside Common Table Expressions (CTEs)\n- Used in subqueries\n\nAlso removes the `SUBQUERY_SUPPORT` feature flag - subqueries and CTEs\nare now always supported.\n\n- Closes #3504\n\n## Why\n\nPreviously, `pdb.agg()` would fail with errors like:\n- \"pdb.agg() must be handled by ParadeDB's custom scan\"\n- \"window_agg placeholder should not be executed\"\n\nThis happened because the planner hook only checked top-level\nexpressions and didn't recursively process CTEs or nested function\ncalls.\n\n## How\n\n**Planning stage:**\n- Added recursive CTE and subquery processing to the planner hook\n- Implemented `replace_in_node()` to walk expression trees and find\n`WindowFunc` nodes even when wrapped in other functions\n- Split `pdb.agg()` detection into two helpers:\n  - `query_has_paradedb_agg()` - recursive check for feature enablement\n- `query_has_paradedb_agg_at_current_level()` - non-recursive check for\nper-level validation\n\n**Execution stage:**\n- Implemented `replace_window_agg_with_const()` to recursively find and\nreplace `window_agg()` placeholders with `Const` nodes, even when\nwrapped\n- Updated `inject_window_aggregate_placeholders()` to handle nested\nexpressions\n\n**Detection:**\n- Changed `extract_and_convert_window_functions()` to use\n`expression_tree_walker` instead of only checking top-level nodes\n\n## Tests\n\nAdded regression tests in `fn_wrapped_agg.sql` covering:\n1. Basic `pdb.agg()` in TopN queries\n2. `pdb.agg()` wrapped in `jsonb_pretty()`\n3. `pdb.agg()` inside CTEs\n4. `pdb.agg()` in CTEs with outer function wrapping",
+          "timestamp": "2025-11-25T09:13:06-08:00",
+          "tree_id": "2564b4cb5637090acfaaf73c71de54b14cbe6a19",
+          "url": "https://github.com/paradedb/paradedb/commit/1478d17163b3a319c78213f973161105f4fe8172"
+        },
+        "date": 1764093739771,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1181.6100000000001,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 632.674,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1460.6535,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 691.967,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 668.2194999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1622.6615000000002,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 23.92,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 65.565,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 89.8595,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

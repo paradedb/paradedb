@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764039626500,
+  "lastUpdate": 1764039629789,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3640,6 +3640,108 @@ window.BENCHMARK_DATA = {
             "value": 157.16015625,
             "unit": "median mem",
             "extra": "avg mem: 175.88453881856822, max mem: 217.03125, count: 56112"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "553484d76445895df38c2d1102f1a6e9b3b6fbf8",
+          "message": "fix: Mutable segment corruption when reading beyond number of entries (#3624)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUnder physical replication, we've observed a rare issue where entries of\nthe mutable segment fail to deserialize.\n\nThis always seems to happen when we are reading beyond the actual length\nof the mutable segment list. For instance, the mutable segment list only\ncontains 400 entries, but we try and deserialize entry 401.\n\nI don't yet have a perfect theory for why this is happening, but\nstopping the reading of the merge segment list when we've reached the\nnumber of entries seems to be working as a stopgap.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-24T21:19:04-05:00",
+          "tree_id": "15acd09158f6c1da87843db016cc4d76c3c2a3c1",
+          "url": "https://github.com/paradedb/paradedb/commit/553484d76445895df38c2d1102f1a6e9b3b6fbf8"
+        },
+        "date": 1764039627327,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07162735933207265, max background_merging: 2.0, count: 56054"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.767649823409917, max cpu: 9.836065, count: 56054"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 18.84787409239305, max mem: 21.61328125, count: 56054"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976096019135709, max cpu: 14.45783, count: 56054"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 153.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 152.67163262768938, max mem: 153.77734375, count: 56054"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51043,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50903.14764334392, max block_count: 51043.0, count: 56054"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.14450351446819, max segment_count: 61.0, count: 56054"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.659621007432103, max cpu: 9.504951, count: 56054"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 108.52950914241178, max mem: 132.83203125, count: 56054"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.750254805164779, max cpu: 9.667674, count: 56054"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 155.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 152.32673446029722, max mem: 155.80859375, count: 56054"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.840027776263025, max cpu: 33.83686, count: 56054"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.1946802971242, max mem: 216.3125, count: 56054"
           }
         ]
       }

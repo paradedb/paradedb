@@ -80,6 +80,22 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             });
         }
 
+        // Check if the WHERE clause contains PARAM_EXEC nodes (correlation parameters from outer queries)
+        // If filter_pushdown is disabled, we can't handle correlated subqueries, so bail out
+        // If filter_pushdown is enabled, we'll convert correlated predicates to HeapExpr which can
+        // evaluate them at execution time with proper parameter passing
+        unsafe {
+            // restrict_info is a list of RestrictInfo nodes
+            let has_correlation = restrict_info.iter_ptr().any(|rinfo| {
+                !(*rinfo).clause.is_null() && contains_exec_param((*rinfo).clause.cast())
+            });
+
+            if has_correlation && !crate::gucs::enable_filter_pushdown() {
+                // Can't handle correlation without HeapFilter support
+                return None;
+            }
+        }
+
         let mut where_qual_state = QualExtractState::default();
         let quals = unsafe {
             extract_quals(

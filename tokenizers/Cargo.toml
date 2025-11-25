@@ -26,26 +26,27 @@ emoji = "0.2.1"
 unicode-segmentation = "1.12.0"
 
 [dependencies.rust_icu_ubrk]
-version = "5.0.0"
+version = "5.2.0"
 optional = true
 
 [dependencies.rust_icu_sys]
-version = "5.0.0"
+version = "5.2.0"
 optional = true
+features = ["static"]
 
 [dependencies.rust_icu_ustring]
-version = "5.0.0"
+version = "5.2.0"
 optional = true
 
 [dependencies.rust_icu_uloc]
-version = "5.0.0"
+version = "5.2.0"
 optional = true
 
 [dev-dependencies]
 rstest = "0.25.0"
 
 [dependencies.rust_icu_common]
-version = "5.0.0"
+version = "5.2.0"
 optional = true
 
 [package.metadata.cargo-machete]

@@ -309,11 +309,6 @@ impl<'a> ParallelAggregationWorker<'a> {
         if unsafe { pgrx::pg_sys::HotStandbyActive() } {
             check_for_concurrent_vacuum(
                 &PgSearchRelation::open(self.config.indexrelid),
-                self.segment_ids
-                    .iter()
-                    .filter(|(segment_id, _)| segment_ids.contains(segment_id))
-                    .map(|(segment_id, deleted_docs)| (*segment_id, *deleted_docs))
-                    .collect(),
                 self.ambulkdelete_epoch,
             );
         }
@@ -548,14 +543,7 @@ pub fn execute_aggregate(
                 )?;
 
                 if pgrx::pg_sys::HotStandbyActive() {
-                    check_for_concurrent_vacuum(
-                        index,
-                        segment_ids
-                            .iter()
-                            .map(|(segment_id, deleted_docs)| (*segment_id, *deleted_docs))
-                            .collect(),
-                        ambulkdelete_epoch,
-                    );
+                    check_for_concurrent_vacuum(index, ambulkdelete_epoch);
                 }
 
                 Ok(result)

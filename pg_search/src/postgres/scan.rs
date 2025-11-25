@@ -28,7 +28,7 @@ use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
-use rustc_hash::FxHashMap;
+
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
     reader: SearchIndexReader,
@@ -331,28 +331,10 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 // For (parallel) index only scans that rely on the vismap, we need to check for a concurrent vacuum
                 // and cancel if we're in a WAL receiver
                 if pgrx::pg_sys::HotStandbyActive() {
-                    if let Some(pscan_state) = parallel::get_bm25_scan_state(scan) {
-                        unsafe {
-                            check_for_concurrent_vacuum(
-                                &PgSearchRelation::from_pg((*scan).indexRelation),
-                                (*pscan_state).segments(),
-                                state.ambulkdelete_epoch,
-                            )
-                        };
-                    } else if (*scan).xs_want_itup {
-                        unsafe {
-                            check_for_concurrent_vacuum(
-                                &PgSearchRelation::from_pg((*scan).indexRelation),
-                                state
-                                    .reader
-                                    .segment_readers()
-                                    .iter()
-                                    .map(|r| (r.segment_id(), r.num_deleted_docs()))
-                                    .collect::<FxHashMap<_, _>>(),
-                                state.ambulkdelete_epoch,
-                            )
-                        }
-                    }
+                    check_for_concurrent_vacuum(
+                        &PgSearchRelation::from_pg((*scan).indexRelation),
+                        state.ambulkdelete_epoch,
+                    );
                 }
 
                 // we are done returning results

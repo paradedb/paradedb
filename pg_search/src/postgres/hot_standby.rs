@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(static_mut_refs)]
-use crate::api::{HashMap, HashSet};
-use crate::index::mvcc::MVCCDirectory;
+use crate::api::HashSet;
 use crate::postgres::merge::free_entries;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
@@ -24,8 +23,7 @@ use crate::postgres::storage::linked_items;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys::{self, panic::ErrorReport};
 use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
-use rustc_hash::FxHashMap;
-use tantivy::{index::SegmentId, Index};
+use tantivy::index::SegmentId;
 
 ///
 /// Validates that a hot standby is properly configured, ideally at most once per process.
@@ -165,19 +163,14 @@ pub fn feedback_xmin() -> Option<pg_sys::FullTransactionId> {
 /// was updated. We need to cancel the current query to prevent deleted ctids that this query is about to return
 // from showing up as visible, leading to incorrect results.
 ///
-pub fn check_for_concurrent_vacuum(
-    indexrel: &PgSearchRelation,
-    old_segments: HashMap<SegmentId, u32>,
-    old_ambulkdelete_epoch: u32,
-) {
+pub fn check_for_concurrent_vacuum(indexrel: &PgSearchRelation, old_ambulkdelete_epoch: u32) {
     let new_ambulkdelete_epoch = MetaPage::open(indexrel).ambulkdelete_epoch();
     // if the ambulkdelete_epoch hasn't changed, that guarantees that the visibility map has not changed
     // while the segments were being scanned
-    if old_ambulkdelete_epoch == new_ambulkdelete_epoch {
-        return;
+    //
     // TODO: an optimization we can make in the future to make cancels less frequent is to inspect the segments
     // assigned to each parallel worker and see if any of them have new deletes vs. when they were first read
-    } else {
+    if old_ambulkdelete_epoch != new_ambulkdelete_epoch {
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_QUERY_CANCELED,
             "cancelling query due to conflict with vacuum",

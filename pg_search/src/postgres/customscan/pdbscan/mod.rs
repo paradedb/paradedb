@@ -1272,8 +1272,6 @@ impl CustomScan for PdbScan {
                                 };
                                 check_for_concurrent_vacuum(
                                     indexrel,
-                                    // todo: this returns all segments, not just the ones that this worker scanned
-                                    worker_segments,
                                     custom_state.ambulkdelete_epoch,
                                 );
                             } else {
@@ -1287,7 +1285,6 @@ impl CustomScan for PdbScan {
                                     .collect::<HashMap<_, _>>();
                                 check_for_concurrent_vacuum(
                                     indexrel,
-                                    segments,
                                     custom_state.ambulkdelete_epoch,
                                 );
                             }

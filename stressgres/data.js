@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764066298791,
+  "lastUpdate": 1764066302074,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7548,6 +7548,186 @@ window.BENCHMARK_DATA = {
             "value": 24.64453125,
             "unit": "median mem",
             "extra": "avg mem: 24.593989675387327, max mem: 24.64453125, count: 53637"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "555dbffd8e840906924893fe14ba577711ca9a30",
+          "message": "feat: enable TopN optimization for LEFT JOIN LATERAL queries (#3590)\n\n# Ticket(s) Closed\n\n- Closes #3239\n\n## What\n\nEnables TopN optimization for `LEFT JOIN LATERAL` queries, allowing\nefficient execution of queries that combine lateral joins with `ORDER\nBY` and `LIMIT` clauses.\n\n## Why\n\nPreviously, `LEFT JOIN LATERAL` queries would default to a Normal scan\neven when they could benefit from TopN optimization. This was due to:\n1. The LIMIT from joined relations not being extracted\n2. The `paradedb.score()` function being wrapped in `PlaceHolderVar`\nduring joins, preventing proper pathkey extraction\n\nThis resulted in suboptimal performance for common query patterns like\nfetching the latest comment for each article.\n\n## How\n\n- Added `is_left_join_lateral()` to detect LEFT JOIN LATERAL patterns in\nthe query tree\n- Added `where_clause_only_references_left()` to ensure WHERE clauses\nonly reference the driving (left) table\n- Added `extract_funcexpr_from_placeholder()` to unwrap score functions\nfrom PlaceHolderVar nodes\n- Used `contains_lateral_reference()` for recursive detection of LATERAL\nin nested joins\n- Modified `create_custom_path()` to extract LIMIT for LEFT JOIN LATERAL\nqueries when conditions are met\n- Updated pathkey extraction to handle PlaceHolderVar-wrapped score\nfunctions\n\nThe optimization applies when:\n- The query uses LEFT JOIN LATERAL\n- The WHERE clause only references the left table\n- ORDER BY columns are from the left table and are indexed/fast fields\n- A LIMIT clause is present\n\n## Tests\n\nAdded regression tests in `lateral-join.sql`.",
+          "timestamp": "2025-11-25T01:19:32-08:00",
+          "tree_id": "ae5b3b7155e76725f727456e012ee1875f64b665",
+          "url": "https://github.com/paradedb/paradedb/commit/555dbffd8e840906924893fe14ba577711ca9a30"
+        },
+        "date": 1764066299652,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.919600652428116, max cpu: 27.745665, count: 53606"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 41.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.139555783750886, max mem: 44.3671875, count: 53606"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.52965940466658, max cpu: 4.6153846, count: 53606"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 23.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.841713730739098, max mem: 23.078125, count: 53606"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 22.748816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.25926307207682, max cpu: 32.621357, count: 53606"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 38.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.222977750858114, max mem: 44.47265625, count: 53606"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.529441245522419, max cpu: 23.255816, count: 53606"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 38.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.01009922221859, max mem: 42.19140625, count: 53606"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.625172264250409, max cpu: 9.320388, count: 53606"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 24.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 24.43694517054994, max mem: 27.2265625, count: 53606"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 910,
+            "unit": "median pages",
+            "extra": "avg pages: 900.3690445099429, max pages: 1411.0, count: 53606"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 7.109375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 7.034133524582137, max relation_size:MB: 11.0234375, count: 53606"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 32.77946498526284, max segment_count: 65.0, count: 53606"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.044791714744159, max cpu: 4.6153846, count: 53606"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.087191732268774, max mem: 21.5, count: 53606"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.472862606852304, max cpu: 4.6511626, count: 53606"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.547934451717158, max mem: 21.9296875, count: 53606"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.458706138417378, max cpu: 18.640776, count: 53606"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.800677556500204, max mem: 51.59765625, count: 53606"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000023745540469029818, max replication_lag:MB: 0.13117218017578125, count: 53606"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.831221443794764, max cpu: 18.60465, count: 107212"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.37875533697254, max mem: 51.87109375, count: 107212"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9198114261853956, max cpu: 4.6421666, count: 53606"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 23.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 23.72441095096631, max mem: 24.23046875, count: 53606"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.259818689910014, max cpu: 4.6153846, count: 53606"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 23.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 23.009529454492036, max mem: 23.0546875, count: 53606"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764092962619,
+  "lastUpdate": 1764092966179,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3298,6 +3298,66 @@ window.BENCHMARK_DATA = {
             "value": 83,
             "unit": "median segment_count",
             "extra": "avg segment_count: 85.11375041239083, max segment_count: 135.0, count: 57591"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1478d17163b3a319c78213f973161105f4fe8172",
+          "message": "feat: `pdb.agg()` support for wrapped functions and CTEs (#3588)\n\n## What\n\nFixes `pdb.agg()` to work correctly when:\n- Wrapped in other functions (e.g., `jsonb_pretty(pdb.agg(...))`)\n- Used inside Common Table Expressions (CTEs)\n- Used in subqueries\n\nAlso removes the `SUBQUERY_SUPPORT` feature flag - subqueries and CTEs\nare now always supported.\n\n- Closes #3504\n\n## Why\n\nPreviously, `pdb.agg()` would fail with errors like:\n- \"pdb.agg() must be handled by ParadeDB's custom scan\"\n- \"window_agg placeholder should not be executed\"\n\nThis happened because the planner hook only checked top-level\nexpressions and didn't recursively process CTEs or nested function\ncalls.\n\n## How\n\n**Planning stage:**\n- Added recursive CTE and subquery processing to the planner hook\n- Implemented `replace_in_node()` to walk expression trees and find\n`WindowFunc` nodes even when wrapped in other functions\n- Split `pdb.agg()` detection into two helpers:\n  - `query_has_paradedb_agg()` - recursive check for feature enablement\n- `query_has_paradedb_agg_at_current_level()` - non-recursive check for\nper-level validation\n\n**Execution stage:**\n- Implemented `replace_window_agg_with_const()` to recursively find and\nreplace `window_agg()` placeholders with `Const` nodes, even when\nwrapped\n- Updated `inject_window_aggregate_placeholders()` to handle nested\nexpressions\n\n**Detection:**\n- Changed `extract_and_convert_window_functions()` to use\n`expression_tree_walker` instead of only checking top-level nodes\n\n## Tests\n\nAdded regression tests in `fn_wrapped_agg.sql` covering:\n1. Basic `pdb.agg()` in TopN queries\n2. `pdb.agg()` wrapped in `jsonb_pretty()`\n3. `pdb.agg()` inside CTEs\n4. `pdb.agg()` in CTEs with outer function wrapping",
+          "timestamp": "2025-11-25T09:13:06-08:00",
+          "tree_id": "2564b4cb5637090acfaaf73c71de54b14cbe6a19",
+          "url": "https://github.com/paradedb/paradedb/commit/1478d17163b3a319c78213f973161105f4fe8172"
+        },
+        "date": 1764092963580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.75002671240772, max cpu: 42.72997, count: 57312"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.61956211177414, max mem: 230.77734375, count: 57312"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.375104951478498, max cpu: 33.23442, count: 57312"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 168.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.600548518962, max mem: 168.08984375, count: 57312"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35135,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34014.83225153545, max block_count: 36689.0, count: 57312"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.05726549413735, max segment_count: 134.0, count: 57312"
           }
         ]
       }

@@ -49,7 +49,7 @@ jobs:
           inherit_labels: false
           labels: automated-cherry-pick
 
-      - name: Open PR from original branch to target on conflict
+      - name: Open PR from original changes to target on conflict
         if: steps.cherry_pick_action.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
@@ -59,16 +59,24 @@ jobs:
           TARGET_BRANCH="${{ matrix.branch }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           REPO="${{ github.repository }}"
 
-          TITLE="Cherry pick #${PR_NUMBER} to ${TARGET_BRANCH}"
-          BODY="Backport of #${PR_NUMBER} to \`${TARGET_BRANCH}\`. The automated cherry-pick via \`github-cherry-pick-action\` failed due to conflicts. This PR is raised directly from the original branch (\`${HEAD_BRANCH}\`) against \`${TARGET_BRANCH}\` without any rebase or cherry-pick. Please resolve any conflicts and adjust the changes manually."
+          # Create a new branch from the original PR's head commit,
+          # independent of whether the original branch still exists.
+          NEW_BRANCH="cherry-pick/${TARGET_BRANCH}/${PR_NUMBER}-from-head"
 
-          # If a PR already exists with this base/head, this will fail; that's usually fine.
+          git fetch origin
+          git checkout -b "${NEW_BRANCH}" "${HEAD_SHA}"
+          git push -u origin "${NEW_BRANCH}"
+
+          TITLE="Cherry pick #${PR_NUMBER} to ${TARGET_BRANCH}"
+          BODY="Backport of #${PR_NUMBER} to \`${TARGET_BRANCH}\`. The automated cherry-pick via \`github-cherry-pick-action\` failed due to conflicts. This PR is raised from a branch created at the original PR head commit (\`${HEAD_SHA}\`) against \`${TARGET_BRANCH}\` without any rebase or cherry-pick. Please resolve any conflicts and adjust the changes manually."
+
           gh pr create \
             --repo "${REPO}" \
             --base "${TARGET_BRANCH}" \
-            --head "${HEAD_BRANCH}" \
+            --head "${NEW_BRANCH}" \
             --title "${TITLE}" \
             --body "${BODY}" \
             --label "automated-cherry-pick"

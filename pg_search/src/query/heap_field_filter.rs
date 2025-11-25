@@ -129,6 +129,11 @@ impl HeapFieldFilter {
         // Set the tuple slot in the expression context
         (*econtext).ecxt_scantuple = heap_fetch_state.slot;
 
+        // Ensure all attributes in the slot are deformed (fetched from tuple storage)
+        // This is necessary because the expression might reference any attribute,
+        // and the slot's tts_nvalid must be >= the highest attribute number referenced
+        pg_sys::slot_getallattrs(heap_fetch_state.slot);
+
         let eval_result = (|| {
             // Initialize the expression for execution with proper planstate for subquery support
             let expr_state = match (&self.initialized_expression, planstate) {

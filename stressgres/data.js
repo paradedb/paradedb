@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764114863917,
+  "lastUpdate": 1764115633392,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6674,6 +6674,52 @@ window.BENCHMARK_DATA = {
             "value": 5.438145373822545,
             "unit": "median tps",
             "extra": "avg tps: 5.450119077200231, max tps: 6.567119036532187, count: 55990"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d18e8b823deb4a32afe1a1160568b29489614b3c",
+          "message": "feat: support correlated subqueries in aggregate custom scan (#3623)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds support for correlated subqueries in the aggregate custom scan.\nQueries like this now work correctly:\n\n```sql\nSELECT d.id, \n    (SELECT COUNT(*) FROM files f WHERE f.documentId = d.id) \nFROM documents d;\n```\n\n## Why\n\nPreviously, the aggregate custom scan would disable itself when it\ndetected correlation parameters (`PARAM_EXEC` nodes) from outer queries.\nThis meant PostgreSQL had to fall back to slower sequential scans for\naggregates in correlated subqueries, missing out on the performance\nbenefits of our BM25 indexes.\n\n## How\n\nThe implementation uses `HeapFilter` to evaluate correlation conditions\nat execution time:\n\n1. **Pushdown Detection** - Modified `try_pushdown_inner()` to detect\n`PARAM_EXEC` nodes and prevent them from being incorrectly pushed down\nas indexed queries. Instead, they become `HeapExpr` that can evaluate at\nruntime.\n\n2. **Context Propagation** - Updated the aggregate execution pipeline to\npass `planstate` and `expr_context` from the outer query through to heap\nfilter evaluation. This gives the filter access to correlation\nparameters when evaluating predicates.\n\n3. **Tuple Deforming** - Added `slot_getallattrs()` call in\n`HeapFieldFilter` to ensure all tuple attributes are properly fetched\nfrom storage before expression evaluation, preventing crashes when\naccessing tuple fields.\n\nThe aggregate custom scan now identifies correlated predicates in query\nplans and evaluates them with parameter passing at execution time.\n\n## Tests\n\nAdded a regression test suite (`aggregate_correlated_subquery.sql`).\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T22:42:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d18e8b823deb4a32afe1a1160568b29489614b3c"
+        },
+        "date": 1764115630813,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1156.1509912959368,
+            "unit": "median tps",
+            "extra": "avg tps: 1157.3149763108643, max tps: 1208.963409639041, count: 55740"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1272.008226541732,
+            "unit": "median tps",
+            "extra": "avg tps: 1265.7386798979426, max tps: 1288.5025328195054, count: 55740"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1973.5301149556458,
+            "unit": "median tps",
+            "extra": "avg tps: 1946.0597379337673, max tps: 2136.6435203982473, count: 55740"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.609382610817955,
+            "unit": "median tps",
+            "extra": "avg tps: 5.612640444896741, max tps: 6.567248592753553, count: 55740"
           }
         ]
       }

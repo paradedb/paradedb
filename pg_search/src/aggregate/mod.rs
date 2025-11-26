@@ -1112,7 +1112,7 @@ mod vischeck {
     impl Drop for TSVisibilityChecker {
         fn drop(&mut self) {
             unsafe {
-                if !pg_sys::IsTransactionState() {
+                if !pg_sys::IsTransactionState() || std::thread::panicking() {
                     // TODO: None of the below operations care about the transaction state: in
                     // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
                     // lock. Consider removing this guard.

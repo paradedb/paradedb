@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764197965691,
+  "lastUpdate": 1764198124143,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5230,6 +5230,42 @@ window.BENCHMARK_DATA = {
             "value": 5.52940603386232,
             "unit": "median tps",
             "extra": "avg tps: 4.991164040000251, max tps: 6.165542508051673, count: 57816"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming Ying",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming Ying",
+            "username": "rebasedming"
+          },
+          "distinct": true,
+          "id": "597115a5d7ea0bae4ceb2d19da2284e12e9fb202",
+          "message": "chore: Update cargo.toml to 0.19.11",
+          "timestamp": "2025-11-26T17:32:41-05:00",
+          "tree_id": "bc8f1f2710990189257bf7c555beedbc33b46b98",
+          "url": "https://github.com/paradedb/paradedb/commit/597115a5d7ea0bae4ceb2d19da2284e12e9fb202"
+        },
+        "date": 1764198121515,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.9737984354209805,
+            "unit": "median tps",
+            "extra": "avg tps: 6.819594176072144, max tps: 10.530281651724604, count: 57321"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.645166277147419,
+            "unit": "median tps",
+            "extra": "avg tps: 5.079417231916942, max tps: 6.259871917286485, count: 57321"
           }
         ]
       }

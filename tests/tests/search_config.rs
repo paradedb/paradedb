@@ -132,7 +132,7 @@ static MOCK_LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
             ('Piotr Wiśniewski', 'Lokalny Festiwal Kulturalny', 'W ten weekend odbędzie się lokalny festiwal kulturalny z planowanymi stojakami z jedzeniem i występami.')",
         "kowalsk",
         "technologiczn",
-        "odbywa",
+        "odbędz",
     ),
     (
         Language::Portuguese,

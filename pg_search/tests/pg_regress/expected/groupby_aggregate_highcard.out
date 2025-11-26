@@ -38,22 +38,16 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                            QUERY PLAN                             
--------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating
-         ->  HashAggregate
-               Group Key: rating
-               ->  Custom Scan (ParadeDB Scan) on products
-                     Table: products
-                     Index: products_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: rating
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
+(7 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -108,36 +102,34 @@ ORDER BY rating
 LIMIT 5 OFFSET 5;
  rating | count 
 --------+-------
-      5 |     5
       6 |     6
       7 |     7
       8 |     8
       9 |     9
+     10 |    10
 (5 rows)
 
--- Ordering on a non-grouping column
+-- Ordering on a non-grouping column (need more buckets to sort correctly)
+SET paradedb.max_term_agg_buckets TO 65000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                            QUERY PLAN                             
--------------------------------------------------------------------
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: (count(*))
-         ->  HashAggregate
-               Group Key: rating
-               ->  Custom Scan (ParadeDB Scan) on products
-                     Table: products
-                     Index: products_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on products
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: rating
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"rating","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
@@ -146,13 +138,15 @@ ORDER BY 2
 LIMIT 5;
  rating | count 
 --------+-------
-      1 |     1
         |     1
+      1 |     1
       2 |     2
       3 |     3
       4 |     4
 (5 rows)
 
+-- Reset for remaining tests
+SET paradedb.max_term_agg_buckets TO 10;
 -- Limit 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
@@ -160,8 +154,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: rating, (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
@@ -171,7 +165,7 @@ LIMIT 0;
            Applies to Aggregates: COUNT(*)
            Group By: rating
            Limit: 0
-           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":0,"size":0}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
 (10 rows)
 
 SELECT rating, COUNT(*) FROM products
@@ -183,33 +177,27 @@ LIMIT 0;
 --------+-------
 (0 rows)
 
--- High limit
+-- High limit (increase max_term_agg_buckets to allow more results)
+SET paradedb.max_term_agg_buckets TO 65000;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10000;
-                            QUERY PLAN                             
--------------------------------------------------------------------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: rating, (count(*))
-   ->  Sort
-         Output: rating, (count(*))
-         Sort Key: products.rating
-         ->  HashAggregate
-               Output: rating, count(*)
-               Group Key: products.rating
-               ->  Custom Scan (ParadeDB Scan) on public.products
-                     Output: rating
-                     Table: products
-                     Index: products_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: rating
-                     Scores: false
-                     Full Index Scan: true
-                     Tantivy Query: {"with_index":{"query":"all"}}
-(17 rows)
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: rating, pdb.agg_fn('COUNT(*)'::text)
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: rating
+           Limit: 10000
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

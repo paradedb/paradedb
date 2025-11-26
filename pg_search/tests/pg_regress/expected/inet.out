@@ -10,14 +10,16 @@ SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
      1
 (1 row)
 
-EXPLAIN SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tbl_inet  (cost=0.00..0.00 rows=0 width=8)
+ Custom Scan (ParadeDB Aggregate Scan) on public.tbl_inet
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_inet
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ip","query_string":"192.168.0.1","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
+(6 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;

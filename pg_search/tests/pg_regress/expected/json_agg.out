@@ -42,19 +42,17 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY count DESC, value;
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (count(*)) DESC, ((metadata_json ->> 'value'::text))
-   ->  HashAggregate
-         Group Key: (metadata_json ->> 'value'::text)
-         ->  Custom Scan (ParadeDB Scan) on json_test
-               Table: json_test
-               Index: json_test_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
-(10 rows)
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC, ((metadata_json ->> 'value'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on json_test
+         Index: json_test_idx
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata_json.value
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","segment_size":65000,"size":65000}}}
+(8 rows)
 
 -- Verify the results
 SELECT
@@ -87,19 +85,17 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (count(*)) DESC
-   ->  HashAggregate
-         Group Key: (metadata_json -> 'value'::text)
-         ->  Custom Scan (ParadeDB Scan) on json_test
-               Table: json_test
-               Index: json_test_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
-(10 rows)
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on json_test
+         Index: json_test_idx
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata_json.value
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","segment_size":65000,"size":65000}}}
+(8 rows)
 
 SELECT
     metadata_json->'value' AS value,

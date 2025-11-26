@@ -43,7 +43,7 @@ jobs:
         uses: trstringer/manual-approval@v1
         with:
           secret: ${{ github.TOKEN }}
-          approvers: philippemnoel,rebasedming,stuhood
+          approvers: philippemnoel,rebasedming,stuhood,mdashti,ankitml
           minimum-approvals: 1
           issue-title: "Promote ${{ github.event.inputs.branch_name }} to main?"
           issue-body: |

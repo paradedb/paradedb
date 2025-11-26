@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764196797849,
+  "lastUpdate": 1764197187809,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4972,6 +4972,42 @@ window.BENCHMARK_DATA = {
             "value": 5.5379890976842825,
             "unit": "median tps",
             "extra": "avg tps: 4.999270950202018, max tps: 6.164827891320771, count: 57545"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dea2b1daa65743e60b13b258c0d2bed766a707b6",
+          "message": "fix: early return in `TSVisibilityChecker` `Drop` if panicking (#3647)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts over a double panic fix from enterprise\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-11-26T17:17:13-05:00",
+          "tree_id": "8a9773ad8527af47571f2b006ae89e38ecc4725c",
+          "url": "https://github.com/paradedb/paradedb/commit/dea2b1daa65743e60b13b258c0d2bed766a707b6"
+        },
+        "date": 1764197185248,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.049335642532423,
+            "unit": "median tps",
+            "extra": "avg tps: 6.881584481851859, max tps: 10.623989556564432, count: 57869"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.668523455469522,
+            "unit": "median tps",
+            "extra": "avg tps: 5.112725776888607, max tps: 6.296574128447941, count: 57869"
           }
         ]
       }

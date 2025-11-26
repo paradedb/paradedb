@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764198911075,
+  "lastUpdate": 1764198915710,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4512,6 +4512,126 @@ window.BENCHMARK_DATA = {
             "value": 43.8125,
             "unit": "median mem",
             "extra": "avg mem: 44.005212297057334, max mem: 55.1953125, count: 55188"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d18e8b823deb4a32afe1a1160568b29489614b3c",
+          "message": "feat: support correlated subqueries in aggregate custom scan (#3623)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds support for correlated subqueries in the aggregate custom scan.\nQueries like this now work correctly:\n\n```sql\nSELECT d.id, \n    (SELECT COUNT(*) FROM files f WHERE f.documentId = d.id) \nFROM documents d;\n```\n\n## Why\n\nPreviously, the aggregate custom scan would disable itself when it\ndetected correlation parameters (`PARAM_EXEC` nodes) from outer queries.\nThis meant PostgreSQL had to fall back to slower sequential scans for\naggregates in correlated subqueries, missing out on the performance\nbenefits of our BM25 indexes.\n\n## How\n\nThe implementation uses `HeapFilter` to evaluate correlation conditions\nat execution time:\n\n1. **Pushdown Detection** - Modified `try_pushdown_inner()` to detect\n`PARAM_EXEC` nodes and prevent them from being incorrectly pushed down\nas indexed queries. Instead, they become `HeapExpr` that can evaluate at\nruntime.\n\n2. **Context Propagation** - Updated the aggregate execution pipeline to\npass `planstate` and `expr_context` from the outer query through to heap\nfilter evaluation. This gives the filter access to correlation\nparameters when evaluating predicates.\n\n3. **Tuple Deforming** - Added `slot_getallattrs()` call in\n`HeapFieldFilter` to ensure all tuple attributes are properly fetched\nfrom storage before expression evaluation, preventing crashes when\naccessing tuple fields.\n\nThe aggregate custom scan now identifies correlated predicates in query\nplans and evaluates them with parameter passing at execution time.\n\n## Tests\n\nAdded a regression test suite (`aggregate_correlated_subquery.sql`).\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-11-25T14:42:13-08:00",
+          "tree_id": "68f280d7d7d4d3e93bb8fd4eb94e00f141aa21d3",
+          "url": "https://github.com/paradedb/paradedb/commit/d18e8b823deb4a32afe1a1160568b29489614b3c"
+        },
+        "date": 1764198913166,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.104357766987121, max cpu: 24.096386, count: 54829"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 54.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.38562265748965, max mem: 65.95703125, count: 54829"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569765110918306, max cpu: 9.495549, count: 54829"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.74122128572471, max mem: 26.09765625, count: 54829"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.039834112729461, max cpu: 24.144869, count: 54829"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 54.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.97838685105054, max mem: 66.87109375, count: 54829"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.646691799688813, max cpu: 9.230769, count: 54829"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 50.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.42877450516606, max mem: 61.98046875, count: 54829"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.558666207665559, max cpu: 9.476802, count: 109658"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 37.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 37.835702287167834, max mem: 48.0546875, count: 109658"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1773,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1765.5077969687575, max block_count: 3082.0, count: 54829"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.243010085903446, max segment_count: 19.0, count: 54829"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.551994472967115, max cpu: 9.486166, count: 54829"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 41.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.8220096800963, max mem: 53.83984375, count: 54829"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.0063013515746408, max cpu: 4.6376815, count: 54829"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.930726953345854, max mem: 54.8671875, count: 54829"
           }
         ]
       }

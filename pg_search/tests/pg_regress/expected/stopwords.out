@@ -157,6 +157,15 @@ SELECT * FROM paradedb.tokenize(
 (1 row)
 
 SELECT * FROM paradedb.tokenize(
+        paradedb.tokenizer('default', stopwords_language => 'Polish'),
+        'bez jabłek'
+              );
+ token  | position 
+--------+----------
+ jabłek |        1
+(1 row)
+
+SELECT * FROM paradedb.tokenize(
         paradedb.tokenizer('default', stopwords_language => 'Portuguese'),
         'sem maçãs'
               );

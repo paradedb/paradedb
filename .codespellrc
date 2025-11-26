@@ -1,0 +1,2 @@
+[codespell]
+ignore-multiline-regex = <!-- codespell:ignore-begin -->.*?<!-- codespell:ignore-end -->

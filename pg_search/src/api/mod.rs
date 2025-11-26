@@ -312,6 +312,9 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
+    /// Whether NULLs should sort first (true) or last (false, the default for ASC)
+    #[serde(default)]
+    pub nulls_first: bool,
 }
 
 impl OrderByInfo {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764198915710,
+  "lastUpdate": 1764199077388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11276,6 +11276,60 @@ window.BENCHMARK_DATA = {
             "value": 14.545400756414994,
             "unit": "median tps",
             "extra": "avg tps: 14.66364738126555, max tps: 20.071917278169334, count: 55623"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7fa350b17f8f6157a26265d781e985e996a5656",
+          "message": "fix: early return in `TSVisibilityChecker` `Drop` if panicking (#3649)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts over a double panic fix from enterprise\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-26T17:23:10-05:00",
+          "tree_id": "21d34d4a2db0f7b998f619a4514f14e8534a0041",
+          "url": "https://github.com/paradedb/paradedb/commit/d7fa350b17f8f6157a26265d781e985e996a5656"
+        },
+        "date": 1764199074869,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.45876619096571,
+            "unit": "median tps",
+            "extra": "avg tps: 33.134554156275925, max tps: 34.081867879555304, count: 55484"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 240.5109941315655,
+            "unit": "median tps",
+            "extra": "avg tps: 265.8895385773334, max tps: 2829.0462811029297, count: 55484"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2069.19166777148,
+            "unit": "median tps",
+            "extra": "avg tps: 2048.8145153877977, max tps: 2392.620437676774, count: 55484"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 166.41125794418042,
+            "unit": "median tps",
+            "extra": "avg tps: 202.14987987328627, max tps: 1723.663887223615, count: 110968"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.596619882826914,
+            "unit": "median tps",
+            "extra": "avg tps: 16.38213895003719, max tps: 16.77468595548606, count: 55484"
           }
         ]
       }

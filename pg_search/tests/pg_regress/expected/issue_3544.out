@@ -7,14 +7,14 @@ ERROR:  could not parse field `dates`: date 03-01-57439 is out of range: date mu
 DELETE FROM issue_3544_test;
 INSERT INTO issue_3544_test (dates, info) VALUES ('2020-01-01', 'test');
 CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
-EXPLAIN SELECT count(*) FROM issue_3544_test WHERE info ||| 'xyz' AND dates <@ '[1677-09-22, 2262-04-10]'::daterange;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) SELECT count(*) FROM issue_3544_test WHERE info ||| 'xyz' AND dates <@ '[1677-09-22, 2262-04-10]'::daterange;
                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=10.01..10.02 rows=1 width=8)
-   ->  Custom Scan (ParadeDB Scan) on issue_3544_test  (cost=10.00..10.01 rows=1 width=0)
+ Aggregate
+   Output: count(*)
+   ->  Custom Scan (ParadeDB Scan) on public.issue_3544_test
          Table: issue_3544_test
          Index: issue_3544_test_id_dates_info_idx
-         Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"info","value":"xyz","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"dates","lower_bound":{"included":"1677-09-22T00:00:00Z"},"upper_bound":null,"is_datetime":true}},{"range":{"field":"dates","lower_bound":null,"upper_bound":{"excluded":"2262-04-11T00:00:00Z"},"is_datetime":true}}]}}

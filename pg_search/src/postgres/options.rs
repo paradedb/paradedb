@@ -279,7 +279,6 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-
 #[derive(Debug, Clone, Default)]
 struct LazyInfo {
     // these are ordered in an order that's likely most common to least common
@@ -301,8 +300,7 @@ pub struct BM25IndexOptions {
 }
 
 impl BM25IndexOptions {
-    pub const MISSING_KEY_FIELD_CONFIG: &'static str =
-        "index key field is corrupt";
+    pub const MISSING_KEY_FIELD_CONFIG: &'static str = "index key field is corrupt";
 
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
@@ -349,7 +347,6 @@ impl BM25IndexOptions {
         unsafe { get_first_index_field_from_relation(self.indexrel) }
             .expect(Self::MISSING_KEY_FIELD_CONFIG)
     }
-    
 
     pub fn key_field_type(&self) -> SearchFieldType {
         self.get_field_type(&self.key_field_name())
@@ -681,7 +678,7 @@ impl BM25IndexOptionsData {
         }
     }
 
-    // Always returns the first field in the index. 
+    // Always returns the first field in the index.
     // Previously used WITH key_field (deprecated option)
     pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
@@ -940,12 +937,14 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
     }
 }
 
-pub unsafe fn get_first_index_field_from_relation(indexrel: pg_sys::Relation) -> Result<FieldName, &'static str> {
+pub unsafe fn get_first_index_field_from_relation(
+    indexrel: pg_sys::Relation,
+) -> Result<FieldName, &'static str> {
     let tupdesc = (*indexrel).rd_att;
     if (*tupdesc).natts == 0 {
         return Err("index has no fields");
     }
-    
+
     let first_attr = (*tupdesc).attrs.as_ptr();
     let attr_name = pgrx::name_data_to_str(&(*first_attr).attname);
     Ok(attr_name.into())

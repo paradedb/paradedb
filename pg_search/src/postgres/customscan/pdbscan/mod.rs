@@ -22,6 +22,11 @@ mod privdat;
 pub mod projections;
 mod scan_state;
 
+use std::ffi::CStr;
+use std::ptr::addr_of_mut;
+use std::sync::atomic::Ordering;
+use std::sync::Once;
+
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
@@ -74,11 +79,9 @@ use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
+
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
-use std::ffi::CStr;
-use std::ptr::addr_of_mut;
-use std::sync::atomic::Ordering;
+use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -362,6 +365,65 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
+/// Is the function identified by `funcid` an approved set-returning-function
+/// that is safe for our limit push-down optimization?
+fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {
+    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
+    static APPROVE_SRF_ONCE: Once = Once::new();
+
+    unsafe {
+        APPROVE_SRF_ONCE.call_once(|| {
+            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pg_catalog.unnest(anyarray)".into_datum()],
+            ) {
+                UNNEST_OID = oid;
+            }
+        });
+        funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid
+    }
+}
+
+/// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
+/// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
+///
+/// Only set returning functions which produce at least as many rows as they consume are safe.
+unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> {
+    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
+        return None;
+    }
+    let limit_node = (*(*root).parse).limitCount;
+    let Some(limit_const) = nodecast!(Const, T_Const, limit_node) else {
+        // non-Const LIMIT is not something we can handle here
+        return None;
+    };
+
+    let mut found_limit_safe_srf = false;
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    for te in target_list.iter_ptr() {
+        if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
+            // It's a set-returning function, is it one we approve of?
+            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                if is_limit_safe_srf((*func_expr).funcid) {
+                    found_limit_safe_srf = true;
+                } else {
+                    // We don't recognize this SRF, and can't vouch for it.
+                    return None;
+                }
+            }
+        }
+    }
+
+    // A LIMIT was applied in the parse for our node, but is being handled elsewhere
+    // due to a set-returning-function that we know produces at least as many tuples as
+    // it is given.
+    if found_limit_safe_srf {
+        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)
+    } else {
+        None
+    }
+}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -522,7 +584,7 @@ impl CustomScan for PdbScan {
                     None
                 }
             } else {
-                None
+                maybe_limit_from_parse(builder.args().root)
             };
 
             // Get all columns referenced by this RTE throughout the entire query

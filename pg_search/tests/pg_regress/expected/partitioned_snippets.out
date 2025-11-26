@@ -84,27 +84,30 @@ FROM logs
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Result
-               ->  Sort
+               ->  Merge Append
                      Sort Key: logs.id
-                     ->  Append
-                           ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
-                                 Table: logs_2020
-                                 Index: logs_2020_id_message_country_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-                           ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
-                                 Table: logs_2021
-                                 Index: logs_2021_id_message_country_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-(18 rows)
+                     ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
+                           Table: logs_2020
+                           Index: logs_2020_id_message_country_idx
+                           Exec Method: TopNScanExecState
+                           Scores: false
+                              TopN Order By: id asc
+                              TopN Limit: 3
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
+                     ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
+                           Table: logs_2021
+                           Index: logs_2021_id_message_country_idx
+                           Exec Method: TopNScanExecState
+                           Scores: false
+                              TopN Order By: id asc
+                              TopN Limit: 3
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
+(21 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs
@@ -123,28 +126,30 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Result
-               ->  Sort
-                     Sort Key: id
-                     ->  Custom Scan (ParadeDB Scan) on logs_2020
-                           Table: logs_2020
-                           Index: logs_2020_id_message_country_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
-(11 rows)
+         ->  Custom Scan (ParadeDB Scan) on logs_2020
+               Table: logs_2020
+               Index: logs_2020_id_message_country_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  TopN Order By: id asc
+                  TopN Limit: 3
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+(10 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
- id | snippet 
-----+---------
-(0 rows)
+ id |            snippet             
+----+--------------------------------
+  1 | The <b>research</b> team from
+  1 | creature. This <b>research</b>
+  2 | In Canada, <b>research</b> on
+(3 rows)
 
 DROP TABLE IF EXISTS logs CASCADE;

@@ -32,7 +32,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
-    varlena_to_byte_slice, Internal, PgList, PgOid, PgRelation,
+    Internal, PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
 
@@ -151,7 +151,7 @@ pub fn search_with_query_input(
     // minimal overhead as possible.
     let key = unsafe {
         let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
-        varlena_to_byte_slice(varlena).to_vec()
+        pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
     let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {

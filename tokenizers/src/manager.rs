@@ -53,7 +53,6 @@ pub struct SearchTokenizerFilters {
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
-    pub keep_whitespace: Option<bool>,
 }
 
 impl SearchTokenizerFilters {
@@ -74,7 +73,6 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
-            keep_whitespace: None,
         }
     }
 
@@ -90,7 +88,6 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
-            keep_whitespace: None,
         }
     }
 
@@ -158,14 +155,6 @@ impl SearchTokenizerFilters {
                 )
             })?);
         }
-        if let Some(keep_whitespace) = value.get("keep_whitespace") {
-            filters.keep_whitespace = Some(keep_whitespace.as_bool().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "a 'keep_whitespace' value passed to the pg_search tokenizer configuration \
-                     must be of type bool, found: {keep_whitespace:#?}"
-                )
-            })?);
-        }
 
         Ok(filters)
     }
@@ -216,10 +205,6 @@ impl SearchTokenizerFilters {
         }
         if let Some(value) = self.ascii_folding {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
-            is_empty = false;
-        }
-        if let Some(value) = self.keep_whitespace {
-            write!(buffer, "{}keep_whitespace={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
 
@@ -503,18 +488,15 @@ impl SearchTokenizer {
             }
             SearchTokenizer::ChineseLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
-                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
-                add_filters!(LinderaChineseTokenizer::new(keep_whitespace), filters)
+                add_filters!(LinderaChineseTokenizer::default(), filters)
             }
             SearchTokenizer::JapaneseLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
-                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
-                add_filters!(LinderaJapaneseTokenizer::new(keep_whitespace), filters)
+                add_filters!(LinderaJapaneseTokenizer::default(), filters)
             }
             SearchTokenizer::KoreanLindera(filters)
             | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
-                let keep_whitespace = filters.keep_whitespace.unwrap_or(false);
-                add_filters!(LinderaKoreanTokenizer::new(keep_whitespace), filters)
+                add_filters!(LinderaKoreanTokenizer::default(), filters)
             }
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => {
@@ -700,7 +682,6 @@ mod tests {
                     trim: None,
                     normalizer: None,
                     alpha_num_only: None,
-                    keep_whitespace: None,
                 }
             }
         );
@@ -726,7 +707,6 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
-                keep_whitespace: None,
             },
         };
 
@@ -772,7 +752,6 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
-                keep_whitespace: None,
             })
         );
 
@@ -826,7 +805,6 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
-                keep_whitespace: None,
             })
         );
 
@@ -879,7 +857,6 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
-                keep_whitespace: None,
             })
         );
 
@@ -931,7 +908,6 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
-                keep_whitespace: None,
             })
         );
 
@@ -958,34 +934,17 @@ mod tests {
     }
 
     #[rstest]
-    fn test_chinese_lindera_tokenizer_with_keep_whitespace() {
+    fn test_chinese_lindera_tokenizer_preserves_whitespace() {
         use tantivy::tokenizer::TokenStream;
 
-        // Test Chinese Lindera tokenizer with keep_whitespace
+        // Test Chinese Lindera tokenizer preserves whitespace by default
+        // (backward compatible behavior)
         let json = r#"{
-            "type": "chinese_lindera",
-            "keep_whitespace": true
+            "type": "chinese_lindera"
         }"#;
 
         let tokenizer =
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
-
-        assert_eq!(
-            tokenizer,
-            SearchTokenizer::ChineseLindera(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: None,
-                stopwords: None,
-                ascii_folding: None,
-                trim: None,
-                normalizer: None,
-                alpha_num_only: None,
-                keep_whitespace: Some(true),
-            })
-        );
 
         // Test that the tokenizer is created successfully
         let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
@@ -1000,7 +959,7 @@ mod tests {
             tokens.push(token.text.clone());
         }
 
-        // Verify that space tokens are preserved when keep_whitespace=true
+        // Verify that space tokens are preserved (backward compatible behavior)
         assert!(tokens.contains(&" ".to_string()));
 
         // Verify that words are still present

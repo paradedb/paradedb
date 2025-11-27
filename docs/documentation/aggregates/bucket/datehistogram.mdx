@@ -1,0 +1,23 @@
+---
+title: Date Histogram
+description: Count the number of occurrences over fixed time intervals
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/datehistogram
+---
+
+The date histogram aggregation constructs a histogram for date fields.
+
+```sql
+SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 1679616000000.0, "doc_count": 14, "key_as_string": "2023-03-24T00:00:00Z"}, {"key": 1682208000000.0, "doc_count": 27, "key_as_string": "2023-04-23T00:00:00Z"}]}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.DateHistogramAggregationReq.html)
+for all available options.

@@ -25,7 +25,8 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
 
     steps:
       - name: Checkout Git Repository

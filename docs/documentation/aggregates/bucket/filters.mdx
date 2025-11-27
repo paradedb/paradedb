@@ -1,0 +1,25 @@
+---
+title: Filters
+description: Compute aggregations over multiple filters in one query
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/filters
+---
+
+The filters aggregation allows a single query to return aggregations for multiple search queries at a time.
+To use this aggregation, pass `pdb.agg` to the left-hand side of `FILTER` and a search query to the right-hand side.
+For example:
+
+```sql
+SELECT
+    pdb.agg('{"value_count": {"field": "id"}}')
+    FILTER (WHERE category === 'electronics') AS electronics_count,
+    pdb.agg('{"value_count": {"field": "id"}}')
+    FILTER (WHERE category === 'footwear') AS footwear_count
+FROM mock_items;
+```
+
+```ini Expected Response
+ electronics_count | footwear_count
+-------------------+----------------
+ {"value": 5.0}    | {"value": 6.0}
+(1 row)
+```

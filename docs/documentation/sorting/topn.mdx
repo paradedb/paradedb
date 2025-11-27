@@ -1,0 +1,93 @@
+---
+title: Top N
+description: ParadeDB is optimized for quickly finding the "Top N" results in a table
+canonical: https://docs.paradedb.com/documentation/sorting/topn
+---
+
+ParadeDB is highly optimized for quickly returning the Top N results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+In order for a Top N query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
+
+1. All `ORDER BY` fields must be indexed. If they are text fields, they [must use the literal tokenizer](#sorting-by-text).
+2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`.
+3. The query must have a `LIMIT`.
+4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves.
+
+To verify that ParadeDB is executing the Top N, look for a `Custom Scan` with a `TopNScanExecState` in the `EXPLAIN` output:
+
+```sql
+EXPLAIN SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+<Accordion title = "Expected Response">
+```csv
+                                                                                                   QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..10.02 rows=3 width=552)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=552)
+         Table: mock_items
+         Index: search_idx
+         Segment Count: 1
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(10 rows)
+```
+</Accordion>
+
+If any of the above conditions are not met, the query cannot be fully optimized and you will not see a `TopNScanExecState` in the `EXPLAIN` output.
+
+## Tiebreaker Sorting
+
+To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating, id
+LIMIT 5;
+```
+
+<Note>
+  ParadeDB is currently able to handle 3 `ORDER BY` columns. If there are more
+  than 3 columns, the `ORDER BY` will not be efficiently executed by ParadeDB.
+</Note>
+
+## Sorting by Text
+
+If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
+The reason is that the literal tokenizer preserves the original text, which is necessary for accurate sorting.
+
+Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, first ensure that `lower(<text_field>)` is indexed with the literal tokenizer.
+See [indexing expressions](/documentation/indexing/indexing-expressions) for more information.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (lower(description)::pdb.literal))
+WITH (key_field='id');
+```
+
+This allows sorting by lowercase to be optimized.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+```

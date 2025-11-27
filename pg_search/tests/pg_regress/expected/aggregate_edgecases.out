@@ -52,7 +52,7 @@ FROM large_agg_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 1;
-ERROR:  Initial aggregate result is too large: 1048582 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
+ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
 DROP TABLE large_agg_test;
 -- =====================================================================
 -- SECTION 2: Aggregation After Deletion
@@ -75,14 +75,14 @@ DELETE FROM delete_agg_test WHERE id > 1;
 -- Should return 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: delete_agg_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
 SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
@@ -94,14 +94,14 @@ SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
 -- Should return {"value": 1.0}
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: delete_agg_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
-     Aggregate Definition: {"0":{"value_count":{"field":"id","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"value_count":{"field":"id","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
@@ -113,14 +113,14 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test W
 -- Should return count: 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: delete_agg_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"id"}})
-     Aggregate Definition: {"0":{"stats":{"field":"id","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
+     Aggregate Definition: {"0":{"stats":{"field":"id","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();

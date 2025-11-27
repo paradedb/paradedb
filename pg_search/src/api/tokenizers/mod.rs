@@ -371,6 +371,20 @@ impl DatumWrapper for pgrx::JsonB {
     }
 }
 
+impl DatumWrapper for Vec<String> {
+    fn sql_name() -> &'static str {
+        "text[]"
+    }
+
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
 //
 // taken from pgrx
 //

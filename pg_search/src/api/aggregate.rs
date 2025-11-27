@@ -70,6 +70,7 @@ pub fn aggregate(
         memory_limit.try_into()?,
         bucket_limit.try_into()?,
         standalone_context.as_ptr(),
+        std::ptr::null_mut(), // No planstate in API context
     )?;
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
@@ -113,7 +114,7 @@ mod pdb {
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
-             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, \
              or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
         )
         }

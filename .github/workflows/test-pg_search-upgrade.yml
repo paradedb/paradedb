@@ -16,6 +16,7 @@ on:
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
+      - "Cargo.toml"
   workflow_dispatch:
 
 # This is the first pg_search version that has a rust-toolchain.toml file which allows us to use a version of rust known
@@ -30,7 +31,8 @@ concurrency:
 jobs:
   test-pg_search-upgrade:
     name: Test upgrading pg_search via ALTER EXTENSION
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
         pg_version: [17]

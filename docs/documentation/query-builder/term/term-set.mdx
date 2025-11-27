@@ -1,0 +1,25 @@
+---
+title: Term Set
+description: The query builder equivalent of the term set query
+canonical: https://docs.paradedb.com/documentation/query-builder/term/term-set
+---
+
+<Note>
+  BM25 scoring is not enabled for term set queries. As a result, the scores
+  returned may not be accurate.
+</Note>
+
+<Note>
+  For most use cases, we recommend using the [term
+  set](/documentation/full-text/term#term-set) query instead.
+</Note>
+
+Matches documents containing any term from a specified set.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.term_set(ARRAY['shoes', 'keyboard']);
+```
+
+`pdb.term_set` is equivalent to `OR`ing together multiple `pdb.term` queries.

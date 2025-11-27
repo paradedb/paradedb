@@ -1086,9 +1086,26 @@ unsafe fn try_pushdown(
                 expr_desc: format!("OpExpr with operator OID {opno}"),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
+        } else if contains_param(opexpr_node) {
+            // Predicate doesn't reference our relation (e.g., $2 = 0 in prepared statements)
+            // Check if it contains PARAM nodes - if so, create a HeapExpr that will be evaluated at execution
+            // This prevents qual extraction from failing entirely when we have
+            // expressions like: description @@@ $1 AND $2 = 0
+
+            // Create HeapExpr for parameter expressions
+            // These will be evaluated by PostgreSQL's executor at runtime
+            state.uses_heap_expr = true;
+            state.uses_tantivy_to_query = true;
+            Some(Qual::HeapExpr {
+                expr_node: opexpr_node,
+                expr_desc: format!("OpExpr with PARAM nodes (OID {})", opno),
+                search_query_input: Box::new(SearchQueryInput::All),
+            })
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
         } else {
+            // Not a parameter expression and doesn't reference our relation
+            // We can't handle this
             None
         }
     } else {
@@ -1151,6 +1168,23 @@ unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
         _data: *mut core::ffi::c_void,
     ) -> bool {
         nodecast!(Var, T_Var, node).is_some()
+            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
+    if root.is_null() {
+        return false;
+    }
+
+    walker(root, std::ptr::null_mut())
+}
+
+unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
+        nodecast!(Param, T_Param, node).is_some()
             || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 

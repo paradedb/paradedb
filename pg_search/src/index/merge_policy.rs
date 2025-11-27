@@ -28,6 +28,139 @@ impl MergePolicy for LayeredMergePolicy {
         directory: Option<&dyn Directory>,
         original_segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
+        let candidates = self.compute_merge_candidates_inner(directory, original_segments);
+        candidates
+            .into_iter()
+            .map(|(_, candidate)| candidate)
+            .collect()
+    }
+}
+
+impl LayeredMergePolicy {
+    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
+        Self {
+            n: crate::available_parallelism(),
+            layer_sizes,
+            min_merge_count: 2,
+            enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
+
+            mergeable_segments: Default::default(),
+            already_processed: Default::default(),
+        }
+    }
+
+    pub fn set_mergeable_segment_entries(
+        &mut self,
+        metadata: &MetaPage,
+        merge_lock: &MergeLock,
+        merger: &SearchIndexMerger,
+    ) {
+        let mut non_mergeable_segments = metadata.vacuum_list().read_list();
+        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
+
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+        }
+
+        // tell the MergePolicy which segments it's initially allowed to consider for merging
+        self.mergeable_segments = merger
+            .all_entries()
+            .into_iter()
+            .filter(|(segment_id, _)| {
+                // skip segments that are already being vacuumed or merged
+                !non_mergeable_segments.contains(segment_id)
+            })
+            .collect();
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn set_mergeable_segments_for_test(&mut self, segments: Vec<SegmentMetaEntry>) {
+        self.mergeable_segments = segments
+            .into_iter()
+            .map(|entry| (entry.segment_id(), entry))
+            .collect();
+    }
+
+    /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
+    /// implementation
+    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, u64) {
+        #[allow(non_local_definitions)]
+        impl From<SegmentMetaEntry> for SegmentMeta {
+            fn from(value: SegmentMetaEntry) -> Self {
+                Self {
+                    tracked: Inventory::new().track(value.as_tantivy()),
+                }
+            }
+        }
+
+        // Convert mergeable segment entries to SegmentMeta
+        let segment_metas = self
+            .mergeable_segments
+            .values()
+            .cloned()
+            .map(From::from)
+            .collect::<Vec<SegmentMeta>>();
+
+        let candidates_with_sizes = self.compute_merge_candidates_inner(None, &segment_metas);
+
+        let mut largest_layer_size = 0u64;
+        let mut segment_ids = HashSet::default();
+        let mut candidates = Vec::with_capacity(candidates_with_sizes.len());
+
+        for (layer_size, candidate) in candidates_with_sizes {
+            if layer_size > largest_layer_size {
+                largest_layer_size = layer_size;
+            }
+
+            for &seg_id in &candidate.0 {
+                segment_ids.insert(seg_id);
+            }
+
+            candidates.push(candidate);
+        }
+
+        // prune mergeable_segments to only those used in candidates
+        self.retain(segment_ids);
+
+        (candidates, largest_layer_size)
+    }
+
+    fn retain(&mut self, to_keep: HashSet<SegmentId>) {
+        self.mergeable_segments
+            .retain(|segment_id, _| to_keep.contains(segment_id));
+    }
+
+    pub fn mergeable_segments(&self) -> impl Iterator<Item = &SegmentId> {
+        self.mergeable_segments.keys()
+    }
+
+    fn collect_mergeable_segments<'a>(
+        &self,
+        segments: &'a [SegmentMeta],
+        exclude: &HashSet<SegmentId>,
+        avg_doc_size: u64,
+    ) -> Vec<&'a SegmentMeta> {
+        let mut segments = segments
+            .iter()
+            .filter(|meta| {
+                self.mergeable_segments.contains_key(&meta.id()) && !exclude.contains(&meta.id())
+            })
+            .collect::<Vec<_>>();
+
+        // sort largest to smallest
+        segments.sort_by_key(|segment| Reverse(self.segment_size(segment, avg_doc_size)));
+        segments
+    }
+
+    fn segment_size(&self, segment: &SegmentMeta, avg_doc_size: u64) -> u64 {
+        adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size)
+    }
+
+    fn compute_merge_candidates_inner(
+        &self,
+        directory: Option<&dyn Directory>,
+        original_segments: &[SegmentMeta],
+    ) -> Vec<(u64, MergeCandidate)> {
         let logger = |directory: Option<&dyn Directory>, message: &str| {
             if self.enable_logging {
                 if let Some(directory) = directory {
@@ -65,22 +198,40 @@ impl MergePolicy for LayeredMergePolicy {
                 .map(|entry| (entry.num_docs() + entry.num_deleted_docs()) as u64)
                 .sum::<u64>();
 
-        let mut candidates = Vec::new();
+        let mut candidates: Vec<(u64, MergeCandidate)> = Vec::new();
         let mut merged_segments = HashSet::default();
 
-        // aggressively convert any mutable segments into immutable ones
+        // aggressively merge away any mutable or completely empty segments
         for (segment_id, segment_meta_entry) in &self.mergeable_segments {
             if segment_meta_entry.is_mutable() {
+                // If a segment is mutable, then it makes sense to merge it away, even if it is the only item in the segment.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
                 {
-                    candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                        mc.0.push(segment_meta.id());
+                    } else {
+                        candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                    }
+
                     merged_segments.insert(segment_meta.id());
+                }
+            } else if segment_meta_entry.num_docs() == 0 {
+                // If it is not mutable, but is still empty for some reason, then we should include it in any other candidate level
+                // that is planned (in order to get rid of it), but there is no point in doing a single-entry merge.
+                if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
+                {
+                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                        mc.0.push(segment_meta.id());
+                        merged_segments.insert(segment_meta.id());
+                    }
                 }
             }
         }
 
         let mut layer_sizes = self.layer_sizes.clone();
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
+
+        logger(directory, &format!("merged segments: {merged_segments:?}"));
 
         for layer_size in layer_sizes {
             // individual segments that total a certain byte amount typically merge together into
@@ -189,116 +340,6 @@ impl MergePolicy for LayeredMergePolicy {
         );
 
         candidates
-            .into_iter()
-            .map(|(_, candidate)| candidate)
-            .collect()
-    }
-}
-
-impl LayeredMergePolicy {
-    pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
-        Self {
-            n: crate::available_parallelism(),
-            layer_sizes,
-            min_merge_count: 2,
-            enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },
-
-            mergeable_segments: Default::default(),
-            already_processed: Default::default(),
-        }
-    }
-
-    pub fn set_mergeable_segment_entries(
-        &mut self,
-        metadata: &MetaPage,
-        merge_lock: &MergeLock,
-        merger: &SearchIndexMerger,
-    ) {
-        let mut non_mergeable_segments = metadata.vacuum_list().read_list();
-        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
-
-        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
-            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
-        }
-
-        // tell the MergePolicy which segments it's initially allowed to consider for merging
-        self.mergeable_segments = merger
-            .all_entries()
-            .into_iter()
-            .filter(|(segment_id, _)| {
-                // skip segments that are already being vacuumed or merged
-                !non_mergeable_segments.contains(segment_id)
-            })
-            .collect();
-    }
-
-    #[cfg(any(test, feature = "pg_test"))]
-    pub fn set_mergeable_segments_for_test(&mut self, segments: Vec<SegmentMetaEntry>) {
-        self.mergeable_segments = segments
-            .into_iter()
-            .map(|entry| (entry.segment_id(), entry))
-            .collect();
-    }
-
-    /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
-    /// implementation
-    pub fn simulate(&mut self) -> Vec<MergeCandidate> {
-        // we don't want the whole world to know how to do this conversion
-        #[allow(non_local_definitions)]
-        impl From<SegmentMetaEntry> for SegmentMeta {
-            fn from(value: SegmentMetaEntry) -> Self {
-                Self {
-                    tracked: Inventory::new().track(value.as_tantivy()),
-                }
-            }
-        }
-
-        let segment_metas = self
-            .mergeable_segments
-            .values()
-            .cloned()
-            .map(From::from)
-            .collect::<Vec<SegmentMeta>>();
-        let candidates = self.compute_merge_candidates(None, &segment_metas);
-        let segment_ids = candidates
-            .iter()
-            .flat_map(|candidate| &candidate.0)
-            .collect();
-
-        self.retain(segment_ids);
-
-        candidates
-    }
-
-    fn retain(&mut self, to_keep: HashSet<&SegmentId>) {
-        self.mergeable_segments
-            .retain(|segment_id, _| to_keep.contains(segment_id));
-    }
-
-    pub fn mergeable_segments(&self) -> impl Iterator<Item = &SegmentId> {
-        self.mergeable_segments.keys()
-    }
-
-    fn collect_mergeable_segments<'a>(
-        &self,
-        segments: &'a [SegmentMeta],
-        exclude: &HashSet<SegmentId>,
-        avg_doc_size: u64,
-    ) -> Vec<&'a SegmentMeta> {
-        let mut segments = segments
-            .iter()
-            .filter(|meta| {
-                self.mergeable_segments.contains_key(&meta.id()) && !exclude.contains(&meta.id())
-            })
-            .collect::<Vec<_>>();
-
-        // sort largest to smallest
-        segments.sort_by_key(|segment| Reverse(self.segment_size(segment, avg_doc_size)));
-        segments
-    }
-
-    fn segment_size(&self, segment: &SegmentMeta, avg_doc_size: u64) -> u64 {
-        adjusted_byte_size(segment, &self.mergeable_segments, avg_doc_size)
     }
 }
 
@@ -407,7 +448,7 @@ mod tests {
         let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
 
         policy.set_mergeable_segments_for_test(segments);
-        let candidates = policy.simulate();
+        let (candidates, largest_layer_size) = policy.simulate();
 
         // We expect one candidate for converting the mutable segment
         assert_eq!(candidates.len(), 1);
@@ -416,6 +457,7 @@ mod tests {
         // The candidate should contain only our single mutable segment
         assert_eq!(candidate_ids.len(), 1);
         assert_eq!(candidate_ids[0], segment_ids[0]);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]
@@ -428,13 +470,14 @@ mod tests {
         let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
 
         policy.set_mergeable_segments_for_test(segments);
-        let candidates = policy.simulate();
+        let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 1);
         let candidate_ids: Vec<_> = candidates[0].0.to_vec();
         assert_eq!(candidate_ids.len(), 2);
         assert!(candidate_ids.contains(&segment_ids[0]));
         assert!(candidate_ids.contains(&segment_ids[1]));
+        assert_eq!(largest_layer_size, 1000);
     }
 
     #[pg_test]
@@ -447,9 +490,10 @@ mod tests {
         ];
 
         policy.set_mergeable_segments_for_test(segments);
-        let candidates = policy.simulate();
+        let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 0);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]
@@ -462,9 +506,10 @@ mod tests {
         ];
 
         policy.set_mergeable_segments_for_test(segments);
-        let candidates = policy.simulate();
+        let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 0);
+        assert_eq!(largest_layer_size, 0);
     }
 
     #[pg_test]
@@ -479,7 +524,7 @@ mod tests {
         let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
 
         policy.set_mergeable_segments_for_test(segments);
-        let candidates = policy.simulate();
+        let (candidates, largest_layer_size) = policy.simulate();
 
         assert_eq!(candidates.len(), 2);
 
@@ -495,5 +540,6 @@ mod tests {
             assert_eq!(candidate1_ids, large_segment_ids);
             assert_eq!(candidate2_ids, small_segment_ids);
         }
+        assert_eq!(largest_layer_size, 10000);
     }
 }

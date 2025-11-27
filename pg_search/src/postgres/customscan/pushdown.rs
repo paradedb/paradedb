@@ -23,7 +23,7 @@ use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
     TantivyOperator, TantivyOperatorExt,
 };
-use crate::postgres::customscan::qual_inspect::Qual;
+use crate::postgres::customscan::qual_inspect::{contains_exec_param, Qual};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::SearchField;
@@ -113,6 +113,14 @@ pub unsafe fn try_pushdown_inner(
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+    
+    // If the RHS contains PARAM_EXEC nodes (correlated subquery parameters),
+    // we can't push it down because the parameters need runtime evaluation with planstate.
+    // Return None to let the caller create a HeapExpr instead.
+    if contains_exec_param(rhs) {
+        return None;
+    }
+    
     let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
     let search_field = pushdown.search_field();
 

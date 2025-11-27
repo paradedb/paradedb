@@ -40,6 +40,255 @@ WITH (
         "in_stock": {"fast": true}
     }'
 );
+-- =============================================================================
+-- OPERATOR SUPPORT TESTS
+-- Testing that window aggregate pushdown works with all search operators
+-- =============================================================================
+-- Test 1a: Window aggregate with ||| operator (match disjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1b: Window aggregate with &&& operator (match conjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+ id | name | rating | total_count 
+----+------+--------+-------------
+(0 rows)
+
+-- Test 1c: Window aggregate with === operator (term search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1d: Window aggregate with ### operator (phrase search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           1
+(1 row)
+
+-- Test 1e: Window aggregate with proximity operator (## - any order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"any_order":10},"right":{"term":"powerful"}}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+ id | name | rating | total_count 
+----+------+--------+-------------
+(0 rows)
+
+-- Test 1f: Window aggregate with proximity operator (##> - in order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"in_order":10},"right":{"term":"professionals"}}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           1
+(1 row)
+
+-- =============================================================================
+-- BASIC TOPN TESTS
+-- =============================================================================
 -- Test 1: Basic TopN without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -807,28 +1056,25 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+   Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Sort
-         Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+         Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
          Sort Key: products.price DESC
          ->  Limit
-               Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-               ->  Sort
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     Sort Key: products.rating DESC
-                     ->  WindowAgg
-                           Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                           ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: products.id, products.name, products.rating, products.price
-                                 Table: products
-                                 Index: products_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+               Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                     Table: products
+                     Index: products_idx
+                     Exec Method: TopNScanExecState
+                     Scores: false
+                        TopN Order By: rating desc
+                        TopN Limit: 5
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT * FROM (
     SELECT 
@@ -1426,7 +1672,6 @@ INSERT INTO product_categories VALUES
 CREATE INDEX product_categories_idx ON product_categories
 USING bm25(name, description, priority)
 WITH (key_field='name');
-WARNING:  the `raw` tokenizer is deprecated
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     p.id,
@@ -1498,8 +1743,8 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
    ->  Sort
@@ -1509,20 +1754,17 @@ LIMIT 3;
                Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
                Filter: (subq.total_count > 0)
                ->  Limit
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     ->  Sort
-                           Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                           Sort Key: products.rating DESC
-                           ->  WindowAgg
-                                 Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                                 ->  Custom Scan (ParadeDB Scan) on public.products
-                                       Output: products.id, products.name, products.rating, products.price
-                                       Table: products
-                                       Index: products_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                     Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+                     ->  Custom Scan (ParadeDB Scan) on public.products
+                           Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                           Table: products
+                           Index: products_idx
+                           Exec Method: TopNScanExecState
+                           Scores: false
+                              TopN Order By: rating desc
+                              TopN Limit: 5
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT *
 FROM (
@@ -2117,6 +2359,44 @@ LIMIT 10;
   5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"value": 4.6}
   3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"value": 4.6}
   4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"value": 4.6}
+(4 rows)
+
+-- Test 36: TopN with nested aggregations (window function)
+-- Verify that nested "aggs" work correctly in TopN/window context
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, name, brand,
+       pdb.agg('{"terms": {"field": "brand", "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}}'::jsonb) OVER () AS brand_with_avg_rating
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+                                                                                                                                         QUERY PLAN                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT id, name, brand,
+       pdb.agg('{"terms": {"field": "brand", "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}}'::jsonb) OVER () AS brand_with_avg_rating
+FROM products
+WHERE description @@@ 'laptop'
+ORDER BY rating DESC
+LIMIT 5;
+ id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          
+----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
 -- Cleanup

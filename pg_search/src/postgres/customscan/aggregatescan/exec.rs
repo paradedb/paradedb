@@ -72,6 +72,7 @@ pub fn aggregation_results_iter(
         gucs::adjust_work_mem().get().try_into().unwrap(),
         DEFAULT_BUCKET_LIMIT,
         expr_context,
+        planstate,
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
@@ -378,7 +379,10 @@ impl AggregationResults {
                     // Standard metric aggregate
                     aggregates.push(Some(MetricResult(metric).into()));
                 }
-                TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
+                TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
+                    if !is_custom =>
+                {
+                    // Standard filter aggregate (not custom)
                     let mut sub_rows = Vec::new();
                     let sub = AggregationResults(filter_bucket.sub_aggregations.0);
                     sub.flatten_ungrouped(&mut sub_rows, agg_types);
@@ -386,7 +390,8 @@ impl AggregationResults {
                         aggregates.extend(sub_row.aggregates);
                     }
                 }
-                // Custom aggregates or any other result type - store as JSON
+                // For all other results (custom aggregates and other bucket types), serialize as JSON
+                // For custom aggregates (pdb.agg), this preserves all nested aggregations
                 other => {
                     let json_value = serde_json::to_value(&other)
                         .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));

@@ -1,4 +1,7 @@
 DROP TABLE IF EXISTS tok_in_ci;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 CREATE TABLE tok_in_ci
 (
     id serial8 not null primary key,
@@ -85,3 +88,4 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) === 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) === 'test';
 
+RESET paradedb.enable_aggregate_custom_scan;

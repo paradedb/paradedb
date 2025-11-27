@@ -319,6 +319,21 @@ impl BufferMut {
         self.inner.page_size()
     }
 
+    pub fn into_immutable_page(mut self) -> ImmutablePage {
+        assert!(
+            !self.dirty,
+            "BufferMut::into_immutable_page called on a dirty page"
+        );
+
+        let inner = std::mem::replace(
+            &mut self.inner,
+            Buffer {
+                pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            },
+        );
+        unsafe { inner.into_immutable_page() }
+    }
+
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
     pub fn return_to_fsm_with_when_recyclable(
@@ -351,9 +366,13 @@ impl Drop for PinnedBuffer {
 }
 
 impl PinnedBuffer {
-    fn new(pg_buffer: pg_sys::Buffer) -> Self {
+    pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
+    }
+
+    pub fn number(self) -> pg_sys::BlockNumber {
+        unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 }
 

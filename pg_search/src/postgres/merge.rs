@@ -52,28 +52,37 @@ impl TryFrom<u8> for MergeStyle {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
+    blockno: pg_sys::BlockNumber,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid) -> Self {
-        Self { index_oid }
+    pub fn new(index_oid: pg_sys::Oid, blockno: pg_sys::BlockNumber) -> Self {
+        Self { index_oid, blockno }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
+
+    pub fn blockno(&self) -> pg_sys::BlockNumber {
+        self.blockno
+    }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
-        self.index_oid().into_datum()
+        let upper = u32::from(self.index_oid) as u64; // top 32 bits
+        let lower = self.blockno as u64; // bottom 32 bits
+        let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
+        Some(pg_sys::Datum::from(raw as i64))
     }
 
     fn type_oid() -> pg_sys::Oid {
-        pg_sys::OIDOID
+        pg_sys::INT8OID
     }
 }
 
@@ -81,14 +90,20 @@ impl FromDatum for BackgroundMergeArgs {
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
-        _typoid: pg_sys::Oid,
+        typoid: pg_sys::Oid,
     ) -> Option<Self> {
         if is_null {
             return None;
         }
 
-        let index_oid = pg_sys::Oid::from_datum(datum, is_null)?;
-        Some(BackgroundMergeArgs { index_oid })
+        let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
+        let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
+        let blockno = (raw & 0xFFFF_FFFF) as u32;
+
+        Some(Self {
+            index_oid: index_oid.into(),
+            blockno,
+        })
     }
 }
 
@@ -115,14 +130,6 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         }
 
         let target_segment_count = index_options.target_segment_count();
-        if segment_cnt <= target_segment_count {
-            return Self {
-                user_configured_bg_layers: false,
-                foreground_layer_sizes: Vec::new(),
-                background_layer_sizes: Vec::new(),
-            };
-        }
-
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does
@@ -153,6 +160,13 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         let mut background_layer_sizes = index_options.background_layer_sizes();
         let has_bg_layers = !background_layer_sizes.is_empty();
 
+        if segment_cnt <= target_segment_count {
+            return Self {
+                user_configured_bg_layers: has_bg_layers,
+                foreground_layer_sizes: Vec::new(),
+                background_layer_sizes: Vec::new(),
+            };
+        }
         if !background_layer_sizes.is_empty() {
             // additionally, ensure that the background layer sizes are <= to the target segment size
             background_layer_sizes.retain(|&layer_size| layer_size <= target_segment_byte_size);
@@ -177,6 +191,7 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         }
     }
 }
+
 impl IndexLayerSizes {
     fn user_configured_background_layers(&self) -> bool {
         self.user_configured_bg_layers
@@ -210,16 +225,18 @@ pub unsafe fn do_merge(
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = layer_sizes.user_configured_background_layers()
-        && { merge_lock.merge_list().is_empty() }
-        && {
+    let (needs_background_merge, largest_layer_size) =
+        if layer_sizes.user_configured_background_layers() {
             let combined_layers = layer_sizes.combined();
             let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
             let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
             background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let merge_candidates = background_merge_policy.simulate();
-            !merge_candidates.is_empty()
+            let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
+
+            (!merge_candidates.is_empty(), largest_layer_size)
+        } else {
+            (false, 0)
         };
 
     if needs_background_merge {
@@ -228,7 +245,7 @@ pub unsafe fn do_merge(
         drop(merge_lock);
         drop(cleanup_lock);
 
-        try_launch_background_merger(index);
+        try_launch_background_merger(index, largest_layer_size);
     } else if style == MergeStyle::Insert && !layer_sizes.foreground().is_empty() {
         let foreground_merge_policy = LayeredMergePolicy::new(layer_sizes.foreground_layer_sizes);
         merge_index(
@@ -248,8 +265,11 @@ pub unsafe fn do_merge(
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
-    if !MetaPage::open(index).bgmerger().try_starting() {
+unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
+    let maybe_blockno = MetaPage::open(index)
+        .bgmerger()
+        .can_start(largest_layer_size);
+    if maybe_blockno.is_none() {
         return;
     }
 
@@ -268,12 +288,11 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid()).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), maybe_blockno.unwrap()).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
     {
-        MetaPage::open(index).bgmerger().set_stopped();
         pgrx::log!("not enough available `max_worker_processes` to launch a background merger");
     }
 }
@@ -309,8 +328,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             return;
         }
         let index = index.unwrap();
+        let sentinel_buffer = MetaPage::open(&index)
+            .bgmerger()
+            .try_starting(args.blockno());
+        if sentinel_buffer.is_none() {
+            return;
+        }
         let metadata = MetaPage::open(&index);
-        metadata.bgmerger().set_running();
 
         let layer_sizes = IndexLayerSizes::from(&index);
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
@@ -329,9 +353,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 next_xid,
             )
         }))
-        .finally(|| metadata.bgmerger().set_stopped())
         .execute();
-    });
+    })
 }
 
 #[inline]
@@ -356,7 +379,7 @@ unsafe fn merge_index(
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
     merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-    let merge_candidates = merge_policy.simulate();
+    let (merge_candidates, _) = merge_policy.simulate();
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
@@ -562,5 +585,23 @@ mod tests {
         let index = PgSearchRelation::open(index_oid);
         let layer_sizes = index.options().background_layer_sizes();
         assert_eq!(layer_sizes, DEFAULT_BACKGROUND_LAYER_SIZES.to_vec());
+    }
+
+    #[pg_test]
+    fn test_background_merge_args() {
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 200);
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
+        assert_eq!(args, args2);
+
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), 0);
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
+        assert_eq!(args, args2);
+
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), pg_sys::BlockNumber::MAX);
+        let datum = args.into_datum().unwrap();
+        let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
+        assert_eq!(args, args2);
     }
 }

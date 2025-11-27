@@ -24,6 +24,8 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
+use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+
 /// Allows the user to toggle the use of our "ParadeDB Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -59,6 +61,9 @@ static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BU
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
 
+/// For testing, ensures the same handling of null aggregates as Postgres
+static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -87,7 +92,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
-static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(1000);
+static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -252,7 +257,16 @@ pub fn init() {
         c"Setting this to a non-negative value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
         &GLOBAL_MUTABLE_SEGMENT_ROWS,
         -1,
-        10000,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.add_doc_count_to_aggs",
+        c"for testing, ensures the same handling of null aggregates as Postgres",
+        c"Meant for internal testing usage",
+        &ADD_DOC_COUNT_TO_AGGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -386,6 +400,10 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
     } else {
         None
     }
+}
+
+pub fn add_doc_count_to_aggs() -> bool {
+    ADD_DOC_COUNT_TO_AGGS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

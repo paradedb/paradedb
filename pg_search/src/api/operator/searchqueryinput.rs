@@ -30,7 +30,6 @@ use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
-use pgrx::PgLogLevel;
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
     varlena_to_byte_slice, Internal, PgList, PgOid, PgRelation,
@@ -155,30 +154,11 @@ pub fn search_with_query_input(
         varlena_to_byte_slice(varlena).to_vec()
     };
 
-    let key_len = key.len();
-    let key_preview = bytes_preview(&key);
-    log_with_preview(
-        PgLogLevel::DEBUG5,
-        "search_with_query_input: raw query datum",
-        key.len(),
-        &key_preview,
-    );
-
-    let key_preview_for_closure = key_preview.clone();
     let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
-        let logged_preview = key_preview_for_closure.clone();
         let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum_resilient(query_datum, query_datum.is_null())
-                .unwrap_or_else(|| {
-                    log_with_preview(
-                        PgLogLevel::WARNING,
-                        "search_with_query_input: query argument was NULL",
-                        key_len,
-                        &logged_preview,
-                    );
-                    panic!("the query argument cannot be NULL");
-                })
+                .expect("the query argument cannot be NULL")
         };
 
         // optimize the case where the user asked for literally every matching document to avoid
@@ -197,12 +177,6 @@ pub fn search_with_query_input(
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        log_with_preview(
-            PgLogLevel::DEBUG5,
-            &format!("search_with_query_input: opening index oid={}", index_oid),
-            key_len,
-            &logged_preview,
-        );
         let search_reader = SearchIndexReader::open(
             &index_relation,
             search_query_input,
@@ -239,28 +213,6 @@ pub fn search_with_query_input(
         let user_value =
             TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
         matches.contains(&user_value)
-    }
-}
-
-fn bytes_preview(bytes: &[u8]) -> String {
-    const MAX: usize = 32;
-    let preview_len = bytes.len().min(MAX);
-    let mut preview = String::with_capacity(preview_len * 2);
-    for b in &bytes[..preview_len] {
-        use std::fmt::Write;
-        let _ = write!(&mut preview, "{:02x}", b);
-    }
-    if bytes.len() > MAX {
-        preview.push_str("...");
-    }
-    preview
-}
-
-fn log_with_preview(level: PgLogLevel, context: &str, len: usize, preview: &str) {
-    match level {
-        PgLogLevel::DEBUG5 => pgrx::debug5!("{} (len={}, preview={})", context, len, preview),
-        PgLogLevel::WARNING => pgrx::warning!("{} (len={}, preview={})", context, len, preview),
-        _ => pgrx::debug3!("{} (len={}, preview={})", context, len, preview),
     }
 }
 

@@ -37,15 +37,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
+                           QUERY PLAN                           
+----------------------------------------------------------------
  Hash Right Anti Join
    Hash Cond: (contact_list.id = contacts_companies.contact_id)
    ->  Seq Scan on contact_list
+         Disabled: true
    ->  Hash
-         ->  Index Scan using contacts_companies_pkey on contacts_companies
+         ->  Seq Scan on contacts_companies
+               Disabled: true
                Filter: (contact_name ~ '^(?:Alice)$'::text)
-(6 rows)
+(8 rows)
 
 SET paradedb.enable_custom_scan = off;
 SELECT contact_name FROM contacts_companies

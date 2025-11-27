@@ -41,7 +41,6 @@ pub enum Qual {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
-        scalar_array_use_or: Option<bool>,
     },
     Expr {
         node: *mut pg_sys::Node,
@@ -262,39 +261,9 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::OpExpr {
-                val,
-                scalar_array_use_or,
-                ..
-            } => unsafe {
-                if let Some(use_or) = *scalar_array_use_or {
-                    let elements =
-                        SearchQueryInput::array_from_datum((**val).constvalue, (**val).constisnull)
-                            .expect("ScalarArrayOpExpr should not contain NULL");
-
-                    if elements.is_empty() {
-                        if use_or {
-                            SearchQueryInput::Empty
-                        } else {
-                            SearchQueryInput::All
-                        }
-                    } else {
-                        let (must, should) = if use_or {
-                            (Vec::new(), elements)
-                        } else {
-                            (elements, Vec::new())
-                        };
-
-                        SearchQueryInput::Boolean {
-                            must,
-                            should,
-                            must_not: vec![],
-                        }
-                    }
-                } else {
-                    SearchQueryInput::from_datum_resilient((**val).constvalue, (**val).constisnull)
-                        .expect("rhs of @@@ operator Qual must not be null")
-                }
+            Qual::OpExpr { val, .. } => unsafe {
+                SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
+                    .expect("rhs of @@@ operator Qual must not be null")
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
             Qual::PushdownExpr { funcexpr } => unsafe {
@@ -303,7 +272,7 @@ impl From<&Qual> for SearchQueryInput {
                 let mut is_null = false;
                 let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
                 pg_sys::FreeExprContext(expr_context, false);
-                SearchQueryInput::from_datum_resilient(datum, is_null)
+                SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {
@@ -986,7 +955,6 @@ unsafe fn node_opexpr(
                 lhs,
                 opno: opexpr.opno(),
                 val: rhs,
-                scalar_array_use_or: opexpr.use_or(),
             })
         } else {
             // the node comes from a different range table

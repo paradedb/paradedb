@@ -26,14 +26,14 @@ On the other hand, the [ngrams](/documentation/tokenizers/available-tokenizers/n
 SELECT 'Hello world!'::pdb.ngram(3,3)::text[];
 ```
 
-<!-- codespell:ignore-begin -->
+{/** codespell:ignore-begin **/}
 ```ini Expected Response
                       text
 -------------------------------------------------
  {hel,ell,llo,"lo ","o w"," wo",wor,orl,rld,ld!}
 (1 row)
 ```
-<!-- codespell:ignore-end -->
+{/** codespell:ignore-end **/}
 
 
 Choosing the right tokenizer is crucial to getting the search results you want. For instance, the simple tokenizer works best for whole-word matching like "hello" or "world", while the ngram tokenizer enables partial matching.

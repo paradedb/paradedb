@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764303149665,
+  "lastUpdate": 1764303153250,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7142,6 +7142,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.55811032413384, max segment_count: 132.0, count: 57322"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9eb7e2b016837f8b1d71570e5276f8c0c7292ec",
+          "message": "fix: early return in `TSVisibilityChecker` `Drop` if panicking (#3648)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts over a double panic fix from enterprise\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-27T22:43:02-05:00",
+          "tree_id": "1e42502262f02f82ea4cc94b40e87ec6f85f901f",
+          "url": "https://github.com/paradedb/paradedb/commit/e9eb7e2b016837f8b1d71570e5276f8c0c7292ec"
+        },
+        "date": 1764303150652,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.944551,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.10369144152647, max cpu: 42.942345, count: 57341"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.7454416751321, max mem: 238.44140625, count: 57341"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.38957728808742, max cpu: 33.23442, count: 57341"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.5099675079786, max mem: 168.30078125, count: 57341"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34963,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34026.04504630195, max block_count: 36901.0, count: 57341"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.98714706754329, max segment_count: 133.0, count: 57341"
           }
         ]
       }

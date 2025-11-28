@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764304679039,
+  "lastUpdate": 1764305422005,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15614,6 +15614,54 @@ window.BENCHMARK_DATA = {
             "value": 113.65155338302233,
             "unit": "median tps",
             "extra": "avg tps: 114.73092712089412, max tps: 511.94579152679074, count: 107540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9eb7e2b016837f8b1d71570e5276f8c0c7292ec",
+          "message": "fix: early return in `TSVisibilityChecker` `Drop` if panicking (#3648)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts over a double panic fix from enterprise\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-11-27T22:43:02-05:00",
+          "tree_id": "1e42502262f02f82ea4cc94b40e87ec6f85f901f",
+          "url": "https://github.com/paradedb/paradedb/commit/e9eb7e2b016837f8b1d71570e5276f8c0c7292ec"
+        },
+        "date": 1764305419455,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 504.07630544539313,
+            "unit": "median tps",
+            "extra": "avg tps: 508.504957963474, max tps: 710.7631391095368, count: 53708"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 498.1327751279041,
+            "unit": "median tps",
+            "extra": "avg tps: 505.03049751947015, max tps: 760.547542290617, count: 53708"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.72941195528627,
+            "unit": "median tps",
+            "extra": "avg tps: 86.93488404234907, max tps: 90.96830300450112, count: 53708"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 112.78823027005586,
+            "unit": "median tps",
+            "extra": "avg tps: 111.28343294234975, max tps: 503.4518521757019, count: 107416"
           }
         ]
       }

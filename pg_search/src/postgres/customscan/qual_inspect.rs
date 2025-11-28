@@ -41,6 +41,8 @@ pub enum Qual {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
+        /// True if this comes from a ScalarArrayOpExpr (e.g., PG18's OR-to-ANY rewrite)
+        is_array: bool,
     },
     Expr {
         node: *mut pg_sys::Node,
@@ -261,9 +263,16 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::OpExpr { val, .. } => unsafe {
-                SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
-                    .expect("rhs of @@@ operator Qual must not be null")
+            Qual::OpExpr { val, is_array, .. } => unsafe {
+                if *is_array {
+                    SearchQueryInput::disjunction_from_text_array(
+                        (**val).constvalue,
+                        (**val).constisnull,
+                    )
+                } else {
+                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
+                        .expect("rhs of @@@ operator Qual must not be null")
+                }
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
             Qual::PushdownExpr { funcexpr } => unsafe {
@@ -955,6 +964,7 @@ unsafe fn node_opexpr(
                 lhs,
                 opno: opexpr.opno(),
                 val: rhs,
+                is_array: opexpr.use_or().is_some(),
             })
         } else {
             // the node comes from a different range table

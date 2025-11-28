@@ -35,7 +35,7 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{pg_sys, Array, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::{smallvec, SmallVec};
@@ -323,6 +323,31 @@ impl SearchQueryInput {
             expr: PostgresExpression {
                 node: PostgresPointer(node.cast()),
                 expr_state: PostgresPointer::default(),
+            },
+        }
+    }
+
+    /// Decode a text array datum into a disjunction of Parse queries.
+    /// Used for PG18's ScalarArrayOpExpr (OR-to-ANY rewrite).
+    pub unsafe fn disjunction_from_text_array(datum: pg_sys::Datum, is_null: bool) -> Self {
+        let array =
+            Array::<String>::from_datum(datum, is_null).expect("expected text array argument");
+        let mut queries: Vec<_> = array
+            .iter()
+            .map(|e| SearchQueryInput::Parse {
+                query_string: e.expect("array element must not be NULL"),
+                lenient: None,
+                conjunction_mode: None,
+            })
+            .collect();
+
+        match queries.len() {
+            0 => SearchQueryInput::Empty,
+            1 => queries.pop().unwrap(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![],
+                should: queries,
+                must_not: vec![],
             },
         }
     }

@@ -63,20 +63,50 @@ pub extern "C-unwind" fn amrescan(
     _norderbys: ::std::os::raw::c_int,
 ) {
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
-        match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
-            ScanStrategy::TextQuery => unsafe {
-                let query_string = String::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null");
-                SearchQueryInput::Parse {
-                    query_string,
-                    lenient: None,
-                    conjunction_mode: None,
+        let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
+        let strategy =
+            ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized");
+
+        unsafe {
+            if is_array {
+                // PG18 rewrites OR with text constants to text arrays
+                let array = Array::<String>::from_datum(key.sk_argument, false)
+                    .expect("SK_SEARCHARRAY key must have array argument");
+                let mut queries: Vec<_> = array
+                    .iter()
+                    .map(|e| SearchQueryInput::Parse {
+                        query_string: e.expect("array element must not be NULL"),
+                        lenient: None,
+                        conjunction_mode: None,
+                    })
+                    .collect();
+
+                match queries.len() {
+                    0 => SearchQueryInput::Empty,
+                    1 => queries.pop().unwrap(),
+                    _ => SearchQueryInput::Boolean {
+                        must: vec![],
+                        should: queries,
+                        must_not: vec![],
+                    },
                 }
-            },
-            ScanStrategy::SearchQueryInput => unsafe {
-                SearchQueryInput::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null")
-            },
+            } else {
+                match strategy {
+                    ScanStrategy::TextQuery => {
+                        let query_string = String::from_datum(key.sk_argument, false)
+                            .expect("ScanKey.sk_argument must not be null");
+                        SearchQueryInput::Parse {
+                            query_string,
+                            lenient: None,
+                            conjunction_mode: None,
+                        }
+                    }
+                    ScanStrategy::SearchQueryInput => {
+                        SearchQueryInput::from_datum(key.sk_argument, false)
+                            .expect("ScanKey.sk_argument must not be null")
+                    }
+                }
+            }
         }
     }
 

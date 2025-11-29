@@ -428,9 +428,6 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
 /// and before any path generation. It performs a one-time replacement of window
 /// functions with placeholder function calls that our custom scans can detect
 /// and handle during execution.
-///
-/// On PG18+, this hook also disables self-join elimination for queries that use
-/// score() functions in self-joins, as the optimization breaks context-sensitive scoring.
 #[pg_guard]
 unsafe extern "C-unwind" fn paradedb_planner_hook(
     parse: *mut pg_sys::Query,

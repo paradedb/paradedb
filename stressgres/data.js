@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764411923715,
+  "lastUpdate": 1764412701593,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8838,6 +8838,54 @@ window.BENCHMARK_DATA = {
             "value": 5.487825248872606,
             "unit": "median tps",
             "extra": "avg tps: 5.503064547561698, max tps: 6.564084812124274, count: 56096"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd193d9c47f9e370c00e548c50aa9cb88a287d72",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3663)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes",
+          "timestamp": "2025-11-29T01:55:54-08:00",
+          "tree_id": "a268fae5aa54e9add41b7c8aed7733d95f39b40f",
+          "url": "https://github.com/paradedb/paradedb/commit/fd193d9c47f9e370c00e548c50aa9cb88a287d72"
+        },
+        "date": 1764412699043,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1138.4368813744395,
+            "unit": "median tps",
+            "extra": "avg tps: 1140.2089081269885, max tps: 1186.49298844655, count: 56085"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1311.3680634540576,
+            "unit": "median tps",
+            "extra": "avg tps: 1302.4387544129781, max tps: 1324.380753895756, count: 56085"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1956.9570107735763,
+            "unit": "median tps",
+            "extra": "avg tps: 1929.9554963485166, max tps: 2123.7816910019365, count: 56085"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.484935775864291,
+            "unit": "median tps",
+            "extra": "avg tps: 5.499701286081186, max tps: 6.622830899530179, count: 56085"
           }
         ]
       }

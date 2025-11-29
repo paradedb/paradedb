@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764446104348,
+  "lastUpdate": 1764446107966,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16710,6 +16710,114 @@ window.BENCHMARK_DATA = {
             "value": 161.89453125,
             "unit": "median mem",
             "extra": "avg mem: 159.2838185952291, max mem: 163.39453125, count: 55566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "583a10a2511d5adf4bd69b91c7467d2c009ba66c",
+          "message": "feat: add support for PG18 (#3375)\n\n# Ticket(s) Closed\n\n- Closes #2723 \n\n## What\nAdd support for Postgres 18 to `pg_search`. I don't yet default to PG18\nfor our builds, though. That can come later. We'll also want to add PG18\nto the prebuilt CI binaries. This can come in a separate PR\n\nI also upgraded pgvector to 0.8.1, which is necessary for PG18 support.\n\n## Why\nLots of community users are waiting for this, and I had an hour to\nspare.\n\n## How\nMostly reading Postgres source and compare REL_17_STABLE and\nREL_18_STABLE.\n\n## Tests\nI can compile and run the full quickstart locally, and CI should pass\nfor the full test suite.\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Jubilee <workingjubilee@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-29T10:58:31-08:00",
+          "tree_id": "1478d2a433610b1f41c3595c4ff6b1943b85c26a",
+          "url": "https://github.com/paradedb/paradedb/commit/583a10a2511d5adf4bd69b91c7467d2c009ba66c"
+        },
+        "date": 1764446105306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.787261637442192, max cpu: 47.058823, count: 55479"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 161.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.88106092226337, max mem: 165.2109375, count: 55479"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7050966449005855, max cpu: 41.69884, count: 55479"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 111.42592298437246, max mem: 112.51171875, count: 55479"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.772775251247757, max cpu: 9.458128, count: 55479"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 117.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 107.22248881615116, max mem: 147.4375, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14072,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14361.971286432705, max block_count: 25998.0, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.983224622989645, max cpu: 4.6647234, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 85.7509326445592, max mem: 128.8203125, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.672668937796285, max segment_count: 36.0, count: 55479"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.463216852462926, max cpu: 41.578438, count: 110958"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 133.70451720752447, max mem: 159.51171875, count: 110958"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.871817973777304, max cpu: 28.125, count: 55479"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 160.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.52239205938284, max mem: 161.65625, count: 55479"
           }
         ]
       }

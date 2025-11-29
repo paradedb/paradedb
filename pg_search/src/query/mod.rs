@@ -35,13 +35,14 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, varlena_to_byte_slice, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{
+    pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
+};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::{smallvec, SmallVec};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
-use std::os::raw::c_char;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -591,6 +592,7 @@ impl SearchQueryInput {
             return None;
         }
 
+        // Check if this is an array of SearchQueryInput
         let raw_array = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr::<pg_sys::varlena>());
         let array = raw_array as *mut pg_sys::ArrayType;
         let sqi_typoid = searchqueryinput_typoid();
@@ -599,12 +601,13 @@ impl SearchQueryInput {
             && (*array).ndim <= pg_sys::MAXDIM as i32
             && (*array).elemtype == sqi_typoid;
 
+        pg_sys::pfree(raw_array.cast());
+
         if !is_candidate {
-            pg_sys::pfree(raw_array.cast());
             return None;
         }
 
-        let elements = Self::array_from_varlena(raw_array)?;
+        let elements = Self::array_from_datum(datum, is_null)?;
         Some(Self::boolean_disjunction(elements))
     }
 
@@ -624,67 +627,11 @@ impl SearchQueryInput {
         datum: pg_sys::Datum,
         is_null: bool,
     ) -> Option<Vec<SearchQueryInput>> {
-        if is_null {
-            return None;
-        }
-
-        let raw_array = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr::<pg_sys::varlena>());
-        Self::array_from_varlena(raw_array)
-    }
-
-    unsafe fn array_from_varlena(raw_array: *mut pg_sys::varlena) -> Option<Vec<SearchQueryInput>> {
-        let array = raw_array as *mut pg_sys::ArrayType;
-        let mut elem_values: *mut pg_sys::Datum = std::ptr::null_mut();
-        let mut elem_nulls: *mut bool = std::ptr::null_mut();
-        let mut elem_count = 0;
-
-        let mut elmlen: i16 = 0;
-        let mut elmbyval = false;
-        let mut elmalign: c_char = 0;
-
-        pg_sys::get_typlenbyvalalign(
+        <Vec<SearchQueryInput> as FromDatum>::from_polymorphic_datum(
+            datum,
+            is_null,
             searchqueryinput_typoid(),
-            &mut elmlen,
-            &mut elmbyval,
-            &mut elmalign,
-        );
-
-        pg_sys::deconstruct_array(
-            array,
-            searchqueryinput_typoid(),
-            elmlen as i32,
-            elmbyval,
-            elmalign,
-            &mut elem_values,
-            &mut elem_nulls,
-            &mut elem_count,
-        );
-
-        let values = std::slice::from_raw_parts(elem_values, elem_count as usize);
-        let nulls = std::slice::from_raw_parts(elem_nulls, elem_count as usize);
-
-        let mut result = Vec::with_capacity(elem_count as usize);
-        for (datum, is_elem_null) in values.iter().zip(nulls.iter()) {
-            if *is_elem_null {
-                panic!("SearchQueryInput arrays must not contain NULL elements");
-            }
-
-            let value =
-                SearchQueryInput::from_datum_resilient(*datum, false).expect("value present");
-            result.push(value);
-        }
-
-        if !elem_values.is_null() {
-            pg_sys::pfree(elem_values.cast());
-        }
-        if !elem_nulls.is_null() {
-            pg_sys::pfree(elem_nulls.cast());
-        }
-        if !raw_array.is_null() {
-            pg_sys::pfree(raw_array.cast());
-        }
-
-        Some(result)
+        )
     }
 }
 

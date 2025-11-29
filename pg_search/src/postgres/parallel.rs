@@ -67,10 +67,7 @@ unsafe fn bm25_shared_state(
 
 /// Initialize parallel scan state for index scans.
 ///
-/// This function is called by amrescan, which is invoked by BOTH the leader and all parallel workers.
-/// As the workers would call list_segment_ids() → segments() to read segment data while the leader
-/// might be modifying it via init_without_mutex(), we now have segments() acquire the mutex before reading.
-/// This ensures workers always see consistent state even if the leader is initializing/reinitializing.
+/// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
@@ -87,12 +84,6 @@ pub unsafe fn maybe_init_parallel_scan(
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
         // `aminitparallelscan()`
-        //
-        // We always call init_without_mutex() here (even on rescans) because:
-        // 1. It properly resets remaining_segments for rescans
-        // 2. The mutex protects against race conditions - workers calling segments() will
-        //    acquire the same mutex and wait until initialization completes
-        // 3. This is simpler than detecting rescans and calling reset() separately
         state.init_without_mutex(searcher.segment_readers(), &[], false);
     }
     Some(worker_number)

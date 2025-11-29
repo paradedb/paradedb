@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764416422106,
+  "lastUpdate": 1764416425596,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20368,6 +20368,186 @@ window.BENCHMARK_DATA = {
             "value": 24.5390625,
             "unit": "median mem",
             "extra": "avg mem: 24.43814318232548, max mem: 24.5390625, count: 53761"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b8dd3af919c2dbc7cdaae3c952d2ca50c081402",
+          "message": "fix: race condition in parallel index scans with prepared statements (#3570)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nFixed a race condition in parallel index scans that caused prepared\nstatements to intermittently return 0 or incorrect row counts (~50%\nfailure rate).\n\n## Why\n\nWhen prepared statements are executed with parallel index scans,\n`amrescan` is called by both the leader and all parallel workers\nsimultaneously. This created a race condition:\n\n1. Leader calls `maybe_init_parallel_scan()` which modifies the parallel\nscan state\n2. Workers simultaneously call `list_segment_ids()` → `segments()` to\nread segment IDs\n3. `segments()` was reading `nsegments` and payload data **without\nacquiring the mutex**\n4. Workers could read partially-updated state while leader was modifying\nit\n5. Workers got corrupted segment lists and failed to participate in the\nscan\n6. Result: `loops=1` (only leader ran) instead of `loops=3` (leader + 2\nworkers) → returned 0 rows\n\nThe bug only manifested with prepared statements because rescans\ntriggered the race window on every execution after the first.\n\n## How\n\nMade `segments()` acquire the mutex before reading segment data:\n\n```rust\npub fn segments(&self) -> HashMap<SegmentId, u32> {\n    let _mutex = unsafe {\n        let self_mut = (self as *const Self as *mut Self).as_mut().unwrap();\n        self_mut.acquire_mutex()\n    };\n    // ... now safe to read nsegments and payload\n}\n```\n\nThis ensures workers always wait for the leader to finish initialization\nbefore reading, preventing the race condition. The fix follows standard\nreaders-writers synchronization - both readers and writers must acquire\nthe same mutex.\n\nAlso added documentation explaining the race condition in `scan.rs` and\n`parallel.rs`.\n\n## Tests\n\nAdded regression test `prepared_statement_parallel.sql`. This is meant\nto replicate the issue, but doesn't repro it.",
+          "timestamp": "2025-11-29T02:33:06-08:00",
+          "tree_id": "1f483eadba3f89522f341d9c964ef69f7f7c2232",
+          "url": "https://github.com/paradedb/paradedb/commit/7b8dd3af919c2dbc7cdaae3c952d2ca50c081402"
+        },
+        "date": 1764416423023,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.953881942457418, max cpu: 13.740458, count: 53714"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 39.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.97155994887273, max mem: 48.88671875, count: 53714"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.0948083758971645, max cpu: 4.6021094, count: 53714"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 24.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.002738752932196, max mem: 24.24609375, count: 53714"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.700130065406057, max cpu: 18.568666, count: 53714"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 40.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.16087082743791, max mem: 46.30859375, count: 53714"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.96297726855105, max cpu: 13.793103, count: 53714"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 37.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.79759306814797, max mem: 46.375, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.674524207518675, max cpu: 9.230769, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 24.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.15150576141695, max mem: 30.51171875, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1115,
+            "unit": "median pages",
+            "extra": "avg pages: 1111.7960494470715, max pages: 1850.0, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7109375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.68590692719775, max relation_size:MB: 14.453125, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.020832557619988, max segment_count: 20.0, count: 53714"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.715093024269204, max cpu: 4.597701, count: 53714"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.286493482844325, max mem: 21.89453125, count: 53714"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5796662462558504, max cpu: 4.5845275, count: 53714"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 22.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.961117271567932, max mem: 22.2734375, count: 53714"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.68949648761277, max cpu: 13.899614, count: 53714"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 46.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.40447359219663, max mem: 54.09375, count: 53714"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002093815273550948, max replication_lag:MB: 0.1429290771484375, count: 53714"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.1258812480748395, max cpu: 13.846154, count: 107428"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.465582835131436, max mem: 55.10546875, count: 107428"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.0910823782378087, max cpu: 4.619827, count: 53714"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 24.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.61684882840135, max mem: 24.98046875, count: 53714"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.428960524762751, max cpu: 4.597701, count: 53714"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 24.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 24.540843053021558, max mem: 24.58203125, count: 53714"
           }
         ]
       }

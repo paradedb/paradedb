@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764411198218,
+  "lastUpdate": 1764411201796,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5070,6 +5070,126 @@ window.BENCHMARK_DATA = {
             "value": 46.11328125,
             "unit": "median mem",
             "extra": "avg mem: 43.83494411333128, max mem: 58.34375, count: 55201"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc91e07f346371d6521a94910ff4ec4a2c84fd18",
+          "message": "fix: server crash with subqueries in parallel workers (#3656)\n\n# Ticket(s) Closed\n\n- Closes #3655\n\n## What\n\nFixes a server crash that occurred when using subqueries in the WHERE\nclause. Queries like this now work correctly:\n\n```sql\nSELECT * FROM pages \nWHERE id @@@ paradedb.all() \n  AND id >= (SELECT MAX(id) FROM metadata WHERE name = 'max')\nORDER BY id LIMIT 100;\n```\n\n## Why\n\nParallel workers were attempting to evaluate scalar subquery parameters\n(`PARAM_EXEC` nodes) that they didn't have access to. The root cause was\ntwofold:\n\n1. `Qual::HeapExpr::contains_exec_param()` always returned `false`,\nfailing to detect these parameters\n2. This caused parallel workers to be spawned even when they shouldn't\nbe\n3. Workers crashed trying to evaluate expressions containing parameters\nfrom `estate->es_param_exec_vals`, which isn't shared with workers\n\n## How\n\n**Fixed detection**: `Qual::HeapExpr` now correctly checks for\n`PARAM_EXEC` nodes in its expression tree.\n\n**Disabled parallelism**: When `PARAM_EXEC` is detected, we disable\nparallel workers (`nworkers = 0`) since these parameters can't currently\nbe shared with workers. This is a conservative approach that prioritizes\ncorrectness.\n\nThe trade-off: queries with scalar subqueries run single-threaded but\ndon't crash.\n\n## Tests\n\nAdded regression test `subquery_in_where_scale.sql` that reproduces the\ncrash scenario with 10,000 rows and verifies the fix works correctly.",
+          "timestamp": "2025-11-29T01:56:39-08:00",
+          "tree_id": "5e5ff21d5d1aafc345e57f2e0db0a15369a60146",
+          "url": "https://github.com/paradedb/paradedb/commit/bc91e07f346371d6521a94910ff4ec4a2c84fd18"
+        },
+        "date": 1764411199173,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.569123597095787, max cpu: 19.335348, count: 55235"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 53.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.745789651602244, max mem: 64.97265625, count: 55235"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.544399274143018, max cpu: 9.302325, count: 55235"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.25003507739658, max mem: 29.3359375, count: 55235"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.782927355138479, max cpu: 19.315895, count: 55235"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 50.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.08483376425726, max mem: 66.23828125, count: 55235"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.884734751651164, max cpu: 9.356726, count: 55235"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 52.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.20459959434688, max mem: 64.84765625, count: 55235"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594457135217622, max cpu: 9.4395275, count: 110470"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 39.23216795283788, max mem: 50.30078125, count: 110470"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1837,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1832.9660722368064, max block_count: 3222.0, count: 55235"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.368606861591383, max segment_count: 30.0, count: 55235"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.426667473043228, max cpu: 4.83871, count: 55235"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.87402193468815, max mem: 52.51953125, count: 55235"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4539318541637334, max cpu: 4.743083, count: 55235"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 46.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.063684286457864, max mem: 57.12890625, count: 55235"
           }
         ]
       }

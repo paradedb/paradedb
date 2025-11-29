@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764412701593,
+  "lastUpdate": 1764412705105,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11344,6 +11344,108 @@ window.BENCHMARK_DATA = {
             "value": 156.953125,
             "unit": "median mem",
             "extra": "avg mem: 175.4970065267577, max mem: 216.4375, count: 56096"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd193d9c47f9e370c00e548c50aa9cb88a287d72",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3663)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes",
+          "timestamp": "2025-11-29T01:55:54-08:00",
+          "tree_id": "a268fae5aa54e9add41b7c8aed7733d95f39b40f",
+          "url": "https://github.com/paradedb/paradedb/commit/fd193d9c47f9e370c00e548c50aa9cb88a287d72"
+        },
+        "date": 1764412702588,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07476152268877596, max background_merging: 2.0, count: 56085"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.778457600287961, max cpu: 9.81595, count: 56085"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 19.826643013952037, max mem: 22.9921875, count: 56085"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.012638227553465, max cpu: 14.723927, count: 56085"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 155.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 154.03792778260674, max mem: 155.30859375, count: 56085"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51109,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50975.06056877953, max block_count: 51109.0, count: 56085"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.2546848533476, max segment_count: 56.0, count: 56085"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.572470792331432, max cpu: 9.402546, count: 56085"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 118.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.95497856211554, max mem: 132.09375, count: 56085"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.767082897979797, max cpu: 9.638554, count: 56085"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 155.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 152.10762716468307, max mem: 155.73828125, count: 56085"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.93322532000088, max cpu: 33.7011, count: 56085"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.6250355208612, max mem: 217.4140625, count: 56085"
           }
         ]
       }

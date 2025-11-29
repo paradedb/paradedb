@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764443812939,
+  "lastUpdate": 1764444576743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6526,6 +6526,42 @@ window.BENCHMARK_DATA = {
             "value": 5.538041561727622,
             "unit": "median tps",
             "extra": "avg tps: 4.997599102620517, max tps: 6.166325409929941, count: 57556"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "583a10a2511d5adf4bd69b91c7467d2c009ba66c",
+          "message": "feat: add support for PG18 (#3375)\n\n# Ticket(s) Closed\n\n- Closes #2723 \n\n## What\nAdd support for Postgres 18 to `pg_search`. I don't yet default to PG18\nfor our builds, though. That can come later. We'll also want to add PG18\nto the prebuilt CI binaries. This can come in a separate PR\n\nI also upgraded pgvector to 0.8.1, which is necessary for PG18 support.\n\n## Why\nLots of community users are waiting for this, and I had an hour to\nspare.\n\n## How\nMostly reading Postgres source and compare REL_17_STABLE and\nREL_18_STABLE.\n\n## Tests\nI can compile and run the full quickstart locally, and CI should pass\nfor the full test suite.\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Jubilee <workingjubilee@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2025-11-29T10:58:31-08:00",
+          "tree_id": "1478d2a433610b1f41c3595c4ff6b1943b85c26a",
+          "url": "https://github.com/paradedb/paradedb/commit/583a10a2511d5adf4bd69b91c7467d2c009ba66c"
+        },
+        "date": 1764444574133,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.943654489083288,
+            "unit": "median tps",
+            "extra": "avg tps: 6.796719862864494, max tps: 10.504586432325986, count: 57313"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.490579658565091,
+            "unit": "median tps",
+            "extra": "avg tps: 4.948205879846247, max tps: 6.111598188698802, count: 57313"
           }
         ]
       }

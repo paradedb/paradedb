@@ -41,6 +41,7 @@ pgrx.workspace = true
 rustc-hash = "2.1.1"
 serde = "1.0.219"
 serde_json = { version = "1.0.140", features = ["preserve_order"] }
+serde_cbor = "0.11.2"
 tantivy.workspace = true
 thiserror = "2.0.12"
 ordered-float = "5.0.0"

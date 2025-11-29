@@ -532,8 +532,11 @@ unsafe fn wrap_with_index(
 ) -> *mut pg_sys::Node {
     if let Some(rhs_const) = nodecast!(Const, T_Const, rhs) {
         // Const nodes are always of type SearchQueryInput, so we can instantiate a new Const version
-        let query = SearchQueryInput::from_datum((*rhs_const).constvalue, (*rhs_const).constisnull)
-            .unwrap();
+        let query = SearchQueryInput::from_datum_resilient(
+            (*rhs_const).constvalue,
+            (*rhs_const).constisnull,
+        )
+        .unwrap();
         let query = SearchQueryInput::WithIndex {
             oid: indexrel.oid(),
             query: Box::new(query),

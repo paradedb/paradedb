@@ -1,0 +1,79 @@
+---
+title: Term
+description: Look for exact token matches in the source document, without any further processing of the query string
+canonical: https://docs.paradedb.com/documentation/full-text/term
+---
+
+Term queries look for exact token matches. A term query is like an exact string match, but at the
+token level.
+
+Unlike [match](/documentation/full-text/match) or [phrase](/documentation/full-text/phrase) queries, term queries treat the query
+string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization or filtering.
+
+Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
+
+```sql
+-- Term query 1
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'running';
+
+-- Term query 2
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'RUNNING';
+```
+
+The first query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+However, the second query returns no results. This is because term queries look for exact matches, which includes
+case sensitivity, and there are no documents in the example dataset containing the token `RUNNING`.
+
+<Note>
+  All tokenizers besides the literal tokenizer
+  [lowercase](/documentation/token-filters/lowercase) tokens by default. Make
+  sure to account for this when searching for a term.
+</Note>
+
+<Note>
+  If you are using `===` to do an exact string match on the original text, make
+  sure that the text uses the
+  [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
+</Note>
+
+## How It Works
+
+Under the hood, `===` simply finds all documents where any of their tokens are an exact string match against the query token.
+A document's tokens are determined by the field's tokenizer and token filters, configured at index creation time.
+
+## Examples
+
+Let’s consider a few more hypothetical documents to see whether they would be returned by the term query.
+These examples assume that index uses the default tokenizer and token filters, and that the term query is
+`running`.
+
+| Original Text       | Tokens                    | Match | Reason                                | Related                                             |
+| ------------------- | ------------------------- | ----- | ------------------------------------- | --------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         | [Lowercasing](/documentation/indexing/create-index) |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain the token `running`. | [Stemming](/documentation/indexing/create-index)    |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain the token `running`. | [Fuzzy](/documentation/full-text/fuzzy)             |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain the token `running`. |
+
+## Term Set
+
+Passing a text array to the right-hand side of `===` means "find all documents containing any one of these tokens."
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description === ARRAY['shoes', 'running'];
+```

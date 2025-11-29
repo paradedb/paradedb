@@ -72,6 +72,7 @@ pub fn aggregation_results_iter(
         gucs::adjust_work_mem().get().try_into().unwrap(),
         DEFAULT_BUCKET_LIMIT,
         expr_context,
+        planstate,
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();

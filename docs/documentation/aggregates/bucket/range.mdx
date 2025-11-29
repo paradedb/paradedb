@@ -1,0 +1,23 @@
+---
+title: Range
+description: Count the number of occurrences over user-defined buckets
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/range
+---
+
+The range aggregation counts the number of occurrences over user-defined buckets. The buckets must be continuous and cannot overlap.
+
+```sql
+SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3.0 }, {"from": 3.0, "to": 6.0} ]}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+                                                                              agg
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"to": 3.0, "key": "*-3", "doc_count": 4}, {"to": 6.0, "key": "3-6", "from": 3.0, "doc_count": 37}, {"key": "6-*", "from": 6.0, "doc_count": 0}]}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.RangeAggregation.html)
+for all available options.

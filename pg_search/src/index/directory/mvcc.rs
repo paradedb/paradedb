@@ -375,7 +375,7 @@ impl Directory for MVCCDirectory {
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
                 .segment_metas()
-                .list()
+                .list(None)
                 .iter()
                 .flat_map(|entry| entry.get_component_paths())
                 .collect())
@@ -733,7 +733,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
         let linked_list = MetaPage::open(&indexrel).segment_metas();
-        let mut listed_files = unsafe { linked_list.list() };
+        let mut listed_files = unsafe { linked_list.list(None) };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {

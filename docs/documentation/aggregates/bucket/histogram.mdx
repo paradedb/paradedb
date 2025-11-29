@@ -1,0 +1,27 @@
+---
+title: Histogram
+description: Count the number of occurrences over some interval
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/histogram
+---
+
+The histogram aggregation dynamically creates buckets for a given `interval` and counts the number of occurrences
+in each bucket.
+
+Each value is rounded down to its bucket. For instance, a rating of `18` with an interval of `5` rounds down to a bucket
+with key `15`.
+
+```sql
+SELECT pdb.agg('{"histogram": {"field": "rating", "interval": "1"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+                                                                                  agg
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 1.0, "doc_count": 1}, {"key": 2.0, "doc_count": 3}, {"key": 3.0, "doc_count": 9}, {"key": 4.0, "doc_count": 16}, {"key": 5.0, "doc_count": 12}]}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.HistogramAggregation.html)
+for all available options.

@@ -1,0 +1,47 @@
+---
+title: Fast Fields
+noindex: true
+---
+
+<Danger>
+  **Legacy Docs:** This page describes our legacy API. It will be deprecated in
+  a future version. Please use the [v2 API](/) where possible.
+</Danger>
+
+## Basic Usage
+
+A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
+[aggregations](/documentation/aggregates/overview). They can also improve the query times of [filtering](/legacy/full-text/filtering) and
+[sorting](/legacy/full-text/sorting).
+
+By default, [numeric](/legacy/indexing/field-options#numeric-fields), [datetime](/legacy/indexing/field-options#datetime-fields), [UUID](/legacy/indexing/field-options#text-fields) and [boolean](/legacy/indexing/field-options#boolean-fields)
+are indexed as fast. The following code block demonstrates how to specify other data types as fast fields.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, rating)
+WITH (
+    key_field = 'id',
+    text_fields ='{
+        "description": {"fast": true}
+    }'
+);
+```
+
+## Normalizers
+
+The normalizer controls how text fast fields are stored. By default, the `raw` normalizer is used. The `raw` normalizer is useful for accelerating
+queries that [sort by the text field](/legacy/full-text/sorting#fast-ordering).
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, category)
+WITH (
+    key_field='id',
+    text_fields='{
+        "category": {"fast": true, "normalizer": "raw"}
+    }'
+);
+```
+
+Setting the normalizer to `lowercase` is useful for queries that [sort by the lowercase text field](/legacy/full-text/sorting#ordering-by-text-field).

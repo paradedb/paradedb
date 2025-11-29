@@ -48,7 +48,14 @@ extern "C-unwind" {
 /// let context_guard = ExprContextGuard::new();
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
+#[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+
+// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
+// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
+// these are never actually shared across threads in our PostgreSQL context.
+unsafe impl Send for ExprContextGuard {}
+unsafe impl Sync for ExprContextGuard {}
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context
@@ -65,7 +72,10 @@ impl ExprContextGuard {
 impl Drop for ExprContextGuard {
     fn drop(&mut self) {
         unsafe {
-            pg_sys::FreeExprContext(self.0, true);
+            // If this is an abort or other unclean shutdown, setting `isCommit = false` will avoid
+            // complex cleanup logic.
+            let is_commit = pg_sys::IsTransactionState() && !std::thread::panicking();
+            pg_sys::FreeExprContext(self.0, is_commit);
         }
     }
 }
@@ -430,15 +440,21 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         if *is_array {
-            for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_array(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
-            for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_json(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(datum, *base_oid)?;
+            let tv = TantivyValue::try_from_datum(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
         }
     }

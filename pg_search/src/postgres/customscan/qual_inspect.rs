@@ -41,6 +41,10 @@ pub enum Qual {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
+        /// For ScalarArrayOpExpr (e.g., `field @@@ ANY(array)`):
+        /// - Some(true) = OR semantics (ANY)
+        /// - Some(false) = AND semantics (ALL)
+        /// - None = regular OpExpr, not a ScalarArrayOpExpr
         scalar_array_use_or: Option<bool>,
     },
     Expr {
@@ -262,6 +266,9 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
+            // Handle ScalarArrayOpExpr: PostgreSQL 18+ rewrites OR clauses like
+            // `field @@@ 'a' OR field @@@ 'b'` into `field @@@ ANY(ARRAY['a','b'])`.
+            // We decode the array and convert it to a Boolean query (should/must).
             Qual::OpExpr {
                 val,
                 scalar_array_use_or,

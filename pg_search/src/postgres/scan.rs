@@ -63,18 +63,6 @@ pub extern "C-unwind" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    fn disjunction_from_queries(mut queries: Vec<SearchQueryInput>) -> SearchQueryInput {
-        match queries.len() {
-            0 => SearchQueryInput::Empty,
-            1 => queries.pop().unwrap(),
-            _ => SearchQueryInput::Boolean {
-                must: vec![],
-                should: queries,
-                must_not: vec![],
-            },
-        }
-    }
-
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
         let strategy =
             ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized");
@@ -95,7 +83,7 @@ pub extern "C-unwind" fn amrescan(
                             conjunction_mode: None,
                         })
                         .collect();
-                    disjunction_from_queries(should)
+                    SearchQueryInput::boolean_disjunction(should)
                 } else {
                     let query_string = unsafe {
                         String::from_datum(key.sk_argument, false)
@@ -119,7 +107,7 @@ pub extern "C-unwind" fn amrescan(
                         )
                         .expect("SearchQueryInput array should not be NULL")
                     };
-                    disjunction_from_queries(should)
+                    SearchQueryInput::boolean_disjunction(should)
                 } else {
                     // Single SearchQueryInput value
                     unsafe {

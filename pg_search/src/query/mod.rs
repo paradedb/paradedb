@@ -569,8 +569,19 @@ impl SearchQueryInput {
             return None;
         }
 
-        if let Some(array_query) = Self::coerce_scalar_array(datum, is_null) {
-            return Some(array_query);
+        // Check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
+        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
+        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
+        let is_sqi_array = (*array).ndim >= 1
+            && (*array).ndim <= pg_sys::MAXDIM as i32
+            && (*array).elemtype == searchqueryinput_typoid();
+
+        if is_sqi_array {
+            if let Some(elements) =
+                FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())
+            {
+                return Some(Self::boolean_disjunction(elements));
+            }
         }
 
         let bytes = detoast_datum_bytes(datum);
@@ -587,32 +598,7 @@ impl SearchQueryInput {
         }
     }
 
-    /// Try to decode datum as an array of SearchQueryInput and convert to a Boolean disjunction.
-    /// Returns None if the datum is not a SearchQueryInput array.
-    unsafe fn coerce_scalar_array(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
-        if is_null {
-            return None;
-        }
-
-        // Check if this is actually an array of SearchQueryInput before attempting decode.
-        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
-        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
-        let is_sqi_array = (*array).ndim >= 1
-            && (*array).ndim <= pg_sys::MAXDIM as i32
-            && (*array).elemtype == searchqueryinput_typoid();
-
-        if !is_sqi_array {
-            return None;
-        }
-
-        // FromDatum handles detoasting transparently
-        let elements: Vec<SearchQueryInput> =
-            FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())?;
-
-        Some(Self::boolean_disjunction(elements))
-    }
-
-    fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
+    pub fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
         match elements.len() {
             0 => SearchQueryInput::Empty,
             1 => elements.pop().unwrap(),

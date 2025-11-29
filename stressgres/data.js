@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764411157741,
+  "lastUpdate": 1764411161734,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4884,6 +4884,126 @@ window.BENCHMARK_DATA = {
             "value": 44.2890625,
             "unit": "median mem",
             "extra": "avg mem: 43.29001608750137, max mem: 54.97265625, count: 54662"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd193d9c47f9e370c00e548c50aa9cb88a287d72",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3663)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes",
+          "timestamp": "2025-11-29T01:55:54-08:00",
+          "tree_id": "a268fae5aa54e9add41b7c8aed7733d95f39b40f",
+          "url": "https://github.com/paradedb/paradedb/commit/fd193d9c47f9e370c00e548c50aa9cb88a287d72"
+        },
+        "date": 1764411159131,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.678610135613766, max cpu: 18.879055, count: 55201"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 54.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.98529875477799, max mem: 66.9375, count: 55201"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652781377351913, max cpu: 9.356726, count: 55201"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.658130768690786, max mem: 28.00390625, count: 55201"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.683971097482288, max cpu: 19.732784, count: 55201"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 55.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.08796170755512, max mem: 66.38671875, count: 55201"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.586489443866991, max cpu: 9.523809, count: 55201"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 52.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.60867606282042, max mem: 63.25390625, count: 55201"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589353253613831, max cpu: 9.347614, count: 110402"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.33813681336162, max mem: 48.9140625, count: 110402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1787,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1794.3674933425118, max block_count: 3183.0, count: 55201"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.329052009927356, max segment_count: 32.0, count: 55201"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.722210603062312, max cpu: 9.311348, count: 55201"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.79347343967954, max mem: 54.27734375, count: 55201"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.053344915179458, max cpu: 4.828974, count: 55201"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 46.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.83494411333128, max mem: 58.34375, count: 55201"
           }
         ]
       }

@@ -112,12 +112,12 @@ pub unsafe fn register() {
         aminsertcleanup_stack();
     }
 
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_run_hook(
         query_desc: *mut QueryDesc,
         direction: ScanDirection::Type,
         count: uint64,
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         execute_once: bool,
     ) {
         EXECUTOR_RUN_STACK.push(None);
@@ -126,17 +126,6 @@ pub unsafe fn register() {
         } else {
             pg_sys::standard_ExecutorRun(query_desc, direction, count, execute_once);
         }
-    }
-
-    #[cfg(feature = "pg18")]
-    #[pg_guard]
-    unsafe extern "C-unwind" fn executor_run_hook_pg18(
-        query_desc: *mut QueryDesc,
-        direction: ScanDirection::Type,
-        count: uint64,
-    ) {
-        EXECUTOR_RUN_STACK.push(None);
-        pg_sys::standard_ExecutorRun(query_desc, direction, count);
     }
 
     #[pg_guard]

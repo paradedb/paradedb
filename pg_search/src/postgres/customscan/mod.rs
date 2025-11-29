@@ -21,7 +21,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use parking_lot::Mutex;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
@@ -305,60 +305,21 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-pub fn try_score_funcoids() -> Option<[pg_sys::Oid; 2]> {
-    unsafe {
-        // Look up the pdb schema first
-        let pdb_schema = pg_sys::get_namespace_oid(c"pdb".as_ptr(), true);
-        if pdb_schema == pg_sys::InvalidOid {
-            return None;
-        }
-
-        // Build qualified name: pdb.score
-        let mut func_name_list = PgList::<pg_sys::Node>::new();
-        func_name_list.push(pg_sys::makeString(c"pdb".as_ptr() as *mut std::ffi::c_char) as *mut _);
-        func_name_list
-            .push(pg_sys::makeString(c"score".as_ptr() as *mut std::ffi::c_char) as *mut _);
-
-        // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
-        let pdb_score_oid = pg_sys::LookupFuncName(
-            func_name_list.as_ptr(),
-            1, // one argument: anyelement
-            [pg_sys::ANYELEMENTOID].as_ptr(),
-            true, // missing_ok = true, don't error if not found
-        );
-
-        // Now try paradedb.score
-        let paradedb_schema = pg_sys::get_namespace_oid(c"paradedb".as_ptr(), true);
-        let paradedb_score_oid = if paradedb_schema != pg_sys::InvalidOid {
-            let mut func_name_list2 = PgList::<pg_sys::Node>::new();
-            func_name_list2
-                .push(pg_sys::makeString(c"paradedb".as_ptr() as *mut std::ffi::c_char) as *mut _);
-            func_name_list2
-                .push(pg_sys::makeString(c"score".as_ptr() as *mut std::ffi::c_char) as *mut _);
-
-            pg_sys::LookupFuncName(
-                func_name_list2.as_ptr(),
-                1,
-                [pg_sys::ANYELEMENTOID].as_ptr(),
-                true,
-            )
-        } else {
-            pg_sys::InvalidOid
-        };
-
-        // Return Some only if at least one was found
-        if pdb_score_oid != pg_sys::InvalidOid || paradedb_score_oid != pg_sys::InvalidOid {
-            Some([pdb_score_oid, paradedb_score_oid])
-        } else {
-            None
-        }
-    }
-}
-
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
-    try_score_funcoids().unwrap_or_else(|| {
-        panic!(
-            "the `pdb.score(anyelement)` function should exist (CREATE EXTENSION pg_search first)"
-        )
-    })
+    [
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pdb.score(anyelement)".into_datum()],
+            )
+            .expect("the `pdb.score(anyelement)` function should exist")
+        },
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.score(anyelement)".into_datum()],
+            )
+            .expect("the `paradedb.score(anyelement)` function should exist")
+        },
+    ]
 }

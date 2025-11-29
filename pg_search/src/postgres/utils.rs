@@ -48,7 +48,14 @@ extern "C-unwind" {
 /// let context_guard = ExprContextGuard::new();
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
+#[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+
+// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
+// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
+// these are never actually shared across threads in our PostgreSQL context.
+unsafe impl Send for ExprContextGuard {}
+unsafe impl Sync for ExprContextGuard {}
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context

@@ -587,27 +587,28 @@ impl SearchQueryInput {
         }
     }
 
+    /// Try to decode datum as an array of SearchQueryInput and convert to a Boolean disjunction.
+    /// Returns None if the datum is not a SearchQueryInput array.
     unsafe fn coerce_scalar_array(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
         if is_null {
             return None;
         }
 
-        // Check if this is an array of SearchQueryInput
-        let raw_array = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr::<pg_sys::varlena>());
-        let array = raw_array as *mut pg_sys::ArrayType;
-        let sqi_typoid = searchqueryinput_typoid();
-
-        let is_candidate = (*array).ndim >= 1
+        // Check if this is actually an array of SearchQueryInput before attempting decode.
+        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
+        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
+        let is_sqi_array = (*array).ndim >= 1
             && (*array).ndim <= pg_sys::MAXDIM as i32
-            && (*array).elemtype == sqi_typoid;
+            && (*array).elemtype == searchqueryinput_typoid();
 
-        pg_sys::pfree(raw_array.cast());
-
-        if !is_candidate {
+        if !is_sqi_array {
             return None;
         }
 
-        let elements = Self::array_from_datum(datum, is_null)?;
+        // FromDatum handles detoasting transparently
+        let elements: Vec<SearchQueryInput> =
+            FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())?;
+
         Some(Self::boolean_disjunction(elements))
     }
 
@@ -621,17 +622,6 @@ impl SearchQueryInput {
                 must_not: vec![],
             },
         }
-    }
-
-    pub unsafe fn array_from_datum(
-        datum: pg_sys::Datum,
-        is_null: bool,
-    ) -> Option<Vec<SearchQueryInput>> {
-        <Vec<SearchQueryInput> as FromDatum>::from_polymorphic_datum(
-            datum,
-            is_null,
-            searchqueryinput_typoid(),
-        )
     }
 }
 

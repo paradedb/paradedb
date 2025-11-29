@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::{anyelement_query_input_opoid, searchqueryinput_typoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -268,9 +268,12 @@ impl From<&Qual> for SearchQueryInput {
                 ..
             } => unsafe {
                 if let Some(use_or) = *scalar_array_use_or {
-                    let elements =
-                        SearchQueryInput::array_from_datum((**val).constvalue, (**val).constisnull)
-                            .expect("ScalarArrayOpExpr should not contain NULL");
+                    let elements: Vec<SearchQueryInput> = pgrx::FromDatum::from_polymorphic_datum(
+                        (**val).constvalue,
+                        (**val).constisnull,
+                        searchqueryinput_typoid(),
+                    )
+                    .expect("ScalarArrayOpExpr should not contain NULL");
 
                     if elements.is_empty() {
                         if use_or {

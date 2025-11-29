@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::searchqueryinput_typoid;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
@@ -25,7 +26,6 @@ use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
@@ -78,81 +78,57 @@ pub extern "C-unwind" fn amrescan(
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
         let strategy =
             ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized");
+        let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
 
         match strategy {
             ScanStrategy::TextQuery => {
-                if let Some(query_string) = decode_text_value(key.sk_argument) {
+                if is_array {
+                    let strings = unsafe {
+                        <Vec<String> as FromDatum>::from_datum(key.sk_argument, false)
+                            .expect("text array argument should not be NULL")
+                    };
+                    let should = strings
+                        .into_iter()
+                        .map(|query_string| SearchQueryInput::Parse {
+                            query_string,
+                            lenient: None,
+                            conjunction_mode: None,
+                        })
+                        .collect();
+                    disjunction_from_queries(should)
+                } else {
+                    let query_string = unsafe {
+                        String::from_datum(key.sk_argument, false)
+                            .expect("text argument should not be NULL")
+                    };
                     SearchQueryInput::Parse {
                         query_string,
                         lenient: None,
                         conjunction_mode: None,
                     }
-                } else if let Some(strings) = decode_text_array(key.sk_argument) {
-                    let should = strings
-                        .into_iter()
-                        .map(|query_string| SearchQueryInput::Parse {
-                            query_string,
-                            lenient: None,
-                            conjunction_mode: None,
-                        })
-                        .collect();
-                    disjunction_from_queries(should)
-                } else {
-                    panic!("failed to decode text-based ScanKey argument")
                 }
             }
             ScanStrategy::SearchQueryInput => {
-                if let Some(value) = decode_searchqueryinput_value(key.sk_argument) {
-                    value
-                } else if let Some(should) = decode_searchqueryinput_array(key.sk_argument) {
-                    disjunction_from_queries(should)
-                } else if let Some(strings) = decode_text_array(key.sk_argument) {
-                    let should = strings
-                        .into_iter()
-                        .map(|query_string| SearchQueryInput::Parse {
-                            query_string,
-                            lenient: None,
-                            conjunction_mode: None,
-                        })
-                        .collect();
+                if is_array {
+                    // ScalarArrayOpExpr: decode as array of SearchQueryInput
+                    let should = unsafe {
+                        <Vec<SearchQueryInput> as FromDatum>::from_polymorphic_datum(
+                            key.sk_argument,
+                            false,
+                            searchqueryinput_typoid(),
+                        )
+                        .expect("SearchQueryInput array should not be NULL")
+                    };
                     disjunction_from_queries(should)
                 } else {
-                    panic!("failed to decode SearchQueryInput ScanKey argument")
+                    // Single SearchQueryInput value
+                    unsafe {
+                        SearchQueryInput::from_datum_resilient(key.sk_argument, false)
+                            .expect("SearchQueryInput should not be NULL")
+                    }
                 }
             }
         }
-    }
-
-    fn decode_searchqueryinput_value(datum: pg_sys::Datum) -> Option<SearchQueryInput> {
-        unsafe { SearchQueryInput::from_datum_resilient(datum, false) }
-    }
-
-    fn decode_searchqueryinput_array(datum: pg_sys::Datum) -> Option<Vec<SearchQueryInput>> {
-        unsafe { SearchQueryInput::array_from_datum(datum, false) }
-    }
-
-    fn decode_text_array(datum: pg_sys::Datum) -> Option<Vec<String>> {
-        catch_unwind(AssertUnwindSafe(|| unsafe {
-            Array::<String>::from_datum(datum, false)
-        }))
-        .ok()
-        .flatten()
-        .map(|array| {
-            array
-                .iter()
-                .map(|element| {
-                    element.expect("text-based scalar array search cannot contain NULL elements")
-                })
-                .collect::<Vec<_>>()
-        })
-    }
-
-    fn decode_text_value(datum: pg_sys::Datum) -> Option<String> {
-        catch_unwind(AssertUnwindSafe(|| unsafe {
-            String::from_datum(datum, false)
-        }))
-        .ok()
-        .flatten()
     }
 
     let (indexrel, keys) = unsafe {

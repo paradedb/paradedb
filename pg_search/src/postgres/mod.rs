@@ -50,8 +50,6 @@ pub mod customscan;
 pub mod datetime;
 #[cfg(not(any(feature = "pg17", feature = "pg18")))]
 pub mod fake_aminsertcleanup;
-#[cfg(feature = "pg18")]
-pub mod guc_guard;
 pub mod heap;
 pub mod index;
 mod jsonb_support;

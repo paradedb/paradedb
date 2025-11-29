@@ -77,9 +77,7 @@ pub unsafe fn register() {
     pg_sys::ProcessUtility_hook = Some(process_utility_hook);
 
     PREV_EXECUTOR_RUN_HOOK = pg_sys::ExecutorRun_hook;
-    {
-        pg_sys::ExecutorRun_hook = Some(executor_run_hook);
-    }
+    pg_sys::ExecutorRun_hook = Some(executor_run_hook);
 
     PREV_EXECUTOR_FINISH_HOOK = pg_sys::ExecutorFinish_hook;
     pg_sys::ExecutorFinish_hook = Some(executor_finish_hook);

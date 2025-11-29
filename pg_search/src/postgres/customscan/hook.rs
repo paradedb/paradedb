@@ -422,6 +422,229 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     true
 }
 
+/// Check if the query contains a self-join (same table referenced multiple times)
+/// Replicates PostgreSQL's self-join detection logic from analyzejoins.c:2330-2334
+/// Only considers ordinary tables (RELKIND_RELATION), matching PostgreSQL's exact criteria
+/// Recursively checks subqueries to detect self-joins across query nesting levels
+#[cfg(feature = "pg18")]
+unsafe fn has_self_join(parse: *mut pg_sys::Query) -> bool {
+    use crate::api::HashMap;
+
+    if parse.is_null() || (*parse).rtable.is_null() {
+        return false;
+    }
+
+    let mut table_oids = HashMap::default();
+
+    // Collect all base table OIDs from the range table
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+
+    for rte in rtable.iter_ptr() {
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
+            && (*rte).relkind == pg_sys::RELKIND_RELATION as std::os::raw::c_char
+        {
+            let oid = (*rte).relid;
+            *table_oids.entry(oid).or_insert(0) += 1;
+        } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+            // Collect table OIDs from the subquery to detect self-joins across subqueries
+            // This handles cases like: FROM (SELECT ... FROM t1) a JOIN (SELECT ... FROM t1) b
+            collect_table_oids_from_query((*rte).subquery, &mut table_oids);
+        }
+    }
+
+    // If any table OID appears more than once, it's a self-join
+    table_oids.values().any(|&count| count > 1)
+}
+
+/// Helper function to collect all base table OIDs from a query recursively
+#[cfg(feature = "pg18")]
+unsafe fn collect_table_oids_from_query(
+    parse: *mut pg_sys::Query,
+    table_oids: &mut crate::api::HashMap<pg_sys::Oid, i32>,
+) {
+    if parse.is_null() || (*parse).rtable.is_null() {
+        return;
+    }
+
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    for rte in rtable.iter_ptr() {
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
+            && (*rte).relkind == pg_sys::RELKIND_RELATION as std::os::raw::c_char
+        {
+            let oid = (*rte).relid;
+            *table_oids.entry(oid).or_insert(0) += 1;
+        } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+            collect_table_oids_from_query((*rte).subquery, table_oids);
+        }
+    }
+}
+
+/// Check if a single query (not recursively) contains score() function
+#[cfg(feature = "pg18")]
+unsafe fn query_has_score_function(parse: *mut pg_sys::Query) -> bool {
+    use crate::postgres::customscan::try_score_funcoids;
+
+    let Some(score_oids) = try_score_funcoids() else {
+        // The score() function doesn't exist yet (extension not installed).
+        return false;
+    };
+
+    struct WalkerContext {
+        score_oids: [pg_sys::Oid; 2],
+        found: bool,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let ctx = context.cast::<WalkerContext>();
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let funcid = (*funcexpr).funcid;
+            if (*ctx).score_oids.contains(&funcid) {
+                (*ctx).found = true;
+                return true;
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut context = WalkerContext {
+        score_oids,
+        found: false,
+    };
+
+    // Check targetList
+    if !(*parse).targetList.is_null() {
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        for te in target_list.iter_ptr() {
+            if !(*te).expr.is_null() {
+                walker(
+                    (*te).expr as *mut pg_sys::Node,
+                    &mut context as *mut _ as *mut core::ffi::c_void,
+                );
+                if context.found {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check WHERE clause
+    if !(*parse).jointree.is_null() {
+        let jointree = (*parse).jointree;
+        if !(*jointree).quals.is_null() {
+            walker(
+                (*jointree).quals,
+                &mut context as *mut _ as *mut core::ffi::c_void,
+            );
+            if context.found {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if score() appears in multiple subqueries that reference the same base table
+///
+/// This is the most precise check: we only disable optimization when score() is in
+/// 2+ subqueries AND those subqueries reference the same underlying table OID.
+///
+/// **Detection Strategy:**
+/// This function walks the query's range table (rtable) looking for RTE_SUBQUERY entries.
+/// For each subquery that contains score(), it tracks which table OID(s) that subquery
+/// references. If the same table OID appears in 2+ subqueries that both have score(),
+/// we disable self-join elimination.
+///
+/// **Why this matters:**
+/// PostgreSQL 18's self-join elimination optimization can merge two scans of the same
+/// table into one. This breaks ParadeDB's score() function because score() is context-
+/// sensitive - it returns different values based on which search predicate was used.
+/// When two subqueries with different search predicates get merged, score() would
+/// return incorrect values.
+///
+/// **Known Limitations (conservative approach):**
+/// This detection may still disable optimization in some rare cases that aren't actually
+/// problematic self-joins:
+///
+/// 1. **Correlated subqueries in WHERE clauses**: If both the outer query and a correlated
+///    WHERE subquery have score() from the same table, we'll conservatively disable
+///    optimization even though this isn't a JOIN operation.
+///    Example:
+///    ```sql
+///    SELECT pdb.score(id), * FROM bm25_search
+///    WHERE id IN (SELECT id FROM bm25_search WHERE score(id) > 5.0)
+///    ```
+///
+/// 2. **Scalar subqueries in SELECT lists**: If a SELECT contains a scalar subquery with
+///    score() alongside the outer query also having score() from the same table.
+///    Example:
+///    ```sql
+///    SELECT pdb.score(id), (SELECT pdb.score(id) FROM bm25_search WHERE ...) FROM bm25_search
+///    ```
+///
+/// 3. **LATERAL joins** (requires investigation): Unclear if LATERAL joins with score()
+///    would cause actual correctness issues, but current logic may conservatively disable
+///    optimization for them.
+///
+/// These limitations represent a **conservative approach** that prioritizes correctness:
+/// - We never produce wrong scores (no false negatives)
+/// - We may occasionally disable optimization when it would be safe (false positives)
+/// - These false positive cases are rare in practice
+/// - This is significantly better than the original logic which counted all subqueries
+///   with score() regardless of which table they referenced
+///
+/// **Why not more precise?**
+/// To eliminate these false positives, we'd need to check whether RTEs are involved in
+/// actual JOIN operations (not just WHERE/SELECT subqueries). This would require walking
+/// the join tree and checking join relationships, adding significant complexity for minimal
+/// real-world benefit.
+#[cfg(feature = "pg18")]
+unsafe fn has_score_function(parse: *mut pg_sys::Query) -> bool {
+    if parse.is_null() || (*parse).rtable.is_null() {
+        return false;
+    }
+
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+
+    // Map: table OID -> count of subqueries with score() that reference this table
+    let mut table_score_counts: crate::api::HashMap<pg_sys::Oid, i32> =
+        crate::api::HashMap::default();
+
+    for rte in rtable.iter_ptr() {
+        if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+            // Check if this subquery contains score()
+            if query_has_score_function((*rte).subquery) {
+                // Collect all table OIDs referenced by this subquery
+                let mut table_oids: crate::api::HashMap<pg_sys::Oid, i32> =
+                    crate::api::HashMap::default();
+                collect_table_oids_from_query((*rte).subquery, &mut table_oids);
+
+                // For each table this subquery references, increment the count
+                for (table_oid, _) in table_oids.iter() {
+                    *table_score_counts.entry(*table_oid).or_insert(0) += 1;
+
+                    // Early exit: if any table has score() in 2+ subqueries, we're done
+                    if *table_score_counts.get(table_oid).unwrap() >= 2 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
 /// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
 ///
 /// This hook runs at the very start of query planning, before `grouping_planner()`
@@ -457,6 +680,25 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
             }
         }
     }
+
+    // PG18+: Disable self-join elimination for queries with self-joins and score() functions
+    #[cfg(feature = "pg18")]
+    let _guc_guard = {
+        use crate::postgres::guc_guard::BoolGucGuard;
+
+        let has_self_join_result = has_self_join(parse);
+        let has_score_result = has_score_function(parse);
+
+        if has_self_join_result && has_score_result {
+            let current_value = pg_sys::enable_self_join_elimination;
+            Some(BoolGucGuard::new(
+                &raw mut pg_sys::enable_self_join_elimination,
+                false,
+            ))
+        } else {
+            None
+        }
+    };
 
     // Call the previous planner hook or standard planner
     static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;

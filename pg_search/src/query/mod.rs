@@ -561,10 +561,7 @@ impl ExplainFormat for SearchQueryInput {
 }
 
 impl SearchQueryInput {
-    pub unsafe fn from_datum_resilient(
-        datum: pg_sys::Datum,
-        is_null: bool,
-    ) -> Option<SearchQueryInput> {
+    pub unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
         if is_null {
             return None;
         }

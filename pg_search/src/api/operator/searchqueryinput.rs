@@ -157,7 +157,7 @@ pub fn search_with_query_input(
     let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
         let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
-            SearchQueryInput::from_datum_resilient(query_datum, query_datum.is_null())
+            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
         };
 
@@ -280,10 +280,8 @@ pub fn query_input_restrict(
             let indexrel = locate_bm25_index(heaprelid)?;
 
             // create the search query from the rhs Const node
-            let search_query_input = SearchQueryInput::from_datum_resilient(
-                (*const_).constvalue,
-                (*const_).constisnull,
-            )?;
+            let search_query_input =
+                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
 
             estimate_selectivity(&indexrel, search_query_input)
         }

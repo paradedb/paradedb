@@ -84,7 +84,7 @@ impl PostgresExpression {
             let expr_state = self.expr_state();
 
             let result = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
-            SearchQueryInput::from_datum_resilient(result, is_null)
+            SearchQueryInput::from_datum(result, is_null)
         }
     }
 }

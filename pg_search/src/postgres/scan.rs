@@ -111,7 +111,7 @@ pub extern "C-unwind" fn amrescan(
                 } else {
                     // Single SearchQueryInput value
                     unsafe {
-                        SearchQueryInput::from_datum_resilient(key.sk_argument, false)
+                        SearchQueryInput::from_datum(key.sk_argument, false)
                             .expect("SearchQueryInput should not be NULL")
                     }
                 }

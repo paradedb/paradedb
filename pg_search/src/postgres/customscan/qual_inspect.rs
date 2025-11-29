@@ -295,7 +295,7 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     }
                 } else {
-                    SearchQueryInput::from_datum_resilient((**val).constvalue, (**val).constisnull)
+                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                         .expect("rhs of @@@ operator Qual must not be null")
                 }
             },
@@ -306,7 +306,7 @@ impl From<&Qual> for SearchQueryInput {
                 let mut is_null = false;
                 let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
                 pg_sys::FreeExprContext(expr_context, false);
-                SearchQueryInput::from_datum_resilient(datum, is_null)
+                SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {

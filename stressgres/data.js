@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764411920255,
+  "lastUpdate": 1764411923715,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7610,6 +7610,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.98714706754329, max segment_count: 133.0, count: 57341"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd193d9c47f9e370c00e548c50aa9cb88a287d72",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3663)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes",
+          "timestamp": "2025-11-29T01:55:54-08:00",
+          "tree_id": "a268fae5aa54e9add41b7c8aed7733d95f39b40f",
+          "url": "https://github.com/paradedb/paradedb/commit/fd193d9c47f9e370c00e548c50aa9cb88a287d72"
+        },
+        "date": 1764411921232,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.724577650017597, max cpu: 42.857143, count: 57326"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 229.02954170555245, max mem: 230.40234375, count: 57326"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.236762208635863, max cpu: 33.333336, count: 57326"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 168.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.2516847176674, max mem: 168.84765625, count: 57326"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34575,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33728.03436486062, max block_count: 36307.0, count: 57326"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.84907371873146, max segment_count: 130.0, count: 57326"
           }
         ]
       }

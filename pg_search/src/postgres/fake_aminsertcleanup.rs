@@ -77,13 +77,8 @@ pub unsafe fn register() {
     pg_sys::ProcessUtility_hook = Some(process_utility_hook);
 
     PREV_EXECUTOR_RUN_HOOK = pg_sys::ExecutorRun_hook;
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
     {
         pg_sys::ExecutorRun_hook = Some(executor_run_hook);
-    }
-    #[cfg(feature = "pg18")]
-    {
-        pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg18);
     }
 
     PREV_EXECUTOR_FINISH_HOOK = pg_sys::ExecutorFinish_hook;

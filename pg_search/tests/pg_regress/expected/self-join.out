@@ -1,7 +1,7 @@
 -- Test for self-join with score() functions
 -- PostgreSQL 18 introduces self-join elimination (SJE) which can affect score() calculations
 --
--- IMPORTANT: When SJE kicks in on PG18, self-joins on the same table with equality on the
+-- When SJE kicks in on PG18, self-joins on the same table with equality on the
 -- primary key are optimized into a single scan. This means:
 -- 1. Both aliases (a and b) refer to the same scan
 -- 2. The combined query is executed as a single Boolean query

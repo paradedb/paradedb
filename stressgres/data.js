@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764411161734,
+  "lastUpdate": 1764411198218,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1772,6 +1772,72 @@ window.BENCHMARK_DATA = {
             "value": 119.94748782424784,
             "unit": "median tps",
             "extra": "avg tps: 161.77172840267997, max tps: 733.0985951631621, count: 55201"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc91e07f346371d6521a94910ff4ec4a2c84fd18",
+          "message": "fix: server crash with subqueries in parallel workers (#3656)\n\n# Ticket(s) Closed\n\n- Closes #3655\n\n## What\n\nFixes a server crash that occurred when using subqueries in the WHERE\nclause. Queries like this now work correctly:\n\n```sql\nSELECT * FROM pages \nWHERE id @@@ paradedb.all() \n  AND id >= (SELECT MAX(id) FROM metadata WHERE name = 'max')\nORDER BY id LIMIT 100;\n```\n\n## Why\n\nParallel workers were attempting to evaluate scalar subquery parameters\n(`PARAM_EXEC` nodes) that they didn't have access to. The root cause was\ntwofold:\n\n1. `Qual::HeapExpr::contains_exec_param()` always returned `false`,\nfailing to detect these parameters\n2. This caused parallel workers to be spawned even when they shouldn't\nbe\n3. Workers crashed trying to evaluate expressions containing parameters\nfrom `estate->es_param_exec_vals`, which isn't shared with workers\n\n## How\n\n**Fixed detection**: `Qual::HeapExpr` now correctly checks for\n`PARAM_EXEC` nodes in its expression tree.\n\n**Disabled parallelism**: When `PARAM_EXEC` is detected, we disable\nparallel workers (`nworkers = 0`) since these parameters can't currently\nbe shared with workers. This is a conservative approach that prioritizes\ncorrectness.\n\nThe trade-off: queries with scalar subqueries run single-threaded but\ndon't crash.\n\n## Tests\n\nAdded regression test `subquery_in_where_scale.sql` that reproduces the\ncrash scenario with 10,000 rows and verifies the fix works correctly.",
+          "timestamp": "2025-11-29T01:56:39-08:00",
+          "tree_id": "5e5ff21d5d1aafc345e57f2e0db0a15369a60146",
+          "url": "https://github.com/paradedb/paradedb/commit/bc91e07f346371d6521a94910ff4ec4a2c84fd18"
+        },
+        "date": 1764411195565,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 510.902892873027,
+            "unit": "median tps",
+            "extra": "avg tps: 510.0293668904486, max tps: 655.5022164794402, count: 55235"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3125.186144910608,
+            "unit": "median tps",
+            "extra": "avg tps: 3097.882427149651, max tps: 3146.5846662680588, count: 55235"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 480.31481571039234,
+            "unit": "median tps",
+            "extra": "avg tps: 481.40255841007496, max tps: 636.3062338285422, count: 55235"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 412.17109910646866,
+            "unit": "median tps",
+            "extra": "avg tps: 411.4798525577354, max tps: 470.29688483704314, count: 55235"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3337.2425697845556,
+            "unit": "median tps",
+            "extra": "avg tps: 3336.064803555667, max tps: 3431.1003919554296, count: 110470"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2181.62457115333,
+            "unit": "median tps",
+            "extra": "avg tps: 2164.423317082322, max tps: 2205.038091869759, count: 55235"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 154.59451492171488,
+            "unit": "median tps",
+            "extra": "avg tps: 153.87571652556053, max tps: 321.20861809146515, count: 55235"
           }
         ]
       }

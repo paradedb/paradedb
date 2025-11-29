@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::searchqueryinput_typoid;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
@@ -63,20 +64,58 @@ pub extern "C-unwind" fn amrescan(
     _norderbys: ::std::os::raw::c_int,
 ) {
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
-        match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
-            ScanStrategy::TextQuery => unsafe {
-                let query_string = String::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null");
-                SearchQueryInput::Parse {
-                    query_string,
-                    lenient: None,
-                    conjunction_mode: None,
+        let strategy =
+            ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized");
+        let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
+
+        match strategy {
+            ScanStrategy::TextQuery => {
+                if is_array {
+                    let strings = unsafe {
+                        <Vec<String> as FromDatum>::from_datum(key.sk_argument, false)
+                            .expect("text array argument should not be NULL")
+                    };
+                    let should = strings
+                        .into_iter()
+                        .map(|query_string| SearchQueryInput::Parse {
+                            query_string,
+                            lenient: None,
+                            conjunction_mode: None,
+                        })
+                        .collect();
+                    SearchQueryInput::boolean_disjunction(should)
+                } else {
+                    let query_string = unsafe {
+                        String::from_datum(key.sk_argument, false)
+                            .expect("text argument should not be NULL")
+                    };
+                    SearchQueryInput::Parse {
+                        query_string,
+                        lenient: None,
+                        conjunction_mode: None,
+                    }
                 }
-            },
-            ScanStrategy::SearchQueryInput => unsafe {
-                SearchQueryInput::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null")
-            },
+            }
+            ScanStrategy::SearchQueryInput => {
+                if is_array {
+                    // ScalarArrayOpExpr: decode as array of SearchQueryInput
+                    let should = unsafe {
+                        <Vec<SearchQueryInput> as FromDatum>::from_polymorphic_datum(
+                            key.sk_argument,
+                            false,
+                            searchqueryinput_typoid(),
+                        )
+                        .expect("SearchQueryInput array should not be NULL")
+                    };
+                    SearchQueryInput::boolean_disjunction(should)
+                } else {
+                    // Single SearchQueryInput value
+                    unsafe {
+                        SearchQueryInput::from_datum(key.sk_argument, false)
+                            .expect("SearchQueryInput should not be NULL")
+                    }
+                }
+            }
         }
     }
 
@@ -152,9 +191,21 @@ pub extern "C-unwind" fn amrescan(
                 reader: search_reader,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: PgOid::from(
-                    (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid,
-                ),
+                key_field_oid: PgOid::from({
+                    #[cfg(any(
+                        feature = "pg14",
+                        feature = "pg15",
+                        feature = "pg16",
+                        feature = "pg17"
+                    ))]
+                    {
+                        (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
+                    }
+                    #[cfg(feature = "pg18")]
+                    {
+                        (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
+                    }
+                }),
                 ambulkdelete_epoch,
             }
         } else {

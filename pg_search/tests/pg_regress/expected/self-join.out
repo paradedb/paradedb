@@ -1,0 +1,230 @@
+-- Test for self-join with score() functions
+-- PostgreSQL 18 introduces self-join elimination (SJE) which can affect score() calculations
+--
+-- When SJE kicks in on PG18, self-joins on the same table with equality on the
+-- primary key are optimized into a single scan. This means:
+-- 1. Both aliases (a and b) refer to the same scan
+-- 2. The combined query is executed as a single Boolean query
+-- 3. Both score() calls return the same combined score, not individual scores
+--
+-- This is a known limitation when SJE is active. The scores will differ between:
+-- - PG17 (no SJE): separate scores for each alias based on their individual queries
+-- - PG18 (with SJE): same combined score for both aliases
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Setup: Create test table
+DROP TABLE IF EXISTS test_items CASCADE;
+CREATE TABLE test_items (
+    id SERIAL PRIMARY KEY,
+    description TEXT
+);
+INSERT INTO test_items (description) VALUES
+    ('teddy bear'),
+    ('brown bear'),
+    ('polar bear'),
+    ('teddy'),
+    ('bear toy');
+-- Create BM25 index
+CREATE INDEX test_items_idx ON test_items USING bm25 (id, description)
+WITH (key_field = 'id');
+-- Test 1: Simple self-join with AND condition and score on both sides
+-- a.description @@@ 'bear' AND b.description @@@ 'teddy bear'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_items b
+   Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+   Table: test_items
+   Index: test_items_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id
+   Scores: true
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
+
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+ id |  a_score   | id |  b_score   
+----+------------+----+------------
+  1 |  1.3877531 |  1 |  1.3877531
+  2 | 0.55034834 |  2 | 0.55034834
+  3 | 0.55034834 |  3 | 0.55034834
+  5 | 0.55034834 |  5 | 0.55034834
+(4 rows)
+
+-- Test 2: Simple self-join with OR condition and score on both sides
+-- a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: b.id, (paradedb.score(b.id)), b.id, (paradedb.score(b.id))
+   ->  Custom Scan (ParadeDB Scan) on public.test_items b
+         Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+         Table: test_items
+         Index: test_items_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: id asc
+            TopN Limit: 1
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
+
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+ id |  a_score  | id |  b_score  
+----+-----------+----+-----------
+  1 | 1.3877531 |  1 | 1.3877531
+(1 row)
+
+-- Test 3: Self-join with subqueries that include score()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_items
+   Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+   Table: test_items
+   Index: test_items_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id
+   Scores: true
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
+
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+ id |   score    | id |   score    
+----+------------+----+------------
+  1 |  1.3877531 |  1 |  1.3877531
+  2 | 0.55034834 |  2 | 0.55034834
+  3 | 0.55034834 |  3 | 0.55034834
+  5 | 0.55034834 |  5 | 0.55034834
+(4 rows)
+
+-- Test 4: Self-join with subqueries and OR condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: test_items.id, (paradedb.score(test_items.id)), test_items.id, (paradedb.score(test_items.id))
+   ->  Custom Scan (ParadeDB Scan) on public.test_items
+         Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+         Table: test_items
+         Index: test_items_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: id asc
+            TopN Limit: 1
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
+
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+ id |   score   | id |   score   
+----+-----------+----+-----------
+  1 | 1.3877531 |  1 | 1.3877531
+(1 row)
+
+-- Test 5: Non-self-join (should work normally)
+-- Create a second table to ensure non-self-joins are not affected
+CREATE TABLE test_orders (
+    order_id SERIAL PRIMARY KEY,
+    item_id INTEGER REFERENCES test_items(id),
+    customer TEXT
+);
+INSERT INTO test_orders (item_id, customer) VALUES
+    (1, 'alice'),
+    (2, 'bob'),
+    (1, 'charlie');
+CREATE INDEX test_orders_idx ON test_orders USING bm25 (order_id, customer)
+WITH (key_field = 'order_id');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id,
+       paradedb.score(i.id) as item_score,
+       o.order_id,
+       paradedb.score(o.order_id) as order_score
+FROM test_items i
+INNER JOIN test_orders o ON i.id = o.item_id
+WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Hash Join
+   Output: i.id, (paradedb.score(i.id)), o.order_id, (paradedb.score(o.order_id))
+   Hash Cond: (i.id = o.item_id)
+   ->  Custom Scan (ParadeDB Scan) on public.test_items i
+         Output: i.id, paradedb.score(i.id), paradedb.score(i.id)
+         Table: test_items
+         Index: test_items_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
+   ->  Hash
+         Output: o.order_id, o.item_id, (paradedb.score(o.order_id)), (paradedb.score(o.order_id))
+         ->  Custom Scan (ParadeDB Scan) on public.test_orders o
+               Output: o.order_id, o.item_id, paradedb.score(o.order_id), paradedb.score(o.order_id)
+               Table: test_orders
+               Index: test_orders_idx
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"customer","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT i.id,
+       paradedb.score(i.id) as item_score,
+       o.order_id,
+       paradedb.score(o.order_id) as order_score
+FROM test_items i
+INNER JOIN test_orders o ON i.id = o.item_id
+WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+ id | item_score | order_id | order_score 
+----+------------+----------+-------------
+  1 |   1.112579 |        1 |   0.9808292
+(1 row)
+
+-- Cleanup
+DROP TABLE test_orders CASCADE;
+DROP TABLE test_items CASCADE;

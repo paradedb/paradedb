@@ -51,14 +51,18 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
 #[cfg(feature = "pg18")]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan(
-    _rel: *mut pg_sys::RelationData,
+    rel: *mut pg_sys::RelationData,
     _nkeys: i32,
     _norderbys: i32,
 ) -> pg_sys::Size {
-    // NB:  in this function, we have no idea how many segments we have.  We don't even know which
-    // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
-    // TODO: This will result in a ~1MB allocation.
-    ParallelScanState::size_of(u16::MAX as usize, &[], false)
+    // In PG18, we have access to the relation, so we can get a better estimate
+    // using target_segment_count() instead of the worst-case u16::MAX
+    let nsegments = if rel.is_null() {
+        u16::MAX as usize
+    } else {
+        crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
+    };
+    ParallelScanState::size_of(nsegments, &[], false)
 }
 
 unsafe fn bm25_shared_state(

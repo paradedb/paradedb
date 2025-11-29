@@ -581,18 +581,13 @@ impl SearchQueryInput {
             }
         }
 
-        let bytes = detoast_datum_bytes(datum);
+        // Detoast if needed (PostgreSQL memory context handles cleanup)
+        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+        let bytes = varlena_to_byte_slice(detoasted);
 
-        match serde_cbor::from_slice::<SearchQueryInput>(&bytes) {
-            Ok(parsed) => Some(parsed),
-            Err(cbor_err) => match serde_json::from_slice::<SearchQueryInput>(&bytes) {
-                Ok(parsed) => Some(parsed),
-                Err(json_err) => panic!(
-                    "failed to decode SearchQueryInput (CBOR error: {cbor_err}; JSON error: {json_err}; preview={})",
-                    json_preview(&bytes)
-                ),
-            },
-        }
+        serde_cbor::from_slice::<SearchQueryInput>(bytes)
+            .or_else(|_| serde_json::from_slice::<SearchQueryInput>(bytes))
+            .ok()
     }
 
     pub fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
@@ -606,34 +601,6 @@ impl SearchQueryInput {
             },
         }
     }
-}
-
-fn json_preview(bytes: &[u8]) -> String {
-    const MAX: usize = 64;
-    let slice = if bytes.len() > MAX {
-        &bytes[..MAX]
-    } else {
-        bytes
-    };
-    match std::str::from_utf8(slice) {
-        Ok(text) => text.to_string(),
-        Err(_) => format!(
-            "0x{}",
-            slice
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        ),
-    }
-}
-
-unsafe fn detoast_datum_bytes(datum: pg_sys::Datum) -> Vec<u8> {
-    let varlena_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
-    let detoasted = pg_sys::pg_detoast_datum_copy(varlena_ptr);
-    let slice = varlena_to_byte_slice(detoasted);
-    let bytes = slice.to_vec();
-    pg_sys::pfree(detoasted.cast());
-    bytes
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

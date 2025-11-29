@@ -69,7 +69,27 @@ pub extern "C-unwind" fn amrescan(
 
         unsafe {
             if is_array {
-                SearchQueryInput::disjunction_from_text_array(key.sk_argument, false)
+                // PG18 rewrites OR with text constants to text arrays
+                let array = Array::<String>::from_datum(key.sk_argument, false)
+                    .expect("SK_SEARCHARRAY key must have array argument");
+                let mut queries: Vec<_> = array
+                    .iter()
+                    .map(|e| SearchQueryInput::Parse {
+                        query_string: e.expect("array element must not be NULL"),
+                        lenient: None,
+                        conjunction_mode: None,
+                    })
+                    .collect();
+
+                match queries.len() {
+                    0 => SearchQueryInput::Empty,
+                    1 => queries.pop().unwrap(),
+                    _ => SearchQueryInput::Boolean {
+                        must: vec![],
+                        should: queries,
+                        must_not: vec![],
+                    },
+                }
             } else {
                 match strategy {
                     ScanStrategy::TextQuery => {

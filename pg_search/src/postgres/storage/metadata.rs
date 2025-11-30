@@ -74,6 +74,11 @@ pub struct MetaPageData {
     /// Allow up to 2 concurrent background merges
     /// If one of these blocks is pinned, that means a background merge is running
     bgmerger: [pg_sys::BlockNumber; 2],
+
+    /// Indicates that VACUUM is waiting for the cleanup lock when pinned.
+    /// Added at end of struct for backward compatibility - old indexes will have 0
+    /// (uninitialized) here, which triggers migration to allocate a new buffer.
+    vacuum_waiting: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -105,6 +110,7 @@ impl MetaPage {
             metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
             metadata.segment_meta_garbage =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+            metadata.vacuum_waiting = init_new_buffer(indexrel).number();
 
             metadata.cleanup_lock = init_new_buffer(indexrel).number();
             metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
@@ -147,6 +153,7 @@ impl MetaPage {
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage)
+            || !block_number_is_valid(metadata.vacuum_waiting)
             || bgmerger
                 .iter()
                 .any(|&blockno| !block_number_is_valid(blockno));
@@ -195,6 +202,10 @@ impl MetaPage {
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
+                if !block_number_is_valid(metadata.vacuum_waiting) {
+                    metadata.vacuum_waiting = init_new_buffer(indexrel).number();
+                }
+
                 for i in 0..2 {
                     if !block_number_is_valid(metadata.bgmerger[i]) {
                         metadata.bgmerger[i] = init_new_buffer(indexrel).number();
@@ -233,6 +244,18 @@ impl MetaPage {
         assert!(block_number_is_valid(self.data.ambulkdelete_sentinel));
         let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
         VacuumSentinel(sentinel)
+    }
+
+    pub fn pin_vacuum_waiting(&self) -> PinnedBuffer {
+        assert!(block_number_is_valid(self.data.vacuum_waiting));
+        self.bman.pinned_buffer(self.data.vacuum_waiting)
+    }
+
+    pub fn vacuum_waiting_is_pinned(&self) -> bool {
+        assert!(block_number_is_valid(self.data.vacuum_waiting));
+        let mut bman = self.bman.clone();
+        bman.get_buffer_for_cleanup_conditional(self.data.vacuum_waiting)
+            .is_none()
     }
 
     pub fn fsm(&self) -> pg_sys::BlockNumber {

@@ -27,13 +27,11 @@ use crate::postgres::storage::metadata::MetaPage;
 
 use crate::postgres::PgSearchRelation;
 
-use libc::{c_int, SIGUSR2};
 use pgrx::bgworkers::*;
 use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,20 +50,6 @@ impl TryFrom<u8> for MergeStyle {
             1 => MergeStyle::Vacuum,
             _ => anyhow::bail!("invalid merge style: {value}"),
         })
-    }
-}
-
-static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
-
-#[inline]
-fn background_merge_cancel_requested() -> bool {
-    CANCEL_REQUESTED.load(Ordering::Acquire)
-}
-
-unsafe extern "C-unwind" fn handle_background_merge_sigusr2(_signal: c_int) {
-    CANCEL_REQUESTED.store(true, Ordering::Release);
-    if !pg_sys::MyLatch.is_null() {
-        pg_sys::SetLatch(pg_sys::MyLatch);
     }
 }
 
@@ -320,10 +304,6 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
 #[no_mangle]
 unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
-    unsafe {
-        CANCEL_REQUESTED.store(false, Ordering::Release);
-        pg_sys::pqsignal(SIGUSR2, Some(handle_background_merge_sigusr2));
-    }
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
     BackgroundWorker::transaction(|| {
         set_ps_display_suffix(MERGING.as_ptr());
@@ -425,9 +405,17 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
-            if gc_after_merge && background_merge_cancel_requested() {
-                pgrx::debug1!("background merge cancelled by VACUUM");
-                break;
+            // Check if VACUUM is waiting for cleanup_lock_exclusive.
+            // We check under merge_lock to avoid false positives from other workers.
+            if gc_after_merge {
+                let merge_lock = metadata.acquire_merge_lock();
+                let should_exit = metadata.vacuum_waiting_is_pinned();
+                drop(merge_lock);
+
+                if should_exit {
+                    pgrx::debug1!("background merge cancelled by VACUUM");
+                    break;
+                }
             }
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 

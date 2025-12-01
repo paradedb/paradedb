@@ -168,7 +168,7 @@ jobs:
           sudo dnf install -y rpmdevtools
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI

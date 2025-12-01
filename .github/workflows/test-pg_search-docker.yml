@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # This step is used to check if the PR author is a member of the org, since
       # access to GitHub Actions secrets is limited to org members.

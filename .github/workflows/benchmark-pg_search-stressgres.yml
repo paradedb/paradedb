@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 1
@@ -93,7 +93,7 @@ jobs:
 
       - name: Fetch the Latest Composite Actions
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
           path: actions-temp
@@ -214,7 +214,7 @@ jobs:
         run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Checkout Stressgres Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: paradedb/stressgres
           path: stressgres

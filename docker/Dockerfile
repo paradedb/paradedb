@@ -118,7 +118,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.6.4 https://github.com/citusdata/pg_cron.git
+RUN git clone --branch v1.6.7 https://github.com/citusdata/pg_cron.git
 WORKDIR /tmp/pg_cron
 RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
@@ -148,7 +148,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-    org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+    org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR

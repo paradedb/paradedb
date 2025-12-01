@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764625656584,
+  "lastUpdate": 1764625989572,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19334,6 +19334,54 @@ window.BENCHMARK_DATA = {
             "value": 112.50210600294932,
             "unit": "median tps",
             "extra": "avg tps: 113.78523413393036, max tps: 535.2201628139735, count: 107566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b87ac5d23f7e4c3d481803486dc224e29eec425",
+          "message": "chore: Upgrade Lindera tokenizer from 0.43.1 to 1.4.1 (#3587)\n\n## Summary\n\nUpgrades the Lindera tokenizer dependency from version 0.43.1 to 1.4.1,\nadapting to the new API and updated dictionary features while\nmaintaining backward compatibility.\n\n## Changes\n\n- **Dependency upgrade**: Lindera 0.43.1 → 1.4.1\n- **Feature updates**: Migrated to new embedded dictionary features\n(`embedded-cc-cedict`, `embedded-ipadic`, `embedded-ko-dic`)\n- **API migration**: Updated from\n`load_dictionary_from_kind(DictionaryKind::*)` to\n`load_dictionary(\"embedded://*\")`\n- **Token field change**: Updated token access from `.text` to\n`.surface`\n- **Backward compatibility**: Always use `keep_whitespace=true`\ninternally to preserve existing tokenization behavior\n\n## Whitespace Handling\n\nLindera 1.4.0+ changed the default to `keep_whitespace=false`\n(MeCab-compatible). To maintain backward compatibility with existing\nParadeDB indexes, we always use `keep_whitespace=true` internally.\n\nA follow-up issue (#3662) tracks implementing `keep_whitespace` as a\nproper typemod with smart defaults based on `is_create_index`.\n\n## New Dependencies\n\nLindera 1.4.1 introduces new dependencies for improved performance:\n- `memmap2` (0.9.9) - Memory-mapped file I/O for efficient dictionary\nloading\n- `num_cpus` (1.17.0) - CPU detection for parallel processing\n- `simd-adler32` (0.3.7) - SIMD-accelerated checksums for faster\ndecompression\n- Updated `flate2` (0.8.0) - Improved compression library\n- Removed `io-uring` (replaced by memmap2 for better cross-platform\nsupport)\n\n## Test Plan\n\n- [x] All Lindera tokenizer tests pass\n- [x] Chinese tokenizer test passing (19 tokens - unchanged)\n- [x] Japanese tokenizer test passing\n- [x] Korean tokenizer test passing (11 tokens - unchanged)\n- [x] Code compiles successfully",
+          "timestamp": "2025-12-01T12:43:41-08:00",
+          "tree_id": "2c17585a8b305343e2ad2f893a4dfa1fe94d5a54",
+          "url": "https://github.com/paradedb/paradedb/commit/0b87ac5d23f7e4c3d481803486dc224e29eec425"
+        },
+        "date": 1764625986979,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 461.169003536798,
+            "unit": "median tps",
+            "extra": "avg tps: 471.80987651500743, max tps: 730.0409244719127, count: 53755"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 518.5202798882488,
+            "unit": "median tps",
+            "extra": "avg tps: 527.691852207513, max tps: 778.4471644945265, count: 53755"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.58709051823124,
+            "unit": "median tps",
+            "extra": "avg tps: 85.0978448040282, max tps: 100.28493689120992, count: 53755"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.54660010775069,
+            "unit": "median tps",
+            "extra": "avg tps: 111.08135201602043, max tps: 501.60385044491704, count: 107510"
           }
         ]
       }

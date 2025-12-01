@@ -107,7 +107,7 @@ jobs:
         run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI

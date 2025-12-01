@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764625989572,
+  "lastUpdate": 1764625993760,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22978,6 +22978,186 @@ window.BENCHMARK_DATA = {
             "value": 24.1640625,
             "unit": "median mem",
             "extra": "avg mem: 24.06226061208932, max mem: 24.1640625, count: 53783"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b87ac5d23f7e4c3d481803486dc224e29eec425",
+          "message": "chore: Upgrade Lindera tokenizer from 0.43.1 to 1.4.1 (#3587)\n\n## Summary\n\nUpgrades the Lindera tokenizer dependency from version 0.43.1 to 1.4.1,\nadapting to the new API and updated dictionary features while\nmaintaining backward compatibility.\n\n## Changes\n\n- **Dependency upgrade**: Lindera 0.43.1 → 1.4.1\n- **Feature updates**: Migrated to new embedded dictionary features\n(`embedded-cc-cedict`, `embedded-ipadic`, `embedded-ko-dic`)\n- **API migration**: Updated from\n`load_dictionary_from_kind(DictionaryKind::*)` to\n`load_dictionary(\"embedded://*\")`\n- **Token field change**: Updated token access from `.text` to\n`.surface`\n- **Backward compatibility**: Always use `keep_whitespace=true`\ninternally to preserve existing tokenization behavior\n\n## Whitespace Handling\n\nLindera 1.4.0+ changed the default to `keep_whitespace=false`\n(MeCab-compatible). To maintain backward compatibility with existing\nParadeDB indexes, we always use `keep_whitespace=true` internally.\n\nA follow-up issue (#3662) tracks implementing `keep_whitespace` as a\nproper typemod with smart defaults based on `is_create_index`.\n\n## New Dependencies\n\nLindera 1.4.1 introduces new dependencies for improved performance:\n- `memmap2` (0.9.9) - Memory-mapped file I/O for efficient dictionary\nloading\n- `num_cpus` (1.17.0) - CPU detection for parallel processing\n- `simd-adler32` (0.3.7) - SIMD-accelerated checksums for faster\ndecompression\n- Updated `flate2` (0.8.0) - Improved compression library\n- Removed `io-uring` (replaced by memmap2 for better cross-platform\nsupport)\n\n## Test Plan\n\n- [x] All Lindera tokenizer tests pass\n- [x] Chinese tokenizer test passing (19 tokens - unchanged)\n- [x] Japanese tokenizer test passing\n- [x] Korean tokenizer test passing (11 tokens - unchanged)\n- [x] Code compiles successfully",
+          "timestamp": "2025-12-01T12:43:41-08:00",
+          "tree_id": "2c17585a8b305343e2ad2f893a4dfa1fe94d5a54",
+          "url": "https://github.com/paradedb/paradedb/commit/0b87ac5d23f7e4c3d481803486dc224e29eec425"
+        },
+        "date": 1764625991176,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.051048488614299, max cpu: 13.688212, count: 53755"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 40.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.92116343828481, max mem: 49.83203125, count: 53755"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2469018150232545, max cpu: 4.5801525, count: 53755"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 23.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 23.468107908566644, max mem: 23.85546875, count: 53755"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.512956657527944, max cpu: 18.497108, count: 53755"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 41.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.436511211166405, max mem: 47.53515625, count: 53755"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9852566641605796, max cpu: 13.753581, count: 53755"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 38.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.37007676611478, max mem: 46.71484375, count: 53755"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.637551839016651, max cpu: 9.169055, count: 53755"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 24.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.8364028636871, max mem: 30.1171875, count: 53755"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1121,
+            "unit": "median pages",
+            "extra": "avg pages: 1125.1728211329178, max pages: 1872.0, count: 53755"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7578125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.790412883103897, max relation_size:MB: 14.625, count: 53755"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.699079155427402, max segment_count: 28.0, count: 53755"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.104164074125749, max cpu: 4.5757866, count: 53755"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.029089227164913, max mem: 21.15234375, count: 53755"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.953362893292435, max cpu: 4.5714283, count: 53755"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.373323847781602, max mem: 21.5078125, count: 53755"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.914629639097453, max cpu: 18.426102, count: 53755"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 46.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.987712770905034, max mem: 54.359375, count: 53755"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002919252878365966, max replication_lag:MB: 0.0937347412109375, count: 53755"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.140231530296573, max cpu: 13.779904, count: 107510"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 46.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.68390702027718, max mem: 54.171875, count: 107510"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.254322988230609, max cpu: 4.5933013, count: 53755"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 25.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.12720735280439, max mem: 25.4140625, count: 53755"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2463794424994346, max cpu: 4.5933013, count: 53755"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 24.5,
+            "unit": "median mem",
+            "extra": "avg mem: 24.28007394660962, max mem: 24.5, count: 53755"
           }
         ]
       }

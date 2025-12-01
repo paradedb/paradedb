@@ -16,31 +16,52 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Generic query builder trait for different output types.
+//!
+//! This module provides a builder pattern for constructing query outputs that can
+//! either return just the Tantivy query (`QueryOnlyBuilder`) or both the query and
+//! a tree structure for estimates (`QueryTreeBuilder`).
+//!
+//! The trait methods use closures for labels and children to enable lazy evaluation,
+//! avoiding unnecessary allocations when the builder doesn't need them.
 
 use super::estimate_tree::QueryWithEstimates;
 use super::SearchQueryInput;
 use tantivy::query::Query as TantivyQuery;
 
 /// Build different output types from Tantivy queries.
+///
+/// The trait uses closures for `label` and `children` parameters to enable lazy
+/// evaluation - `QueryOnlyBuilder` doesn't need labels or children, so it never
+/// calls these closures, avoiding unnecessary allocations.
 pub trait QueryBuilder {
     type Output;
 
     /// Build a leaf node with no children.
-    fn build_leaf(
+    ///
+    /// `label_fn` is a closure that generates the label lazily.
+    fn build_leaf<F>(
         &self,
         query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        label: String,
-    ) -> Self::Output;
+        label_fn: F,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String;
 
     /// Build a node with children.
-    fn build_with_children(
+    ///
+    /// `label_fn` generates the label lazily.
+    /// `children_fn` generates the children lazily.
+    fn build_with_children<F, C>(
         &self,
         query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        label: String,
-        children: Vec<Self::Output>,
-    ) -> Self::Output;
+        label_fn: F,
+        children_fn: C,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+        C: FnOnce() -> Vec<Self::Output>;
 
     /// Extract the query from output.
     fn extract_query(output: &Self::Output) -> &dyn TantivyQuery;
@@ -50,27 +71,40 @@ pub trait QueryBuilder {
 }
 
 /// Builder that returns only the Tantivy Query.
+///
+/// This builder ignores labels, children, and query_input since it only
+/// needs to return the Tantivy query. The lazy closures are never called,
+/// avoiding unnecessary allocations for large queries.
 pub struct QueryOnlyBuilder;
 
 impl QueryBuilder for QueryOnlyBuilder {
     type Output = Box<dyn TantivyQuery>;
 
-    fn build_leaf(
+    fn build_leaf<F>(
         &self,
         _query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        _label: String,
-    ) -> Self::Output {
+        _label_fn: F,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+    {
+        // Don't call label_fn - we don't need it
         tantivy_query
     }
 
-    fn build_with_children(
+    fn build_with_children<F, C>(
         &self,
         _query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        _label: String,
-        _children: Vec<Self::Output>,
-    ) -> Self::Output {
+        _label_fn: F,
+        _children_fn: C,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+        C: FnOnce() -> Vec<Self::Output>,
+    {
+        // Don't call label_fn or children_fn - we don't need them
         tantivy_query
     }
 
@@ -84,30 +118,41 @@ impl QueryBuilder for QueryOnlyBuilder {
 }
 
 /// Builder that returns both Tantivy Query and QueryWithEstimates tree.
+///
+/// This builder calls all closures to construct the full tree structure
+/// needed for recursive cost estimates in EXPLAIN output.
 pub struct QueryTreeBuilder;
 
 impl QueryBuilder for QueryTreeBuilder {
     type Output = (Box<dyn TantivyQuery>, QueryWithEstimates);
 
-    fn build_leaf(
+    fn build_leaf<F>(
         &self,
         query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        label: String,
-    ) -> Self::Output {
-        let tree = QueryWithEstimates::new(query_input, label);
+        label_fn: F,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+    {
+        let tree = QueryWithEstimates::new(query_input, label_fn());
         (tantivy_query, tree)
     }
 
-    fn build_with_children(
+    fn build_with_children<F, C>(
         &self,
         query_input: SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
-        label: String,
-        children: Vec<Self::Output>,
-    ) -> Self::Output {
+        label_fn: F,
+        children_fn: C,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+        C: FnOnce() -> Vec<Self::Output>,
+    {
+        let children = children_fn();
         let child_trees: Vec<_> = children.into_iter().map(|(_, tree)| tree).collect();
-        let tree = QueryWithEstimates::with_children(query_input, label, child_trees);
+        let tree = QueryWithEstimates::with_children(query_input, label_fn(), child_trees);
         (tantivy_query, tree)
     }
 
@@ -131,11 +176,9 @@ mod tests {
         let builder = QueryOnlyBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);
 
-        let output = builder.build_leaf(
-            SearchQueryInput::All,
-            query.box_clone(),
-            "Test Query".to_string(),
-        );
+        let output = builder.build_leaf(SearchQueryInput::All, query.box_clone(), || {
+            "Test Query".to_string()
+        });
 
         let _extracted = QueryOnlyBuilder::extract_query(&output);
     }
@@ -145,11 +188,9 @@ mod tests {
         let builder = QueryTreeBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);
 
-        let output = builder.build_leaf(
-            SearchQueryInput::All,
-            query.box_clone(),
-            "Test Query".to_string(),
-        );
+        let output = builder.build_leaf(SearchQueryInput::All, query.box_clone(), || {
+            "Test Query".to_string()
+        });
 
         let _extracted = QueryTreeBuilder::extract_query(&output);
         let tree = &output.1;

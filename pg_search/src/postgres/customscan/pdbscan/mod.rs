@@ -1006,60 +1006,40 @@ impl CustomScan for PdbScan {
 
             // Show query with integrated estimates if GUC is enabled and verbose
             if gucs::explain_recursive_estimates() && explainer.is_verbose() {
-                // Try to get the search reader if available (for actual execution)
-                // For EXPLAIN-only queries, we'll create a temporary reader just for estimates
-                if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
-                    // We have a search reader (this is EXPLAIN ANALYZE)
-                    match search_reader.build_query_tree_with_estimates(base_query.clone()) {
-                        Ok(query_tree) => {
-                            explainer.add_query_with_estimates(&query_tree);
-                        }
-                        Err(e) => {
-                            // Fallback to query without estimates
-                            explainer.add_query(base_query);
-                            explainer.add_text("Estimate Error", format!("{}", e));
-                        }
-                    }
-                } else {
-                    // No search reader (this is EXPLAIN without ANALYZE)
-                    // We need to create a temporary reader just for estimates
-                    let indexrel = state
-                        .custom_state()
-                        .indexrel
-                        .as_ref()
-                        .expect("indexrel should be open");
+                // Get or create a search reader for estimates.
+                // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
+                // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
+                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                let query_tree =
+                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
+                        // EXPLAIN ANALYZE: use the existing search reader
+                        search_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    } else {
+                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
+                        let indexrel = state
+                            .custom_state()
+                            .indexrel
+                            .as_ref()
+                            .expect("indexrel should be open");
 
-                    // Create a temporary search reader for estimates
-                    match SearchIndexReader::open_with_context(
-                        indexrel,
-                        base_query.clone(),
-                        false,                         // don't need scores for estimates
-                        MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                        None,                          // No expr_context needed for estimates
-                        None,                          // No planstate needed for estimates
-                    ) {
-                        Ok(temp_reader) => {
-                            match temp_reader.build_query_tree_with_estimates(base_query.clone()) {
-                                Ok(query_tree) => {
-                                    explainer.add_query_with_estimates(&query_tree);
-                                }
-                                Err(e) => {
-                                    // Fallback to query without estimates
-                                    explainer.add_query(base_query);
-                                    explainer.add_text("Estimate Error", format!("{}", e));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Fallback to query without estimates
-                            explainer.add_query(base_query);
-                            explainer.add_text(
-                                "Estimate Error",
-                                format!("error creating temp reader: {}", e),
-                            );
-                        }
-                    }
-                }
+                        let temp_reader = SearchIndexReader::open_with_context(
+                            indexrel,
+                            base_query.clone(),
+                            false,                         // don't need scores for estimates
+                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
+                            None,                          // No expr_context needed for estimates
+                            None,                          // No planstate needed for estimates
+                        )
+                        .expect("opening temporary search reader for estimates should not fail");
+
+                        temp_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    };
+
+                explainer.add_query_with_estimates(&query_tree);
             } else {
                 // Regular display without estimates
                 explainer.add_query(base_query);

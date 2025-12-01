@@ -91,47 +91,139 @@ fn inject_estimates_into_json(
     json_value: &mut serde_json::Value,
     estimate_tree: &QueryWithEstimates,
 ) {
+    use crate::query::SearchQueryInput;
     use serde_json::Value;
 
     // Inject estimate at this node if available
     if let Some(estimated_docs) = estimate_tree.estimated_docs {
-        if let Value::Object(obj) = json_value {
-            obj.insert(
-                "estimated_docs".to_string(),
-                Value::Number(estimated_docs.into()),
-            );
-        }
+        let obj = json_value
+            .as_object_mut()
+            .expect("JSON value should be an object when injecting estimate");
+        obj.insert(
+            "estimated_docs".to_string(),
+            Value::Number(estimated_docs.into()),
+        );
     }
 
-    // Recursively process children based on query structure
-    if let Value::Object(obj) = json_value {
-        // Handle boolean queries (must, should, must_not)
-        if let Some(Value::Object(boolean)) = obj.get_mut("boolean") {
+    let obj = match json_value.as_object_mut() {
+        Some(obj) => obj,
+        None => return, // Primitive value, no children to process
+    };
+
+    // Match on the query type first for type safety
+    match &estimate_tree.query {
+        SearchQueryInput::Boolean { .. } => {
+            let boolean = obj
+                .get_mut("boolean")
+                .expect("expected 'boolean' key in JSON for Boolean query")
+                .as_object_mut()
+                .expect("'boolean' value should be an object");
             inject_into_boolean_query(boolean, estimate_tree);
         }
-        // Handle with_index wrapper
-        else if let Some(Value::Object(with_index)) = obj.get_mut("with_index") {
-            if let Some(first_child) = estimate_tree.children().first() {
-                if let Some(query) = with_index.get_mut("query") {
-                    inject_estimates_into_json(query, first_child);
+        SearchQueryInput::WithIndex { .. } => {
+            let first_child = estimate_tree
+                .children()
+                .first()
+                .expect("WithIndex query should have a child");
+            let with_index = obj
+                .get_mut("with_index")
+                .expect("expected 'with_index' key in JSON for WithIndex query")
+                .as_object_mut()
+                .expect("'with_index' value should be an object");
+            let query = with_index
+                .get_mut("query")
+                .expect("'with_index' should have a 'query' field");
+            inject_estimates_into_json(query, first_child);
+        }
+        SearchQueryInput::Boost { .. } => {
+            let first_child = estimate_tree
+                .children()
+                .first()
+                .expect("Boost query should have a child");
+            let boost = obj
+                .get_mut("boost")
+                .expect("expected 'boost' key in JSON for Boost query")
+                .as_object_mut()
+                .expect("'boost' value should be an object");
+            let query = boost
+                .get_mut("query")
+                .expect("'boost' should have a 'query' field");
+            inject_estimates_into_json(query, first_child);
+        }
+        SearchQueryInput::ConstScore { .. } => {
+            let first_child = estimate_tree
+                .children()
+                .first()
+                .expect("ConstScore query should have a child");
+            let const_score = obj
+                .get_mut("const_score")
+                .expect("expected 'const_score' key in JSON for ConstScore query")
+                .as_object_mut()
+                .expect("'const_score' value should be an object");
+            let query = const_score
+                .get_mut("query")
+                .expect("'const_score' should have a 'query' field");
+            inject_estimates_into_json(query, first_child);
+        }
+        SearchQueryInput::HeapFilter { .. } => {
+            let first_child = estimate_tree
+                .children()
+                .first()
+                .expect("HeapFilter query should have a child");
+            let heap_filter = obj
+                .get_mut("heap_filter")
+                .expect("expected 'heap_filter' key in JSON for HeapFilter query")
+                .as_object_mut()
+                .expect("'heap_filter' value should be an object");
+            let indexed_query = heap_filter
+                .get_mut("indexed_query")
+                .expect("'heap_filter' should have an 'indexed_query' field");
+            inject_estimates_into_json(indexed_query, first_child);
+        }
+        SearchQueryInput::DisjunctionMax { .. } => {
+            let disjunction_max = obj
+                .get_mut("disjunction_max")
+                .expect("expected 'disjunction_max' key in JSON for DisjunctionMax query")
+                .as_object_mut()
+                .expect("'disjunction_max' value should be an object");
+            let disjuncts = disjunction_max
+                .get_mut("disjuncts")
+                .expect("'disjunction_max' should have a 'disjuncts' field")
+                .as_array_mut()
+                .expect("'disjuncts' should be an array");
+            for (idx, child) in estimate_tree.children().iter().enumerate() {
+                if idx < disjuncts.len() {
+                    inject_estimates_into_json(&mut disjuncts[idx], child);
                 }
             }
         }
-        // Handle score_adjusted
-        else if let Some(Value::Object(score_adjusted)) = obj.get_mut("score_adjusted") {
-            if let Some(first_child) = estimate_tree.children().first() {
-                if let Some(query) = score_adjusted.get_mut("query") {
-                    inject_estimates_into_json(query, first_child);
-                }
+        SearchQueryInput::ScoreFilter { query, .. } => {
+            if query.is_some() {
+                let first_child = estimate_tree
+                    .children()
+                    .first()
+                    .expect("ScoreFilter with query should have a child");
+                let score_filter = obj
+                    .get_mut("score_filter")
+                    .expect("expected 'score_filter' key in JSON for ScoreFilter query")
+                    .as_object_mut()
+                    .expect("'score_filter' value should be an object");
+                let query = score_filter
+                    .get_mut("query")
+                    .expect("'score_filter' should have a 'query' field");
+                inject_estimates_into_json(query, first_child);
             }
         }
-        // Handle heap_filter
-        else if let Some(Value::Object(heap_filter)) = obj.get_mut("heap_filter") {
-            if let Some(first_child) = estimate_tree.children().first() {
-                if let Some(indexed_query) = heap_filter.get_mut("indexed_query") {
-                    inject_estimates_into_json(indexed_query, first_child);
-                }
-            }
+        // Leaf query types - no children to process
+        SearchQueryInput::All
+        | SearchQueryInput::Empty
+        | SearchQueryInput::MoreLikeThis { .. }
+        | SearchQueryInput::Parse { .. }
+        | SearchQueryInput::TermSet { .. }
+        | SearchQueryInput::PostgresExpression { .. }
+        | SearchQueryInput::FieldedQuery { .. }
+        | SearchQueryInput::Uninitialized => {
+            // These are leaf nodes, no children to process
         }
     }
 }

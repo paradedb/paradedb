@@ -763,7 +763,7 @@ impl SearchQueryInput {
             }
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
-                Ok(builder.build_leaf(SearchQueryInput::All, query, "All Query".to_string()))
+                Ok(builder.build_leaf(SearchQueryInput::All, query, || "All Query".to_string()))
             }
             SearchQueryInput::Boolean {
                 must,
@@ -805,8 +805,8 @@ impl SearchQueryInput {
                     let wrapped = builder.build_with_children(
                         SearchQueryInput::Empty,
                         child_query.box_clone(),
-                        format!("Must Clause [{}]", idx),
-                        vec![child],
+                        || format!("Must Clause [{}]", idx),
+                        || vec![child],
                     );
                     children.push(wrapped);
                 }
@@ -815,8 +815,8 @@ impl SearchQueryInput {
                     let wrapped = builder.build_with_children(
                         SearchQueryInput::Empty,
                         child_query.box_clone(),
-                        format!("Should Clause [{}]", idx),
-                        vec![child],
+                        || format!("Should Clause [{}]", idx),
+                        || vec![child],
                     );
                     children.push(wrapped);
                 }
@@ -825,8 +825,8 @@ impl SearchQueryInput {
                     let wrapped = builder.build_with_children(
                         SearchQueryInput::Empty,
                         child_query.box_clone(),
-                        format!("MustNot Clause [{}]", idx),
-                        vec![child],
+                        || format!("MustNot Clause [{}]", idx),
+                        || vec![child],
                     );
                     children.push(wrapped);
                 }
@@ -838,8 +838,8 @@ impl SearchQueryInput {
                         must_not: Vec::new(),
                     },
                     query,
-                    "Boolean Query".to_string(),
-                    children,
+                    || "Boolean Query".to_string(),
+                    || children,
                 ))
             }
             SearchQueryInput::Boost {
@@ -855,8 +855,8 @@ impl SearchQueryInput {
                         factor,
                     },
                     query,
-                    format!("Boost Query (factor: {})", factor),
-                    vec![inner_output],
+                    || format!("Boost Query (factor: {})", factor),
+                    || vec![inner_output],
                 ))
             }
             SearchQueryInput::ConstScore {
@@ -872,8 +872,8 @@ impl SearchQueryInput {
                         score,
                     },
                     query,
-                    format!("ConstScore Query (score: {})", score),
-                    vec![inner_output],
+                    || format!("ConstScore Query (score: {})", score),
+                    || vec![inner_output],
                 ))
             }
             SearchQueryInput::ScoreFilter {
@@ -890,8 +890,8 @@ impl SearchQueryInput {
                         query: Some(Box::new(SearchQueryInput::Uninitialized)),
                     },
                     query,
-                    "ScoreFilter Query".to_string(),
-                    vec![inner_output],
+                    || "ScoreFilter Query".to_string(),
+                    || vec![inner_output],
                 ))
             }
             SearchQueryInput::DisjunctionMax {
@@ -910,8 +910,8 @@ impl SearchQueryInput {
                     let wrapped = builder.build_with_children(
                         SearchQueryInput::All, // Placeholder
                         child_query.box_clone(),
-                        format!("Disjunct [{}]", idx),
-                        vec![output],
+                        || format!("Disjunct [{}]", idx),
+                        || vec![output],
                     );
                     children.push(wrapped);
                 }
@@ -925,25 +925,28 @@ impl SearchQueryInput {
                     Box::new(DisjunctionMaxQuery::new(tantivy_disjuncts))
                 };
 
-                let tree_type = if let Some(tb) = tie_breaker {
-                    format!("DisjunctionMax Query (tie_breaker: {})", tb)
-                } else {
-                    "DisjunctionMax Query".to_string()
-                };
-
                 Ok(builder.build_with_children(
                     SearchQueryInput::DisjunctionMax {
                         disjuncts: Vec::new(),
                         tie_breaker,
                     },
                     query,
-                    tree_type,
-                    children,
+                    || {
+                        if let Some(tb) = tie_breaker {
+                            format!("DisjunctionMax Query (tie_breaker: {})", tb)
+                        } else {
+                            "DisjunctionMax Query".to_string()
+                        }
+                    },
+                    || children,
                 ))
             }
             SearchQueryInput::Empty => {
                 let query = Box::new(EmptyQuery);
-                Ok(builder.build_leaf(SearchQueryInput::Empty, query, "Empty Query".to_string()))
+                Ok(
+                    builder
+                        .build_leaf(SearchQueryInput::Empty, query, || "Empty Query".to_string()),
+                )
             }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
@@ -1040,7 +1043,7 @@ impl SearchQueryInput {
                         fields,
                     },
                     query,
-                    "MoreLikeThis Query".to_string(),
+                    || "MoreLikeThis Query".to_string(),
                 ))
             }
             SearchQueryInput::Parse {
@@ -1072,7 +1075,7 @@ impl SearchQueryInput {
                         conjunction_mode,
                     },
                     query,
-                    "Parse Query".to_string(),
+                    || "Parse Query".to_string(),
                 ))
             }
             SearchQueryInput::TermSet { terms } => {
@@ -1118,11 +1121,11 @@ impl SearchQueryInput {
                     },
                 )));
 
-                Ok(builder.build_leaf(
-                    SearchQueryInput::TermSet { terms },
-                    query,
-                    "TermSet Query".to_string(),
-                ))
+                Ok(
+                    builder.build_leaf(SearchQueryInput::TermSet { terms }, query, || {
+                        "TermSet Query".to_string()
+                    }),
+                )
             }
             SearchQueryInput::WithIndex {
                 oid,
@@ -1138,8 +1141,8 @@ impl SearchQueryInput {
                         query: inner_query_copy,
                     },
                     inner_tantivy,
-                    "WithIndex Query".to_string(),
-                    vec![inner_output],
+                    || "WithIndex Query".to_string(),
+                    || vec![inner_output],
                 ))
             }
             SearchQueryInput::HeapFilter {
@@ -1171,8 +1174,8 @@ impl SearchQueryInput {
                         field_filters: field_filters.clone(),
                     },
                     query,
-                    "HeapFilter Query".to_string(),
-                    vec![inner_output],
+                    || "HeapFilter Query".to_string(),
+                    || vec![inner_output],
                 ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
@@ -1188,13 +1191,14 @@ impl SearchQueryInput {
                     parser,
                     searcher,
                 )?;
+                let field_clone = field.clone();
                 Ok(builder.build_leaf(
                     SearchQueryInput::FieldedQuery {
                         field: field.clone(),
                         query: pdb_query,
                     },
                     Box::new(query),
-                    format!("FieldedQuery (field: {})", field),
+                    || format!("FieldedQuery (field: {})", field_clone),
                 ))
             }
         }

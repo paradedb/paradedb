@@ -102,7 +102,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 WORKDIR /tmp
 RUN git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 WORKDIR /tmp/pgvector
-RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
+RUN eexport PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare -Wno-unused-but-set-variable" && \
     echo "trusted = true" >> vector.control && \
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j

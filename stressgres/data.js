@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764446852033,
+  "lastUpdate": 1764622932816,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1970,6 +1970,72 @@ window.BENCHMARK_DATA = {
             "value": 119.19592844644576,
             "unit": "median tps",
             "extra": "avg tps: 134.500588685621, max tps: 787.0285108948357, count: 54605"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b87ac5d23f7e4c3d481803486dc224e29eec425",
+          "message": "chore: Upgrade Lindera tokenizer from 0.43.1 to 1.4.1 (#3587)\n\n## Summary\n\nUpgrades the Lindera tokenizer dependency from version 0.43.1 to 1.4.1,\nadapting to the new API and updated dictionary features while\nmaintaining backward compatibility.\n\n## Changes\n\n- **Dependency upgrade**: Lindera 0.43.1 → 1.4.1\n- **Feature updates**: Migrated to new embedded dictionary features\n(`embedded-cc-cedict`, `embedded-ipadic`, `embedded-ko-dic`)\n- **API migration**: Updated from\n`load_dictionary_from_kind(DictionaryKind::*)` to\n`load_dictionary(\"embedded://*\")`\n- **Token field change**: Updated token access from `.text` to\n`.surface`\n- **Backward compatibility**: Always use `keep_whitespace=true`\ninternally to preserve existing tokenization behavior\n\n## Whitespace Handling\n\nLindera 1.4.0+ changed the default to `keep_whitespace=false`\n(MeCab-compatible). To maintain backward compatibility with existing\nParadeDB indexes, we always use `keep_whitespace=true` internally.\n\nA follow-up issue (#3662) tracks implementing `keep_whitespace` as a\nproper typemod with smart defaults based on `is_create_index`.\n\n## New Dependencies\n\nLindera 1.4.1 introduces new dependencies for improved performance:\n- `memmap2` (0.9.9) - Memory-mapped file I/O for efficient dictionary\nloading\n- `num_cpus` (1.17.0) - CPU detection for parallel processing\n- `simd-adler32` (0.3.7) - SIMD-accelerated checksums for faster\ndecompression\n- Updated `flate2` (0.8.0) - Improved compression library\n- Removed `io-uring` (replaced by memmap2 for better cross-platform\nsupport)\n\n## Test Plan\n\n- [x] All Lindera tokenizer tests pass\n- [x] Chinese tokenizer test passing (19 tokens - unchanged)\n- [x] Japanese tokenizer test passing\n- [x] Korean tokenizer test passing (11 tokens - unchanged)\n- [x] Code compiles successfully",
+          "timestamp": "2025-12-01T12:43:41-08:00",
+          "tree_id": "2c17585a8b305343e2ad2f893a4dfa1fe94d5a54",
+          "url": "https://github.com/paradedb/paradedb/commit/0b87ac5d23f7e4c3d481803486dc224e29eec425"
+        },
+        "date": 1764622930296,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 484.76380392287837,
+            "unit": "median tps",
+            "extra": "avg tps: 484.7162125530693, max tps: 557.5389947935357, count: 55267"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3197.434129566709,
+            "unit": "median tps",
+            "extra": "avg tps: 3159.7822625858676, max tps: 3208.1510575231555, count: 55267"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 515.2900439795974,
+            "unit": "median tps",
+            "extra": "avg tps: 514.4374739003914, max tps: 607.3029411971079, count: 55267"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 401.88767393572016,
+            "unit": "median tps",
+            "extra": "avg tps: 402.4830137614067, max tps: 460.1595403803802, count: 55267"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3389.3795928177856,
+            "unit": "median tps",
+            "extra": "avg tps: 3359.9203606942715, max tps: 3432.229636872431, count: 110534"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2152.847514998007,
+            "unit": "median tps",
+            "extra": "avg tps: 2131.2143341294027, max tps: 2169.9724916808987, count: 55267"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 168.2337228582184,
+            "unit": "median tps",
+            "extra": "avg tps: 191.45585595490294, max tps: 788.6180336440226, count: 55267"
           }
         ]
       }

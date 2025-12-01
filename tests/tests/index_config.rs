@@ -31,18 +31,34 @@ fn fmt_err<T: std::error::Error>(err: T) -> String {
 }
 
 #[rstest]
+fn create_index_with_unique(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    // Replace primary key with a unique index
+    "ALTER TABLE index_config DROP CONSTRAINT index_config_pkey".execute(&mut conn);
+    "CREATE UNIQUE INDEX index_config_id ON index_config(id)".execute(&mut conn);
+
+    "CREATE INDEX index_config_index ON index_config USING bm25 (id) "
+      .execute(&mut conn);
+}
+
+#[rstest]
 fn invalid_create_index(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
+
+    // We need to drop the primary key to get this error
+    "ALTER TABLE index_config DROP CONSTRAINT index_config_pkey".execute(&mut conn);
 
     match r#"CREATE INDEX index_config_index ON index_config
         USING bm25 (id) "#
         .execute_result(&mut conn)
     {
-        Ok(_) => panic!("should fail with no key_field"),
+        Ok(_) => panic!("should fail with no primary key or index on id"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: index should have a `WITH (key_field='...')` option"
+            "error returned from database: First column 'id' in index must have a unique constraint (primary key or unique index)"
         ),
     };
 }
@@ -386,6 +402,10 @@ fn null_values(mut conn: PgConnection) {
 #[rstest]
 fn null_key_field_build(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+
+    // A primary key would block this, so we need to use a unique which allows NULL
+    "CREATE UNIQUE INDEX index_config_unique ON paradedb.index_config(id)".execute(&mut conn);
+
     "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
@@ -404,6 +424,10 @@ fn null_key_field_build(mut conn: PgConnection) {
 #[rstest]
 fn null_key_field_insert(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+
+    // A primary key would block this, so we need to use a unique which allows NULL
+    "CREATE UNIQUE INDEX index_config_unique ON paradedb.index_config(id)".execute(&mut conn);
+
     "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
@@ -423,7 +447,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
 
 #[rstest]
 fn column_name_camelcase(mut conn: PgConnection) {
-    "CREATE TABLE paradedb.index_config(\"IdName\" INTEGER, \"ColumnName\" TEXT)"
+    "CREATE TABLE paradedb.index_config(\"IdName\" INTEGER PRIMARY KEY, \"ColumnName\" TEXT)"
         .execute(&mut conn);
     "INSERT INTO paradedb.index_config VALUES (1, 'Plastic Keyboard'), (2, 'Bluetooth Headphones')"
         .execute(&mut conn);
@@ -442,8 +466,8 @@ fn column_name_camelcase(mut conn: PgConnection) {
 
 #[rstest]
 fn multi_index_insert_in_transaction(mut conn: PgConnection) {
-    "CREATE TABLE paradedb.index_config1(id INTEGER, description TEXT)".execute(&mut conn);
-    "CREATE TABLE paradedb.index_config2(id INTEGER, description TEXT)".execute(&mut conn);
+    "CREATE TABLE paradedb.index_config1(id INTEGER PRIMARY KEY, description TEXT)".execute(&mut conn);
+    "CREATE TABLE paradedb.index_config2(id INTEGER PRIMARY KEY, description TEXT)".execute(&mut conn);
     r#"CREATE INDEX index_config1_index ON paradedb.index_config1
         USING bm25 (id, description) WITH (key_field='id')"#
         .execute(&mut conn);
@@ -669,7 +693,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
 fn custom_enum_term(mut conn: PgConnection) {
     r#"
     CREATE TYPE color AS ENUM ('red', 'green', 'blue');
-    CREATE TABLE paradedb.index_config(id INTEGER, description TEXT, color color);
+    CREATE TABLE paradedb.index_config(id INTEGER PRIMARY KEY, description TEXT, color color);
     INSERT INTO paradedb.index_config VALUES (1, 'Item 1', 'red'), (2, 'Item 2', 'green');
     "#
     .execute(&mut conn);
@@ -691,7 +715,7 @@ fn custom_enum_term(mut conn: PgConnection) {
 fn custom_enum_parse(mut conn: PgConnection) {
     r#"
     CREATE TYPE color AS ENUM ('red', 'green', 'blue');
-    CREATE TABLE paradedb.index_config(id INTEGER, description TEXT, color color);
+    CREATE TABLE paradedb.index_config(id INTEGER PRIMARY KEY, description TEXT, color color);
     INSERT INTO paradedb.index_config VALUES (1, 'Item 1', 'red'), (2, 'Item 2', 'green');
     "#
     .execute(&mut conn);
@@ -711,7 +735,7 @@ fn custom_enum_parse(mut conn: PgConnection) {
 
 #[rstest]
 fn long_text_key_field_issue2198(mut conn: PgConnection) {
-    "CREATE TABLE issue2198 (id TEXT, value TEXT)".execute(&mut conn);
+    "CREATE TABLE issue2198 (id TEXT PRIMARY KEY, value TEXT)".execute(&mut conn);
 
     "CREATE INDEX idxissue2198 ON issue2198 USING bm25 (id, value) WITH (key_field='id')"
         .execute(&mut conn);
@@ -807,14 +831,14 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
 
         -- Create two separate tables with similar schema
         CREATE TABLE products_2023 (
-            id SERIAL,
+            id SERIAL PRIMARY KEY,
             product_name TEXT,
             amount DECIMAL,
             sale_date DATE
         );
 
         CREATE TABLE products_2024 (
-            id SERIAL,
+            id SERIAL PRIMARY KEY,
             product_name TEXT,
             amount DECIMAL,
             sale_date DATE
@@ -872,14 +896,14 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
 
     -- Create two separate tables with similar schema
     CREATE TABLE products_2023_view (
-        id SERIAL,
+        id SERIAL PRIMARY KEY,
         product_name TEXT,
         amount DECIMAL,
         sale_date DATE
     );
 
     CREATE TABLE products_2024_view (
-        id SERIAL,
+        id SERIAL PRIMARY KEY,
         product_name TEXT,
         amount DECIMAL,
         sale_date DATE

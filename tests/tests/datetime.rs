@@ -25,7 +25,7 @@ use sqlx::PgConnection;
 #[rstest]
 fn datetime_microsecond(mut conn: PgConnection) {
     r#"
-    CREATE TABLE ts (id SERIAL, t TIMESTAMP);
+    CREATE TABLE ts (id SERIAL PRIMARY KEY, t TIMESTAMP);
     CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079776Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079777Z');
@@ -56,7 +56,7 @@ fn datetime_microsecond(mut conn: PgConnection) {
 #[rstest]
 fn datetime_term_millisecond(mut conn: PgConnection) {
     r#"
-    CREATE TABLE ts (id SERIAL, t TIMESTAMP(3));
+    CREATE TABLE ts (id SERIAL PRIMARY KEY, t TIMESTAMP(3));
     CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.078Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079Z');
@@ -107,7 +107,7 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
 #[rstest]
 fn datetime_term_second(mut conn: PgConnection) {
     r#"
-    CREATE TABLE ts (id SERIAL, t TIMESTAMP(0));
+    CREATE TABLE ts (id SERIAL PRIMARY KEY, t TIMESTAMP(0));
     CREATE INDEX ts_idx on ts using bm25 (id, t) with (key_field = 'id');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.1Z');

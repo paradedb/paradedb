@@ -132,7 +132,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
 
 #[rstest]
 fn quoted_table_name(mut conn: PgConnection) {
-    r#"CREATE TABLE "Activity" (key SERIAL, name TEXT, age INTEGER);
+    r#"CREATE TABLE "Activity" (key SERIAL PRIMARY KEY, name TEXT, age INTEGER);
     INSERT INTO "Activity" (name, age) VALUES ('Alice', 29);
     INSERT INTO "Activity" (name, age) VALUES ('Bob', 34);
     INSERT INTO "Activity" (name, age) VALUES ('Charlie', 45);

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764623887368,
+  "lastUpdate": 1764625361335,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -12788,6 +12788,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 24281.519500000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b87ac5d23f7e4c3d481803486dc224e29eec425",
+          "message": "chore: Upgrade Lindera tokenizer from 0.43.1 to 1.4.1 (#3587)\n\n## Summary\n\nUpgrades the Lindera tokenizer dependency from version 0.43.1 to 1.4.1,\nadapting to the new API and updated dictionary features while\nmaintaining backward compatibility.\n\n## Changes\n\n- **Dependency upgrade**: Lindera 0.43.1 → 1.4.1\n- **Feature updates**: Migrated to new embedded dictionary features\n(`embedded-cc-cedict`, `embedded-ipadic`, `embedded-ko-dic`)\n- **API migration**: Updated from\n`load_dictionary_from_kind(DictionaryKind::*)` to\n`load_dictionary(\"embedded://*\")`\n- **Token field change**: Updated token access from `.text` to\n`.surface`\n- **Backward compatibility**: Always use `keep_whitespace=true`\ninternally to preserve existing tokenization behavior\n\n## Whitespace Handling\n\nLindera 1.4.0+ changed the default to `keep_whitespace=false`\n(MeCab-compatible). To maintain backward compatibility with existing\nParadeDB indexes, we always use `keep_whitespace=true` internally.\n\nA follow-up issue (#3662) tracks implementing `keep_whitespace` as a\nproper typemod with smart defaults based on `is_create_index`.\n\n## New Dependencies\n\nLindera 1.4.1 introduces new dependencies for improved performance:\n- `memmap2` (0.9.9) - Memory-mapped file I/O for efficient dictionary\nloading\n- `num_cpus` (1.17.0) - CPU detection for parallel processing\n- `simd-adler32` (0.3.7) - SIMD-accelerated checksums for faster\ndecompression\n- Updated `flate2` (0.8.0) - Improved compression library\n- Removed `io-uring` (replaced by memmap2 for better cross-platform\nsupport)\n\n## Test Plan\n\n- [x] All Lindera tokenizer tests pass\n- [x] Chinese tokenizer test passing (19 tokens - unchanged)\n- [x] Japanese tokenizer test passing\n- [x] Korean tokenizer test passing (11 tokens - unchanged)\n- [x] Code compiles successfully",
+          "timestamp": "2025-12-01T12:43:41-08:00",
+          "tree_id": "2c17585a8b305343e2ad2f893a4dfa1fe94d5a54",
+          "url": "https://github.com/paradedb/paradedb/commit/0b87ac5d23f7e4c3d481803486dc224e29eec425"
+        },
+        "date": 1764625358696,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1197.7224999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 642.6375,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1482.7714999999998,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 716.47,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 678.985,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1621.5055,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 30075.699,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 30304.6185,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 30617.302,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::{anyelement_query_input_opoid, searchqueryinput_typoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -41,6 +41,11 @@ pub enum Qual {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
+        /// For ScalarArrayOpExpr (e.g., `field @@@ ANY(array)`):
+        /// - Some(true) = OR semantics (ANY)
+        /// - Some(false) = AND semantics (ALL)
+        /// - None = regular OpExpr, not a ScalarArrayOpExpr
+        scalar_array_use_or: Option<bool>,
     },
     Expr {
         node: *mut pg_sys::Node,
@@ -159,7 +164,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
-            Qual::HeapExpr { .. } => false,
+            Qual::HeapExpr { expr_node, .. } => contains_exec_param(*expr_node),
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
@@ -261,9 +266,45 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::OpExpr { val, .. } => unsafe {
-                SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
-                    .expect("rhs of @@@ operator Qual must not be null")
+            // Handle ScalarArrayOpExpr: PostgreSQL 18+ rewrites OR clauses like
+            // `field @@@ 'a' OR field @@@ 'b'` into `field @@@ ANY(ARRAY['a','b'])`.
+            // We decode the array and convert it to a Boolean query (should/must).
+            Qual::OpExpr {
+                val,
+                scalar_array_use_or,
+                ..
+            } => unsafe {
+                if let Some(use_or) = *scalar_array_use_or {
+                    let elements: Vec<SearchQueryInput> = pgrx::FromDatum::from_polymorphic_datum(
+                        (**val).constvalue,
+                        (**val).constisnull,
+                        searchqueryinput_typoid(),
+                    )
+                    .expect("ScalarArrayOpExpr should not contain NULL");
+
+                    if elements.is_empty() {
+                        if use_or {
+                            SearchQueryInput::Empty
+                        } else {
+                            SearchQueryInput::All
+                        }
+                    } else {
+                        let (must, should) = if use_or {
+                            (Vec::new(), elements)
+                        } else {
+                            (elements, Vec::new())
+                        };
+
+                        SearchQueryInput::Boolean {
+                            must,
+                            should,
+                            must_not: vec![],
+                        }
+                    }
+                } else {
+                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
+                        .expect("rhs of @@@ operator Qual must not be null")
+                }
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
             Qual::PushdownExpr { funcexpr } => unsafe {
@@ -955,6 +996,7 @@ unsafe fn node_opexpr(
                 lhs,
                 opno: opexpr.opno(),
                 val: rhs,
+                scalar_array_use_or: opexpr.use_or(),
             })
         } else {
             // the node comes from a different range table

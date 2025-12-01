@@ -494,7 +494,7 @@ impl CustomScan for PdbScan {
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
-            #[cfg(any(feature = "pg16", feature = "pg17"))]
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             let baserels = (*builder.args().root).all_query_rels;
 
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
@@ -623,6 +623,7 @@ impl CustomScan for PdbScan {
                     total_rows,
                     segment_count,
                     quals.contains_external_var(),
+                    quals.contains_exec_param(),
                 )
             } else {
                 0

@@ -1,6 +1,6 @@
 use crate::api::operator::searchqueryinput_typoid;
 use crate::query::{PostgresExpression, SearchQueryInput};
-use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
+use pgrx::{pg_sys, PgMemoryContexts};
 
 impl SearchQueryInput {
     pub fn has_heap_filters(&mut self) -> bool {

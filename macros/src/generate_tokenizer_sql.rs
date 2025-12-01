@@ -94,7 +94,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
 
         extension_sql!(#create_cast_to_text_array, name = #pgrx_cast_to_text_array_name, requires = [#pgrx_name, #cast_name]);
         extension_sql!(#create_cast_from_json, name = #pgrx_cast_from_json_name, requires = [#pgrx_name, #json_cast_name, #jsonb_cast_name]);
-        extension_sql!(#create_cast_from_text_array, name = #pgrx_cast_from_text_array_name, requires = [#pgrx_name, #text_array_cast_name]);
+        extension_sql!(#create_cast_from_text_array, name = #pgrx_cast_from_text_array_name, requires = [#pgrx_name, #text_array_cast_name, #varchar_array_cast_name]);
     }
         .into()
 }

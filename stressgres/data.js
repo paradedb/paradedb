@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764623358078,
+  "lastUpdate": 1764623362234,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6186,6 +6186,126 @@ window.BENCHMARK_DATA = {
             "value": 44.49609375,
             "unit": "median mem",
             "extra": "avg mem: 44.66613883516558, max mem: 54.72265625, count: 55260"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a312d272f8d63adf6e951371e006b7bc757a69e",
+          "message": "fix: race condition in parallel index scans with prepared statements (#3670)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nFixed a race condition in parallel index scans that caused prepared\nstatements to intermittently return 0 or incorrect row counts (~50%\nfailure rate).\n\n## Why\n\nWhen prepared statements are executed with parallel index scans,\n`amrescan` is called by both the leader and all parallel workers\nsimultaneously. This created a race condition:\n\n1. Leader calls `maybe_init_parallel_scan()` which modifies the parallel\nscan state\n2. Workers simultaneously call `list_segment_ids()` → `segments()` to\nread segment IDs\n3. `segments()` was reading `nsegments` and payload data **without\nacquiring the mutex**\n4. Workers could read partially-updated state while leader was modifying\nit\n5. Workers got corrupted segment lists and failed to participate in the\nscan\n6. Result: `loops=1` (only leader ran) instead of `loops=3` (leader + 2\nworkers) → returned 0 rows\n\nThe bug only manifested with prepared statements because rescans\ntriggered the race window on every execution after the first.\n\n## How\n\nMade `segments()` acquire the mutex before reading segment data:\n\n```rust\npub fn segments(&self) -> HashMap<SegmentId, u32> {\n    let _mutex = unsafe {\n        let self_mut = (self as *const Self as *mut Self).as_mut().unwrap();\n        self_mut.acquire_mutex()\n    };\n    // ... now safe to read nsegments and payload\n}\n```\n\nThis ensures workers always wait for the leader to finish initialization\nbefore reading, preventing the race condition. The fix follows standard\nreaders-writers synchronization - both readers and writers must acquire\nthe same mutex.\n\nAlso added documentation explaining the race condition in `scan.rs` and\n`parallel.rs`.\n\n## Tests\n\nAdded regression test `prepared_statement_parallel.sql`. This is meant\nto replicate the issue, but doesn't repro it.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-01T12:50:24-08:00",
+          "tree_id": "98c47953d95d25b58334327acc11f25d163e989b",
+          "url": "https://github.com/paradedb/paradedb/commit/0a312d272f8d63adf6e951371e006b7bc757a69e"
+        },
+        "date": 1764623359683,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.631530414788317, max cpu: 23.099133, count: 55282"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 54.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.66886599616512, max mem: 65.4765625, count: 55282"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.596654292195787, max cpu: 9.338522, count: 55282"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.064645109393656, max mem: 29.8984375, count: 55282"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.618269027562723, max cpu: 23.099133, count: 55282"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 52.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.2038643907601, max mem: 64.94921875, count: 55282"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580207144864896, max cpu: 9.311348, count: 55282"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 51.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.658320279996204, max mem: 62.26171875, count: 55282"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.612833869930104, max cpu: 9.476802, count: 110564"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.876953125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.68190574294074, max mem: 49.44140625, count: 110564"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1759,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1754.2592344705329, max block_count: 3066.0, count: 55282"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.025722658369814, max segment_count: 17.0, count: 55282"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6308181135862245, max cpu: 9.421001, count: 55282"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.952935630042326, max mem: 52.30859375, count: 55282"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.734878680603795, max cpu: 4.660194, count: 55282"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.00861230542944, max mem: 55.8046875, count: 55282"
           }
         ]
       }

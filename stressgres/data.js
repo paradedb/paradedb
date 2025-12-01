@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764622936380,
+  "lastUpdate": 1764623034005,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2036,6 +2036,72 @@ window.BENCHMARK_DATA = {
             "value": 168.2337228582184,
             "unit": "median tps",
             "extra": "avg tps: 191.45585595490294, max tps: 788.6180336440226, count: 55267"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f440929b05e18f125076c6dd75b41717e0655b98",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3668)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-01T12:45:35-08:00",
+          "tree_id": "0e255e2817314aec699e56bf2240a8695dff37d0",
+          "url": "https://github.com/paradedb/paradedb/commit/f440929b05e18f125076c6dd75b41717e0655b98"
+        },
+        "date": 1764623031374,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 478.02123915008224,
+            "unit": "median tps",
+            "extra": "avg tps: 484.1646496697919, max tps: 596.4331484565528, count: 55188"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3116.631249203414,
+            "unit": "median tps",
+            "extra": "avg tps: 3066.2627213628516, max tps: 3138.013040090395, count: 55188"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 445.56436588484394,
+            "unit": "median tps",
+            "extra": "avg tps: 454.27542124941033, max tps: 561.5705665627771, count: 55188"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 383.6052356954953,
+            "unit": "median tps",
+            "extra": "avg tps: 394.31217279871856, max tps: 458.58161860009994, count: 55188"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3351.915536624906,
+            "unit": "median tps",
+            "extra": "avg tps: 3305.659542973335, max tps: 3453.0700422321092, count: 110376"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2169.146610586947,
+            "unit": "median tps",
+            "extra": "avg tps: 2129.558272093818, max tps: 2183.24746456039, count: 55188"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 133.71774279484163,
+            "unit": "median tps",
+            "extra": "avg tps: 127.64608292839722, max tps: 310.79234176590654, count: 55188"
           }
         ]
       }

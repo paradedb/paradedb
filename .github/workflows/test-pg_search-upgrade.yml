@@ -35,6 +35,7 @@ jobs:
     runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
+        # TODO: Once we release our first PG18 version, we should use PRIOR_PG_SEARCH_VERSION to test upgrades on PG18 instead
         pg_version: [17]
 
     steps:

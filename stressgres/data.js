@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764624501707,
+  "lastUpdate": 1764624906030,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10530,6 +10530,54 @@ window.BENCHMARK_DATA = {
             "value": 5.3314809518907476,
             "unit": "median tps",
             "extra": "avg tps: 5.342586619729528, max tps: 6.427626783218909, count: 56665"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e02e5270e3afe6e7dfec9d75a3521bdfaccdffb",
+          "message": "fix: race condition in parallel index scans with prepared statements (#3671)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nFixed a race condition in parallel index scans that caused prepared\nstatements to intermittently return 0 or incorrect row counts (~50%\nfailure rate).\n\n## Why\n\nWhen prepared statements are executed with parallel index scans,\n`amrescan` is called by both the leader and all parallel workers\nsimultaneously. This created a race condition:\n\n1. Leader calls `maybe_init_parallel_scan()` which modifies the parallel\nscan state\n2. Workers simultaneously call `list_segment_ids()` → `segments()` to\nread segment IDs\n3. `segments()` was reading `nsegments` and payload data **without\nacquiring the mutex**\n4. Workers could read partially-updated state while leader was modifying\nit\n5. Workers got corrupted segment lists and failed to participate in the\nscan\n6. Result: `loops=1` (only leader ran) instead of `loops=3` (leader + 2\nworkers) → returned 0 rows\n\nThe bug only manifested with prepared statements because rescans\ntriggered the race window on every execution after the first.\n\n## How\n\nMade `segments()` acquire the mutex before reading segment data:\n\n```rust\npub fn segments(&self) -> HashMap<SegmentId, u32> {\n    let _mutex = unsafe {\n        let self_mut = (self as *const Self as *mut Self).as_mut().unwrap();\n        self_mut.acquire_mutex()\n    };\n    // ... now safe to read nsegments and payload\n}\n```\n\nThis ensures workers always wait for the leader to finish initialization\nbefore reading, preventing the race condition. The fix follows standard\nreaders-writers synchronization - both readers and writers must acquire\nthe same mutex.\n\nAlso added documentation explaining the race condition in `scan.rs` and\n`parallel.rs`.\n\n## Tests\n\nAdded regression test `prepared_statement_parallel.sql`. This is meant\nto replicate the issue, but doesn't repro it.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-01T12:50:50-08:00",
+          "tree_id": "d7d6ff8e891e67e2dc8b64b93e7bf07b0b43e0a5",
+          "url": "https://github.com/paradedb/paradedb/commit/7e02e5270e3afe6e7dfec9d75a3521bdfaccdffb"
+        },
+        "date": 1764624903400,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1191.1086268729653,
+            "unit": "median tps",
+            "extra": "avg tps: 1190.2228040068312, max tps: 1259.32478848344, count: 56551"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1318.9896240449164,
+            "unit": "median tps",
+            "extra": "avg tps: 1307.7893554029963, max tps: 1329.3619850476423, count: 56551"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2002.1630151434756,
+            "unit": "median tps",
+            "extra": "avg tps: 1973.1138082005466, max tps: 2169.8487306758657, count: 56551"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.31642820053626,
+            "unit": "median tps",
+            "extra": "avg tps: 5.338234717914826, max tps: 6.694068120483935, count: 56551"
           }
         ]
       }

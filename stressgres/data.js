@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764625242518,
+  "lastUpdate": 1764625246240,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18108,6 +18108,114 @@ window.BENCHMARK_DATA = {
             "value": 160.83203125,
             "unit": "median mem",
             "extra": "avg mem: 158.52239205938284, max mem: 161.65625, count: 55479"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b87ac5d23f7e4c3d481803486dc224e29eec425",
+          "message": "chore: Upgrade Lindera tokenizer from 0.43.1 to 1.4.1 (#3587)\n\n## Summary\n\nUpgrades the Lindera tokenizer dependency from version 0.43.1 to 1.4.1,\nadapting to the new API and updated dictionary features while\nmaintaining backward compatibility.\n\n## Changes\n\n- **Dependency upgrade**: Lindera 0.43.1 → 1.4.1\n- **Feature updates**: Migrated to new embedded dictionary features\n(`embedded-cc-cedict`, `embedded-ipadic`, `embedded-ko-dic`)\n- **API migration**: Updated from\n`load_dictionary_from_kind(DictionaryKind::*)` to\n`load_dictionary(\"embedded://*\")`\n- **Token field change**: Updated token access from `.text` to\n`.surface`\n- **Backward compatibility**: Always use `keep_whitespace=true`\ninternally to preserve existing tokenization behavior\n\n## Whitespace Handling\n\nLindera 1.4.0+ changed the default to `keep_whitespace=false`\n(MeCab-compatible). To maintain backward compatibility with existing\nParadeDB indexes, we always use `keep_whitespace=true` internally.\n\nA follow-up issue (#3662) tracks implementing `keep_whitespace` as a\nproper typemod with smart defaults based on `is_create_index`.\n\n## New Dependencies\n\nLindera 1.4.1 introduces new dependencies for improved performance:\n- `memmap2` (0.9.9) - Memory-mapped file I/O for efficient dictionary\nloading\n- `num_cpus` (1.17.0) - CPU detection for parallel processing\n- `simd-adler32` (0.3.7) - SIMD-accelerated checksums for faster\ndecompression\n- Updated `flate2` (0.8.0) - Improved compression library\n- Removed `io-uring` (replaced by memmap2 for better cross-platform\nsupport)\n\n## Test Plan\n\n- [x] All Lindera tokenizer tests pass\n- [x] Chinese tokenizer test passing (19 tokens - unchanged)\n- [x] Japanese tokenizer test passing\n- [x] Korean tokenizer test passing (11 tokens - unchanged)\n- [x] Code compiles successfully",
+          "timestamp": "2025-12-01T12:43:41-08:00",
+          "tree_id": "2c17585a8b305343e2ad2f893a4dfa1fe94d5a54",
+          "url": "https://github.com/paradedb/paradedb/commit/0b87ac5d23f7e4c3d481803486dc224e29eec425"
+        },
+        "date": 1764625243549,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.79940660958205, max cpu: 41.982506, count: 55637"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 150.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.1787833411219, max mem: 163.75390625, count: 55637"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6868106734521495, max cpu: 41.73913, count: 55637"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 114.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.08560969150476, max mem: 114.265625, count: 55637"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8377265663092635, max cpu: 9.338522, count: 55637"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 118.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 108.19193801730414, max mem: 147.72265625, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13925,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14202.827902295236, max block_count: 25337.0, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.478694754610933, max cpu: 4.6647234, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 93.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 87.6557447017048, max mem: 129.44140625, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.800546398979098, max segment_count: 44.0, count: 55637"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.590389165937422, max cpu: 42.519684, count: 111274"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.125,
+            "unit": "median mem",
+            "extra": "avg mem: 130.6441915058774, max mem: 153.09765625, count: 111274"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.281430281416691, max cpu: 28.042841, count: 55637"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 161.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.04884192118104, max mem: 164.3671875, count: 55637"
           }
         ]
       }

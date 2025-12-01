@@ -135,7 +135,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.9 https://github.com/sraoss/pg_ivm.git
+RUN git clone --branch v1.13 https://github.com/sraoss/pg_ivm.git
 WORKDIR /tmp/pg_ivm
 RUN echo "trusted = true" >> pg_ivm.control && \
     make clean -j && \

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764623034005,
+  "lastUpdate": 1764623038049,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5814,6 +5814,126 @@ window.BENCHMARK_DATA = {
             "value": 44.2890625,
             "unit": "median mem",
             "extra": "avg mem: 43.15789704694936, max mem: 55.328125, count: 55267"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f440929b05e18f125076c6dd75b41717e0655b98",
+          "message": "fix: use-after-free in FilterQuery for aggregate FILTER clauses (#3668)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed a use-after-free bug in `FilterQuery` where the `ExprContext` was\nbeing freed while the tantivy query still held a pointer to it.\n\n## Why\n\nWhen `FilterQuery::new` was called at execution time, it created a local\n`ExprContextGuard` and passed its pointer to the `HeapFilterQuery`.\nHowever, the guard was dropped at the end of the function, leaving the\nquery with a dangling pointer. This caused Bus errors (SIGBUS) during\naggregate queries with `FILTER` clauses, particularly noticeable in\nPG18.\n\n## How\n\n- Added `expr_context_guard: Option<Arc<ExprContextGuard>>` field to\n`FilterQuery` to keep the context alive\n- Used `Arc` so that clones of `FilterQuery` share ownership—the context\nis only freed when all instances are dropped\n- Added `Debug`, `Send`, and `Sync` traits to `ExprContextGuard` for\nTantivy compatibility\n\n## Tests\n\n- `groupby-agg-filter` regression test passes\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-01T12:45:35-08:00",
+          "tree_id": "0e255e2817314aec699e56bf2240a8695dff37d0",
+          "url": "https://github.com/paradedb/paradedb/commit/f440929b05e18f125076c6dd75b41717e0655b98"
+        },
+        "date": 1764623035480,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.65824699524387, max cpu: 18.934912, count: 55188"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 53.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.14854848427194, max mem: 64.5546875, count: 55188"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5340400361224775, max cpu: 9.230769, count: 55188"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.67826678806987, max mem: 28.0546875, count: 55188"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.865465947177527, max cpu: 18.972332, count: 55188"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 54.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.84579252113231, max mem: 65.82421875, count: 55188"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.53734714788165, max cpu: 9.311348, count: 55188"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 49.625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.901786705216715, max mem: 62.3125, count: 55188"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.560440751643255, max cpu: 9.448819, count: 110376"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 39.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.57439343697905, max mem: 49.703125, count: 110376"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1776,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1784.0372907153728, max block_count: 3175.0, count: 55188"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.839892730303688, max segment_count: 30.0, count: 55188"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.700730396690992, max cpu: 9.495549, count: 55188"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 40.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.58484910385863, max mem: 53.2734375, count: 55188"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.410702071553608, max cpu: 4.7524753, count: 55188"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.62631432840926, max mem: 56.22265625, count: 55188"
           }
         ]
       }

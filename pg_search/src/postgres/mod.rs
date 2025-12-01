@@ -610,7 +610,10 @@ impl ParallelScanState {
         }
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, u32> {
+    /// Returns a map of segment IDs to their deleted document counts.
+    pub fn segments(&mut self) -> HashMap<SegmentId, u32> {
+        let _mutex = self.acquire_mutex();
+
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));

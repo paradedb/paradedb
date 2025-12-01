@@ -54,10 +54,6 @@ pub(crate) mod pdb {
             }
 
             impl DatumWrapper for $rust_name {
-                fn sql_name() -> &'static str {
-                    concat!("pdb", ".", $sql_name)
-                }
-
                 fn from_datum(datum: pg_sys::Datum) -> Self {
                     $rust_name(datum)
                 }

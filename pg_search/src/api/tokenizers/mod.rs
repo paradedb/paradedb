@@ -209,8 +209,6 @@ pub trait CowString {
 }
 
 pub trait DatumWrapper {
-    fn sql_name() -> &'static str;
-
     #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
 
@@ -350,10 +348,6 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> GenericTypeWrapper<Type, SqlNam
 }
 
 impl DatumWrapper for pgrx::Json {
-    fn sql_name() -> &'static str {
-        "json"
-    }
-
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe { <pgrx::Json as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
     }
@@ -364,10 +358,6 @@ impl DatumWrapper for pgrx::Json {
 }
 
 impl DatumWrapper for pgrx::JsonB {
-    fn sql_name() -> &'static str {
-        "jsonb"
-    }
-
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe { <pgrx::JsonB as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
     }
@@ -378,10 +368,6 @@ impl DatumWrapper for pgrx::JsonB {
 }
 
 impl DatumWrapper for Vec<String> {
-    fn sql_name() -> &'static str {
-        "text[]"
-    }
-
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
     }

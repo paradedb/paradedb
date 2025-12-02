@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764710748961,
+  "lastUpdate": 1764710967087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21518,6 +21518,54 @@ window.BENCHMARK_DATA = {
             "value": 113.12820434215081,
             "unit": "median tps",
             "extra": "avg tps: 114.49401770965191, max tps: 528.7518805815993, count: 107512"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710f3dcadaad086c55daa6f260d3a8b9d0a62f00",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3683)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-02T12:21:48-08:00",
+          "tree_id": "6152d863b7fd068dd162c9d9db5a3d21cbe4a178",
+          "url": "https://github.com/paradedb/paradedb/commit/710f3dcadaad086c55daa6f260d3a8b9d0a62f00"
+        },
+        "date": 1764710964286,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 470.5039571765763,
+            "unit": "median tps",
+            "extra": "avg tps: 474.75286541005244, max tps: 673.504251450687, count: 53739"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 542.5063850780335,
+            "unit": "median tps",
+            "extra": "avg tps: 548.0029279323807, max tps: 760.6404135898179, count: 53739"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.08763280663038,
+            "unit": "median tps",
+            "extra": "avg tps: 86.29287358250824, max tps: 91.59679099148178, count: 53739"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.5491653030838,
+            "unit": "median tps",
+            "extra": "avg tps: 113.63806459625009, max tps: 554.3286966485813, count: 107478"
           }
         ]
       }

@@ -609,6 +609,36 @@ pub fn index_memory_segment(
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
     use pgrx::{pg_sys::heap_deform_tuple, PgTupleDesc};
 
+    struct SnapshotDropper {
+        inner: pg_sys::Snapshot,
+        drop: bool,
+    }
+
+    impl SnapshotDropper {
+        pub fn active() -> Self {
+            Self {
+                inner: unsafe { pg_sys::GetActiveSnapshot() },
+                drop: false,
+            }
+        }
+        pub fn transaction() -> Self {
+            Self {
+                inner: unsafe { pg_sys::RegisterSnapshot(pg_sys::GetTransactionSnapshot()) },
+                drop: true,
+            }
+        }
+    }
+
+    impl Drop for SnapshotDropper {
+        fn drop(&mut self) {
+            if self.drop {
+                unsafe {
+                    pg_sys::UnregisterSnapshot(self.inner);
+                }
+            }
+        }
+    }
+
     let directory = RamDirectory::create();
     let ctids = segment
         .mutable_snapshot(indexrel)
@@ -632,23 +662,24 @@ pub fn index_memory_segment(
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
     let mut isnull = vec![false; heaptupdesc.len()];
 
+    // it is important to fetch using the active snapshot to avoid reading deleted tuples,
+    // because deleted TOAST values are immediately freed
+    let snapshot = match mvcc_satisfies {
+        MvccSatisfies::Snapshot => SnapshotDropper::active(),
+        _ => SnapshotDropper::transaction(),
+    };
+
     for ctid in ctids {
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
         unsafe {
-            // it is important to fetch using the active snapshot to avoid reading deleted tuples,
-            // because deleted TOAST values are immediately freed
-            let snapshot = match mvcc_satisfies {
-                MvccSatisfies::Snapshot => pg_sys::GetActiveSnapshot(),
-                _ => &raw mut pg_sys::SnapshotAnyData,
-            };
             let mut call_again = false;
             let mut all_dead = false;
             let fetched = pg_sys::table_index_fetch_tuple(
                 heap_fetch_state.scan,
                 &mut ipd,
-                snapshot,
+                snapshot.inner,
                 heap_fetch_state.slot,
                 &mut call_again,
                 &mut all_dead,

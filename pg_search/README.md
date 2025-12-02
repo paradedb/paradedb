@@ -23,7 +23,7 @@ docker run \
   -e POSTGRES_USER=<user> \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
-  -v paradedb_data:/var/lib/postgresql/data/ \
+  -v paradedb_data:/var/lib/postgresql/ \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest
@@ -45,7 +45,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 14, 15, 16, and 17. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 14+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
 
@@ -124,20 +124,20 @@ export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 Then, install and initialize `pgrx`:
 
 ```bash
-# Note: Replace --pg17 with your version of Postgres, if different (i.e. --pg16, etc.)
-cargo install --locked cargo-pgrx --version 0.15.0
+# Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
+cargo install --locked cargo-pgrx --version 0.16.1
 
 # macOS arm64
-cargo pgrx init --pg17=/opt/homebrew/opt/postgresql@17/bin/pg_config
+cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
 
 # macOS amd64
-cargo pgrx init --pg17=/usr/local/opt/postgresql@17/bin/pg_config
+cargo pgrx init --pg18=/usr/local/opt/postgresql@18/bin/pg_config
 
 # Ubuntu
-cargo pgrx init --pg17=/usr/lib/postgresql/17/bin/pg_config
+cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
 
 # Arch Linux
-cargo pgrx init --pg17=/usr/bin/pg_config
+cargo pgrx init --pg18=/usr/bin/pg_config
 ```
 
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
@@ -160,7 +160,7 @@ sudo pacman -S extra/clang
 
 ```bash
 # Note: Replace 17 with your version of Postgres
-git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 # macOS arm64

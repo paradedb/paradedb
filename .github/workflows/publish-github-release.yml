@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 

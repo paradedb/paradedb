@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       branches: ${{ steps.set-branches.outputs.branches }}
+
     steps:
       - name: Set cherry-pick branches
         id: set-branches
@@ -30,12 +31,14 @@ jobs:
       fail-fast: false
       matrix:
         branch: ${{ fromJSON(needs.get-branches.outputs.branches) }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+
       - name: Cherry Pick to ${{ matrix.branch }}
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:

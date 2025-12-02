@@ -1,5 +1,5 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
-ARG PG_VERSION_MAJOR=17
+ARG PG_VERSION_MAJOR=18
 
 ###############################################
 # First Stage: Builder
@@ -100,9 +100,9 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+RUN git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 WORKDIR /tmp/pgvector
-RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
+RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && \
     echo "trusted = true" >> vector.control && \
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
@@ -118,7 +118,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.6.4 https://github.com/citusdata/pg_cron.git
+RUN git clone --branch v1.6.7 https://github.com/citusdata/pg_cron.git
 WORKDIR /tmp/pg_cron
 RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
@@ -135,7 +135,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.9 https://github.com/sraoss/pg_ivm.git
+RUN git clone --branch v1.13 https://github.com/sraoss/pg_ivm.git
 WORKDIR /tmp/pg_ivm
 RUN echo "trusted = true" >> pg_ivm.control && \
     make clean -j && \
@@ -148,7 +148,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-    org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+    org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR

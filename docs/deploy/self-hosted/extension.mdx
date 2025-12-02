@@ -36,14 +36,14 @@ sudo apt-get install -y libicu74
 
 ### ParadeDB Community
 
-ParadeDB provides prebuilt binaries for our extension on
+ParadeDB provides prebuilt binaries of our extension for Postgres 14+ on:
 
-- Debian 12
-- Ubuntu 22.04 and 24.04
-- Red Hat Enterprise Linux 8 and 9
+- Debian 12 (Bookworm) and 13 (Trixie)
+- Ubuntu 22.04 (Jammy) and 24.04 (Noble)
 - macOS 14 (Sonoma) and 15 (Sequoia)
+- Red Hat Enterprise Linux 9 and 10
 
-Postgres 14, 15, 16, and 17 are available. If you are using a different version of Postgres or a different operating system, you will need to build the extension from source.
+If you are using a different version of Postgres or a different operating system, you will need to build the extension from source.
 
 #### pg_search
 
@@ -68,21 +68,27 @@ curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/postgres
 sudo apt-get install -y /tmp/*.deb
 ```
 
+```bash Debian 13
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/postgresql-17-pg-search_0.20.0-1PARADEDB-trixie_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
 ```bash Debian 12
 # Available arch versions are amd64, arm64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/postgresql-17-pg-search_0.20.0-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
-```bash RHEL 9
+```bash RHEL 10
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/pg_search_17-0.20.0-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/pg_search_17-0.20.0-1PARADEDB.el10.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
-```bash RHEL 8
+```bash RHEL 9
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/pg_search_17-0.20.0-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.20.0/pg_search_17-0.20.0-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 

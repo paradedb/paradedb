@@ -24,11 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [17]
+        pg_version: [18]
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

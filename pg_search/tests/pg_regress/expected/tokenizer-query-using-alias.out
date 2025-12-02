@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS use_alias;
+SET paradedb.enable_aggregate_custom_scan TO on;
 CREATE TABLE use_alias (
     id serial8 not null primary key,
     t text
@@ -19,66 +20,57 @@ CREATE INDEX idxuse_alias ON use_alias USING bm25 (
     (t::pdb.ngram(3, 5, 'alias=ngram_3_5'))
 ) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t @@@ 'this is a test';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on use_alias
-         Table: use_alias
-         Index: idxuse_alias
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"t","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"t","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(literal) @@@ 'this is a test';
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on use_alias
-         Table: use_alias
-         Index: idxuse_alias
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"literal","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"literal","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(simple) @@@ 'this is a test';
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on use_alias
-         Table: use_alias
-         Index: idxuse_alias
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"simple","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"simple","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_2_3) @@@ 'this is a test';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on use_alias
-         Table: use_alias
-         Index: idxuse_alias
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ngram_2_3","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ngram_2_3","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_3_5) @@@ 'this is a test';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on use_alias
-         Table: use_alias
-         Index: idxuse_alias
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ngram_3_5","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on use_alias
+   Index: idxuse_alias
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"ngram_3_5","query_string":"this is a test","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) @@@ 'this is a test';
 ERROR:  field 'no_such_alias' is not part of the pg_search index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) &&& 'this is a test';
 ERROR:  field 'no_such_alias' is not part of the pg_search index
+RESET paradedb.enable_aggregate_custom_scan;

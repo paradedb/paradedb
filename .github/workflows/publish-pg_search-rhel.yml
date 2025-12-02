@@ -6,7 +6,7 @@
 # out by the `if` condition of the job.
 #
 # Note: Prebuilt binaries for RHEL do not support the ICU tokenizer due to the lack of the
-# required ICU library versions on RHEL 8/9.
+# required ICU library versions on RHEL.
 
 name: Publish pg_search (Red Hat)
 
@@ -36,65 +36,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
-    if: ${{ !contains(github.ref, '-') }}
+    if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
-          # Red Hat Enterprise Linux 8
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-8
-            image: redhat/ubi8:latest
-            pg_version: 17
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 8
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi8:latest
-            pg_version: 17
-            arch: aarch64
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-8
             image: redhat/ubi9:latest
-            pg_version: 14
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi9:latest
-            pg_version: 14
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
-            image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
@@ -121,6 +70,57 @@ jobs:
             runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 17
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 18
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 18
+            arch: aarch64
+          # Red Hat Enterprise Linux 10
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: redhat/ubi10:latest
+            pg_version: 15
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi10:latest
+            pg_version: 15
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: redhat/ubi10:latest
+            pg_version: 16
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi10:latest
+            pg_version: 16
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: redhat/ubi10:latest
+            pg_version: 17
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi10:latest
+            pg_version: 17
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: redhat/ubi10:latest
+            pg_version: 18
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi10:latest
+            pg_version: 18
             arch: aarch64
 
     steps:
@@ -128,9 +128,10 @@ jobs:
         run: |
           # Extract RHEL version from the image name
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install dependencies
-          dnf install -y sudo wget git ca-certificates gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
+          dnf install -y sudo wget git ca-certificates gcc llvm llvm-libs llvm-devel pkgconf-pkg-config openssl-devel jq rpm-build clang clang-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -156,16 +157,18 @@ jobs:
           enabled=1
           EOF
 
-          # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
-          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
-          sudo dnf install -y epel-release
+          # Import Oracle GPG key:
+          # - OL9 key exists and works for both OL9 and OL10
+          # - There is no RPM-GPG-KEY-oracle-ol10 endpoint (404) as of November 2025
+          echo "Importing Oracle GPG Key..."
+          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol9 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
 
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -210,12 +213,10 @@ jobs:
         run: |
           # Extract RHEL version from the image name
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+          echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
           # Install the repository RPM:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
-
-          # Disable the built-in PostgreSQL module:
-          sudo dnf -qy module disable postgresql
 
           # Install PostgreSQL:
           sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel

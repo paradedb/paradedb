@@ -78,6 +78,7 @@ pub fn aggregate(
         memory_limit.try_into()?,
         bucket_limit.try_into()?,
         standalone_context.as_ptr(),
+        std::ptr::null_mut(), // No planstate in API context
     )?;
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764708978130,
+  "lastUpdate": 1764708993553,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2432,6 +2432,72 @@ window.BENCHMARK_DATA = {
             "value": 126.85490877064326,
             "unit": "median tps",
             "extra": "avg tps: 126.470575370371, max tps: 296.70623442106825, count: 55274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a35f8528effe272f8b0ede1afd26057e4fa9b83",
+          "message": "fix: revert JSON numeric range multi-type expansion for fast fields (#3685)\n\n## Summary\n\nFixes #2978\n\nReverts the JSON numeric range multi-type expansion introduced in commit\n9a6acb77fc7aa3b216245966cf687c4eb3b0d165. This fixes an issue where\nrange queries on JSON fast fields returned 0 rows when the column\ncontained mixed integer/float data.\n\n**JSON numeric range queries now behave the same as Float8 pushdown on\nfast fields.**\n\n## What Changed\n\n### `pg_search/src/query/pdb_query.rs`\n- Removed `create_json_numeric_range_query()` function that generated\nI64/U64/F64 query variants\n- Removed `determine_types_for_range()` helper function\n- Removed `NumericType` enum and related type detection logic\n- Removed `convert_bound_to_type()` and `convert_value_to_type()` helper\nfunctions\n- Removed `is_empty_range()` helper function\n- Removed unused imports: `value_to_json_term`, `F64_SAFE_INTEGER_MAX`,\n`Field`, `FieldType`\n- JSON numeric range queries now fall through to the standard F64 path\n(same as Float8 pushdown)\n\n### Files Removed (~309 lines of dead code)\n- `NumericType` enum definition\n- `determine_types_for_range()` - type detection logic\n- `convert_bound_to_type()` - bound type conversion\n- `convert_value_to_type()` - value type conversion  \n- `is_empty_range()` - empty range detection\n- `create_json_numeric_range_query()` - multi-type query generation\n\n## Why These Changes\n\n### Problem: Type Mismatch in Fast Fields\nTantivy fast fields store ONE column per JSON path with ONE type. When\nANY float value exists in a JSON path, the entire column becomes F64.\nThe multi-type expansion approach tried to query I64/U64/F64 separately,\nbut:\n\n1. **U64 query on F64 column → 0 rows**: Type mismatch causes no results\n2. **I64 query on F64 column → 0 rows**: Same type mismatch issue\n3. **Only F64 query works**: But the union of results was broken by the\n0-row results\n\n### Root Cause\nThe original fix (9a6acb77) assumed each numeric type could be queried\nindependently. However, Tantivy's columnar storage coerces all values in\na JSON path to a single type, making multi-type queries ineffective for\nfast fields.\n\n### Why This Works for Term Queries but Not Range Queries\n- **Term queries**: Use inverted index (no type coercion issue)\n- **Range queries on JSON**: Require fast fields in Tantivy, which use\ncolumnar storage with type coercion\n\n## How It Works Now\n\n1. JSON numeric range queries use the standard F64 path (same as Float8\npushdown)\n2. All bounds are converted to F64 for the range query\n3. Results are consistent (no more 0-row results from type mismatch)\n4. Behavior is now identical to how Float8 columns are handled for\npushdown\n\n## Known Limitation\n\nIntegers > 2^53 may lose precision when stored as F64 in fast fields\nwith mixed int/float data. This is inherent to Tantivy's columnar\nstorage design and matches expected F64 semantics. Adjacent large\nintegers may become indistinguishable (e.g., 9007199254740992 and\n9007199254740993 both stored as 9.007199254740992e+15).\n\n**This is the same limitation that exists for Float8 pushdown on fast\nfields.**\n\n## Test plan\n- [x] cargo fmt --check\n- [x] cargo clippy (no warnings)\n- [x] pg_search regression tests pass\n- [x] Verified range queries return consistent results with fast fields\nenabled\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-12-02T12:39:54-08:00",
+          "tree_id": "27cfc427761ab7b356182ddb679d20352ff68946",
+          "url": "https://github.com/paradedb/paradedb/commit/8a35f8528effe272f8b0ede1afd26057e4fa9b83"
+        },
+        "date": 1764708990823,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 484.1797785510756,
+            "unit": "median tps",
+            "extra": "avg tps: 485.7488797928056, max tps: 615.599347091485, count: 55321"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3100.653260611351,
+            "unit": "median tps",
+            "extra": "avg tps: 3085.6329332531004, max tps: 3116.433058519053, count: 55321"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 515.2970969173399,
+            "unit": "median tps",
+            "extra": "avg tps: 517.4357239891177, max tps: 624.8754332126463, count: 55321"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 414.51696617335455,
+            "unit": "median tps",
+            "extra": "avg tps: 414.7482438284728, max tps: 486.93702167567693, count: 55321"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3298.5074438785787,
+            "unit": "median tps",
+            "extra": "avg tps: 3282.1049511038136, max tps: 3327.350607922239, count: 110642"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2122.527256225493,
+            "unit": "median tps",
+            "extra": "avg tps: 2106.981133240391, max tps: 2128.073126553598, count: 55321"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 331.37295586846597,
+            "unit": "median tps",
+            "extra": "avg tps: 326.69840662151074, max tps: 538.9079822703893, count: 55321"
           }
         ]
       }

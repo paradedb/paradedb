@@ -170,7 +170,7 @@ LIMIT 2 OFFSET 1;
                Exec Method: TopNScanExecState
                Scores: false
                   TopN Order By: id asc
-                  TopN Limit: 2
+                  TopN Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 

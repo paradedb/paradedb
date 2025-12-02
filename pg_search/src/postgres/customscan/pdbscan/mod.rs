@@ -392,9 +392,18 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
         return None;
     }
-    let limit_node = (*(*root).parse).limitCount;
-    let Some(limit_const) = nodecast!(Const, T_Const, limit_node) else {
-        // non-Const LIMIT is not something we can handle here
+    // non-Const LIMIT is not a thing we can handle here
+    let limit_const = nodecast!(Const, T_Const, (*(*root).parse).limitCount)?;
+    let limit =
+        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)?;
+
+    let offset = if (*(*root).parse).limitOffset.is_null() {
+        0.0
+    } else if let Some(offset_const) = nodecast!(Const, T_Const, (*(*root).parse).limitOffset) {
+        i64::from_datum((*offset_const).constvalue, (*offset_const).constisnull)
+            .map(|v| v as f64)?
+    } else {
+        // non-Const OFFSET is not a thing we can handle here
         return None;
     };
 
@@ -418,7 +427,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     // due to a set-returning-function that we know produces at least as many tuples as
     // it is given.
     if found_limit_safe_srf {
-        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)
+        Some(limit + offset)
     } else {
         None
     }

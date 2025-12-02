@@ -607,3 +607,118 @@ AND (data->>'num')::numeric < 100;
 -- Cleanup
 -- ============================================================================
 DROP TABLE json_numeric_types;
+
+-- ============================================================================
+-- PART 3: JSON Fast Field Numeric Range Query Tests
+-- ============================================================================
+-- Tests JSON numeric range queries on fast fields with both NUMERIC and FLOAT8
+-- pushdown. Both produce the same behavior because fast fields store values
+-- as F64 when mixed int/float data exists.
+-- ============================================================================
+
+CREATE TABLE json_fast_field_test (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+
+-- Insert test data with mixed integers and floats
+-- The presence of float values causes the fast field column to store ALL values as F64
+INSERT INTO json_fast_field_test (data) VALUES
+    ('{"value": 100}'),
+    ('{"value": 200}'),
+    ('{"value": 500}'),
+    ('{"value": 1000}'),
+    ('{"value": 1.5}'),                 -- Float triggers F64 storage
+    ('{"value": 99.9}'),
+    ('{"value": 9007199254740991}'),    -- 2^53 - 1 (safe in F64)
+    ('{"value": 9007199254740992}'),    -- 2^53 (exact in F64)
+    ('{"value": 9007199254740993}'),    -- 2^53 + 1 (precision loss in F64)
+    ('{"value": 9007199254740994}');    -- 2^53 + 2
+
+CREATE INDEX json_fast_idx ON json_fast_field_test
+USING bm25 (id, data)
+WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+
+-- ============================================================================
+-- SECTION K: Comparison of NUMERIC vs FLOAT8 pushdown on JSON fast fields
+-- Both should produce IDENTICAL results since fast fields use F64 internally
+-- ============================================================================
+
+-- Test K1a: NUMERIC pushdown - basic range
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 100 AND (data->>'value')::numeric <= 500
+ORDER BY id;
+
+-- Test K1b: FLOAT8 pushdown - same range (should match K1a exactly)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::float8 >= 100 AND (data->>'value')::float8 <= 500
+ORDER BY id;
+
+-- Test K2a: NUMERIC pushdown - 2^53 boundary precision test
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 9007199254740993 AND (data->>'value')::numeric < 9007199254740994
+ORDER BY id;
+
+-- Test K2b: FLOAT8 pushdown - same 2^53 boundary (should match K2a exactly)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::float8 >= 9007199254740993 AND (data->>'value')::float8 < 9007199254740994
+ORDER BY id;
+
+-- ============================================================================
+-- SECTION L: Complete range query tests on JSON fast fields
+-- ============================================================================
+
+-- Test L1: Range including both integer and float values
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 1 AND (data->>'value')::numeric <= 200
+ORDER BY id;
+
+-- Test L2: Greater than comparison
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric > 500
+ORDER BY id;
+
+-- Test L3: Less than comparison
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric < 200
+ORDER BY id;
+
+-- Test L4: Range at 2^53 boundary (all values in this range)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 9007199254740991 AND (data->>'value')::numeric <= 9007199254740994
+ORDER BY id;
+
+-- Test L5: Exact match at 2^53 (uses F64 comparison)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 9007199254740992
+ORDER BY id;
+
+-- Test L6: BETWEEN syntax
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric BETWEEN 100 AND 1000
+ORDER BY id;
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+DROP TABLE json_fast_field_test;

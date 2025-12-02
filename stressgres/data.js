@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764708993553,
+  "lastUpdate": 1764708997292,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6930,6 +6930,126 @@ window.BENCHMARK_DATA = {
             "value": 46.15234375,
             "unit": "median mem",
             "extra": "avg mem: 45.40926834384159, max mem: 56.1171875, count: 55274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a35f8528effe272f8b0ede1afd26057e4fa9b83",
+          "message": "fix: revert JSON numeric range multi-type expansion for fast fields (#3685)\n\n## Summary\n\nFixes #2978\n\nReverts the JSON numeric range multi-type expansion introduced in commit\n9a6acb77fc7aa3b216245966cf687c4eb3b0d165. This fixes an issue where\nrange queries on JSON fast fields returned 0 rows when the column\ncontained mixed integer/float data.\n\n**JSON numeric range queries now behave the same as Float8 pushdown on\nfast fields.**\n\n## What Changed\n\n### `pg_search/src/query/pdb_query.rs`\n- Removed `create_json_numeric_range_query()` function that generated\nI64/U64/F64 query variants\n- Removed `determine_types_for_range()` helper function\n- Removed `NumericType` enum and related type detection logic\n- Removed `convert_bound_to_type()` and `convert_value_to_type()` helper\nfunctions\n- Removed `is_empty_range()` helper function\n- Removed unused imports: `value_to_json_term`, `F64_SAFE_INTEGER_MAX`,\n`Field`, `FieldType`\n- JSON numeric range queries now fall through to the standard F64 path\n(same as Float8 pushdown)\n\n### Files Removed (~309 lines of dead code)\n- `NumericType` enum definition\n- `determine_types_for_range()` - type detection logic\n- `convert_bound_to_type()` - bound type conversion\n- `convert_value_to_type()` - value type conversion  \n- `is_empty_range()` - empty range detection\n- `create_json_numeric_range_query()` - multi-type query generation\n\n## Why These Changes\n\n### Problem: Type Mismatch in Fast Fields\nTantivy fast fields store ONE column per JSON path with ONE type. When\nANY float value exists in a JSON path, the entire column becomes F64.\nThe multi-type expansion approach tried to query I64/U64/F64 separately,\nbut:\n\n1. **U64 query on F64 column → 0 rows**: Type mismatch causes no results\n2. **I64 query on F64 column → 0 rows**: Same type mismatch issue\n3. **Only F64 query works**: But the union of results was broken by the\n0-row results\n\n### Root Cause\nThe original fix (9a6acb77) assumed each numeric type could be queried\nindependently. However, Tantivy's columnar storage coerces all values in\na JSON path to a single type, making multi-type queries ineffective for\nfast fields.\n\n### Why This Works for Term Queries but Not Range Queries\n- **Term queries**: Use inverted index (no type coercion issue)\n- **Range queries on JSON**: Require fast fields in Tantivy, which use\ncolumnar storage with type coercion\n\n## How It Works Now\n\n1. JSON numeric range queries use the standard F64 path (same as Float8\npushdown)\n2. All bounds are converted to F64 for the range query\n3. Results are consistent (no more 0-row results from type mismatch)\n4. Behavior is now identical to how Float8 columns are handled for\npushdown\n\n## Known Limitation\n\nIntegers > 2^53 may lose precision when stored as F64 in fast fields\nwith mixed int/float data. This is inherent to Tantivy's columnar\nstorage design and matches expected F64 semantics. Adjacent large\nintegers may become indistinguishable (e.g., 9007199254740992 and\n9007199254740993 both stored as 9.007199254740992e+15).\n\n**This is the same limitation that exists for Float8 pushdown on fast\nfields.**\n\n## Test plan\n- [x] cargo fmt --check\n- [x] cargo clippy (no warnings)\n- [x] pg_search regression tests pass\n- [x] Verified range queries return consistent results with fast fields\nenabled\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2025-12-02T12:39:54-08:00",
+          "tree_id": "27cfc427761ab7b356182ddb679d20352ff68946",
+          "url": "https://github.com/paradedb/paradedb/commit/8a35f8528effe272f8b0ede1afd26057e4fa9b83"
+        },
+        "date": 1764708994566,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.757518227074069, max cpu: 19.257774, count: 55321"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 53.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.18083760574646, max mem: 65.2109375, count: 55321"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580343562694589, max cpu: 9.230769, count: 55321"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.01506851771931, max mem: 30.109375, count: 55321"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.563062876372905, max cpu: 19.35484, count: 55321"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 54.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.51183695217458, max mem: 67.22265625, count: 55321"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670048504026157, max cpu: 9.302325, count: 55321"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 52.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.18208529536704, max mem: 62.91796875, count: 55321"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.674962390621121, max cpu: 9.504951, count: 110642"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 40.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.30218350626345, max mem: 50.53125, count: 110642"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1755,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1744.40933822599, max block_count: 3060.0, count: 55321"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.937672854792936, max segment_count: 17.0, count: 55321"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.528618292215381, max cpu: 4.8144436, count: 55321"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.31406268358761, max mem: 52.52734375, count: 55321"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9820184728438592, max cpu: 4.7524753, count: 55321"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.121145225140545, max mem: 55.48046875, count: 55321"
           }
         ]
       }

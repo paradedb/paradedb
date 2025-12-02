@@ -218,6 +218,7 @@ impl MVCCDirectory {
                             &meta,
                             heap_fetch_state,
                             expression_state,
+                            &self.mvcc_style,
                         )
                         .expect("Failed to index mutable segment.")
                     })
@@ -602,6 +603,7 @@ pub fn index_memory_segment(
     segment: &SegmentMetaEntry,
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
+    mvcc_satisfies: &MvccSatisfies,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
@@ -637,7 +639,10 @@ pub fn index_memory_segment(
         unsafe {
             // it is important to fetch using the active snapshot to avoid reading deleted tuples,
             // because deleted TOAST values are immediately freed
-            let snapshot = pg_sys::GetActiveSnapshot();
+            let snapshot = match mvcc_satisfies {
+                MvccSatisfies::Snapshot => pg_sys::GetActiveSnapshot(),
+                _ => &raw mut pg_sys::SnapshotAnyData,
+            };
             let mut call_again = false;
             let mut all_dead = false;
             let fetched = pg_sys::table_index_fetch_tuple(

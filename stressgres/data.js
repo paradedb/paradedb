@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764711458403,
+  "lastUpdate": 1764712203587,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17234,6 +17234,60 @@ window.BENCHMARK_DATA = {
             "value": 15.180815799528668,
             "unit": "median tps",
             "extra": "avg tps: 15.141567298347452, max tps: 19.631651711568868, count: 55540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a68e5bb60a8ec9c9cc5041136ec5bbec81588c32",
+          "message": "fix: server crash with subqueries in parallel workers (#3669)\n\n# Ticket(s) Closed\n\n- Closes #3655\n\n## What\n\nFixes a server crash that occurred when using subqueries in the WHERE\nclause. Queries like this now work correctly:\n\n```sql\nSELECT * FROM pages \nWHERE id @@@ paradedb.all() \n  AND id >= (SELECT MAX(id) FROM metadata WHERE name = 'max')\nORDER BY id LIMIT 100;\n```\n\n## Why\n\nParallel workers were attempting to evaluate scalar subquery parameters\n(`PARAM_EXEC` nodes) that they didn't have access to. The root cause was\ntwofold:\n\n1. `Qual::HeapExpr::contains_exec_param()` always returned `false`,\nfailing to detect these parameters\n2. This caused parallel workers to be spawned even when they shouldn't\nbe\n3. Workers crashed trying to evaluate expressions containing parameters\nfrom `estate->es_param_exec_vals`, which isn't shared with workers\n\n## How\n\n**Fixed detection**: `Qual::HeapExpr` now correctly checks for\n`PARAM_EXEC` nodes in its expression tree.\n\n**Disabled parallelism**: When `PARAM_EXEC` is detected, we disable\nparallel workers (`nworkers = 0`) since these parameters can't currently\nbe shared with workers. This is a conservative approach that prioritizes\ncorrectness.\n\nThe trade-off: queries with scalar subqueries run single-threaded but\ndon't crash.\n\n## Tests\n\nAdded regression test `subquery_in_where_scale.sql` that reproduces the\ncrash scenario with 10,000 rows and verifies the fix works correctly.\n\n---------\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:53:39-08:00",
+          "tree_id": "623cf2912c55387137320ef7230af832f90c0e24",
+          "url": "https://github.com/paradedb/paradedb/commit/a68e5bb60a8ec9c9cc5041136ec5bbec81588c32"
+        },
+        "date": 1764712200787,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.0602271994999,
+            "unit": "median tps",
+            "extra": "avg tps: 30.139865243785504, max tps: 33.657985867654595, count: 55674"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 74.19080660601533,
+            "unit": "median tps",
+            "extra": "avg tps: 121.94457433231157, max tps: 2718.7092230555522, count: 55674"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1912.014158369053,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.5058036029186, max tps: 2275.5240682515337, count: 55674"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.1789408155332,
+            "unit": "median tps",
+            "extra": "avg tps: 137.31662523775344, max tps: 1738.9126926715264, count: 111348"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.264024208744251,
+            "unit": "median tps",
+            "extra": "avg tps: 14.444506791602223, max tps: 19.171214222464343, count: 55674"
           }
         ]
       }

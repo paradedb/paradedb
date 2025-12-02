@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764713532453,
+  "lastUpdate": 1764713536341,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10706,6 +10706,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.5014068460755, max segment_count: 134.0, count: 57931"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283",
+          "message": "feat: support correlated subqueries in aggregate custom scan (#3639)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds support for correlated subqueries in the aggregate custom scan.\nQueries like this now work correctly:\n\n```sql\nSELECT d.id, \n    (SELECT COUNT(*) FROM files f WHERE f.documentId = d.id) \nFROM documents d;\n```\n\n## Why\n\nPreviously, the aggregate custom scan would disable itself when it\ndetected correlation parameters (`PARAM_EXEC` nodes) from outer queries.\nThis meant PostgreSQL had to fall back to slower sequential scans for\naggregates in correlated subqueries, missing out on the performance\nbenefits of our BM25 indexes.\n\n## How\n\nThe implementation uses `HeapFilter` to evaluate correlation conditions\nat execution time:\n\n1. **Pushdown Detection** - Modified `try_pushdown_inner()` to detect\n`PARAM_EXEC` nodes and prevent them from being incorrectly pushed down\nas indexed queries. Instead, they become `HeapExpr` that can evaluate at\nruntime.\n\n2. **Context Propagation** - Updated the aggregate execution pipeline to\npass `planstate` and `expr_context` from the outer query through to heap\nfilter evaluation. This gives the filter access to correlation\nparameters when evaluating predicates.\n\n3. **Tuple Deforming** - Added `slot_getallattrs()` call in\n`HeapFieldFilter` to ensure all tuple attributes are properly fetched\nfrom storage before expression evaluation, preventing crashes when\naccessing tuple fields.\n\nThe aggregate custom scan now identifies correlated predicates in query\nplans and evaluates them with parameter passing at execution time.\n\n## Tests\n\nAdded a regression test suite (`aggregate_correlated_subquery.sql`).\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T13:42:18-08:00",
+          "tree_id": "8e415d85783669b738ad1d6b5564465e8fd28ee2",
+          "url": "https://github.com/paradedb/paradedb/commit/5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283"
+        },
+        "date": 1764713533534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.479638953359892, max cpu: 42.857143, count: 57271"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.6323100232884, max mem: 230.9140625, count: 57271"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43406692359662, max cpu: 33.267326, count: 57271"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 166.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 166.84142668464406, max mem: 167.63671875, count: 57271"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34615,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33885.01316547642, max block_count: 36612.0, count: 57271"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.50189450158021, max segment_count: 131.0, count: 57271"
           }
         ]
       }

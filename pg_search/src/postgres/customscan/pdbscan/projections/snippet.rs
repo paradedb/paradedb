@@ -184,8 +184,8 @@ mod pdb {
         max_num_chars: default!(i32, "150"),
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
-    ) -> Option<String> {
-        None
+    ) -> String {
+        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
     #[pg_extern(name = "snippets", stable, parallel_safe)]
@@ -197,8 +197,8 @@ mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
-    ) -> Option<Vec<String>> {
-        None
+    ) -> Vec<String> {
+        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
     #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
@@ -206,8 +206,8 @@ mod pdb {
         field: AnyElement,
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
-    ) -> Option<Vec<Vec<i32>>> {
-        None
+    ) -> Vec<Vec<i32>> {
+        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 }
 
@@ -223,7 +223,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    None
+    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 
 #[warn(deprecated)]
@@ -237,7 +237,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    None
+    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 
 #[warn(deprecated)]
@@ -247,7 +247,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<Vec<Vec<i32>>> {
-    None
+    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 
 extension_sql!(

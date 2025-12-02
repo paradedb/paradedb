@@ -111,7 +111,7 @@ WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
 ORDER BY b.id, a.id;
 
 -- Test with mixed predicates - some indexed, some not
--- This should show partial scores based on what can be indexed
+-- TODO: Currently renders an error asking for a user to report the query shape.
 SELECT
     b.id as book_id,
     a.name as author_name,

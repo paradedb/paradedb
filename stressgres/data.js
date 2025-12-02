@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764714328825,
+  "lastUpdate": 1764714332605,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15790,6 +15790,108 @@ window.BENCHMARK_DATA = {
             "value": 156.69921875,
             "unit": "median mem",
             "extra": "avg mem: 175.4217429316464, max mem: 216.96875, count: 56493"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283",
+          "message": "feat: support correlated subqueries in aggregate custom scan (#3639)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds support for correlated subqueries in the aggregate custom scan.\nQueries like this now work correctly:\n\n```sql\nSELECT d.id, \n    (SELECT COUNT(*) FROM files f WHERE f.documentId = d.id) \nFROM documents d;\n```\n\n## Why\n\nPreviously, the aggregate custom scan would disable itself when it\ndetected correlation parameters (`PARAM_EXEC` nodes) from outer queries.\nThis meant PostgreSQL had to fall back to slower sequential scans for\naggregates in correlated subqueries, missing out on the performance\nbenefits of our BM25 indexes.\n\n## How\n\nThe implementation uses `HeapFilter` to evaluate correlation conditions\nat execution time:\n\n1. **Pushdown Detection** - Modified `try_pushdown_inner()` to detect\n`PARAM_EXEC` nodes and prevent them from being incorrectly pushed down\nas indexed queries. Instead, they become `HeapExpr` that can evaluate at\nruntime.\n\n2. **Context Propagation** - Updated the aggregate execution pipeline to\npass `planstate` and `expr_context` from the outer query through to heap\nfilter evaluation. This gives the filter access to correlation\nparameters when evaluating predicates.\n\n3. **Tuple Deforming** - Added `slot_getallattrs()` call in\n`HeapFieldFilter` to ensure all tuple attributes are properly fetched\nfrom storage before expression evaluation, preventing crashes when\naccessing tuple fields.\n\nThe aggregate custom scan now identifies correlated predicates in query\nplans and evaluates them with parameter passing at execution time.\n\n## Tests\n\nAdded a regression test suite (`aggregate_correlated_subquery.sql`).\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T13:42:18-08:00",
+          "tree_id": "8e415d85783669b738ad1d6b5564465e8fd28ee2",
+          "url": "https://github.com/paradedb/paradedb/commit/5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283"
+        },
+        "date": 1764714329858,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07520572450805009, max background_merging: 2.0, count: 55900"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.838688643337963, max cpu: 9.687184, count: 55900"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.875,
+            "unit": "median mem",
+            "extra": "avg mem: 18.876029251453488, max mem: 21.6328125, count: 55900"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.988240268926645, max cpu: 13.872832, count: 55900"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 154.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 152.86027930735688, max mem: 154.4765625, count: 55900"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51363,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51235.81627906977, max block_count: 51363.0, count: 55900"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.00561717352415, max segment_count: 55.0, count: 55900"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633164017865961, max cpu: 9.504951, count: 55900"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 109.27425865105099, max mem: 134.52734375, count: 55900"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.829003735429668, max cpu: 9.486166, count: 55900"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 154.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.75260922126566, max mem: 154.0546875, count: 55900"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.99647302857733, max cpu: 33.73494, count: 55900"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 157.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 176.37861834749552, max mem: 218.03515625, count: 55900"
           }
         ]
       }

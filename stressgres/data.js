@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764709468373,
+  "lastUpdate": 1764709472108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14680,6 +14680,108 @@ window.BENCHMARK_DATA = {
             "value": 156.85546875,
             "unit": "median mem",
             "extra": "avg mem: 175.24963489153765, max mem: 216.64453125, count: 56137"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710f3dcadaad086c55daa6f260d3a8b9d0a62f00",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3683)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-02T12:21:48-08:00",
+          "tree_id": "6152d863b7fd068dd162c9d9db5a3d21cbe4a178",
+          "url": "https://github.com/paradedb/paradedb/commit/710f3dcadaad086c55daa6f260d3a8b9d0a62f00"
+        },
+        "date": 1764709469351,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07517339498488351, max background_merging: 2.0, count: 56230"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.782405895170226, max cpu: 9.638554, count: 56230"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 18.841202080184065, max mem: 22.703125, count: 56230"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.927230305184261, max cpu: 9.657948, count: 56230"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 153.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 152.65527576471635, max mem: 153.98046875, count: 56230"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51435,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51299.566210208075, max block_count: 51435.0, count: 56230"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.74170371687711, max segment_count: 56.0, count: 56230"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.600948721258884, max cpu: 9.393347, count: 56230"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 110.95256410612663, max mem: 138.15234375, count: 56230"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.736939100124079, max cpu: 9.667674, count: 56230"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 153.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 149.97370273319402, max mem: 153.19921875, count: 56230"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.95593184400948, max cpu: 33.73494, count: 56230"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.26625591877112, max mem: 216.66796875, count: 56230"
           }
         ]
       }

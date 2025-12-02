@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764707914437,
+  "lastUpdate": 1764708443216,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7750,6 +7750,42 @@ window.BENCHMARK_DATA = {
             "value": 5.469849716357843,
             "unit": "median tps",
             "extra": "avg tps: 4.931158626805047, max tps: 6.064462803810713, count: 57869"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6c1eac63d1049f2ecc792f42af05291f0da7986",
+          "message": "feat: added MVCC visibility toggle for `pdb.agg()` (#3682)\n\n## Ticket(s) Closed\n\n- Closes #3500\n\n## What\n\nAdds an optional second boolean parameter to `pdb.agg()` that controls\nMVCC visibility filtering:\n\n```sql\n-- Default: MVCC enabled (transaction-accurate)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb) OVER ()\n\n-- Explicit MVCC disabled (faster, may include deleted rows)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb, false) OVER ()\n```\n\n## Why\n\nMVCC filtering ensures aggregates only include rows visible to the\ncurrent transaction, but this comes with a performance cost. For use\ncases where approximate results are acceptable (dashboards, analytics),\nusers can now opt out of MVCC filtering for faster aggregation.\n\n## How\n\n- Added `MvccVisibility` enum (`Enabled`/`Disabled`) to track the\nsetting\n- Created a second `pdb.agg(jsonb, bool)` overload alongside the\nexisting `pdb.agg(jsonb)`\n- Extracted `solve_mvcc` from the aggregate arguments during planning\n- When `mvcc_enabled=false`, the `TopNAuxiliaryCollector` skips wrapping\nwith `TSVisibilityChecker`\n\n**Restrictions enforced:**\n- All `pdb.agg()` calls in a query must use the same `solve_mvcc` value\n(contradictions error)\n- `solve_mvcc=false` is only allowed in window function context; GROUP\nBY always uses MVCC\n\n## Tests\n\nAdded regression tests in `custom-agg.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:15:07-08:00",
+          "tree_id": "92660b9d39cae9f9bc9222e70c9c1bfb9a0d0244",
+          "url": "https://github.com/paradedb/paradedb/commit/e6c1eac63d1049f2ecc792f42af05291f0da7986"
+        },
+        "date": 1764708436848,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.111891252245979,
+            "unit": "median tps",
+            "extra": "avg tps: 6.921133767969537, max tps: 10.647761908897724, count: 57779"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.542052939248519,
+            "unit": "median tps",
+            "extra": "avg tps: 5.009398274840447, max tps: 6.170897870328351, count: 57779"
           }
         ]
       }

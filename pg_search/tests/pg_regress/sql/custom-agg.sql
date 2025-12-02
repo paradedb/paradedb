@@ -1,7 +1,6 @@
 -- Test custom agg function with pdb.agg()
 
-DROP EXTENSION IF EXISTS pg_search CASCADE;
-CREATE EXTENSION pg_search;
+CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 DROP TABLE IF EXISTS logs CASCADE;

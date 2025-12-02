@@ -662,7 +662,7 @@ pub fn index_memory_segment(
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
     let mut isnull = vec![false; heaptupdesc.len()];
 
-    // it is important to fetch using the active snapshot to avoid reading deleted tuples,
+    // it is important to fetch using the correct snapshot to avoid reading deleted tuples,
     // because deleted TOAST values are immediately freed
     let snapshot = match mvcc_satisfies {
         MvccSatisfies::Snapshot => SnapshotDropper::active(),

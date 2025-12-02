@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764711454586,
+  "lastUpdate": 1764711458403,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15358,6 +15358,108 @@ window.BENCHMARK_DATA = {
             "value": 157.28125,
             "unit": "median mem",
             "extra": "avg mem: 175.61766012970247, max mem: 216.7421875, count: 56061"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a68e5bb60a8ec9c9cc5041136ec5bbec81588c32",
+          "message": "fix: server crash with subqueries in parallel workers (#3669)\n\n# Ticket(s) Closed\n\n- Closes #3655\n\n## What\n\nFixes a server crash that occurred when using subqueries in the WHERE\nclause. Queries like this now work correctly:\n\n```sql\nSELECT * FROM pages \nWHERE id @@@ paradedb.all() \n  AND id >= (SELECT MAX(id) FROM metadata WHERE name = 'max')\nORDER BY id LIMIT 100;\n```\n\n## Why\n\nParallel workers were attempting to evaluate scalar subquery parameters\n(`PARAM_EXEC` nodes) that they didn't have access to. The root cause was\ntwofold:\n\n1. `Qual::HeapExpr::contains_exec_param()` always returned `false`,\nfailing to detect these parameters\n2. This caused parallel workers to be spawned even when they shouldn't\nbe\n3. Workers crashed trying to evaluate expressions containing parameters\nfrom `estate->es_param_exec_vals`, which isn't shared with workers\n\n## How\n\n**Fixed detection**: `Qual::HeapExpr` now correctly checks for\n`PARAM_EXEC` nodes in its expression tree.\n\n**Disabled parallelism**: When `PARAM_EXEC` is detected, we disable\nparallel workers (`nworkers = 0`) since these parameters can't currently\nbe shared with workers. This is a conservative approach that prioritizes\ncorrectness.\n\nThe trade-off: queries with scalar subqueries run single-threaded but\ndon't crash.\n\n## Tests\n\nAdded regression test `subquery_in_where_scale.sql` that reproduces the\ncrash scenario with 10,000 rows and verifies the fix works correctly.\n\n---------\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:53:39-08:00",
+          "tree_id": "623cf2912c55387137320ef7230af832f90c0e24",
+          "url": "https://github.com/paradedb/paradedb/commit/a68e5bb60a8ec9c9cc5041136ec5bbec81588c32"
+        },
+        "date": 1764711455655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07462871506204309, max background_merging: 2.0, count: 56493"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.821766996505115, max cpu: 9.856263, count: 56493"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 18.11152543235445, max mem: 20.4296875, count: 56493"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.063576091631275, max cpu: 14.285715, count: 56493"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 154.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.1285185498646, max mem: 154.5703125, count: 56493"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51244,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51108.53424318057, max block_count: 51244.0, count: 56493"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.40295257819553, max segment_count: 56.0, count: 56493"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.638846926555049, max cpu: 9.486166, count: 56493"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 114.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 104.82966397662099, max mem: 129.60546875, count: 56493"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.696524805750891, max cpu: 13.994169, count: 56493"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 153.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.36668017774326, max mem: 154.1796875, count: 56493"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.95389934434372, max cpu: 33.905144, count: 56493"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.4217429316464, max mem: 216.96875, count: 56493"
           }
         ]
       }

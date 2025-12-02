@@ -51,8 +51,8 @@ PGVER=${PGVER:-17.4}
 
 # Extract major version and set port and feature flag
 BASEVER=$(echo "${PGVER}" | cut -f1 -d.)
-PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28817 for version 17.4)
-FEATURE=pg${BASEVER}  # Feature flag (e.g., pg17)
+PORT=288${BASEVER}  # Port 2880 + major version (e.g., 28818 for version 18.1)
+FEATURE=pg${BASEVER}  # Feature flag (e.g., pg18)
 
 # Enable command echo for debugging
 set -x

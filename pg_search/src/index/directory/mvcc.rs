@@ -665,7 +665,9 @@ pub fn index_memory_segment(
     // it is important to fetch using the correct snapshot to avoid reading deleted tuples,
     // because deleted TOAST values are immediately freed
     let snapshot = match mvcc_satisfies {
-        MvccSatisfies::Snapshot => SnapshotDropper::active(),
+        MvccSatisfies::Snapshot
+        | MvccSatisfies::ParallelWorker(_)
+        | MvccSatisfies::LargestSegment => SnapshotDropper::active(),
         _ => SnapshotDropper::transaction(),
     };
 

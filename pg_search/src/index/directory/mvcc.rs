@@ -635,16 +635,11 @@ pub fn index_memory_segment(
         u64_to_item_pointer(ctid, &mut ipd);
 
         unsafe {
-            // NOTE: We fetch using SnapshotAny, and then allow heap visibility to be applied iff
-            // something matches during a search. This allows us to load and merge mutable segments
-            // even before all of their data is necessarily visible in the current transaction.
-            //
-            // TODO: We could potentially actually apply the MvccSatisfies setting here, which
-            // would avoid a small amount of indexing for MvccSatisfies::Snapshot (any future
-            // txns, essentially).
+            // it is important to fetch using the active snapshot to avoid reading deleted tuples,
+            // because deleted TOAST values are immediately freed
+            let snapshot = pg_sys::GetActiveSnapshot();
             let mut call_again = false;
             let mut all_dead = false;
-            let snapshot = pg_sys::GetActiveSnapshot();
             let fetched = pg_sys::table_index_fetch_tuple(
                 heap_fetch_state.scan,
                 &mut ipd,

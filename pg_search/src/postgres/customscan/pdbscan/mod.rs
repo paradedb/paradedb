@@ -294,64 +294,6 @@ impl customscan::ExecMethod for PdbScan {
     }
 }
 
-/// Check if the query's target list contains window_agg() function calls
-///
-/// This is called AFTER window function replacement in PdbScan's create_custom_path.
-/// It looks for FuncExpr nodes with window_agg() OID, NOT WindowFunc nodes.
-///
-/// This is different from query_has_window_functions() in hook.rs which looks for WindowFunc
-/// nodes BEFORE replacement in the planner hook.
-///
-/// Used to determine if we should create a custom path even without @@@ operator.
-///
-/// Also validates that pdb.agg() is not present - if it is, that means the planner hook
-/// didn't replace it (e.g., not a TopN query), and we should reject it.
-unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
-    if root.is_null() || (*root).parse.is_null() {
-        return false;
-    }
-
-    let parse = (*root).parse;
-    let window_agg_func_oid = window_agg_oid();
-    let paradedb_agg_func_oid = crate::api::agg_funcoid();
-
-    // If functions don't exist yet (e.g., during extension creation), skip check
-    if window_agg_func_oid == pg_sys::InvalidOid {
-        return false;
-    }
-
-    let window_agg_func_oid = window_agg_func_oid.to_u32();
-    let paradedb_agg_func_oid = paradedb_agg_func_oid.to_u32();
-
-    // Check target list for window_agg() or pdb.agg() function calls
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-        for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null() {
-                // Check if this is a FuncExpr with window_agg or pdb.agg OID
-                if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                    let func_oid = (*func_expr).funcid.to_u32();
-                    if func_oid == window_agg_func_oid {
-                        return true;
-                    } else if func_oid == paradedb_agg_func_oid {
-                        // pdb.agg() should have been replaced by planner hook
-                        // If it's still here, it means it wasn't a valid TopN query
-                        pgrx::error!(
-                            "pdb.agg() can only be used as a window function in TopN queries \
-                             (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
-                             SQL aggregates like COUNT(*), SUM(), etc. \
-                             Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
-                             or see https://github.com/paradedb/paradedb/issues for more information."
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    false
-}
-
 /// Is the function identified by `funcid` an approved set-returning-function
 /// that is safe for our limit push-down optimization?
 fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {

@@ -67,10 +67,12 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
@@ -306,7 +308,6 @@ unsafe fn convert_window_func_to_aggregate_type(
     window_agg: *mut pg_sys::WindowFunc,
 ) -> Option<AggregateType> {
     use pg_sys::*;
-    use pgrx::{FromDatum, JsonB};
 
     let aggfnoid = (*window_agg).winfnoid.to_u32();
     let args = PgList::<pg_sys::Node>::from_pg((*window_agg).args);
@@ -318,24 +319,42 @@ unsafe fn convert_window_func_to_aggregate_type(
         None
     };
 
-    // Handle custom agg function
+    // Handle custom agg function pdb.agg() (both overloads)
     let custom_agg_oid = agg_funcoid().to_u32();
-    if aggfnoid == custom_agg_oid {
+    let custom_agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+
+    if aggfnoid == custom_agg_oid || aggfnoid == custom_agg_with_mvcc_oid {
         if args.is_empty() {
             return None;
         }
 
-        // Extract the jsonb argument
+        // Extract the jsonb argument (first arg)
         let first_arg = args.get_ptr(0)?;
         let json_value = if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
             if (*const_node).constisnull {
                 return None;
             }
             let jsonb_datum = (*const_node).constvalue;
-            let jsonb = JsonB::from_datum(jsonb_datum, false)?;
+            let jsonb = <pgrx::JsonB as pgrx::FromDatum>::from_datum(jsonb_datum, false)?;
             jsonb.0
         } else {
             return None;
+        };
+
+        // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
+        let solve_mvcc = if aggfnoid == custom_agg_with_mvcc_oid {
+            args.get_ptr(1)
+                .and_then(|mvcc_arg| nodecast!(Const, T_Const, mvcc_arg))
+                .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                .unwrap_or(true)
+        } else {
+            true // Single-arg overload: default to solve_mvcc = true
+        };
+
+        let mvcc_visibility = if solve_mvcc {
+            MvccVisibility::Enabled
+        } else {
+            MvccVisibility::Disabled
         };
 
         // Validate that the JSON is a valid Tantivy aggregation
@@ -392,6 +411,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             agg_json: json_value,
             filter,
             indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
+            mvcc_visibility,
         });
     }
 

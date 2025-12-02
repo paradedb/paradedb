@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764712208054,
+  "lastUpdate": 1764712760573,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2564,6 +2564,72 @@ window.BENCHMARK_DATA = {
             "value": 137.15510995101042,
             "unit": "median tps",
             "extra": "avg tps: 144.21273467347942, max tps: 924.0658156636548, count: 55226"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283",
+          "message": "feat: support correlated subqueries in aggregate custom scan (#3639)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds support for correlated subqueries in the aggregate custom scan.\nQueries like this now work correctly:\n\n```sql\nSELECT d.id, \n    (SELECT COUNT(*) FROM files f WHERE f.documentId = d.id) \nFROM documents d;\n```\n\n## Why\n\nPreviously, the aggregate custom scan would disable itself when it\ndetected correlation parameters (`PARAM_EXEC` nodes) from outer queries.\nThis meant PostgreSQL had to fall back to slower sequential scans for\naggregates in correlated subqueries, missing out on the performance\nbenefits of our BM25 indexes.\n\n## How\n\nThe implementation uses `HeapFilter` to evaluate correlation conditions\nat execution time:\n\n1. **Pushdown Detection** - Modified `try_pushdown_inner()` to detect\n`PARAM_EXEC` nodes and prevent them from being incorrectly pushed down\nas indexed queries. Instead, they become `HeapExpr` that can evaluate at\nruntime.\n\n2. **Context Propagation** - Updated the aggregate execution pipeline to\npass `planstate` and `expr_context` from the outer query through to heap\nfilter evaluation. This gives the filter access to correlation\nparameters when evaluating predicates.\n\n3. **Tuple Deforming** - Added `slot_getallattrs()` call in\n`HeapFieldFilter` to ensure all tuple attributes are properly fetched\nfrom storage before expression evaluation, preventing crashes when\naccessing tuple fields.\n\nThe aggregate custom scan now identifies correlated predicates in query\nplans and evaluates them with parameter passing at execution time.\n\n## Tests\n\nAdded a regression test suite (`aggregate_correlated_subquery.sql`).\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T13:42:18-08:00",
+          "tree_id": "8e415d85783669b738ad1d6b5564465e8fd28ee2",
+          "url": "https://github.com/paradedb/paradedb/commit/5c08435fb5d1d306eb8140ef1ff23b5c7e3bd283"
+        },
+        "date": 1764712757753,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 528.137371294049,
+            "unit": "median tps",
+            "extra": "avg tps: 531.3392299104631, max tps: 638.2242117609214, count: 55344"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3245.17094779582,
+            "unit": "median tps",
+            "extra": "avg tps: 3223.2895464473095, max tps: 3263.632759012872, count: 55344"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 475.43585362809245,
+            "unit": "median tps",
+            "extra": "avg tps: 480.36010388721513, max tps: 610.4203729819419, count: 55344"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 391.7940911934241,
+            "unit": "median tps",
+            "extra": "avg tps: 397.3392953288481, max tps: 471.71021190696814, count: 55344"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3397.457925301348,
+            "unit": "median tps",
+            "extra": "avg tps: 3377.4462024137074, max tps: 3412.0919579300726, count: 110688"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2199.059852713884,
+            "unit": "median tps",
+            "extra": "avg tps: 2181.6990936474112, max tps: 2209.079465178672, count: 55344"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 126.35879008576356,
+            "unit": "median tps",
+            "extra": "avg tps: 128.27209128487556, max tps: 916.7869185508166, count: 55344"
           }
         ]
       }

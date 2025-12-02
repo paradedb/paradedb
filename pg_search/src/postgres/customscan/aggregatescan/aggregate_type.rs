@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -81,6 +83,7 @@ pub enum AggregateType {
         agg_json: serde_json::Value,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        mvcc_visibility: MvccVisibility,
     },
 }
 
@@ -141,22 +144,43 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate
-        if aggfnoid == agg_funcoid().to_u32() {
-            // Extract JSON argument
+        // Check for pdb.agg() custom aggregate (both overloads)
+        let agg_oid = agg_funcoid().to_u32();
+        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+
+        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
+            // Extract JSON argument (first arg)
             let arg = args.get_ptr(0)?;
             let expr = (*arg).expr;
-            if let Some(const_node) = nodecast!(Const, T_Const, expr) {
+            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
                 let json_datum = (*const_node).constvalue;
-                let json_value = pgrx::JsonB::from_datum(json_datum, false)?;
+                pgrx::JsonB::from_datum(json_datum, false)?.0
+            } else {
+                return None;
+            };
 
-                return Some(AggregateType::Custom {
-                    agg_json: json_value.0,
-                    filter: filter_query,
-                    indexrelid: bm25_index.oid(),
-                });
-            }
-            return None;
+            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
+            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
+                args.get_ptr(1)
+                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
+                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                    .unwrap_or(true)
+            } else {
+                true // Single-arg overload: default to solve_mvcc = true
+            };
+
+            let mvcc_visibility = if solve_mvcc {
+                MvccVisibility::Enabled
+            } else {
+                MvccVisibility::Disabled
+            };
+
+            return Some(AggregateType::Custom {
+                agg_json: json_value,
+                filter: filter_query,
+                indexrelid: bm25_index.oid(),
+                mvcc_visibility,
+            });
         }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
@@ -267,6 +291,19 @@ impl AggregateType {
             AggregateType::Min { filter, .. } => filter,
             AggregateType::Max { filter, .. } => filter,
             AggregateType::Custom { filter, .. } => filter,
+        }
+    }
+
+    /// Get the MVCC visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    pub fn mvcc_visibility(&self) -> MvccVisibility {
+        match self {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => *mvcc_visibility,
+            // Standard SQL aggregates always use default MVCC behavior
+            _ => MvccVisibility::default(),
         }
     }
 

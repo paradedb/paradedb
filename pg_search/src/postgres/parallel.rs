@@ -28,7 +28,10 @@ pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_v
 }
 
 #[pg_guard]
-pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
+pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {
+    // Note: PostgreSQL doesn't actually call this function for index scans for our custom scan.
+    // Rescanning is handled in amrescan itself, which is called by both leader and workers.
+}
 
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
@@ -62,6 +65,9 @@ unsafe fn bm25_shared_state(
     }
 }
 
+/// Initialize parallel scan state for index scans.
+///
+/// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,

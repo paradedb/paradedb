@@ -330,25 +330,45 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     let targetlist = (*plan).targetlist;
-    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
-    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
 
-    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
+    // First, check if there are any T_Aggref nodes in the target list using list_nth
+    // If not, we can skip the replacement (it's already been done or not needed)
+    let mut has_aggref = false;
+    let list_len = pg_sys::list_length(targetlist);
+    for i in 0..list_len {
+        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
+        if !te.is_null()
+            && !(*te).expr.is_null()
+            && (*(*te).expr).type_ == pg_sys::NodeTag::T_Aggref
+        {
+            has_aggref = true;
+            break;
+        }
+    }
+
+    if !has_aggref {
+        return;
+    }
+
+    // Use list_nth to safely access list elements and build a new list using lappend
+    let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
+    for i in 0..list_len {
+        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
         if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
             // Create a flat copy of the target entry
             let new_te = pg_sys::flatCopyTargetEntry(te);
             // Replace the T_Aggref with a T_FuncExpr placeholder
             let funcexpr = make_placeholder_func_expr(aggref);
             (*new_te).expr = funcexpr as *mut pg_sys::Expr;
-            new_targetlist.push(new_te);
+            new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
         } else {
             // For non-Aggref entries, just make a flat copy
             let copied_te = pg_sys::flatCopyTargetEntry(te);
-            new_targetlist.push(copied_te);
+            new_targetlist = pg_sys::lappend(new_targetlist, copied_te.cast());
         }
     }
 
-    (*plan).targetlist = new_targetlist.into_pg();
+    (*plan).targetlist = new_targetlist;
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

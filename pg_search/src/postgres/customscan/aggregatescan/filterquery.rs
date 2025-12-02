@@ -25,6 +25,7 @@ use crate::query::SearchQueryInput;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::ptr::NonNull;
+use std::sync::Arc;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, SerializableQuery};
 use tantivy::query::{EmptyQuery, EnableScoring, Query, QueryParser, Weight};
@@ -34,6 +35,13 @@ pub struct FilterQuery {
     query: SearchQueryInput,
     indexrelid: pg_sys::Oid,
     tantivy_query: Box<dyn Query>,
+    // Keep the ExprContextGuard alive as long as the FilterQuery (and any clones) live.
+    // This is needed because the tantivy_query (HeapFilterQuery) holds a raw pointer
+    // to the ExprContext, and we need to ensure the context is not freed while the query exists.
+    // We use Arc so that clones share ownership - the context is only freed when all
+    // FilterQuery instances (original and clones) are dropped.
+    #[allow(dead_code)]
+    expr_context_guard: Option<Arc<ExprContextGuard>>,
 }
 
 impl From<FilterQuery> for AggregationVariants {
@@ -48,6 +56,10 @@ impl Clone for FilterQuery {
             query: self.query.clone(),
             indexrelid: self.indexrelid,
             tantivy_query: self.tantivy_query.box_clone(),
+            // Clone the Arc to share ownership of the ExprContextGuard.
+            // The cloned tantivy_query holds the same raw pointer to the ExprContext,
+            // so we must keep the guard alive until all clones are dropped.
+            expr_context_guard: self.expr_context_guard.clone(),
         }
     }
 }
@@ -91,6 +103,7 @@ impl FilterQuery {
                 query,
                 indexrelid,
                 tantivy_query: Box::new(EmptyQuery),
+                expr_context_guard: None,
             });
         }
 
@@ -126,6 +139,9 @@ impl FilterQuery {
             query,
             indexrelid,
             tantivy_query,
+            // Store the ExprContextGuard in an Arc so it lives as long as
+            // the FilterQuery and any of its clones
+            expr_context_guard: Some(Arc::new(standalone_context)),
         })
     }
 }

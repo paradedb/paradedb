@@ -101,6 +101,7 @@ pub fn compute_nworkers(
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
+    contains_exec_param: bool,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -129,6 +130,16 @@ pub fn compute_nworkers(
     if contains_external_var {
         // Don't attempt to parallelize during a join.
         // TODO: Re-evaluate.
+        nworkers = 0;
+    }
+
+    if contains_exec_param {
+        // Don't attempt to parallelize when we have PARAM_EXEC nodes (from scalar subqueries,
+        // correlated subqueries, InitPlans, etc.). These parameters are evaluated by the leader
+        // and need special handling to be made available to parallel workers. Currently, we don't
+        // support this, so we disable parallelism to avoid crashes when workers try to access
+        // these parameters.
+        // TODO: Implement proper PARAM_EXEC parameter sharing with parallel workers.
         nworkers = 0;
     }
 

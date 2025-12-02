@@ -19,7 +19,9 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
+};
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;

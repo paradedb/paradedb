@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764711291091,
+  "lastUpdate": 1764711295455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20520,6 +20520,114 @@ window.BENCHMARK_DATA = {
             "value": 162.51953125,
             "unit": "median mem",
             "extra": "avg mem: 159.93252447975607, max mem: 164.01953125, count: 55671"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e46d6430d66be391d39039509fa889fbc9428bcf",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3684)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-12-02T12:39:37-08:00",
+          "tree_id": "5715a45130e99a82d03a4dd411234333896c8c0c",
+          "url": "https://github.com/paradedb/paradedb/commit/e46d6430d66be391d39039509fa889fbc9428bcf"
+        },
+        "date": 1764711292643,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.87162475450938, max cpu: 42.64561, count: 55540"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 141.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.22615703490726, max mem: 160.9296875, count: 55540"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.332905273326524, max cpu: 27.988338, count: 55540"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 114.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 112.91748240288531, max mem: 114.05859375, count: 55540"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.780242382170585, max cpu: 9.338522, count: 55540"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 89.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.18918544067338, max mem: 139.12109375, count: 55540"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13760,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13810.757057976234, max block_count: 24152.0, count: 55540"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.212896935650913, max cpu: 4.6511626, count: 55540"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 76.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 77.94152011782049, max mem: 119.31640625, count: 55540"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.12448685631977, max segment_count: 42.0, count: 55540"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.445718042434601, max cpu: 27.961164, count: 111080"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 141.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 124.03249618096191, max mem: 152.6484375, count: 111080"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.74959478832908, max cpu: 27.826086, count: 55540"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 162.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.52838114984695, max mem: 163.078125, count: 55540"
           }
         ]
       }

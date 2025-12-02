@@ -631,7 +631,7 @@ pub fn index_memory_segment(
 
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
-            if self.drop {
+            if self.drop && !std::thread::panicking() {
                 unsafe {
                     pg_sys::UnregisterSnapshot(self.inner);
                 }
@@ -729,7 +729,7 @@ pub fn index_memory_segment(
                 })?;
             } else {
                 // Due to heap page pruning, some tuples might no longer exist (regardless of our
-                // SnapshotAny setting).
+                // snapshot setting).
                 writer.insert(tantivy::TantivyDocument::new(), ctid, || {
                     unreachable!("No limits configured: should not finalize.")
                 })?;

@@ -118,8 +118,8 @@ LIMIT 3;
 ----+---------
 (0 rows)
 
-\echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table (logs_2020)'
-Test 3: UNNEST(pdb.snippets(...)) on a child table (logs_2020)
+\echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table'
+Test 3: UNNEST(pdb.snippets(...)) on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
@@ -150,6 +150,106 @@ LIMIT 3;
   1 | The <b>research</b> team from
   1 | creature. This <b>research</b>
   2 | In Canada, <b>research</b> on
+(3 rows)
+
+\echo 'Test 4: UNNEST(pdb.snippets(...)) on a child table with OFFSET'
+Test 4: UNNEST(pdb.snippets(...)) on a child table with OFFSET
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 2 OFFSET 1;
+                                                                                                                                                       QUERY PLAN                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  ProjectSet
+         ->  Custom Scan (ParadeDB Scan) on logs_2020
+               Table: logs_2020
+               Index: logs_2020_id_message_country_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  TopN Order By: id asc
+                  TopN Limit: 2
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+(10 rows)
+
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 2 OFFSET 1;
+ id |            snippet             
+----+--------------------------------
+  1 | creature. This <b>research</b>
+  2 | In Canada, <b>research</b> on
+(2 rows)
+
+\echo 'Test 5: UNNEST(pdb.snippets(...)) on a child table with LIMIT 0'
+Test 5: UNNEST(pdb.snippets(...)) on a child table with LIMIT 0
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 0;
+                                                                                                                                                       QUERY PLAN                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  ProjectSet
+         ->  Custom Scan (ParadeDB Scan) on logs_2020
+               Table: logs_2020
+               Index: logs_2020_id_message_country_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  TopN Order By: id asc
+                  TopN Limit: 0
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+(10 rows)
+
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 0;
+ id | snippet 
+----+---------
+(0 rows)
+
+\echo 'Test 6: Multiple SRFs on a child table'
+Test 6: Multiple SRFs on a child table
+-- NOTE: Other SRFs are not yet supported, so this should not get a TopN.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 3;
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  ProjectSet
+         ->  Result
+               ->  Sort
+                     Sort Key: id
+                     ->  Custom Scan (ParadeDB Scan) on logs_2020
+                           Table: logs_2020
+                           Index: logs_2020_id_message_country_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
+
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 3;
+ id | unnest | generate_series 
+----+--------+-----------------
+  1 |        |               1
+  1 |        |               2
+  2 |        |               1
 (3 rows)
 
 DROP TABLE IF EXISTS logs CASCADE;

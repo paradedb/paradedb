@@ -64,7 +64,7 @@ ORDER BY id
 LIMIT 3;
 
 
-\echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table (logs_2020)'
+\echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
@@ -76,5 +76,48 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
+
+\echo 'Test 4: UNNEST(pdb.snippets(...)) on a child table with OFFSET'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 2 OFFSET 1;
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 2 OFFSET 1;
+
+
+\echo 'Test 5: UNNEST(pdb.snippets(...)) on a child table with LIMIT 0'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 0;
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 0;
+
+
+\echo 'Test 6: Multiple SRFs on a child table'
+-- NOTE: Other SRFs are not yet supported, so this should not get a TopN.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 3;
+SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
+FROM logs_2020
+WHERE message @@@ 'research' AND country @@@ 'Canada'
+ORDER BY id
+LIMIT 3;
+
 
 DROP TABLE IF EXISTS logs CASCADE;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764625993760,
+  "lastUpdate": 1764707664344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2234,6 +2234,72 @@ window.BENCHMARK_DATA = {
             "value": 129.43375119256478,
             "unit": "median tps",
             "extra": "avg tps: 189.4530887739894, max tps: 888.3322007097773, count: 55282"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6c1eac63d1049f2ecc792f42af05291f0da7986",
+          "message": "feat: added MVCC visibility toggle for `pdb.agg()` (#3682)\n\n## Ticket(s) Closed\n\n- Closes #3500\n\n## What\n\nAdds an optional second boolean parameter to `pdb.agg()` that controls\nMVCC visibility filtering:\n\n```sql\n-- Default: MVCC enabled (transaction-accurate)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb) OVER ()\n\n-- Explicit MVCC disabled (faster, may include deleted rows)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb, false) OVER ()\n```\n\n## Why\n\nMVCC filtering ensures aggregates only include rows visible to the\ncurrent transaction, but this comes with a performance cost. For use\ncases where approximate results are acceptable (dashboards, analytics),\nusers can now opt out of MVCC filtering for faster aggregation.\n\n## How\n\n- Added `MvccVisibility` enum (`Enabled`/`Disabled`) to track the\nsetting\n- Created a second `pdb.agg(jsonb, bool)` overload alongside the\nexisting `pdb.agg(jsonb)`\n- Extracted `solve_mvcc` from the aggregate arguments during planning\n- When `mvcc_enabled=false`, the `TopNAuxiliaryCollector` skips wrapping\nwith `TSVisibilityChecker`\n\n**Restrictions enforced:**\n- All `pdb.agg()` calls in a query must use the same `solve_mvcc` value\n(contradictions error)\n- `solve_mvcc=false` is only allowed in window function context; GROUP\nBY always uses MVCC\n\n## Tests\n\nAdded regression tests in `custom-agg.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:15:07-08:00",
+          "tree_id": "92660b9d39cae9f9bc9222e70c9c1bfb9a0d0244",
+          "url": "https://github.com/paradedb/paradedb/commit/e6c1eac63d1049f2ecc792f42af05291f0da7986"
+        },
+        "date": 1764707661656,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 464.4726248638541,
+            "unit": "median tps",
+            "extra": "avg tps: 463.1669996648682, max tps: 629.5497463527505, count: 55180"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3190.0898460298713,
+            "unit": "median tps",
+            "extra": "avg tps: 3170.779105888526, max tps: 3200.770717058961, count: 55180"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 484.3281143919979,
+            "unit": "median tps",
+            "extra": "avg tps: 483.75461567562877, max tps: 601.9070003714788, count: 55180"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 397.06684316488384,
+            "unit": "median tps",
+            "extra": "avg tps: 395.997056595139, max tps: 461.4514372262411, count: 55180"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3404.8286897152193,
+            "unit": "median tps",
+            "extra": "avg tps: 3394.533192943969, max tps: 3423.62770997537, count: 110360"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2203.710959401299,
+            "unit": "median tps",
+            "extra": "avg tps: 2193.5935664989893, max tps: 2210.0387083652386, count: 55180"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 126.02205966891336,
+            "unit": "median tps",
+            "extra": "avg tps: 215.54221335902085, max tps: 859.8341379947807, count: 55180"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764709991955,
+  "lastUpdate": 1764710215564,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16730,6 +16730,60 @@ window.BENCHMARK_DATA = {
             "value": 14.656427525444053,
             "unit": "median tps",
             "extra": "avg tps: 14.644811102106377, max tps: 19.675398424850563, count: 55534"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710f3dcadaad086c55daa6f260d3a8b9d0a62f00",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3683)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-02T12:21:48-08:00",
+          "tree_id": "6152d863b7fd068dd162c9d9db5a3d21cbe4a178",
+          "url": "https://github.com/paradedb/paradedb/commit/710f3dcadaad086c55daa6f260d3a8b9d0a62f00"
+        },
+        "date": 1764710212817,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.270052957119788,
+            "unit": "median tps",
+            "extra": "avg tps: 31.07384873545172, max tps: 35.01052918324834, count: 55671"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.9165435360137,
+            "unit": "median tps",
+            "extra": "avg tps: 270.7835165433026, max tps: 2860.9608568826297, count: 55671"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1946.765982100758,
+            "unit": "median tps",
+            "extra": "avg tps: 1938.2698845983598, max tps: 2396.6439562747, count: 55671"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 171.79358004859301,
+            "unit": "median tps",
+            "extra": "avg tps: 204.09976231480977, max tps: 1703.4590209198932, count: 111342"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.602501692082344,
+            "unit": "median tps",
+            "extra": "avg tps: 14.42649997687385, max tps: 17.584748685165103, count: 55671"
           }
         ]
       }

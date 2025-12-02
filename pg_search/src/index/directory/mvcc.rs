@@ -644,10 +644,11 @@ pub fn index_memory_segment(
             // txns, essentially).
             let mut call_again = false;
             let mut all_dead = false;
+            let snapshot = pg_sys::GetActiveSnapshot();
             let fetched = pg_sys::table_index_fetch_tuple(
                 heap_fetch_state.scan,
                 &mut ipd,
-                &raw mut pg_sys::SnapshotAnyData,
+                snapshot,
                 heap_fetch_state.slot,
                 &mut call_again,
                 &mut all_dead,

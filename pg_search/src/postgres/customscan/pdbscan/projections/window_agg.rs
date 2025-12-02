@@ -70,7 +70,9 @@
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
-use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid, MvccVisibility};
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
@@ -341,23 +343,12 @@ unsafe fn convert_window_func_to_aggregate_type(
 
         // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
         let solve_mvcc = if aggfnoid == custom_agg_with_mvcc_oid {
-            if let Some(mvcc_arg) = args.get_ptr(1) {
-                if let Some(const_node) = nodecast!(Const, T_Const, mvcc_arg) {
-                    if !(*const_node).constisnull {
-                        let bool_datum = (*const_node).constvalue;
-                        <bool as pgrx::FromDatum>::from_datum(bool_datum, false).unwrap_or(true)
-                    } else {
-                        true
-                    }
-                } else {
-                    true
-                }
-            } else {
-                true
-            }
+            args.get_ptr(1)
+                .and_then(|mvcc_arg| nodecast!(Const, T_Const, mvcc_arg))
+                .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                .unwrap_or(true)
         } else {
-            // Single-arg overload: default to solve_mvcc = true
-            true
+            true // Single-arg overload: default to solve_mvcc = true
         };
 
         let mvcc_visibility = if solve_mvcc {

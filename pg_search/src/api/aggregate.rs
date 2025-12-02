@@ -244,6 +244,19 @@ pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID, pgrx::pg_sys::BOOLOID])
 }
 
+/// Extract solve_mvcc boolean from a Const node.
+/// Returns true (MVCC enabled) if the value can't be extracted or is null.
+///
+/// # Safety
+/// The caller must ensure `const_node` is a valid pointer to a Const node.
+pub unsafe fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const) -> bool {
+    if const_node.is_null() || (*const_node).constisnull {
+        return true;
+    }
+    let bool_datum = (*const_node).constvalue;
+    pgrx::FromDatum::from_datum(bool_datum, false).unwrap_or(true)
+}
+
 /// Controls MVCC visibility filtering for aggregate computations.
 ///
 /// This enum determines whether aggregations should apply Postgres MVCC

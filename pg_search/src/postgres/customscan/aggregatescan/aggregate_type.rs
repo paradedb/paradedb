@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid, MvccVisibility};
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -159,24 +161,12 @@ impl AggregateType {
 
             // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
             let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                if let Some(mvcc_arg) = args.get_ptr(1) {
-                    let mvcc_expr = (*mvcc_arg).expr;
-                    if let Some(const_node) = nodecast!(Const, T_Const, mvcc_expr) {
-                        if !(*const_node).constisnull {
-                            let bool_datum = (*const_node).constvalue;
-                            bool::from_datum(bool_datum, false).unwrap_or(true)
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                } else {
-                    true
-                }
+                args.get_ptr(1)
+                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
+                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                    .unwrap_or(true)
             } else {
-                // Single-arg overload: default to solve_mvcc = true
-                true
+                true // Single-arg overload: default to solve_mvcc = true
             };
 
             let mvcc_visibility = if solve_mvcc {

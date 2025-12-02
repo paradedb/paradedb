@@ -1,0 +1,309 @@
+-- Test scalar subquery pattern at larger scale
+-- This tests the paging-string-max benchmark pattern with more realistic data volume
+-- Cleanup
+DROP TABLE IF EXISTS test_pages_scale CASCADE;
+DROP TABLE IF EXISTS test_metadata_scale CASCADE;
+-- Create test tables
+CREATE TABLE test_pages_scale (
+    id TEXT PRIMARY KEY,
+    content TEXT
+);
+CREATE TABLE test_metadata_scale (
+    name TEXT PRIMARY KEY,
+    value TEXT
+);
+-- Create BM25 index on pages
+CREATE INDEX test_pages_scale_idx ON test_pages_scale
+USING bm25 (id, content)
+WITH (key_field = 'id');
+-- Insert larger dataset (10,000 rows to simulate scale)
+-- This generates page IDs like 'page-0000001' through 'page-0010000'
+INSERT INTO test_pages_scale (id, content)
+SELECT 
+    'page-' || LPAD(i::TEXT, 7, '0'),
+    'content for page ' || i
+FROM generate_series(1, 10000) i;
+INSERT INTO test_metadata_scale (name, value) VALUES
+    ('pages-row-id-max', 'page-0005000');
+-- Test 1: Scalar subquery with large dataset (benchmark pattern)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM test_pages_scale 
+WHERE id @@@ paradedb.all() 
+  AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
+ORDER BY id 
+LIMIT 100;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Limit
+   Output: test_pages_scale.id, test_pages_scale.content
+   InitPlan 1
+     ->  Index Scan using test_metadata_scale_pkey on public.test_metadata_scale
+           Output: test_metadata_scale.value
+           Index Cond: (test_metadata_scale.name = 'pages-row-id-max'::text)
+   ->  Custom Scan (ParadeDB Scan) on public.test_pages_scale
+         Output: test_pages_scale.id, test_pages_scale.content
+         Table: test_pages_scale
+         Index: test_pages_scale_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 100
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{}]}}
+(15 rows)
+
+SELECT * FROM test_pages_scale 
+WHERE id @@@ paradedb.all() 
+  AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
+ORDER BY id 
+LIMIT 100;
+      id      |        content        
+--------------+-----------------------
+ page-0005000 | content for page 5000
+ page-0005001 | content for page 5001
+ page-0005002 | content for page 5002
+ page-0005003 | content for page 5003
+ page-0005004 | content for page 5004
+ page-0005005 | content for page 5005
+ page-0005006 | content for page 5006
+ page-0005007 | content for page 5007
+ page-0005008 | content for page 5008
+ page-0005009 | content for page 5009
+ page-0005010 | content for page 5010
+ page-0005011 | content for page 5011
+ page-0005012 | content for page 5012
+ page-0005013 | content for page 5013
+ page-0005014 | content for page 5014
+ page-0005015 | content for page 5015
+ page-0005016 | content for page 5016
+ page-0005017 | content for page 5017
+ page-0005018 | content for page 5018
+ page-0005019 | content for page 5019
+ page-0005020 | content for page 5020
+ page-0005021 | content for page 5021
+ page-0005022 | content for page 5022
+ page-0005023 | content for page 5023
+ page-0005024 | content for page 5024
+ page-0005025 | content for page 5025
+ page-0005026 | content for page 5026
+ page-0005027 | content for page 5027
+ page-0005028 | content for page 5028
+ page-0005029 | content for page 5029
+ page-0005030 | content for page 5030
+ page-0005031 | content for page 5031
+ page-0005032 | content for page 5032
+ page-0005033 | content for page 5033
+ page-0005034 | content for page 5034
+ page-0005035 | content for page 5035
+ page-0005036 | content for page 5036
+ page-0005037 | content for page 5037
+ page-0005038 | content for page 5038
+ page-0005039 | content for page 5039
+ page-0005040 | content for page 5040
+ page-0005041 | content for page 5041
+ page-0005042 | content for page 5042
+ page-0005043 | content for page 5043
+ page-0005044 | content for page 5044
+ page-0005045 | content for page 5045
+ page-0005046 | content for page 5046
+ page-0005047 | content for page 5047
+ page-0005048 | content for page 5048
+ page-0005049 | content for page 5049
+ page-0005050 | content for page 5050
+ page-0005051 | content for page 5051
+ page-0005052 | content for page 5052
+ page-0005053 | content for page 5053
+ page-0005054 | content for page 5054
+ page-0005055 | content for page 5055
+ page-0005056 | content for page 5056
+ page-0005057 | content for page 5057
+ page-0005058 | content for page 5058
+ page-0005059 | content for page 5059
+ page-0005060 | content for page 5060
+ page-0005061 | content for page 5061
+ page-0005062 | content for page 5062
+ page-0005063 | content for page 5063
+ page-0005064 | content for page 5064
+ page-0005065 | content for page 5065
+ page-0005066 | content for page 5066
+ page-0005067 | content for page 5067
+ page-0005068 | content for page 5068
+ page-0005069 | content for page 5069
+ page-0005070 | content for page 5070
+ page-0005071 | content for page 5071
+ page-0005072 | content for page 5072
+ page-0005073 | content for page 5073
+ page-0005074 | content for page 5074
+ page-0005075 | content for page 5075
+ page-0005076 | content for page 5076
+ page-0005077 | content for page 5077
+ page-0005078 | content for page 5078
+ page-0005079 | content for page 5079
+ page-0005080 | content for page 5080
+ page-0005081 | content for page 5081
+ page-0005082 | content for page 5082
+ page-0005083 | content for page 5083
+ page-0005084 | content for page 5084
+ page-0005085 | content for page 5085
+ page-0005086 | content for page 5086
+ page-0005087 | content for page 5087
+ page-0005088 | content for page 5088
+ page-0005089 | content for page 5089
+ page-0005090 | content for page 5090
+ page-0005091 | content for page 5091
+ page-0005092 | content for page 5092
+ page-0005093 | content for page 5093
+ page-0005094 | content for page 5094
+ page-0005095 | content for page 5095
+ page-0005096 | content for page 5096
+ page-0005097 | content for page 5097
+ page-0005098 | content for page 5098
+ page-0005099 | content for page 5099
+(100 rows)
+
+-- Test 2: Verify result count
+SELECT COUNT(*) FROM test_pages_scale 
+WHERE id @@@ paradedb.all() 
+  AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max');
+ count 
+-------
+  5001
+(1 row)
+
+-- Test 3: Test with DESC ordering (reverse scan)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM test_pages_scale 
+WHERE id @@@ paradedb.all() 
+  AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
+ORDER BY id DESC 
+LIMIT 100;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Limit
+   Output: test_pages_scale.id, test_pages_scale.content
+   InitPlan 1
+     ->  Index Scan using test_metadata_scale_pkey on public.test_metadata_scale
+           Output: test_metadata_scale.value
+           Index Cond: (test_metadata_scale.name = 'pages-row-id-max'::text)
+   ->  Custom Scan (ParadeDB Scan) on public.test_pages_scale
+         Output: test_pages_scale.id, test_pages_scale.content
+         Table: test_pages_scale
+         Index: test_pages_scale_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id desc
+            TopN Limit: 100
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{}]}}
+(15 rows)
+
+SELECT * FROM test_pages_scale 
+WHERE id @@@ paradedb.all() 
+  AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
+ORDER BY id DESC 
+LIMIT 100;
+      id      |        content         
+--------------+------------------------
+ page-0010000 | content for page 10000
+ page-0009999 | content for page 9999
+ page-0009998 | content for page 9998
+ page-0009997 | content for page 9997
+ page-0009996 | content for page 9996
+ page-0009995 | content for page 9995
+ page-0009994 | content for page 9994
+ page-0009993 | content for page 9993
+ page-0009992 | content for page 9992
+ page-0009991 | content for page 9991
+ page-0009990 | content for page 9990
+ page-0009989 | content for page 9989
+ page-0009988 | content for page 9988
+ page-0009987 | content for page 9987
+ page-0009986 | content for page 9986
+ page-0009985 | content for page 9985
+ page-0009984 | content for page 9984
+ page-0009983 | content for page 9983
+ page-0009982 | content for page 9982
+ page-0009981 | content for page 9981
+ page-0009980 | content for page 9980
+ page-0009979 | content for page 9979
+ page-0009978 | content for page 9978
+ page-0009977 | content for page 9977
+ page-0009976 | content for page 9976
+ page-0009975 | content for page 9975
+ page-0009974 | content for page 9974
+ page-0009973 | content for page 9973
+ page-0009972 | content for page 9972
+ page-0009971 | content for page 9971
+ page-0009970 | content for page 9970
+ page-0009969 | content for page 9969
+ page-0009968 | content for page 9968
+ page-0009967 | content for page 9967
+ page-0009966 | content for page 9966
+ page-0009965 | content for page 9965
+ page-0009964 | content for page 9964
+ page-0009963 | content for page 9963
+ page-0009962 | content for page 9962
+ page-0009961 | content for page 9961
+ page-0009960 | content for page 9960
+ page-0009959 | content for page 9959
+ page-0009958 | content for page 9958
+ page-0009957 | content for page 9957
+ page-0009956 | content for page 9956
+ page-0009955 | content for page 9955
+ page-0009954 | content for page 9954
+ page-0009953 | content for page 9953
+ page-0009952 | content for page 9952
+ page-0009951 | content for page 9951
+ page-0009950 | content for page 9950
+ page-0009949 | content for page 9949
+ page-0009948 | content for page 9948
+ page-0009947 | content for page 9947
+ page-0009946 | content for page 9946
+ page-0009945 | content for page 9945
+ page-0009944 | content for page 9944
+ page-0009943 | content for page 9943
+ page-0009942 | content for page 9942
+ page-0009941 | content for page 9941
+ page-0009940 | content for page 9940
+ page-0009939 | content for page 9939
+ page-0009938 | content for page 9938
+ page-0009937 | content for page 9937
+ page-0009936 | content for page 9936
+ page-0009935 | content for page 9935
+ page-0009934 | content for page 9934
+ page-0009933 | content for page 9933
+ page-0009932 | content for page 9932
+ page-0009931 | content for page 9931
+ page-0009930 | content for page 9930
+ page-0009929 | content for page 9929
+ page-0009928 | content for page 9928
+ page-0009927 | content for page 9927
+ page-0009926 | content for page 9926
+ page-0009925 | content for page 9925
+ page-0009924 | content for page 9924
+ page-0009923 | content for page 9923
+ page-0009922 | content for page 9922
+ page-0009921 | content for page 9921
+ page-0009920 | content for page 9920
+ page-0009919 | content for page 9919
+ page-0009918 | content for page 9918
+ page-0009917 | content for page 9917
+ page-0009916 | content for page 9916
+ page-0009915 | content for page 9915
+ page-0009914 | content for page 9914
+ page-0009913 | content for page 9913
+ page-0009912 | content for page 9912
+ page-0009911 | content for page 9911
+ page-0009910 | content for page 9910
+ page-0009909 | content for page 9909
+ page-0009908 | content for page 9908
+ page-0009907 | content for page 9907
+ page-0009906 | content for page 9906
+ page-0009905 | content for page 9905
+ page-0009904 | content for page 9904
+ page-0009903 | content for page 9903
+ page-0009902 | content for page 9902
+ page-0009901 | content for page 9901
+(100 rows)
+
+-- Cleanup
+DROP TABLE test_pages_scale CASCADE;
+DROP TABLE test_metadata_scale CASCADE;

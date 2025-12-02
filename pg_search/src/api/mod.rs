@@ -32,7 +32,9 @@ use pgrx::{
 };
 
 use crate::postgres::utils::lookup_pdb_function;
-pub use aggregate::agg_fn_oid;
+pub use aggregate::{
+    agg_fn_oid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

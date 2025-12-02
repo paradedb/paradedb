@@ -1037,3 +1037,184 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Cleanup
 DROP TABLE products CASCADE;
+
+-- =====================================================================
+-- SECTION 14: MVCC Visibility Toggle for pdb.agg()
+-- =====================================================================
+-- Tests for the optional second argument to pdb.agg() that controls
+-- MVCC visibility filtering. This allows users to trade accuracy for
+-- performance when exact transaction-consistent aggregates are not required.
+--
+-- Syntax: pdb.agg(agg_spec, solve_mvcc)
+-- - solve_mvcc=true (default): Apply MVCC filtering for transaction-accurate aggregates
+-- - solve_mvcc=false: Skip MVCC filtering - includes deleted docs still in the index
+--
+-- IMPORTANT: To see the difference, we need deleted rows that are still in the index.
+-- After DELETE, the document remains in Tantivy until a merge/vacuum operation.
+-- With MVCC enabled, deleted docs are filtered out.
+-- With MVCC disabled, deleted docs are included in aggregates.
+
+DROP TABLE IF EXISTS mvcc_test CASCADE;
+CREATE TABLE mvcc_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    value INT
+);
+
+-- Insert initial data
+INSERT INTO mvcc_test (description, category, value) VALUES
+    ('Test item one', 'A', 100),
+    ('Test item two', 'A', 200),
+    ('Test item three', 'B', 300),
+    ('Test item four', 'B', 400),
+    ('Test item five', 'C', 500);
+
+-- Create index BEFORE deleting - so deleted docs remain in the index
+CREATE INDEX mvcc_test_idx ON mvcc_test
+USING bm25 (id, description, category, value)
+WITH (
+    key_field = 'id',
+    text_fields = '{"description": {}, "category": {"fast": true}}',
+    numeric_fields = '{"value": {"fast": true}}'
+);
+
+-- Delete some rows - docs remain in Tantivy index until merge
+DELETE FROM mvcc_test WHERE id IN (4, 5);
+
+-- Now we have:
+-- Visible rows: id=1 (100), id=2 (200), id=3 (300) = avg 200
+-- All docs in index: id=1 (100), id=2 (200), id=3 (300), id=4 (400), id=5 (500) = avg 300
+
+-- Test 63: pdb.agg() with MVCC enabled (default behavior)
+-- This should apply MVCC filtering for accurate results
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 64: pdb.agg() with explicit solve_mvcc = true (same as default)
+-- Note: PostgreSQL aggregates don't support named arguments, so we use positional
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 65: pdb.agg() with solve_mvcc = false for performance
+-- This skips MVCC filtering for faster aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_value
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 66: pdb.agg() with terms aggregation and solve_mvcc = false
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS category_counts
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS category_counts
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 67: Multiple pdb.agg() calls with SAME solve_mvcc = false
+-- When all aggregates have solve_mvcc = false, MVCC filtering is disabled
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *,
+       pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_no_mvcc,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *,
+       pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_no_mvcc,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 67b: Multiple pdb.agg() calls with CONTRADICTING solve_mvcc settings should ERROR
+-- Mixing true and false is not allowed - must be consistent
+SELECT *,
+       pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_with_mvcc,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 67c: Multiple pdb.agg() - default (true) mixed with explicit false should also ERROR
+SELECT *,
+       pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_default,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 67d: Multiple pdb.agg() - all with default (true) should work fine
+SELECT *,
+       pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_default,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS terms_default
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should ERROR
+-- solve_mvcc=false is only allowed in TopN (window function) context
+SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
+FROM mvcc_test
+WHERE description @@@ 'test'
+GROUP BY category;
+
+-- Test 68b: pdb.agg() in GROUP BY context with solve_mvcc = true should work
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true)
+FROM mvcc_test
+WHERE description @@@ 'test'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true)
+FROM mvcc_test
+WHERE description @@@ 'test'
+GROUP BY category;
+
+-- Test 68c: pdb.agg() in GROUP BY context with default (no second arg) should work
+SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb)
+FROM mvcc_test
+WHERE description @@@ 'test'
+GROUP BY category;
+
+-- Test 69: Complex aggregation with solve_mvcc = false
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from": 200, "to": 400}, {"from": 400}]}}'::jsonb, false) OVER () AS value_ranges
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from": 200, "to": 400}, {"from": 400}]}}'::jsonb, false) OVER () AS value_ranges
+FROM mvcc_test
+WHERE description @@@ 'test'
+ORDER BY id DESC LIMIT 3;
+
+-- Cleanup
+DROP TABLE mvcc_test CASCADE;

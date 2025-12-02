@@ -18,7 +18,7 @@
 use std::cell::RefCell;
 
 use crate::aggregate::vischeck::TSVisibilityChecker;
-use crate::api::{HashMap, OrderByInfo};
+use crate::api::{HashMap, MvccVisibility, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{
     SearchIndexReader, TopNAuxiliaryCollector, TopNSearchResults, MAX_TOPN_FEATURES,
@@ -43,6 +43,10 @@ struct PreparedAggregations {
     aggregations: Aggregations,
     combined_agg_types: Vec<AggregateType>,
     agg_index_to_te_index: Vec<usize>,
+    /// Whether MVCC filtering should be enabled for these aggregations.
+    /// Determined by the mvcc_visibility setting of any pdb.agg() calls.
+    /// If any aggregate has MVCC disabled, this will be false.
+    mvcc_enabled: bool,
 }
 
 pub struct TopNScanExecState {
@@ -188,6 +192,40 @@ impl TopNScanExecState {
             }
         }
 
+        // Determine if MVCC filtering should be enabled.
+        // Check for contradicting solve_mvcc settings - error if some have true and some have false.
+        // Only consider Custom aggregates (pdb.agg) since standard SQL aggregates always use default.
+        let custom_mvcc_settings: Vec<MvccVisibility> = combined_agg_types
+            .iter()
+            .filter_map(|agg_type| {
+                if let AggregateType::Custom {
+                    mvcc_visibility, ..
+                } = agg_type
+                {
+                    Some(*mvcc_visibility)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Check for contradicting settings
+        if !custom_mvcc_settings.is_empty() {
+            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
+            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+            if has_enabled && has_disabled {
+                pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
+                );
+            }
+        }
+
+        // If any custom aggregate has MVCC disabled, disable for all.
+        // Standard SQL aggregates always use MVCC enabled (default behavior).
+        let mvcc_enabled = !custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
@@ -210,6 +248,7 @@ impl TopNScanExecState {
             aggregations,
             combined_agg_types,
             agg_index_to_te_index,
+            mvcc_enabled,
         })
     }
 
@@ -288,22 +327,29 @@ impl ExecMethod for TopNScanExecState {
         // Run the TopN (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
-                // Wrap the aggregation collector with MVCC filtering to respect transaction visibility.
-                // This ensures that aggregations only include documents visible to the current transaction,
-                // matching the behavior of the TopN results.
-                let heaprel = state.heaprel();
-                TopNAuxiliaryCollector {
-                    aggregation_collector: DistributedAggregationCollector::from_aggs(
-                        aggregations.aggregations.clone(),
-                        agg_limits.clone(),
-                    ),
-                    // TODO: Expose a query-time GUC or function parameter to disable MVCC filtering
-                    // for performance in cases where accuracy is less important than speed.
-                    // https://github.com/paradedb/paradedb/issues/3500
-                    vischeck: Some(TSVisibilityChecker::with_rel_and_snap(
+                // Create the aggregation collector
+                let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    agg_limits.clone(),
+                );
+
+                // Optionally wrap with MVCC filtering to respect transaction visibility.
+                // This can be disabled via pdb.agg(..., false) for performance
+                // in cases where accuracy is less important than speed.
+                // See: https://github.com/paradedb/paradedb/issues/3500
+                let vischeck = if aggregations.mvcc_enabled {
+                    let heaprel = state.heaprel();
+                    Some(TSVisibilityChecker::with_rel_and_snap(
                         heaprel.as_ptr(),
                         unsafe { pg_sys::GetActiveSnapshot() },
-                    )),
+                    ))
+                } else {
+                    None
+                };
+
+                TopNAuxiliaryCollector {
+                    aggregation_collector,
+                    vischeck,
                 }
             });
             self.search_reader

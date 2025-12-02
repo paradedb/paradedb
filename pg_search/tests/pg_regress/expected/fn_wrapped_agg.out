@@ -36,12 +36,12 @@ SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: log_id, description, category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: log_id, description, category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.fn_wrapped_agg_logs
-         Output: log_id, description, category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: log_id, description, category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: fn_wrapped_agg_logs
          Index: fn_wrapped_agg_logs_idx
          Exec Method: TopNScanExecState
@@ -69,12 +69,12 @@ SELECT log_id, description, category, jsonb_pretty(pdb.agg('{"terms": {"field": 
 FROM fn_wrapped_agg_logs
 WHERE description @@@ paradedb.all()
 ORDER BY log_id DESC LIMIT 3;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: log_id, description, category, (jsonb_pretty(pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)))
+   Output: log_id, description, category, (jsonb_pretty(pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)))
    ->  Custom Scan (ParadeDB Scan) on public.fn_wrapped_agg_logs
-         Output: log_id, description, category, jsonb_pretty(pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+         Output: log_id, description, category, jsonb_pretty(pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
          Table: fn_wrapped_agg_logs
          Index: fn_wrapped_agg_logs_idx
          Exec Method: TopNScanExecState
@@ -156,15 +156,15 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT * FROM agg;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
    Output: agg.log_id, agg.description, agg.category, agg.agg_result
    CTE agg
      ->  Limit
-           Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+           Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
            ->  Custom Scan (ParadeDB Scan) on public.fn_wrapped_agg_logs
-                 Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                 Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                  Table: fn_wrapped_agg_logs
                  Index: fn_wrapped_agg_logs_idx
                  Exec Method: TopNScanExecState
@@ -198,15 +198,15 @@ WITH agg AS (
     ORDER BY log_id DESC LIMIT 3
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CTE Scan on agg
    Output: agg.log_id, agg.description, agg.category, jsonb_pretty(agg.agg_result)
    CTE agg
      ->  Limit
-           Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+           Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
            ->  Custom Scan (ParadeDB Scan) on public.fn_wrapped_agg_logs
-                 Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                 Output: fn_wrapped_agg_logs.log_id, fn_wrapped_agg_logs.description, fn_wrapped_agg_logs.category, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
                  Table: fn_wrapped_agg_logs
                  Index: fn_wrapped_agg_logs_idx
                  Exec Method: TopNScanExecState

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764707668207,
+  "lastUpdate": 1764707910736,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2300,6 +2300,72 @@ window.BENCHMARK_DATA = {
             "value": 126.02205966891336,
             "unit": "median tps",
             "extra": "avg tps: 215.54221335902085, max tps: 859.8341379947807, count: 55180"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710f3dcadaad086c55daa6f260d3a8b9d0a62f00",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3683)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-02T12:21:48-08:00",
+          "tree_id": "6152d863b7fd068dd162c9d9db5a3d21cbe4a178",
+          "url": "https://github.com/paradedb/paradedb/commit/710f3dcadaad086c55daa6f260d3a8b9d0a62f00"
+        },
+        "date": 1764707908063,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 506.8446706185216,
+            "unit": "median tps",
+            "extra": "avg tps: 504.5930924799624, max tps: 595.8533115655705, count: 55444"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2958.236685492707,
+            "unit": "median tps",
+            "extra": "avg tps: 2958.5201423007625, max tps: 3143.599977895529, count: 55444"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 502.7543669094167,
+            "unit": "median tps",
+            "extra": "avg tps: 501.0888262862047, max tps: 605.8098948482514, count: 55444"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 387.54603604476995,
+            "unit": "median tps",
+            "extra": "avg tps: 390.73503304279757, max tps: 461.7656047498466, count: 55444"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3130.5268268152104,
+            "unit": "median tps",
+            "extra": "avg tps: 3129.0385910499717, max tps: 3329.499152204374, count: 110888"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2226.9658614995847,
+            "unit": "median tps",
+            "extra": "avg tps: 2220.258901354029, max tps: 2239.031164500087, count: 55444"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 120.68137067821984,
+            "unit": "median tps",
+            "extra": "avg tps: 153.4660114214493, max tps: 870.7896233225326, count: 55444"
           }
         ]
       }

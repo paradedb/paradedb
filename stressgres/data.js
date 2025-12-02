@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764709232770,
+  "lastUpdate": 1764709236514,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14530,6 +14530,108 @@ window.BENCHMARK_DATA = {
             "value": 155.73828125,
             "unit": "median mem",
             "extra": "avg mem: 174.7544403364883, max mem: 215.578125, count: 56551"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6c1eac63d1049f2ecc792f42af05291f0da7986",
+          "message": "feat: added MVCC visibility toggle for `pdb.agg()` (#3682)\n\n## Ticket(s) Closed\n\n- Closes #3500\n\n## What\n\nAdds an optional second boolean parameter to `pdb.agg()` that controls\nMVCC visibility filtering:\n\n```sql\n-- Default: MVCC enabled (transaction-accurate)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb) OVER ()\n\n-- Explicit MVCC disabled (faster, may include deleted rows)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb, false) OVER ()\n```\n\n## Why\n\nMVCC filtering ensures aggregates only include rows visible to the\ncurrent transaction, but this comes with a performance cost. For use\ncases where approximate results are acceptable (dashboards, analytics),\nusers can now opt out of MVCC filtering for faster aggregation.\n\n## How\n\n- Added `MvccVisibility` enum (`Enabled`/`Disabled`) to track the\nsetting\n- Created a second `pdb.agg(jsonb, bool)` overload alongside the\nexisting `pdb.agg(jsonb)`\n- Extracted `solve_mvcc` from the aggregate arguments during planning\n- When `mvcc_enabled=false`, the `TopNAuxiliaryCollector` skips wrapping\nwith `TSVisibilityChecker`\n\n**Restrictions enforced:**\n- All `pdb.agg()` calls in a query must use the same `solve_mvcc` value\n(contradictions error)\n- `solve_mvcc=false` is only allowed in window function context; GROUP\nBY always uses MVCC\n\n## Tests\n\nAdded regression tests in `custom-agg.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:15:07-08:00",
+          "tree_id": "92660b9d39cae9f9bc9222e70c9c1bfb9a0d0244",
+          "url": "https://github.com/paradedb/paradedb/commit/e6c1eac63d1049f2ecc792f42af05291f0da7986"
+        },
+        "date": 1764709233767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0752266775923188, max background_merging: 2.0, count: 56137"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.784555802853618, max cpu: 9.60961, count: 56137"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 18.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 18.262873639489108, max mem: 20.3359375, count: 56137"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.979781466760754, max cpu: 13.913043, count: 56137"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 155.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 153.96024228394376, max mem: 155.671875, count: 56137"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50844,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50709.3031690329, max block_count: 50844.0, count: 56137"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.80631312681476, max segment_count: 61.0, count: 56137"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581900309733202, max cpu: 9.421001, count: 56137"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 117.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 107.05680585275753, max mem: 134.26171875, count: 56137"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.748409566353472, max cpu: 9.648242, count: 56137"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 156.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 152.6979907970679, max mem: 156.0625, count: 56137"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.863770808681572, max cpu: 33.768845, count: 56137"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 156.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.24963489153765, max mem: 216.64453125, count: 56137"
           }
         ]
       }

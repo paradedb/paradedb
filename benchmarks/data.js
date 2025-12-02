@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764710206540,
+  "lastUpdate": 1764710346498,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -15764,6 +15764,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 24496.62,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc4b818909fed14a6d660844f256aab461cdde83",
+          "message": "fix: revert JSON numeric range multi-type expansion for fast fields (#3661)\n\n## Summary\n\nFixes #2978\n\nReverts the JSON numeric range multi-type expansion introduced in commit\n9a6acb77fc7aa3b216245966cf687c4eb3b0d165. This fixes an issue where\nrange queries on JSON fast fields returned 0 rows when the column\ncontained mixed integer/float data.\n\n**JSON numeric range queries now behave the same as Float8 pushdown on\nfast fields.**\n\n## What Changed\n\n### `pg_search/src/query/pdb_query.rs`\n- Removed `create_json_numeric_range_query()` function that generated\nI64/U64/F64 query variants\n- Removed `determine_types_for_range()` helper function\n- Removed `NumericType` enum and related type detection logic\n- Removed `convert_bound_to_type()` and `convert_value_to_type()` helper\nfunctions\n- Removed `is_empty_range()` helper function\n- Removed unused imports: `value_to_json_term`, `F64_SAFE_INTEGER_MAX`,\n`Field`, `FieldType`\n- JSON numeric range queries now fall through to the standard F64 path\n(same as Float8 pushdown)\n\n### Files Removed (~309 lines of dead code)\n- `NumericType` enum definition\n- `determine_types_for_range()` - type detection logic\n- `convert_bound_to_type()` - bound type conversion\n- `convert_value_to_type()` - value type conversion  \n- `is_empty_range()` - empty range detection\n- `create_json_numeric_range_query()` - multi-type query generation\n\n## Why These Changes\n\n### Problem: Type Mismatch in Fast Fields\nTantivy fast fields store ONE column per JSON path with ONE type. When\nANY float value exists in a JSON path, the entire column becomes F64.\nThe multi-type expansion approach tried to query I64/U64/F64 separately,\nbut:\n\n1. **U64 query on F64 column → 0 rows**: Type mismatch causes no results\n2. **I64 query on F64 column → 0 rows**: Same type mismatch issue\n3. **Only F64 query works**: But the union of results was broken by the\n0-row results\n\n### Root Cause\nThe original fix (9a6acb77) assumed each numeric type could be queried\nindependently. However, Tantivy's columnar storage coerces all values in\na JSON path to a single type, making multi-type queries ineffective for\nfast fields.\n\n### Why This Works for Term Queries but Not Range Queries\n- **Term queries**: Use inverted index (no type coercion issue)\n- **Range queries on JSON**: Require fast fields in Tantivy, which use\ncolumnar storage with type coercion\n\n## How It Works Now\n\n1. JSON numeric range queries use the standard F64 path (same as Float8\npushdown)\n2. All bounds are converted to F64 for the range query\n3. Results are consistent (no more 0-row results from type mismatch)\n4. Behavior is now identical to how Float8 columns are handled for\npushdown\n\n## Known Limitation\n\nIntegers > 2^53 may lose precision when stored as F64 in fast fields\nwith mixed int/float data. This is inherent to Tantivy's columnar\nstorage design and matches expected F64 semantics. Adjacent large\nintegers may become indistinguishable (e.g., 9007199254740992 and\n9007199254740993 both stored as 9.007199254740992e+15).\n\n**This is the same limitation that exists for Float8 pushdown on fast\nfields.**\n\n## Test plan\n- [x] cargo fmt --check\n- [x] cargo clippy (no warnings)\n- [x] pg_search regression tests pass\n- [x] Verified range queries return consistent results with fast fields\nenabled",
+          "timestamp": "2025-12-02T12:16:32-08:00",
+          "tree_id": "1b0ba16f783029b7f98330eb9aa2061353660eda",
+          "url": "https://github.com/paradedb/paradedb/commit/dc4b818909fed14a6d660844f256aab461cdde83"
+        },
+        "date": 1764710343821,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1205.567,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 644.7555,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1499.587,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 710.723,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 679.2555,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1612.2445,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 31396.3715,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 31377.1625,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 31467.1175,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

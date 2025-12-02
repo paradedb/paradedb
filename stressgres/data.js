@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764707664344,
+  "lastUpdate": 1764707668207,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6372,6 +6372,126 @@ window.BENCHMARK_DATA = {
             "value": 44.57421875,
             "unit": "median mem",
             "extra": "avg mem: 44.00861230542944, max mem: 55.8046875, count: 55282"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6c1eac63d1049f2ecc792f42af05291f0da7986",
+          "message": "feat: added MVCC visibility toggle for `pdb.agg()` (#3682)\n\n## Ticket(s) Closed\n\n- Closes #3500\n\n## What\n\nAdds an optional second boolean parameter to `pdb.agg()` that controls\nMVCC visibility filtering:\n\n```sql\n-- Default: MVCC enabled (transaction-accurate)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb) OVER ()\n\n-- Explicit MVCC disabled (faster, may include deleted rows)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb, false) OVER ()\n```\n\n## Why\n\nMVCC filtering ensures aggregates only include rows visible to the\ncurrent transaction, but this comes with a performance cost. For use\ncases where approximate results are acceptable (dashboards, analytics),\nusers can now opt out of MVCC filtering for faster aggregation.\n\n## How\n\n- Added `MvccVisibility` enum (`Enabled`/`Disabled`) to track the\nsetting\n- Created a second `pdb.agg(jsonb, bool)` overload alongside the\nexisting `pdb.agg(jsonb)`\n- Extracted `solve_mvcc` from the aggregate arguments during planning\n- When `mvcc_enabled=false`, the `TopNAuxiliaryCollector` skips wrapping\nwith `TSVisibilityChecker`\n\n**Restrictions enforced:**\n- All `pdb.agg()` calls in a query must use the same `solve_mvcc` value\n(contradictions error)\n- `solve_mvcc=false` is only allowed in window function context; GROUP\nBY always uses MVCC\n\n## Tests\n\nAdded regression tests in `custom-agg.sql`.\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:15:07-08:00",
+          "tree_id": "92660b9d39cae9f9bc9222e70c9c1bfb9a0d0244",
+          "url": "https://github.com/paradedb/paradedb/commit/e6c1eac63d1049f2ecc792f42af05291f0da7986"
+        },
+        "date": 1764707665522,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.867545001941297, max cpu: 19.315895, count: 55180"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 54.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.202048268167815, max mem: 66.29296875, count: 55180"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584848086516361, max cpu: 9.320388, count: 55180"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.623218118543857, max mem: 28.59375, count: 55180"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.694171440690982, max cpu: 18.879055, count: 55180"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 53.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.19890634910747, max mem: 68.75, count: 55180"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.71128819246835, max cpu: 9.320388, count: 55180"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 50.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.351284432765496, max mem: 62.76953125, count: 55180"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613347257811637, max cpu: 9.320388, count: 110360"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 38.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.287937453277905, max mem: 50.578125, count: 110360"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1811,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1825.9074483508518, max block_count: 3249.0, count: 55180"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 17,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 17.239833272924972, max segment_count: 31.0, count: 55180"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.543402872925034, max cpu: 7.494145, count: 55180"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 42.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.198976644617616, max mem: 53.9296875, count: 55180"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.2014652303792603, max cpu: 4.733728, count: 55180"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.489291933784884, max mem: 56.71484375, count: 55180"
           }
         ]
       }

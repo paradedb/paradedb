@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764712203587,
+  "lastUpdate": 1764712208054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20832,6 +20832,114 @@ window.BENCHMARK_DATA = {
             "value": 162.0234375,
             "unit": "median mem",
             "extra": "avg mem: 159.52838114984695, max mem: 163.078125, count: 55540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a68e5bb60a8ec9c9cc5041136ec5bbec81588c32",
+          "message": "fix: server crash with subqueries in parallel workers (#3669)\n\n# Ticket(s) Closed\n\n- Closes #3655\n\n## What\n\nFixes a server crash that occurred when using subqueries in the WHERE\nclause. Queries like this now work correctly:\n\n```sql\nSELECT * FROM pages \nWHERE id @@@ paradedb.all() \n  AND id >= (SELECT MAX(id) FROM metadata WHERE name = 'max')\nORDER BY id LIMIT 100;\n```\n\n## Why\n\nParallel workers were attempting to evaluate scalar subquery parameters\n(`PARAM_EXEC` nodes) that they didn't have access to. The root cause was\ntwofold:\n\n1. `Qual::HeapExpr::contains_exec_param()` always returned `false`,\nfailing to detect these parameters\n2. This caused parallel workers to be spawned even when they shouldn't\nbe\n3. Workers crashed trying to evaluate expressions containing parameters\nfrom `estate->es_param_exec_vals`, which isn't shared with workers\n\n## How\n\n**Fixed detection**: `Qual::HeapExpr` now correctly checks for\n`PARAM_EXEC` nodes in its expression tree.\n\n**Disabled parallelism**: When `PARAM_EXEC` is detected, we disable\nparallel workers (`nworkers = 0`) since these parameters can't currently\nbe shared with workers. This is a conservative approach that prioritizes\ncorrectness.\n\nThe trade-off: queries with scalar subqueries run single-threaded but\ndon't crash.\n\n## Tests\n\nAdded regression test `subquery_in_where_scale.sql` that reproduces the\ncrash scenario with 10,000 rows and verifies the fix works correctly.\n\n---------\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-02T12:53:39-08:00",
+          "tree_id": "623cf2912c55387137320ef7230af832f90c0e24",
+          "url": "https://github.com/paradedb/paradedb/commit/a68e5bb60a8ec9c9cc5041136ec5bbec81588c32"
+        },
+        "date": 1764712205242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.120432904595212, max cpu: 46.60194, count: 55674"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 124.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 134.00316154084493, max mem: 162.859375, count: 55674"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.946851468405843, max cpu: 42.519684, count: 55674"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 125.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 120.62917546509591, max mem: 125.015625, count: 55674"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.763459057041657, max cpu: 9.467456, count: 55674"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 74.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.74595840574146, max mem: 145.29296875, count: 55674"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13752,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13923.756097999067, max block_count: 24992.0, count: 55674"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1633927593886835, max cpu: 4.673807, count: 55674"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 62.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 71.88428781556472, max mem: 119.7265625, count: 55674"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.022775442756043, max segment_count: 37.0, count: 55674"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.349163257564898, max cpu: 42.519684, count: 111348"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 141.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 121.11707583572449, max mem: 152.21875, count: 111348"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.605125010334035, max cpu: 27.961164, count: 55674"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 161.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 158.70396042980116, max mem: 162.06640625, count: 55674"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764704690193,
+  "lastUpdate": 1764706754046,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -13436,6 +13436,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 29212.9715,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "983470423f3d34a5bea53729cc6d00058f6c66f2",
+          "message": "feat: added MVCC visibility toggle for `pdb.agg()` (#3676)\n\n## Ticket(s) Closed\n\n- Closes #3500\n\n## What\n\nAdds an optional second boolean parameter to `pdb.agg()` that controls\nMVCC visibility filtering:\n\n```sql\n-- Default: MVCC enabled (transaction-accurate)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb) OVER ()\n\n-- Explicit MVCC disabled (faster, may include deleted rows)\npdb.agg('{\"avg\": {\"field\": \"price\"}}'::jsonb, false) OVER ()\n```\n\n## Why\n\nMVCC filtering ensures aggregates only include rows visible to the\ncurrent transaction, but this comes with a performance cost. For use\ncases where approximate results are acceptable (dashboards, analytics),\nusers can now opt out of MVCC filtering for faster aggregation.\n\n## How\n\n- Added `MvccVisibility` enum (`Enabled`/`Disabled`) to track the\nsetting\n- Created a second `pdb.agg(jsonb, bool)` overload alongside the\nexisting `pdb.agg(jsonb)`\n- Extracted `solve_mvcc` from the aggregate arguments during planning\n- When `mvcc_enabled=false`, the `TopNAuxiliaryCollector` skips wrapping\nwith `TSVisibilityChecker`\n\n**Restrictions enforced:**\n- All `pdb.agg()` calls in a query must use the same `solve_mvcc` value\n(contradictions error)\n- `solve_mvcc=false` is only allowed in window function context; GROUP\nBY always uses MVCC\n\n## Tests\n\nAdded regression tests in `custom-agg.sql`.",
+          "timestamp": "2025-12-02T11:15:00-08:00",
+          "tree_id": "53335c743e9ef6b1abaa3993195df23b4c5173d9",
+          "url": "https://github.com/paradedb/paradedb/commit/983470423f3d34a5bea53729cc6d00058f6c66f2"
+        },
+        "date": 1764706751264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1237.4825,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 642.94,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1513.842,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 713.425,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 679.6395,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1661.8615,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 31371.5075,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 31564.690499999997,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 31766.1765,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

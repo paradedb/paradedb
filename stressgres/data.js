@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764708684358,
+  "lastUpdate": 1764708688054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9674,6 +9674,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.97170252167743, max segment_count: 131.0, count: 57779"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710f3dcadaad086c55daa6f260d3a8b9d0a62f00",
+          "message": "perf: Trigger TopN in the presence of `unnest` (#3683)\n\n## What\n\nAllow the `TopN` scan to be triggered in the presence of `unnest` by\nretrieving the `limit` from the parse (iff we recognize all\nset-returning-functions that were used).\n\n## Why\n\nAs reported in #3622, in the presence of `unnest` `TopN` will not\ntrigger, and we'll instead get a `Normal` scan.\n\nSpecifically in the case of set returning functions which return more\nresults than are input (like `unnest`), we know that we can still apply\nthe TopN scan, improving performance.\n\n## Tests\n\nAdded regress tests covering the relevant cases. #3679 will address the\nother half of #3622.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-02T12:21:48-08:00",
+          "tree_id": "6152d863b7fd068dd162c9d9db5a3d21cbe4a178",
+          "url": "https://github.com/paradedb/paradedb/commit/710f3dcadaad086c55daa6f260d3a8b9d0a62f00"
+        },
+        "date": 1764708685387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.062595176248507, max cpu: 42.942345, count: 57812"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 229.10520124768647, max mem: 230.265625, count: 57812"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.55802372764467, max cpu: 33.23442, count: 57812"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 167.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.10627727050613, max mem: 167.87890625, count: 57812"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34975,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34022.981578219056, max block_count: 36904.0, count: 57812"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.7292430637238, max segment_count: 131.0, count: 57812"
           }
         ]
       }

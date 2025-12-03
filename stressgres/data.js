@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764715843046,
+  "lastUpdate": 1764737156623,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2630,6 +2630,72 @@ window.BENCHMARK_DATA = {
             "value": 126.35879008576356,
             "unit": "median tps",
             "extra": "avg tps: 128.27209128487556, max tps: 916.7869185508166, count: 55344"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d467765b59cfefb314fc45607343ea6afd0ebc0c",
+          "message": "fix: `varchar[]` types can be indexed (#3673)\n\n# Ticket(s) Closed\n\n- Closes #3644 \n\n## What\n\nSee above issue.\n\n## Why\n\n## How\n\nHad to add an extra generic to `GenericTypeWrapper` because right now\n`GenericTypeWrapper<$rust_name>` has a 1:1 mapping to the SQL name, i.e.\n`Vec<String>` to `text[]`.\n\nIn the case of `text[]` and `varchar[]` we have a one to many mapping;\nboth have `Vec<String>` rust types.\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-02T23:27:39-05:00",
+          "tree_id": "a051c0968cff78a2d1375dc7d1f88197504ca4b6",
+          "url": "https://github.com/paradedb/paradedb/commit/d467765b59cfefb314fc45607343ea6afd0ebc0c"
+        },
+        "date": 1764737153857,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 478.63328878890644,
+            "unit": "median tps",
+            "extra": "avg tps: 476.05156474226493, max tps: 598.0780548831091, count: 55197"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3044.6621890700494,
+            "unit": "median tps",
+            "extra": "avg tps: 3024.429851920174, max tps: 3093.841839981634, count: 55197"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 497.9128229047679,
+            "unit": "median tps",
+            "extra": "avg tps: 494.49515687594754, max tps: 638.4036981709118, count: 55197"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 396.99350045585686,
+            "unit": "median tps",
+            "extra": "avg tps: 393.87010134829035, max tps: 444.36860553576633, count: 55197"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3276.514342927211,
+            "unit": "median tps",
+            "extra": "avg tps: 3257.274654402306, max tps: 3309.6032132152122, count: 110394"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2119.78662982724,
+            "unit": "median tps",
+            "extra": "avg tps: 2101.479581128953, max tps: 2127.365129790437, count: 55197"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 139.15757091229187,
+            "unit": "median tps",
+            "extra": "avg tps: 160.43578190410247, max tps: 458.0920500472436, count: 55197"
           }
         ]
       }

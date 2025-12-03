@@ -619,16 +619,7 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
-    name    | price |     avg_rating     |    category    
-------------+-------+--------------------+----------------
- Product 19 |   240 | 4.0000000000000000 | Outdoors
- Product 14 |   190 | 4.0000000000000000 | Toys
- Product 18 |   230 | 3.0000000000000000 | Office
- Product 18 |   230 | 3.0000000000000000 | Home & Kitchen
- Product 18 |   230 | 3.0000000000000000 | Sports
- Product 13 |   180 | 3.0000000000000000 | Home & Kitchen
-(6 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test 5: Union of results from different tables
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content

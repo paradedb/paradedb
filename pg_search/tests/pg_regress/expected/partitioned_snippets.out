@@ -74,8 +74,7 @@ LIMIT 3;
   4 | {"A joint <b>research</b> project","<b>research</b> is focused on"}
 (3 rows)
 
--- TODO: Currently fails because a Result node is inserted below the ProjectSet node which
--- re-evaluates the `pdb.snippets` function. See https://github.com/paradedb/paradedb/issues/3622
+-- Not currently supported: should result in an error asking the user to report the query shape.
 \echo 'Test 2: UNNEST(pdb.snippets(...)) on parent table'
 Test 2: UNNEST(pdb.snippets(...)) on parent table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -114,10 +113,7 @@ FROM logs
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
- id | snippet 
-----+---------
-(0 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 \echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table'
 Test 3: UNNEST(pdb.snippets(...)) on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -245,11 +241,5 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
- id | unnest | generate_series 
-----+--------+-----------------
-  1 |        |               1
-  1 |        |               2
-  2 |        |               1
-(3 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 DROP TABLE IF EXISTS logs CASCADE;

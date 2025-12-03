@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764804617671,
+  "lastUpdate": 1764805406120,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9526,6 +9526,42 @@ window.BENCHMARK_DATA = {
             "value": 5.29418868620573,
             "unit": "median tps",
             "extra": "avg tps: 4.7457771860258005, max tps: 5.916493812446695, count: 57755"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ac839a450027699255b553223c89e2f9f5267f2",
+          "message": "fix: Fail fast for unsupported query shapes (#3679)\n\n# Ticket(s) Closed\n\n- Closes #3622\n\n## What\n\nFail fast (with an error which points to\nhttps://github.com/orgs/paradedb/discussions/3678) for unsupported query\nshapes.\n\n## Why\n\nWe have long debated failing fast for projected functions which we have\nnot been able to capture with the custom scan, but had so far decided to\ncontinue to return an empty result. But #3622 helps to emphasize the\nrisks involved in failing silently, as it silently produces an empty\nresult.\n\nInstead, failing fast should allow us to more rapidly learn which query\nshapes matter, and avoid users being confused about whether an empty\nresult is intentional.",
+          "timestamp": "2025-12-03T15:13:26-08:00",
+          "tree_id": "9719df8cd8cffd1ba47af7fc43d35fbe15731068",
+          "url": "https://github.com/paradedb/paradedb/commit/3ac839a450027699255b553223c89e2f9f5267f2"
+        },
+        "date": 1764805403369,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.824109381481575,
+            "unit": "median tps",
+            "extra": "avg tps: 6.65417546733265, max tps: 10.197775352779487, count: 57770"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.340456899614101,
+            "unit": "median tps",
+            "extra": "avg tps: 4.796901393887057, max tps: 6.0052508612140745, count: 57770"
           }
         ]
       }

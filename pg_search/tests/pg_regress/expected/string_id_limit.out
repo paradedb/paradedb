@@ -26,7 +26,6 @@ WITH (
 		}
 	}'
 );
-WARNING:  the `raw` tokenizer is deprecated
 -- populate the table with faulty data
 INSERT INTO comments (id, customer_id) VALUES ('ctx_01ifsur2egUPnbJOAiHv', 'customer_1');
 INSERT INTO comments (id, customer_id) VALUES ('ctx_01iddo3tioqV6f4yCB6O', 'customer_1');

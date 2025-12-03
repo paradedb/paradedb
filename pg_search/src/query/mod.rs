@@ -27,20 +27,20 @@ use heap_field_filter::HeapFieldFilter;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
-use crate::postgres::utils::ExprContextGuard;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{
+    pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
+};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use smallvec::{smallvec, SmallVec};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
@@ -55,37 +55,104 @@ use tantivy::{
 };
 use thiserror::Error;
 
-/// Bundle of context parameters for query conversion
-///
-/// This struct owns an ExprContextGuard and provides references to the components needed
-/// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
-/// remains valid for the lifetime of this struct.
-///
-/// Note: Currently this uses ExprContextGuard which is specific to execution-time contexts
-/// (created via ExecAssignExprContext). For planner-time usage, we would need to support
-/// the planner's expression context as well.
-pub struct QueryContext<'a> {
-    pub schema: &'a SearchIndexSchema,
-    pub reader: &'a SearchIndexReader,
-    pub index: &'a PgSearchRelation,
-    pub context: ExprContextGuard, // Execution-time expression context
-}
+// F64 can exactly represent integers up to 2^53 (permissive boundary).
+// This is used when converting F64 to integer types where 2^53 is losslessly convertible.
+pub(crate) const F64_EXACT_INTEGER_MAX: u64 = 1u64 << 53;
 
-impl<'a> QueryContext<'a> {
-    /// Create a new QueryContext, taking ownership of the provided ExprContextGuard
-    pub fn new(
-        schema: &'a SearchIndexSchema,
-        reader: &'a SearchIndexReader,
-        index: &'a PgSearchRelation,
-        context: ExprContextGuard,
-    ) -> Self {
-        Self {
-            schema,
-            reader,
-            index,
-            context,
+// Conservative boundary (2^53-2) for deciding when to create F64 variants from integers.
+// Matches types.rs classification logic to ensure consistency between indexing and querying.
+// Values > this threshold are stored/queried as I64/U64 only, not F64.
+pub(crate) const F64_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 2;
+
+/// Expands a numeric value into multiple Tantivy term variants to handle
+/// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
+/// This enables cross-type matching for equality and IN clause queries.
+/// Uses SmallVec to avoid heap allocation for typical cases (up to 3 terms).
+pub(crate) fn expand_json_numeric_to_terms(
+    tantivy_field: Field,
+    value: &OwnedValue,
+    path: Option<&str>,
+) -> anyhow::Result<SmallVec<[Term; 3]>> {
+    let mut terms = SmallVec::new();
+
+    match value {
+        OwnedValue::I64(i64_val) => {
+            // Create I64 variant (matches JSON integers like 1)
+            let i64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
+            terms.push(i64_term);
+
+            // Also create F64 variant (matches JSON floats like 1.0)
+            let f64_value = OwnedValue::F64(*i64_val as f64);
+            let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
+            terms.push(f64_term);
+
+            // For non-negative i64 values, also create U64 variant
+            // This handles the case where JSON stores a number as U64 but query uses I64
+            if *i64_val >= 0 {
+                let u64_value = OwnedValue::U64(*i64_val as u64);
+                let u64_term = value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
+                terms.push(u64_term);
+            }
         }
+        OwnedValue::U64(u64_val) => {
+            // Create U64 variant (matches large JSON integers)
+            let u64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
+            terms.push(u64_term);
+
+            // Also create F64 variant if it doesn't lose precision
+            if *u64_val <= F64_SAFE_INTEGER_MAX {
+                let f64_value = OwnedValue::F64(*u64_val as f64);
+                let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
+                terms.push(f64_term);
+            }
+
+            // If value fits in I64, also create I64 variant
+            if *u64_val <= i64::MAX as u64 {
+                let i64_value = OwnedValue::I64(*u64_val as i64);
+                let i64_term = value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
+                terms.push(i64_term);
+            }
+        }
+        OwnedValue::F64(f64_val) => {
+            // Always create F64 variant
+            let f64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
+            terms.push(f64_term);
+
+            // For special float values (NaN, Infinity, -Infinity), only create F64 variant
+            if !f64_val.is_finite() {
+                return Ok(terms);
+            }
+
+            // If it's a whole number, create integer variants
+            if f64_val.fract() == 0.0 {
+                // Create I64 variant if in i64 range and within safe precision
+                // Using permissive boundary: 2^53 can be exactly represented in F64
+                if *f64_val >= i64::MIN as f64
+                    && *f64_val <= i64::MAX as f64
+                    && *f64_val >= -(F64_EXACT_INTEGER_MAX as f64)
+                    && *f64_val <= F64_EXACT_INTEGER_MAX as f64
+                {
+                    let i64_value = OwnedValue::I64(*f64_val as i64);
+                    let i64_term =
+                        value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
+                    terms.push(i64_term);
+                }
+
+                // Create U64 variant if in u64 range (including values > i64::MAX)
+                // Note: We check >= 0 because U64 can't represent negative numbers
+                // Using permissive boundary for lossless conversion
+                if *f64_val >= 0.0 && *f64_val <= F64_EXACT_INTEGER_MAX as f64 {
+                    let u64_value = OwnedValue::U64(*f64_val as u64);
+                    let u64_term =
+                        value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
+                    terms.push(u64_term);
+                }
+            }
+        }
+        _ => return Err(anyhow::anyhow!("Expected numeric value")),
     }
+
+    Ok(terms)
 }
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
@@ -493,6 +560,49 @@ impl ExplainFormat for SearchQueryInput {
     }
 }
 
+impl SearchQueryInput {
+    pub unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
+        if is_null {
+            return None;
+        }
+
+        // Check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
+        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
+        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
+        let is_sqi_array = (*array).ndim >= 1
+            && (*array).ndim <= pg_sys::MAXDIM as i32
+            && (*array).elemtype == searchqueryinput_typoid();
+
+        if is_sqi_array {
+            if let Some(elements) =
+                FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())
+            {
+                return Some(Self::boolean_disjunction(elements));
+            }
+        }
+
+        // Detoast if needed (PostgreSQL memory context handles cleanup)
+        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+        let bytes = varlena_to_byte_slice(detoasted);
+
+        serde_cbor::from_slice::<SearchQueryInput>(bytes)
+            .or_else(|_| serde_json::from_slice::<SearchQueryInput>(bytes))
+            .ok()
+    }
+
+    pub fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
+        match elements.len() {
+            0 => SearchQueryInput::Empty,
+            1 => elements.pop().unwrap(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![],
+                should: elements,
+                must_not: vec![],
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TermInput {
     pub field: FieldName,
@@ -871,28 +981,47 @@ impl SearchQueryInput {
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                let mut terms = vec![];
-                for TermInput {
-                    field,
-                    value,
-                    is_datetime,
-                } in fields
-                {
-                    let search_field = schema
-                        .search_field(field.root())
-                        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                    let field_type = search_field.field_entry().field_type();
-                    let is_datetime = search_field.is_datetime() || is_datetime;
-                    terms.push(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?);
-                }
+                Ok(Box::new(TermSetQuery::new(fields.into_iter().flat_map(
+                    |TermInput {
+                         field,
+                         value,
+                         is_datetime,
+                     }| {
+                        let search_field = schema
+                            .search_field(field.root())
+                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
+                            .expect("could not find search field");
+                        let field_type = search_field.field_entry().field_type();
+                        let is_datetime = search_field.is_datetime() || is_datetime;
 
-                Ok(Box::new(TermSetQuery::new(terms)))
+                        // Check if this is a JSON field with numeric value
+                        let is_json_field = matches!(field_type, FieldType::JsonObject(_));
+                        let is_numeric = matches!(
+                            value,
+                            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+                        );
+
+                        if is_json_field && is_numeric && !is_datetime {
+                            // For JSON numeric fields, expand to multiple type variants
+                            expand_json_numeric_to_terms(
+                                search_field.field(),
+                                &value,
+                                field.path().as_deref(),
+                            )
+                            .expect("could not expand JSON numeric to terms")
+                        } else {
+                            // Standard term creation for non-JSON or non-numeric fields
+                            smallvec![value_to_term(
+                                search_field.field(),
+                                &value,
+                                field_type,
+                                field.path().as_deref(),
+                                is_datetime,
+                            )
+                            .expect("could not convert argument to search term")]
+                        }
+                    },
+                ))))
             }
             SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
                 schema,

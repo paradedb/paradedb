@@ -23,18 +23,18 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
-use crate::postgres::{ParallelExplainData, ParallelScanState};
+use crate::postgres::{ParallelExplainData, ParallelScanArgs, ParallelScanState};
 use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -72,12 +72,13 @@ pub struct PdbScanState {
 
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
-    pub score_funcoid: pg_sys::Oid,
+    pub score_funcoids: [pg_sys::Oid; 2],
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
-    pub snippet_funcoid: pg_sys::Oid,
-    pub snippet_positions_funcoid: pg_sys::Oid,
+    pub snippet_funcoids: [pg_sys::Oid; 2],
+    pub snippets_funcoids: [pg_sys::Oid; 2],
+    pub snippet_positions_funcoids: [pg_sys::Oid; 2],
 
     pub snippet_generators:
         HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
@@ -92,6 +93,11 @@ pub struct PdbScanState {
     pub ambulkdelete_epoch: u32,
 
     pub doc_from_heap_state: Option<HeapFetchState>,
+
+    // Window aggregate support
+    pub window_aggregates: Vec<WindowAggregateInfo>,
+    pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
+    pub const_window_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
@@ -177,8 +183,8 @@ impl PdbScanState {
         serde_json::to_value(&self.base_search_query_input)
     }
 
-    pub fn parallel_serialization_data(&self) -> (&[SegmentReader], Vec<u8>) {
-        let serialized_query = serde_json::to_vec(self.search_query_input())
+    pub fn parallel_scan_args(&self) -> ParallelScanArgs<'_> {
+        let query = serde_json::to_vec(self.search_query_input())
             .expect("should be able to serialize query");
 
         let segment_readers = self
@@ -187,7 +193,13 @@ impl PdbScanState {
             .expect("search reader must be initialized to build parallel serialization data")
             .segment_readers();
 
-        (segment_readers, serialized_query)
+        let with_aggregates = !self.window_aggregates.is_empty();
+
+        ParallelScanArgs {
+            segment_readers,
+            query,
+            with_aggregates,
+        }
     }
 
     pub fn has_postgres_expressions(&mut self) -> bool {
@@ -249,7 +261,7 @@ impl PdbScanState {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-        if let SnippetType::Text(_, _, config, _) = snippet_type {
+        if let SnippetType::SingleText(_, config, _) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 
@@ -259,6 +271,28 @@ impl PdbScanState {
         } else {
             Some(html)
         }
+    }
+
+    pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let snippets: Vec<_> = generator
+            .snippets(&text)
+            .into_iter()
+            .flat_map(|mut snippet| {
+                if let SnippetType::MultipleText(_, config, _, _) = snippet_type {
+                    snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+                }
+
+                let html = snippet.to_html();
+                if html.trim().is_empty() {
+                    None
+                } else {
+                    Some(html)
+                }
+            })
+            .collect();
+        Some(snippets)
     }
 
     pub fn get_snippet_positions(
@@ -328,6 +362,7 @@ impl PdbScanState {
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;
         self.invisible_tuple_count = 0;
+        self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);
     }
 

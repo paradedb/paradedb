@@ -49,7 +49,7 @@ GROUP BY name;
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('AVG'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(price), MAX(rating), AVG(age)
@@ -82,12 +82,12 @@ GROUP BY name;
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), SUM(price), MAX(rating)
      Group By: name
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"sum":{"field":"price","missing":null}},"2":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT name, COUNT(*), SUM(price), MAX(rating) 
@@ -111,12 +111,12 @@ GROUP BY name;
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
+   Output: name, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('AVG'::text)
    Index: idxusers
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*), MAX(rating), AVG(age)
      Group By: name
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"max":{"field":"rating","missing":null}},"2":{"avg":{"field":"age","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"rating","missing":null}},"1":{"avg":{"field":"age","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
 (7 rows)
 
 SELECT name, COUNT(*), MAX(rating), AVG(age) 

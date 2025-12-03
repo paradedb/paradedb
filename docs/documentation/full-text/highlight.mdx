@@ -1,0 +1,145 @@
+---
+title: Highlighting
+description: Generate snippets for portions of the source text that match the query string
+canonical: https://docs.paradedb.com/documentation/full-text/highlight
+---
+
+<Note>
+  Highlighting is an expensive process and can slow down query times. We
+  recommend passing a `LIMIT` to any query where `pdb.snippet` or `pdb.snippets`
+  is called to restrict the number of snippets that need to be generated.
+</Note>
+
+<Note>Highlighting is not supported for fuzzy search.</Note>
+
+Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
+search query.
+
+## Basic Usage
+
+`pdb.snippet(<column>)` can be added to any query where an `@@@` operator is present. `pdb.snippet` returns the single best snippet, sorted by relevance score.
+The following query generates highlighted snippets against the `description` field.
+
+```sql
+SELECT id, pdb.snippet(description)
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+```
+
+<ParamField body="start_tag" default="<b>">
+  The leading indicator around the highlighted region.
+</ParamField>
+<ParamField body="end_tag" default="</b>">
+  The trailing indicator around the highlighted region.
+</ParamField>
+<ParamField body="max_num_chars" default={150}>
+  Max number of characters for a highlighted snippet. A snippet may contain
+  multiple matches if they are close to each other.
+</ParamField>
+
+By default, `<b></b>` encloses the snippet. This can be configured with `start_tag` and `end_tag`:
+
+```sql
+SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+```
+
+## Multiple Snippets
+
+`pdb.snippets(<column>)` returns an array of snippets, allowing you to retrieve multiple highlighted matches from a document. This is particularly useful when a document has several relevant matches spread throughout its content.
+
+```sql
+SELECT id, pdb.snippets(description, max_num_chars => 15)
+FROM mock_items
+WHERE description ||| 'artistic vase'
+LIMIT 5;
+```
+
+```ini Expected Response
+ id |                snippets
+----+-----------------------------------------
+ 19 | {<b>Artistic</b>,"ceramic <b>vase</b>"}
+(1 row)
+
+```
+
+<ParamField body="start_tag" default="<b>">
+  The leading indicator around the highlighted region.
+</ParamField>
+<ParamField body="end_tag" default="</b>">
+  The trailing indicator around the highlighted region.
+</ParamField>
+<ParamField body="max_num_chars" default={150}>
+  Max number of characters for a highlighted snippet. When `max_num_chars` is
+  small, multiple snippets may be generated for a single document.
+</ParamField>
+<ParamField body="limit" default={5}>
+  The maximum number of snippets to return per document.
+</ParamField>
+<ParamField body="offset" default={0}>
+  The number of snippets to skip before returning results. Use with `limit` for
+  pagination.
+</ParamField>
+<ParamField body="sort_by" default="score">
+  The order in which to sort the snippets. Can be `'score'` (default, sorts by
+  relevance) or `'position'` (sorts by appearance in the document).
+</ParamField>
+
+### Limiting and Offsetting Snippets
+
+You can control the number and order of snippets returned using the `limit`, `offset`, and `sort_by` parameters.
+
+For example, to get only the first snippet:
+
+```sql
+SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
+FROM mock_items
+WHERE description ||| 'running'
+LIMIT 5;
+```
+
+To get the second snippet (by skipping the first one):
+
+```sql
+SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset" => 1)
+FROM mock_items
+WHERE description ||| 'running'
+LIMIT 5;
+```
+
+### Sorting Snippets
+
+Snippets can be sorted either by their relevance score (`'score'`) or their position within the document (`'position'`).
+
+To sort snippets by their appearance in the document:
+
+```sql
+SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
+FROM mock_items
+WHERE description ||| 'artistic vase'
+LIMIT 5;
+```
+
+## Byte Offsets
+
+`pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns an array of
+tuples, where the the first element of the tuple is the byte index of the first byte of the highlighted region, and the second element is the byte index after the last byte of the region.
+
+```sql
+SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+```
+
+```ini Expected Response
+ id |          snippet           | snippet_positions
+----+----------------------------+-------------------
+  3 | Sleek running <b>shoes</b> | {"{14,19}"}
+  4 | White jogging <b>shoes</b> | {"{14,19}"}
+  5 | Generic <b>shoes</b>       | {"{8,13}"}
+(3 rows)
+```

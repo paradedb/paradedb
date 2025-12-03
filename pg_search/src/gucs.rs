@@ -24,6 +24,8 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
+use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
+
 /// Allows the user to toggle the use of our "ParadeDB Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -56,6 +58,12 @@ static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
+/// The maximum response size in bytes for a window aggregate.
+static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
+
+/// For testing, ensures the same handling of null aggregates as Postgres
+static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -84,7 +92,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
-static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(0);
+static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -213,6 +221,17 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.max_window_aggregate_response_bytes",
+        c"Maximum response size in bytes for a window aggregate.",
+        c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
+        &MAX_WINDOW_AGGREGATE_RESPONSE_BYTES,
+        1024,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.global_target_segment_count",
         c"a global target segment count override",
         c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
@@ -235,10 +254,19 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.global_mutable_segment_rows",
         c"a global mutable segment rows override",
-        c"Setting this to a non-zero value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
+        c"Setting this to a non-negative value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
         &GLOBAL_MUTABLE_SEGMENT_ROWS,
-        0,
-        i32::MAX,
+        -1,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.add_doc_count_to_aggs",
+        c"for testing, ensures the same handling of null aggregates as Postgres",
+        c"Meant for internal testing usage",
+        &ADD_DOC_COUNT_TO_AGGS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -357,23 +385,32 @@ pub fn max_term_agg_buckets() -> i32 {
     MAX_TERM_AGG_BUCKETS.get()
 }
 
+pub fn max_window_aggregate_response_bytes() -> usize {
+    MAX_WINDOW_AGGREGATE_RESPONSE_BYTES.get() as usize
+}
+
 pub fn topn_retry_scale_factor() -> i32 {
     TOPN_RETRY_SCALE_FACTOR.get()
 }
 
-pub fn global_mutable_segment_rows() -> Option<NonZeroUsize> {
+pub fn global_mutable_segment_rows() -> Option<usize> {
     let value = GLOBAL_MUTABLE_SEGMENT_ROWS.get();
-    if value > 0 {
-        NonZeroUsize::new(value as usize)
+    if value >= 0 {
+        Some(value as usize)
     } else {
         None
     }
+}
+
+pub fn add_doc_count_to_aggs() -> bool {
+    ADD_DOC_COUNT_TO_AGGS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::rel::PgSearchRelation;
     use pgrx::prelude::*;
 
     macro_rules! assert_approx_eq {
@@ -435,5 +472,56 @@ mod tests {
             1.0
         );
         assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(128)).is_err());
+    }
+
+    #[pg_test]
+    fn test_global_mutable_segment_rows() {
+        // valid options
+        Spi::run("SET paradedb.global_mutable_segment_rows = 1000;")
+            .expect("mutable_segment_rows should be 1000");
+        assert_eq!(global_mutable_segment_rows(), Some(1000));
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = 0;")
+            .expect("mutable_segment_rows should be 0");
+        assert_eq!(global_mutable_segment_rows(), Some(0));
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = -1;").unwrap();
+        assert_eq!(global_mutable_segment_rows(), None);
+
+        // invalid options
+        assert!(std::panic::catch_unwind(|| Spi::run(
+            "SET paradedb.global_mutable_segment_rows = 10001;"
+        ))
+        .is_err());
+        assert!(std::panic::catch_unwind(|| Spi::run(
+            "SET paradedb.global_mutable_segment_rows = -2;"
+        ))
+        .is_err());
+
+        // global override
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let options = indexrel.options();
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = -1;").unwrap();
+        assert_eq!(
+            options.mutable_segment_rows(),
+            Some(NonZeroUsize::new(500).unwrap())
+        );
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
+        assert_eq!(options.mutable_segment_rows(), None);
+
+        Spi::run("SET paradedb.global_mutable_segment_rows = 1000;").unwrap();
+        assert_eq!(
+            options.mutable_segment_rows(),
+            Some(NonZeroUsize::new(1000).unwrap())
+        );
     }
 }

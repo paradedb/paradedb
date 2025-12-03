@@ -34,7 +34,6 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING bm25 (
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
-psql:common/mixedff_basic_setup.sql:38: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),

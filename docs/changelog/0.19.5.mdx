@@ -1,0 +1,13 @@
+---
+title: 0.19.5
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Brought back the deprecated `paradedb.score` and `paradedb.snippet` functions so existing queries aren't broken (these
+  functions have been renamed in the [v2 API](/documentation/sorting/score))
+- Fixed a bug in the free space map where the data structure could become very sparse, leading to unnecessary page reads
+- Fixed a bug where snippet generation was broken for the `pdb.unicode_words` tokenizer
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.19.5).

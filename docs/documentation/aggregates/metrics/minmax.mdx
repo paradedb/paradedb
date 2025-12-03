@@ -1,39 +1,69 @@
 ---
 title: Min/Max
+description: Compute the min/max value of a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/minmax
 ---
 
-`MIN` and `MAX` return the smallest and largest values of a column, respectively.
+`min` and `max` return the smallest and largest values of a column, respectively.
 
-```sql
-SELECT MIN(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+<CodeGroup>
+```sql Min
+SELECT pdb.agg('{"min": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
 ```
 
-<Note>
-  The field being min/maxed, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
-</Note>
+```sql Max
+SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+</CodeGroup>
+
+<CodeGroup>
+```ini Expected Response (Min)
+      agg
+----------------
+ {"value": 1.0}
+(1 row)
+```
+
+```ini Expected Response (Max)
+      agg
+----------------
+ {"value": 5.0}
+(1 row)
+```
+
+</CodeGroup>
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.MinAggregation.html) for all available options.
+
+## SQL Min/Max Syntax
+
+SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
+
+<CodeGroup>
+```sql Min
+SELECT MIN(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```sql Max
+SELECT MAX(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+</CodeGroup>
 
 By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:
 
 ```sql
 SELECT MIN(COALESCE(rating, 0)) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-To verify that `MIN` was pushed down, look for a `ParadeDB Aggregate Scan` with `min`/`max` in the `EXPLAIN` output:
-
-```sql
-EXPLAIN SELECT MIN(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-```sql Expected Response
-                                      QUERY PLAN
----------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=4)
-   Index: search_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"min":{"field":"rating"}}}
-(4 rows)
+WHERE id @@@ pdb.all();
 ```

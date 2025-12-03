@@ -17,12 +17,12 @@ jobs:
   publish-pg_search:
     name: Publish pg_search to PGXN
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref, '-') }}
+    if: ${{ !contains(github.ref, '-rc.') }}
     container: pgxn/pgxn-tools
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 

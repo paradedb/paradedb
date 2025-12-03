@@ -1,39 +1,43 @@
 ---
 title: Count
+description: Count the number of values in a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/count
 ---
 
-Use `COUNT(*)` to count the number of matches for a query:
+The following query counts the number of values in a field:
 
 ```sql
-SELECT COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
 ```
 
-To exclude null values of a specific field from the final count, pass the field into `COUNT`:
+```ini Expected Response
+       agg
+-----------------
+ {"value": 41.0}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html) for all available options.
+
+## SQL Count Syntax
+
+SQL's `COUNT` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
 ```sql
 SELECT COUNT(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
 
-<Note>
-  The field being counted, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
-</Note>
-
-To verify that `COUNT` was pushed down, look for a `ParadeDB Aggregate Scan` with `value_count` in the `EXPLAIN` output:
+To count all rows, including rows with null values, use `COUNT(*)`:
 
 ```sql
-EXPLAIN SELECT COUNT(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-```sql Expected Response
-                                      QUERY PLAN
----------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
-   Index: search_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"rating"}}}
-(4 rows)
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all();
 ```

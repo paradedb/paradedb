@@ -1,0 +1,40 @@
+name: Validate Cherry Pick Labels
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, labeled, unlabeled]
+
+jobs:
+  validate-cherry-pick-labels:
+    name: Validate Cherry Pick Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for explicit cherry pick behavior
+        run: |
+          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          echo "Labels: $labels"
+
+          has_cherry_pick=$(echo "$labels" | jq 'any(.[]; startswith("cherry-pick/"))')
+          has_do_not_cherry_pick=$(echo "$labels" | jq 'contains(["Do Not Cherry Pick"])')
+
+          echo "Has cherry pick: $has_cherry_pick"
+          echo "Has do not cherry pick: $has_do_not_cherry_pick"
+
+          if [ "$has_cherry_pick" = "false" ] && [ "$has_do_not_cherry_pick" = "false" ]; then
+            echo "❌ PR must have either cherry-pick/* labels OR 'Do Not Cherry Pick' label"
+            echo "Please add appropriate labels to define the cherry pick behavior for this PR."
+            echo "Options:"
+            echo "- Add 'Do Not Cherry Pick' if this PR should not be backported"
+            echo "- Add cherry-pick/* labels for branches you want to cherry-pick to"
+            exit 1
+          fi
+
+          if [ "$has_cherry_pick" = "true" ] && [ "$has_do_not_cherry_pick" = "true" ]; then
+            echo "❌ PR has both 'Do Not Cherry Pick' and cherry-pick labels"
+            echo "Please choose either 'Do Not Cherry Pick' OR cherry-pick/* labels, not both."
+            exit 1
+          fi
+
+          echo "✅ PR has explicit cherry pick behavior defined"

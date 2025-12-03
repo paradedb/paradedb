@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
@@ -92,6 +92,36 @@ jobs:
           fi
           echo "Version check passed!"
 
+      - name: Validate the SQL Upgrade Script Exists
+        working-directory: pg_search/sql/
+        run: |
+          set -euo pipefail
+
+          target_version="${{ github.event.inputs.version }}"
+          echo "Original target version: ${target_version}"
+
+          # Strip prerelease suffixes like -rc.1, -beta.2, etc.
+          stripped_version="${target_version%%-*}"
+
+          echo "Normalized target version (without prerelease tag): ${stripped_version}"
+          echo "Looking for SQL upgrade scripts targeting version: ${stripped_version}"
+
+          # Enable nullglob so an empty glob expands to nothing
+          shopt -s nullglob
+
+          matches=(pg_search--*--"${stripped_version}".sql)
+
+          if (( ${#matches[@]} == 0 )); then
+            echo "❌ No SQL upgrade script found for version ${stripped_version} in $(pwd)."
+            echo "Expected at least one file named: pg_search--<past-version>--${stripped_version}.sql"
+            exit 1
+          fi
+
+          echo "✅ Found SQL upgrade script(s):"
+          for f in "${matches[@]}"; do
+            echo " - ${f}"
+          done
+
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
@@ -99,7 +129,7 @@ jobs:
         run: |
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag_version_version"
+          echo "Current latest release is $latest_tag_version"
           echo "Current version to be released is $current_tag_version"
 
           echo ""

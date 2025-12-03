@@ -1,0 +1,41 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Jieba without trim keeps whitespace tokens
+SELECT 'this is a test.'::pdb.jieba::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+-- Jieba with trim removes whitespace tokens
+SELECT 'this is a test.'::pdb.jieba('trim=true')::text[];
+        text        
+--------------------
+ {this,is,a,test,.}
+(1 row)
+
+-- Whitespace-only input gets dropped entirely when trimming
+SELECT '   '::pdb.jieba('trim=true')::text[];
+ text 
+------
+ {}
+(1 row)
+
+-- Trim recognizes Unicode whitespace (non-breaking space)
+SELECT (U&'\00A0foo\00A0')::pdb.jieba('trim=true')::text[];
+ text  
+-------
+ {foo}
+(1 row)
+
+-- Trim recognizes ideographic spaces used in East Asian text
+SELECT (U&'\3000漢字\3000')::pdb.jieba('trim=true')::text[];
+  text  
+--------
+ {漢字}
+(1 row)
+

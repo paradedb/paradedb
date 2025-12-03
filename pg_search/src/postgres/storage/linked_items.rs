@@ -149,20 +149,28 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     /// Return a Vec of all the items in this linked list
-    pub unsafe fn list(&self) -> Vec<T> {
+    pub unsafe fn list(&self, many: Option<usize>) -> Vec<T> {
         let mut items = vec![];
         let (mut blockno, mut buffer) = self.get_start_blockno();
+        let mut found = 0;
 
-        while blockno != pg_sys::InvalidBlockNumber {
+        'outer: while blockno != pg_sys::InvalidBlockNumber {
             buffer = self.bman.get_buffer_exchange(blockno, buffer);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
             while offsetno <= max_offset {
+                if let Some(many) = many {
+                    if found >= many {
+                        break 'outer;
+                    }
+                }
+
                 if let Some((deserialized, _)) = page.deserialize_item::<T>(offsetno) {
                     items.push(deserialized);
                 }
                 offsetno += 1;
+                found += 1;
             }
             blockno = page.next_blockno();
         }
@@ -248,11 +256,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
+                if page.item_is_dead(offsetno) {
+                    offsetno += 1;
+                    continue;
+                }
+
                 if let Some((entry, _)) = page.deserialize_item::<T>(offsetno) {
                     match f(self.bman_mut(), entry) {
                         RetainItem::Remove(entry) => {
                             page.mark_item_dead(offsetno);
-
                             recycled_entries.push(entry);
                             delete_offsets.push(offsetno);
                         }
@@ -356,11 +368,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         // Acquire and hold a shared lock on the header for the entire operation, preventing the
         // list from being swapped out from under us by atomically between our read locks and
         // our write locks.
-        let _header_lock = self.bman.get_buffer(self.header_blockno);
+        let header_lock = self.bman.get_buffer(self.header_blockno);
+        let start_blockno = header_lock
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
 
         loop {
             // Search while holding read locks.
-            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp, Some(start_blockno))?;
 
             // Acquire a write lock (a cleanup lock in particular, because we're shortening the
             // page), and double check that we're still looking at the correct item.
@@ -394,11 +410,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         // Acquire and hold a shared lock on the header for the entire operation, preventing the
         // list from being swapped out from under us by atomically between our read locks and
         // our write locks.
-        let _header_lock = self.bman.get_buffer(self.header_blockno);
+        let header_lock = self.bman.get_buffer(self.header_blockno);
+        let start_blockno = header_lock
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
 
         loop {
             // Search while holding read locks.
-            let (_, blockno, offsetno) = self.lookup_ex(&cmp)?;
+            let (_, blockno, offsetno) = self.lookup_ex(&cmp, Some(start_blockno))?;
 
             // Acquire a write lock, and double check that we're still looking at the correct item.
             let mut buffer = self.bman.get_buffer_mut(blockno);
@@ -426,7 +446,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
-        self.lookup_ex(cmp).map(|(t, _, _)| t)
+        self.lookup_ex(cmp, None).map(|(t, _, _)| t)
     }
 
     /// NOTE: It is not safe to make a mutation based on the result of this method without
@@ -434,10 +454,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub unsafe fn lookup_ex<Cmp: Fn(&T) -> bool>(
         &self,
         cmp: Cmp,
+        blockno: Option<pg_sys::BlockNumber>,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        let mut blockno = blockno.unwrap_or_else(|| self.get_start_blockno().0);
         while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman.get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -743,7 +764,7 @@ mod tests {
                         .is_ok());
                 } else {
                     assert!(list
-                        .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                        .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                         .is_err());
                 }
             }
@@ -806,11 +827,11 @@ mod tests {
                 for entry in entries {
                     if entry.xmax() == not_deleted_xid {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                             .is_ok());
                     } else {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id(), None)
                             .is_err());
                     }
                 }
@@ -848,10 +869,10 @@ mod tests {
         // Atomically modify the list, and then confirm that it contains unique blocks, and the
         // same contents.
         let list_block_numbers = linked_list_block_numbers(&list);
-        let list_contents = list.list();
+        let list_contents = list.list(None);
         let guard = list.atomically();
         let duplicate_block_numbers = linked_list_block_numbers(&guard);
-        let duplicate_contents = guard.list();
+        let duplicate_contents = guard.list(None);
         assert_eq!(
             list_block_numbers
                 .intersection(&duplicate_block_numbers)
@@ -865,7 +886,7 @@ mod tests {
         // matches afterwards.
         guard.commit();
         assert_eq!(linked_list_block_numbers(&list), duplicate_block_numbers);
-        assert_eq!(list.list(), duplicate_contents);
+        assert_eq!(list.list(None), duplicate_contents);
     }
 
     fn init_bm25_index() -> pg_sys::Oid {

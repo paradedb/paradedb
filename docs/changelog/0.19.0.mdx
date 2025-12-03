@@ -1,5 +1,6 @@
 ---
 title: 0.19.0
+noindex: true
 ---
 
 <Note>
@@ -12,7 +13,7 @@ title: 0.19.0
 
 ### Broadened Aggregate Pushdown Support
 
-The [custom aggregate scan](/documentation/aggregates) has pushdown support for several new query types. The first is `FILTER`,
+The [custom aggregate scan](/documentation/aggregates/overview) has pushdown support for several new query types. The first is `FILTER`,
 which is analogous to the Elastic filters aggregation. It allows a single query to efficiently collect aggregates over multiple
 `WHERE` clauses:
 
@@ -46,14 +47,14 @@ which means that ParadeDB Community can now run as a logical replica.
 
 ### New v2 API Capabilities
 
-We have made significant progress on the new [v2 API](/v2/overview). A non-exhaustive list of additions includes:
+We have made significant progress on the new [v2 API](/documentation/overview). A non-exhaustive list of additions includes:
 
-- A new way to specify index configuration options like [tokenizers](/v2/tokenizers/overview) and [token filters](/v2/token_filters/overview) without the
+- A new way to specify index configuration options like [tokenizers](/documentation/tokenizers/overview) and [token filters](/documentation/token-filters/overview) without the
   old JSON string syntax
-- First class support for [multiple tokenizers per field](/v2/tokenizers/multiple_per_field)
-- New token filters like [alpha numeric only](/v2/token_filters/alpha_numeric) and [token length](/v2/token_filters/token_length)
-- A new way to cast queries to [fuzzy](/v2/full-text/fuzzy), [slop](/v2/full-text/phrase#adding-slop), and [boost](/v2/sorting/boost)
-- An improved [more like this](/v2/query-builder/specialized/more_like_this) function
+- First class support for [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)
+- New token filters like [alpha numeric only](/documentation/token-filters/alphanumeric) and [token length](/documentation/token-filters/token-length)
+- A new way to cast queries to [fuzzy](/documentation/full-text/fuzzy), [slop](/documentation/full-text/phrase#adding-slop), and [boost](/documentation/sorting/boost)
+- An improved [more like this](/documentation/query-builder/specialized/more-like-this) function
 
 ## Performance Improvements 🚀
 
@@ -66,4 +67,4 @@ serializing, and flushing an immutable segment is now completely gone for these 
 The second is a new [free space map data structure](https://github.com/paradedb/paradedb/pull/3252), backed by an AVL tree. This data structure was designed to minimize lock contention
 during heavy, concurrent writes.
 
-The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.19.0).
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.19.0).

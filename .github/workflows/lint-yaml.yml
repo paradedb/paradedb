@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up NodeJS Environment
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
 
       - name: Install Prettier
         run: npm install -g prettier

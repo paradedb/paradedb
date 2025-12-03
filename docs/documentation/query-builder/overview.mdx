@@ -1,0 +1,29 @@
+---
+title: How Advanced Query Functions Work
+description: ParadeDB's query builder functions provide advanced query types
+canonical: https://docs.paradedb.com/documentation/query-builder/overview
+---
+
+In addition to basic [match](/documentation/full-text/match), [phrase](/documentation/full-text/phrase), and
+[term](/documentation/full-text/term) queries, additional advanced query types are exposed as query builder functions.
+
+Query builder functions use the `@@@` operator. `@@@` takes a column on the left-hand side and a query builder function on the
+right-hand side. It means "find all rows where the column matches the given query."
+
+For example:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*rd');
+```
+
+```ini Expected Response
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+(2 rows)
+```
+
+This uses the [regex](/documentation/query-builder/term/regex) builder function to match all rows where `description` matches the regex expression `key.*rd`.

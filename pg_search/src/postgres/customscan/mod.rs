@@ -56,7 +56,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::{register_rel_pathlist, register_upper_path};
+pub use hook::{register_rel_pathlist, register_upper_path, register_window_aggregate_hook};
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
 // default/only implementation of `rescan_custom_scan`.
@@ -305,12 +305,21 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-pub fn score_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pdb.score(anyelement)".into_datum()],
-        )
-        .expect("the `pdb.score(anyelement)` function should exist")
-    }
+pub fn score_funcoids() -> [pg_sys::Oid; 2] {
+    [
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pdb.score(anyelement)".into_datum()],
+            )
+            .expect("the `pdb.score(anyelement)` function should exist")
+        },
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.score(anyelement)".into_datum()],
+            )
+            .expect("the `paradedb.score(anyelement)` function should exist")
+        },
+    ]
 }

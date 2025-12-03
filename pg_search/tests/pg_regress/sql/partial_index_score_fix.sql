@@ -2,6 +2,7 @@
 -- This tests the fix for using partial index predicates instead of All query for HeapExpr
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.global_mutable_segment_rows = 0;
 
 -- Setup test table
 CREATE TABLE partial_test (

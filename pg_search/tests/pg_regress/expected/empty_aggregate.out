@@ -7,6 +7,7 @@
 -- Related to issue #2996
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.add_doc_count_to_aggs TO on;
 -- =====================================================================
 -- SECTION 1: Setup Empty Tables
 -- =====================================================================
@@ -19,7 +20,7 @@ CREATE TABLE empty_test (
     created_at TIMESTAMP
 );
 -- Create index with fast fields for aggregation
-CREATE INDEX empty_test_idx ON empty_test 
+CREATE INDEX empty_test_idx ON empty_test
 USING bm25 (id, value, category, price, created_at)
 WITH (
     key_field='id',
@@ -37,11 +38,11 @@ CREATE TABLE empty_logs (
     timestamp TIMESTAMP,
     metadata JSONB
 );
-CREATE INDEX empty_logs_idx ON empty_logs 
-USING bm25 (id, message, country, severity, timestamp, metadata) 
+CREATE INDEX empty_logs_idx ON empty_logs
+USING bm25 (id, message, country, severity, timestamp, metadata)
 WITH (
-    key_field = 'id', 
-    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}', 
+    key_field = 'id',
+    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}',
     numeric_fields = '{"severity": {"fast": true}}',
     json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}'
 );
@@ -54,7 +55,7 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -80,7 +81,7 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('SUM'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: SUM(value)
@@ -99,7 +100,7 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('AVG'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: AVG(value)
@@ -118,7 +119,7 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('MIN'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MIN(value)
@@ -137,7 +138,7 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now()
+   Output: pdb.agg_fn('MAX'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: MAX(value)
@@ -152,19 +153,19 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 
 -- Test 2.7: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
+SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: now(), now(), now(), now(), now(), now()
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"value_count":{"field":"value","missing":null}},"2":{"sum":{"field":"value","missing":null}},"3":{"avg":{"field":"value","missing":null}},"4":{"min":{"field":"value","missing":null}},"5":{"max":{"field":"value","missing":null}},"_doc_count":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
-SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
+SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
  count | count | sum | avg | min | max 
 -------+-------+-----+-----+-----+-----
@@ -183,13 +184,13 @@ SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
 -- =====================================================================
 -- Test 3.1: Simple GROUP BY - should return empty result set (0 rows)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, now()
+   Output: category, pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -197,8 +198,8 @@ GROUP BY category;
      Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
  category | count 
 ----------+-------
@@ -206,35 +207,35 @@ GROUP BY category;
 
 -- Test 3.2: GROUP BY with ORDER BY - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*), SUM(value), AVG(value) 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*), SUM(value), AVG(value)
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 ORDER BY category;
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, now(), now(), now()
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*), SUM(value), AVG(value)
      Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"1":{"sum":{"field":"value","missing":null}},"2":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"value","missing":null}},"1":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, COUNT(*), SUM(value), AVG(value) 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*), SUM(value), AVG(value)
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 ORDER BY category;
  category | count | sum | avg 
 ----------+-------+-----+-----
 (0 rows)
 
 -- Test 3.3: GROUP BY with LIMIT - should return empty result set
-SELECT category, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 LIMIT 10;
  category | count 
 ----------+-------
@@ -242,14 +243,14 @@ LIMIT 10;
 
 -- Test 3.4: Multiple GROUP BY columns - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, value, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category, value 
+SELECT category, value, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category, value
 ORDER BY category, value;
                                                                                                               QUERY PLAN                                                                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
-   Output: category, value, now()
+   Output: category, value, pdb.agg_fn('COUNT(*)'::text)
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
      Applies to Aggregates: COUNT(*)
@@ -257,19 +258,19 @@ ORDER BY category, value;
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"value","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, value, COUNT(*) FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category, value 
+SELECT category, value, COUNT(*) FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category, value
 ORDER BY category, value;
  category | value | count 
 ----------+-------+-------
 (0 rows)
 
 -- Test 3.5: From the original issue report
-SELECT severity, COUNT(*) FROM empty_logs 
-WHERE id @@@ paradedb.all() 
-GROUP BY severity 
-ORDER BY severity DESC 
+SELECT severity, COUNT(*) FROM empty_logs
+WHERE id @@@ paradedb.all()
+GROUP BY severity
+ORDER BY severity DESC
 LIMIT 10;
  severity | count 
 ----------+-------
@@ -496,34 +497,34 @@ SELECT * FROM paradedb.aggregate(
 -- SECTION 6: Edge Cases and Complex Queries on Empty Tables
 -- =====================================================================
 -- Test 6.1: HAVING clause with empty GROUP BY result
-SELECT category, COUNT(*) as cnt 
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
-GROUP BY category 
+SELECT category, COUNT(*) as cnt
+FROM empty_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
 HAVING COUNT(*) > 0;
  category | cnt 
 ----------+-----
 (0 rows)
 
 -- Test 6.2: Complex aggregates with expressions
-SELECT 
+SELECT
     category,
     COUNT(*) as total_count,
     COUNT(DISTINCT value) as distinct_values,
     SUM(CASE WHEN value > 50 THEN 1 ELSE 0 END) as high_values,
     AVG(value * 2) as doubled_avg
-FROM empty_test 
-WHERE id @@@ paradedb.all() 
+FROM empty_test
+WHERE id @@@ paradedb.all()
 GROUP BY category;
  category | total_count | distinct_values | high_values | doubled_avg 
 ----------+-------------+-----------------+-------------+-------------
 (0 rows)
 
 -- Test 6.3: Aggregates with FILTER clause
-SELECT 
+SELECT
     COUNT(*) FILTER (WHERE value > 50) as high_count,
     SUM(value) FILTER (WHERE category = 'Electronics') as electronics_sum
-FROM empty_test 
+FROM empty_test
 WHERE id @@@ paradedb.all();
  high_count | electronics_sum 
 ------------+-----------------

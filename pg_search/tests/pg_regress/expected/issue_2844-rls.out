@@ -214,7 +214,6 @@ CREATE INDEX IF NOT EXISTS
 			"created_at": {}
 		}'
     );
-WARNING:  the `raw` tokenizer is deprecated
 -- Create the Tags table
 CREATE TABLE app.tags (
                           id VARCHAR(24) PRIMARY KEY DEFAULT app.create_object_id('tag'),

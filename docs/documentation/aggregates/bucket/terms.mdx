@@ -1,56 +1,47 @@
 ---
 title: Terms
+description: Count the number of occurrences for each value in a result set
+canonical: https://docs.paradedb.com/documentation/aggregates/bucket/terms
 ---
+
+<Note>
+  If a text or JSON field is in the `GROUP BY` or `ORDER BY` clause, it must use
+  the [literal](/documentation/tokenizers/available-tokenizers/literal)
+  tokenizer.
+</Note>
 
 A terms aggregation counts the number of occurrences for every unique value in a field. For example, the following query
 groups the `mock_items` table by `rating`, and calculates the number of items for each unique `rating`.
 
 ```sql
-SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+WHERE id @@@ pdb.all()
 GROUP BY rating
 LIMIT 10;
+```
+
+```ini Expected Response
+ rating |       agg
+--------+-----------------
+      4 | {"value": 16.0}
+      5 | {"value": 12.0}
+      3 | {"value": 9.0}
+      2 | {"value": 3.0}
+      1 | {"value": 1.0}
+(5 rows)
 ```
 
 Ordering by the bucketing field is supported:
 
 ```sql
-SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10;
 ```
 
-<Note>
-  Ordering by `COUNT` is not yet supported -- queries that do so will not be
-  optimized.
-</Note>
-
-<Note>
-  All fields in the `GROUP BY` and `ORDER BY` clauses, in this case `rating`,
-  must be indexed as [fast](/documentation/indexing/fast_fields).
-</Note>
+<Note>Ordering by the aggregate value is not yet supported.</Note>
 
 For performance reasons, we strongly recommend adding a `LIMIT` to the `GROUP BY`. Terms aggregations without a `LIMIT` consume more memory and
 are slower to execute. If a query does not have a limit and more than `65000` unique values are found in a field, an error will be returned.
-
-To verify that a terms aggregation was pushed down, look for a `ParadeDB Aggregate Scan` with `terms` in the `EXPLAIN` output:
-
-```sql
-EXPLAIN SELECT rating, COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.all()
-GROUP BY rating
-LIMIT 10;
-```
-
-```sql Expected Response
-                                             QUERY PLAN
-----------------------------------------------------------------------------------------------------
- Limit  (cost=0.00..0.00 rows=1 width=12)
-   ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=12)
-         Index: search_idx
-         Tantivy Query: {"with_index":{"query":"all"}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10,"segment_size":10}}}
-(5 rows)
-```

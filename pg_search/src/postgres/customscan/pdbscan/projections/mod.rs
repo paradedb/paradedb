@@ -17,6 +17,7 @@
 
 pub mod score;
 pub mod snippet;
+pub mod window_agg;
 
 use crate::api::operator::ReturnedNodePointer;
 use crate::api::FieldName;
@@ -24,12 +25,12 @@ use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    extract_snippet_positions, extract_snippet_text, snippet_funcoid, snippet_positions_funcoid,
-    SnippetType,
+    extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
+    snippet_positions_funcoids, SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::customscan::score_funcoid;
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::customscan::score_funcoids;
+use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::ptr::{addr_of_mut, NonNull};
@@ -99,9 +100,11 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let data = &*data.cast::<Data>();
-            if (*funcexpr).funcid == data.score_funcoid
-                || (*funcexpr).funcid == data.snipped_funcoid
-                || (*funcexpr).funcid == data.snippet_positions_funcoid
+            if data.score_funcoids.contains(&(*funcexpr).funcid)
+                || data.snippet_funcoids.contains(&(*funcexpr).funcid)
+                || data
+                    .snippet_positions_funcoids
+                    .contains(&(*funcexpr).funcid)
             {
                 return true;
             }
@@ -111,15 +114,15 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     }
 
     struct Data {
-        score_funcoid: pg_sys::Oid,
-        snipped_funcoid: pg_sys::Oid,
-        snippet_positions_funcoid: pg_sys::Oid,
+        score_funcoids: [pg_sys::Oid; 2],
+        snippet_funcoids: [pg_sys::Oid; 2],
+        snippet_positions_funcoids: [pg_sys::Oid; 2],
     }
 
     let mut data = Data {
-        score_funcoid: score_funcoid(),
-        snipped_funcoid: snippet_funcoid(),
-        snippet_positions_funcoid: snippet_positions_funcoid(),
+        score_funcoids: score_funcoids(),
+        snippet_funcoids: snippet_funcoids(),
+        snippet_positions_funcoids: snippet_positions_funcoids(),
     };
 
     let data = addr_of_mut!(data).cast();
@@ -198,9 +201,10 @@ pub unsafe fn pullout_funcexprs(
 pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
-    score_funcoid: pg_sys::Oid,
-    snippet_funcoid: pg_sys::Oid,
-    snippet_positions_funcoid: pg_sys::Oid,
+    score_funcoids: [pg_sys::Oid; 2],
+    snippet_funcoids: [pg_sys::Oid; 2],
+    snippets_funcoids: [pg_sys::Oid; 2],
+    snippet_positions_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
@@ -222,47 +226,58 @@ pub unsafe fn inject_placeholders(
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
-            if (*funcexpr).funcid == data.score_funcoid {
+            if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.const_score_node.cast());
             }
 
-            if (*funcexpr).funcid == data.snippet_funcoid
-                || (*funcexpr).funcid == data.snippet_positions_funcoid
-            {
-                let var = find_one_var(args.get_ptr(0)?)?;
-                let key = (data.rti as Varno, (*var).varattno);
+            let mut this_snippet_type = None;
 
-                let this_snippet_type = if (*funcexpr).funcid == data.snippet_funcoid {
-                    extract_snippet_text(args, data.rti, data.snippet_funcoid, data.attname_lookup)
-                } else {
-                    extract_snippet_positions(
-                        args,
-                        data.rti,
-                        data.snippet_positions_funcoid,
-                        data.attname_lookup,
-                    )
-                };
+            if let Some(snippet_type) = extract_snippet(
+                funcexpr,
+                data.rti,
+                data.snippet_funcoids,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                if let Some(this_snippet_type) = this_snippet_type {
-                    for snippet_type in data.snippet_generators.keys() {
-                        if this_snippet_type == *snippet_type {
-                            let const_ = pg_sys::makeConst(
-                                snippet_type.nodeoid(),
-                                -1,
-                                pg_sys::DEFAULT_COLLATION_OID,
-                                -1,
-                                pg_sys::Datum::null(),
-                                true,
-                                false,
-                            );
+            if let Some(snippet_type) = extract_snippets(
+                funcexpr,
+                data.rti,
+                data.snippets_funcoids,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                            data.const_snippet_nodes
-                                .entry(snippet_type.clone())
-                                .or_default()
-                                .push(const_);
+            if let Some(snippet_type) = extract_snippet_positions(
+                funcexpr,
+                data.rti,
+                data.snippet_positions_funcoids,
+                data.attname_lookup,
+            ) {
+                this_snippet_type = Some(snippet_type);
+            }
 
-                            return Some(const_.cast());
-                        }
+            if let Some(this_snippet_type) = this_snippet_type {
+                for snippet_type in data.snippet_generators.keys() {
+                    if this_snippet_type == *snippet_type {
+                        let const_ = pg_sys::makeConst(
+                            snippet_type.nodeoid(),
+                            -1,
+                            pg_sys::DEFAULT_COLLATION_OID,
+                            -1,
+                            pg_sys::Datum::null(),
+                            true,
+                            false,
+                        );
+
+                        data.const_snippet_nodes
+                            .entry(snippet_type.clone())
+                            .or_default()
+                            .push(const_);
+
+                        return Some(const_.cast());
                     }
                 }
             }
@@ -275,7 +290,7 @@ pub unsafe fn inject_placeholders(
             return replacement;
         }
 
-        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
             let fnptr = walker as usize as *const ();
             let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
@@ -283,7 +298,7 @@ pub unsafe fn inject_placeholders(
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
         {
             pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
         }
@@ -292,11 +307,12 @@ pub unsafe fn inject_placeholders(
     struct Data<'a> {
         rti: pg_sys::Index,
 
-        score_funcoid: pg_sys::Oid,
+        score_funcoids: [pg_sys::Oid; 2],
         const_score_node: *mut pg_sys::Const,
 
-        snippet_funcoid: pg_sys::Oid,
-        snippet_positions_funcoid: pg_sys::Oid,
+        snippet_funcoids: [pg_sys::Oid; 2],
+        snippets_funcoids: [pg_sys::Oid; 2],
+        snippet_positions_funcoids: [pg_sys::Oid; 2],
         attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
         snippet_generators:
@@ -307,7 +323,7 @@ pub unsafe fn inject_placeholders(
     let mut data = Data {
         rti,
 
-        score_funcoid,
+        score_funcoids,
         const_score_node: pg_sys::makeConst(
             pg_sys::FLOAT4OID,
             -1,
@@ -318,8 +334,9 @@ pub unsafe fn inject_placeholders(
             true,
         ),
 
-        snippet_funcoid,
-        snippet_positions_funcoid,
+        snippet_funcoids,
+        snippets_funcoids,
+        snippet_positions_funcoids,
         attname_lookup,
         snippet_generators,
         const_snippet_nodes: Default::default(),

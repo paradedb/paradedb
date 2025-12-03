@@ -25,9 +25,15 @@ pub mod config;
 pub mod operator;
 pub mod tokenize;
 pub mod tokenizers;
+pub mod window_aggregate;
 
 use pgrx::{
     direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
+};
+
+use crate::postgres::utils::lookup_pdb_function;
+pub use aggregate::{
+    agg_fn_oid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
@@ -219,6 +225,10 @@ impl FieldName {
     }
 
     pub fn path(&self) -> Option<String> {
+        if !self.0.as_str().contains('.') {
+            return None;
+        }
+
         let json_path = split_json_path(self.0.as_str());
         if json_path.len() == 1 {
             None
@@ -284,6 +294,15 @@ impl From<SortDirection> for tantivy::Order {
     }
 }
 
+impl From<SortDirection> for tantivy::aggregation::bucket::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => tantivy::aggregation::bucket::Order::Asc,
+            SortDirection::Desc => tantivy::aggregation::bucket::Order::Desc,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score,
@@ -301,4 +320,10 @@ impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score)
     }
+}
+
+/// Get the OID of the pdb.agg() aggregate function
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
+pub fn agg_funcoid() -> pg_sys::Oid {
+    lookup_pdb_function("agg", &[pg_sys::JSONBOID])
 }

@@ -1,5 +1,6 @@
 ---
 title: 0.17.0
+noindex: true
 ---
 
 ## Pushdown for `COUNT`
@@ -40,7 +41,7 @@ Prior to this release, the compaction, or merging, of the index [LSM tree](/welc
 `INSERT`/`UPDATE` transactions. While this is acceptable for smaller layers of the LSM tree, merging large layers can block transactions for
 long period of time.
 
-With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/documentation/configuration/write_throughput#background-layer-sizes)
+With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/documentation/performance-tuning/writes)
 and delivers significant improvements to write throughput for update-heavy tables.
 
 ## Non-Indexed Filter Pushdown
@@ -63,4 +64,4 @@ can get lost, preventing dead space in the index from being reclaimed by future 
 To solve this, we implemented our own, write-ahead logged free space map that lives alongside the BM25 index. This FSM is also more optimized than the Postgres
 FSM for bulk writes, which has improved disk write patterns.
 
-The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.17.0).
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.17.0).

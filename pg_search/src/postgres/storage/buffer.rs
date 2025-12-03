@@ -5,6 +5,8 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
 use pgrx::pg_sys;
+use stable_deref_trait::StableDeref;
+use std::mem::size_of;
 use std::ops::Deref;
 
 /// A module to help with tracking when/where blocks are acquired and released.
@@ -67,25 +69,41 @@ mod block_tracker {
     > = OnceLock::new();
 
     macro_rules! track {
-        ($style:ident, $pg_buffer:expr) => {
+        ($style:ident, $blockno:expr) => {
             use std::collections::hash_map::Entry;
-            let blockno = block_tracker::TrackedBlock::$style(
-                #[allow(unused_unsafe)]
-                unsafe {
-                    pg_sys::BufferGetBlockNumber($pg_buffer)
-                },
-            );
+
+            let blockno = block_tracker::TrackedBlock::$style($blockno);
+            assert!(!matches!(blockno, block_tracker::TrackedBlock::Drop(_)), "invalid block style: Drop not allowed");
+
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
             match lock.entry(blockno) {
                 Entry::Occupied(existing) => {
-                    // having an existing block is okay if the existing block is Pinned and we're trying
-                    // to track another Pinned or Read version of the block.
-                    let existing_okay = matches!(existing.key(), block_tracker::TrackedBlock::Pinned(_))
-                            && (
-                                    matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
-                                    || matches!(blockno, block_tracker::TrackedBlock::Read(_))
-                            );
+                    // having an existing block is okay if the new block follows Postgres' rules for acquiring and releasing buffers
+                    let existing_okay = match existing.key() {
+                        block_tracker::TrackedBlock::Pinned(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Read(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Write(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Conditional(_))
+                        }
+                        block_tracker::TrackedBlock::Read(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Write(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Conditional(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::ConditionalCleanup(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Cleanup(_) => {
+                            matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
+                        }
+                        block_tracker::TrackedBlock::Drop(_) => panic!("invalid existing block style"),
+                    };
 
                     if !existing_okay {
                         // any other combination is illegal within this process and we'll either WARN or panic
@@ -116,16 +134,10 @@ mod block_tracker {
     }
 
     macro_rules! forget {
-        ($pg_buffer:expr) => {
-            let blockno = {
-                #[allow(unused_unsafe)]
-                unsafe {
-                    pg_sys::BufferGetBlockNumber($pg_buffer)
-                }
-            };
+        ($blockno:expr) => {
             let map = block_tracker::BLOCK_TRACKER.get_or_init(|| Default::default());
             let mut lock = map.lock();
-            lock.remove(&block_tracker::TrackedBlock::Drop(blockno));
+            lock.remove(&block_tracker::TrackedBlock::Drop($blockno));
         };
     }
 
@@ -139,11 +151,11 @@ mod block_tracker {
 #[cfg(not(feature = "block_tracker"))]
 mod block_tracker {
     macro_rules! track {
-        ($style:ident, $pg_buffer:expr) => {};
+        ($style:ident, $blockno:expr) => {};
     }
 
     macro_rules! forget {
-        ($pg_buffer:expr) => {};
+        ($blockno:expr) => {};
     }
 
     pub(super) use forget;
@@ -158,12 +170,13 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
-            block_tracker::forget!(self.pg_buffer);
-            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
-                && pg_sys::InterruptHoldoffCount > 0    // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
-                && crate::postgres::utils::IsTransactionState()
-            {
-                pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
+                // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
+                if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState()
+                {
+                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+                }
             }
         }
     }
@@ -183,7 +196,23 @@ impl Buffer {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
             pg_page,
-            _buffer: self,
+            _buffer: Some(self),
+        }
+    }
+
+    /// Converts this Buffer into an ImmutablePage, which is UNLOCKED but still pinned.
+    ///
+    /// SAFETY: Must only be used with Buffers representing immutable data, which will not be
+    /// changed until all pins are dropped and/or a transaction horizon has passed (as enforced by
+    /// the FSM, for example).
+    pub unsafe fn into_immutable_page(mut self) -> ImmutablePage {
+        // Unlock the buffer, but preserve our pin.
+        pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+        let pg_buffer =
+            std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
+        block_tracker::forget!(pg_sys::BufferGetBlockNumber(pg_buffer));
+        ImmutablePage {
+            pinned_buffer: PinnedBuffer::new(pg_buffer),
         }
     }
 
@@ -202,7 +231,7 @@ impl Buffer {
         let pg_buffer = bman
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
             inner: Buffer::new(pg_buffer),
@@ -214,7 +243,7 @@ impl Buffer {
         drop(self);
 
         let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         Some(BufferMut {
             dirty: false,
             inner: Buffer::new(pg_buffer),
@@ -265,7 +294,7 @@ impl BufferMut {
         unsafe {
             Page {
                 pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
-                _buffer: &self.inner,
+                _buffer: Some(&self.inner),
             }
         }
     }
@@ -288,6 +317,21 @@ impl BufferMut {
 
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
+    }
+
+    pub fn into_immutable_page(mut self) -> ImmutablePage {
+        assert!(
+            !self.dirty,
+            "BufferMut::into_immutable_page called on a dirty page"
+        );
+
+        let inner = std::mem::replace(
+            &mut self.inner,
+            Buffer {
+                pg_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            },
+        );
+        unsafe { inner.into_immutable_page() }
     }
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
@@ -313,7 +357,7 @@ pub struct PinnedBuffer {
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
-            block_tracker::forget!(self.pg_buffer);
+            block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
             if crate::postgres::utils::IsTransactionState() {
                 pg_sys::ReleaseBuffer(self.pg_buffer);
             }
@@ -322,9 +366,13 @@ impl Drop for PinnedBuffer {
 }
 
 impl PinnedBuffer {
-    fn new(pg_buffer: pg_sys::Buffer) -> Self {
+    pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
+    }
+
+    pub fn number(self) -> pg_sys::BlockNumber {
+        unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 }
 
@@ -333,7 +381,7 @@ pub struct Page<'a> {
 
     // we never use this directly, but we hold onto it so that its Drop impl
     // won't run while we're live
-    _buffer: &'a Buffer,
+    _buffer: Option<&'a Buffer>,
 }
 
 impl<'a> Page<'a> {
@@ -410,9 +458,20 @@ impl<'a> PageMut<'a> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
+    pub fn item_is_dead(&self, offno: pg_sys::OffsetNumber) -> bool {
+        unsafe {
+            let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            (*item_id).lp_flags() == pg_sys::LP_DEAD
+        }
+    }
+
     pub fn mark_item_dead(&mut self, offno: pg_sys::OffsetNumber) {
         unsafe {
             let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            debug_assert!(
+                (*item_id).lp_flags() != pg_sys::LP_DEAD,
+                "item is already dead"
+            );
             (*item_id).set_lp_flags(pg_sys::LP_DEAD);
             self.buffer.dirty = true;
         }
@@ -631,6 +690,7 @@ impl BufferManager {
             .fsm()
             .pop(self)
             .map(|blockno| {
+                block_tracker::track!(Write, blockno);
                 self.rbufacc.get_buffer_extended(
                     blockno,
                     std::ptr::null_mut(),
@@ -638,9 +698,13 @@ impl BufferManager {
                     None,
                 )
             })
-            .unwrap_or_else(|| self.rbufacc.new_buffer());
+            .unwrap_or_else(|| {
+                #[allow(clippy::let_and_return)]
+                let pg_buffer = self.rbufacc.new_buffer();
+                block_tracker::track!(Write, unsafe { pg_sys::BufferGetBlockNumber(pg_buffer) });
+                pg_buffer
+            });
 
-        block_tracker::track!(Write, pg_buffer);
         BufferMut {
             dirty: false,
             inner: Buffer { pg_buffer },
@@ -660,13 +724,13 @@ impl BufferManager {
         let buffer_access = self.buffer_access().clone();
 
         let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
+            block_tracker::track!(Write, blockno);
             let pg_buffer = buffer_access.get_buffer_extended(
                 blockno,
                 std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
                 None,
             );
-            block_tracker::track!(Write, pg_buffer);
             BufferMut {
                 dirty: false,
                 inner: Buffer { pg_buffer },
@@ -692,7 +756,9 @@ impl BufferManager {
                 // by extending the relation with brand new buffers
                 new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
                     move |pg_buffer| {
-                        block_tracker::track!(Write, pg_buffer);
+                        block_tracker::track!(Write, unsafe {
+                            pg_sys::BufferGetBlockNumber(pg_buffer)
+                        });
                         BufferMut {
                             dirty: false,
                             inner: Buffer { pg_buffer },
@@ -708,7 +774,7 @@ impl BufferManager {
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
-        block_tracker::track!(Pinned, pg_buffer);
+        block_tracker::track!(Pinned, blockno);
         PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
     }
 
@@ -717,7 +783,7 @@ impl BufferManager {
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
 
-        block_tracker::track!(Read, pg_buffer);
+        block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
     }
 
@@ -734,7 +800,7 @@ impl BufferManager {
     }
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
-        block_tracker::track!(Write, pg_buffer);
+        block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
             inner: Buffer::new(
@@ -762,7 +828,7 @@ impl BufferManager {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
-                block_tracker::track!(Conditional, pg_buffer);
+                block_tracker::track!(Conditional, blockno);
                 Some(BufferMut {
                     dirty: false,
                     inner: Buffer::new(pg_buffer),
@@ -777,7 +843,7 @@ impl BufferManager {
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
-            block_tracker::track!(Cleanup, pg_buffer);
+            block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
             BufferMut {
                 dirty: false,
@@ -793,7 +859,7 @@ impl BufferManager {
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
-                block_tracker::track!(ConditionalCleanup, pg_buffer);
+                block_tracker::track!(ConditionalCleanup, blockno);
                 Some(BufferMut {
                     dirty: false,
                     inner: Buffer::new(pg_buffer),
@@ -807,6 +873,10 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
+    }
+
+    pub fn is_create_index(&self) -> bool {
+        self.rbufacc.rel().is_create_index()
     }
 }
 
@@ -826,3 +896,28 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     special.xmax = pg_sys::InvalidTransactionId;
     buffer
 }
+
+#[derive(Debug)]
+pub struct ImmutablePage {
+    pinned_buffer: PinnedBuffer,
+}
+
+impl Deref for ImmutablePage {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        let pg_page = unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) };
+        let page = Page {
+            pg_page,
+            _buffer: None,
+        };
+        let slice = page.as_slice();
+        // It's safe to extend the lifetime of this slice because `self` owns the `Buffer`,
+        // which keeps the underlying page data alive and pinned in memory.
+        unsafe { &*(slice as *const [u8]) }
+    }
+}
+
+unsafe impl StableDeref for ImmutablePage {}
+unsafe impl Send for ImmutablePage {}
+unsafe impl Sync for ImmutablePage {}

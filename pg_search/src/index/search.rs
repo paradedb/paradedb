@@ -18,6 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
+use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
 
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
@@ -41,6 +42,12 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
     // so this is necessary to maintain backwards compatibility with existing indexes
     #[allow(deprecated)]
     tokenizers.push(SearchTokenizer::KeywordDeprecated);
+    #[allow(deprecated)]
+    tokenizers.push(SearchTokenizer::Raw(
+        SearchTokenizerFilters::keyword_deprecated().clone(),
+    ));
+    // In 0.20.0 we changed the default tokenizer from `simple` to `unicode_words`
+    tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
 
     index.set_tokenizers(create_tokenizer_manager(tokenizers));
     index.set_fast_field_tokenizers(create_normalizer_manager());

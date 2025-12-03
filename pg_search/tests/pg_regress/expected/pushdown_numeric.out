@@ -1,0 +1,1431 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- ============================================================================
+-- PART 1: Regular numeric column tests (non-JSON)
+-- ============================================================================
+CREATE TABLE numeric_pushdown(
+    id SERIAL PRIMARY KEY,
+    text_col TEXT,
+    numeric_col NUMERIC,
+    float_col FLOAT4,
+    int_col INTEGER
+);
+INSERT INTO numeric_pushdown(text_col, numeric_col, float_col, int_col)
+SELECT
+    (ARRAY['Alice', 'Bob', 'Charlie', 'David', 'Eve'])[i % 5 + 1],
+    (i % 5)::numeric,
+    (i % 5)::float4,
+    (i % 5)::integer
+FROM generate_series(1, 100) i;
+CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING bm25 (
+    id, text_col, numeric_col, float_col, int_col
+) WITH (key_field = 'id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col = 1
+ORDER BY id LIMIT 10;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":1.0,"is_datetime":false}}]}}
+(9 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col = 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  1 | Bob      |           1 |         1 |       1
+  6 | Bob      |           1 |         1 |       1
+ 11 | Bob      |           1 |         1 |       1
+ 16 | Bob      |           1 |         1 |       1
+ 21 | Bob      |           1 |         1 |       1
+ 26 | Bob      |           1 |         1 |       1
+ 31 | Bob      |           1 |         1 |       1
+ 36 | Bob      |           1 |         1 |       1
+ 41 | Bob      |           1 |         1 |       1
+ 46 | Bob      |           1 |         1 |       1
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col > 1
+ORDER BY id LIMIT 10;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":1.0},"upper_bound":null,"is_datetime":false}}]}}
+(9 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col > 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  2 | Charlie  |           2 |         2 |       2
+  3 | David    |           3 |         3 |       3
+  4 | Eve      |           4 |         4 |       4
+  7 | Charlie  |           2 |         2 |       2
+  8 | David    |           3 |         3 |       3
+  9 | Eve      |           4 |         4 |       4
+ 12 | Charlie  |           2 |         2 |       2
+ 13 | David    |           3 |         3 |       3
+ 14 | Eve      |           4 |         4 |       4
+ 17 | Charlie  |           2 |         2 |       2
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col::int > 1
+ORDER BY id LIMIT 10;
+                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 1744 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 1 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 3 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 521"}]}}]}}
+(10 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col::int > 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  2 | Charlie  |           2 |         2 |       2
+  3 | David    |           3 |         3 |       3
+  4 | Eve      |           4 |         4 |       4
+  7 | Charlie  |           2 |         2 |       2
+  8 | David    |           3 |         3 |       3
+  9 | Eve      |           4 |         4 |       4
+ 12 | Charlie  |           2 |         2 |       2
+ 13 | David    |           3 |         3 |       3
+ 14 | Eve      |           4 |         4 |       4
+ 17 | Charlie  |           2 |         2 |       2
+(10 rows)
+
+DROP TABLE numeric_pushdown;
+-- ============================================================================
+-- PART 2: JSON Numeric Multi-Type Expansion Tests
+-- ============================================================================
+-- Tests multi-type expansion for JSON fields across I64, U64, and F64
+-- Single JSONB column with all numeric test values
+-- ============================================================================
+CREATE TABLE json_numeric_types (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+-- ============================================================================
+-- Test Data Setup
+-- ============================================================================
+-- Group 1: ONLY I64 - Integers without F64 variants (negative and positive)
+-- Group 2: ONLY U64 - Beyond i64::MAX (cannot be I64)
+-- Group 3: ONLY F64 - Decimal values (cannot be I64 or U64)
+-- Group 4: Cross-type - Same value stored as BOTH I64 and F64
+-- Group 5: Boundary values (2^53 boundaries)
+INSERT INTO json_numeric_types (data) VALUES
+    -- Group 1: ONLY I64 - Negative and positive integers (no F64 variant)
+    ('{"num": -9223372036854775808}'::jsonb),  -- i64::MIN
+    ('{"num": -1000}'::jsonb),
+    ('{"num": -42}'::jsonb),
+    ('{"num": -1}'::jsonb),
+    ('{"num": 0}'::jsonb),
+    ('{"num": 1}'::jsonb),
+    ('{"num": 42}'::jsonb),
+    ('{"num": 1000}'::jsonb),
+    ('{"num": 9223372036854775807}'::jsonb),  -- i64::MAX
+    -- Group 2: ONLY U64 - Beyond i64::MAX (cannot be I64)
+    ('{"num": 9223372036854775808}'::jsonb),  -- i64::MAX + 1
+    ('{"num": 10000000000000000000}'::jsonb),
+    ('{"num": 18446744073709551613}'::jsonb),  -- u64::MAX - 2
+    ('{"num": 18446744073709551614}'::jsonb),  -- u64::MAX - 1
+    ('{"num": 18446744073709551615}'::jsonb),  -- u64::MAX
+    -- Group 3: ONLY F64 - Decimal values (cannot be I64 or U64)
+    ('{"num": -42.5}'::jsonb),
+    ('{"num": -3.14159}'::jsonb),
+    ('{"num": 0.5}'::jsonb),
+    ('{"num": 3.14159}'::jsonb),
+    ('{"num": 42.5}'::jsonb),
+    -- Group 4: Cross-type - Same value stored as BOTH I64 and F64
+    -- These rows demonstrate multi-type expansion: query for 100 matches both
+    ('{"num": 100}'::jsonb),     -- Stored as I64
+    ('{"num": 100.0}'::jsonb),   -- Stored as F64
+    ('{"num": 999}'::jsonb),     -- Stored as I64
+    ('{"num": 999.0}'::jsonb),   -- Stored as F64
+    -- Group 5: Boundary values (2^53 - precision boundary for F64)
+    ('{"num": -9007199254740992}'::jsonb),  -- -2^53
+    ('{"num": -9007199254740991}'::jsonb),  -- -(2^53 - 1)
+    ('{"num": 9007199254740991}'::jsonb),   -- 2^53 - 1
+    ('{"num": 9007199254740992}'::jsonb),   -- 2^53
+    ('{"num": 9007199254740993}'::jsonb),   -- 2^53 + 1
+    ('{"num": 9007199254740994}'::jsonb),   -- 2^53 + 2
+    ('{"num": 9007199254740995}'::jsonb),   -- 2^53 + 3
+    -- Group 6: Edge case test values for range queries
+    ('{"num": 50}'::jsonb),
+    ('{"num": 99}'::jsonb),
+    ('{"num": 99.5}'::jsonb),
+    ('{"num": 100.5}'::jsonb),
+    ('{"num": 101}'::jsonb),
+    ('{"num": 150}'::jsonb),
+    ('{"num": 200}'::jsonb);
+CREATE INDEX json_numeric_idx ON json_numeric_types
+    USING bm25 (id, data)
+    WITH (key_field = 'id');
+-- ============================================================================
+-- SECTION A: EQUALITY (=) OPERATOR
+-- Tests single-value queries with multi-type expansion
+-- ============================================================================
+-- Test A1: Query value that exists ONLY in I64 (negative integer)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = -42
+ORDER BY id;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":-42.0,"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = -42
+ORDER BY id;
+ id | value 
+----+-------
+  3 | -42
+(1 row)
+
+-- Test A2: Query value that exists ONLY in U64 (beyond i64::MAX)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 9223372036854775808
+ORDER BY id;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":9223372036854775808,"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 9223372036854775808
+ORDER BY id;
+ id |        value        
+----+---------------------
+ 10 | 9223372036854775808
+(1 row)
+
+-- Test A3: Query value that exists ONLY in F64 (decimal)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 3.14159
+ORDER BY id;
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":3.14159,"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 3.14159
+ORDER BY id;
+ id |  value  
+----+---------
+ 18 | 3.14159
+(1 row)
+
+-- Test A4: Cross-type matching - query 100 should match BOTH 100 and 100.0
+-- Demonstrates multi-type expansion working correctly
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 100
+ORDER BY id;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":100.0,"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 100
+ORDER BY id;
+ id | value | json_type 
+----+-------+-----------
+ 20 | 100   | number
+ 21 | 100.0 | number
+(2 rows)
+
+-- Test A5: Cross-type matching - query 999.0 should match BOTH 999 and 999.0
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 999.0
+ORDER BY id;
+ id | value | json_type 
+----+-------+-----------
+ 22 | 999   | number
+ 23 | 999.0 | number
+(2 rows)
+
+-- Test A6: Query i64::MAX boundary
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 9223372036854775807
+ORDER BY id;
+ id |        value        
+----+---------------------
+  9 | 9223372036854775807
+(1 row)
+
+-- Test A7: Query u64::MAX boundary
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 18446744073709551615
+ORDER BY id;
+ id |        value         
+----+----------------------
+ 14 | 18446744073709551615
+(1 row)
+
+-- Test A8: Query zero (should work across types)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 0
+ORDER BY id;
+ id | value 
+----+-------
+  5 | 0
+(1 row)
+
+-- ============================================================================
+-- SECTION B: GREATER THAN (>) OPERATOR
+-- Tests range queries with multi-type expansion
+-- ============================================================================
+-- Test B1: Greater than with I64 value
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > 1000
+ORDER BY id;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({COERCEVIAIO :arg {OPEXPR :opno 3477 :opfuncid 3214 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 3802 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 110 117 109 ]}) :location -1} :resulttype 1700 :resultcollid 0 :coerceformat 1 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 -24 3 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+(9 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > 1000
+ORDER BY id;
+ id |        value         
+----+----------------------
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+(11 rows)
+
+-- Test B2: Greater than with U64 boundary (should find u64::MAX - 1 and u64::MAX)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > 18446744073709551613
+ORDER BY id;
+ id |        value         
+----+----------------------
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+(2 rows)
+
+-- Test B3: Greater than with F64 value
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > 3.0
+ORDER BY id;
+ id |        value         
+----+----------------------
+  7 | 42
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(26 rows)
+
+-- Test B4: Greater than negative (tests I64 negative range)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > -100
+ORDER BY id;
+ id |        value         
+----+----------------------
+  3 | -42
+  4 | -1
+  5 | 0
+  6 | 1
+  7 | 42
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(33 rows)
+
+-- ============================================================================
+-- SECTION C: LESS THAN (<) OPERATOR
+-- ============================================================================
+-- Test C1: Less than with positive I64 value
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric < 10
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+  6 | 1
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+(12 rows)
+
+-- Test C2: Less than i64::MAX boundary (should exclude U64 values)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric < 9223372036854775808
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+  6 | 1
+  7 | 42
+  8 | 1000
+  9 | 9223372036854775807
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(32 rows)
+
+-- Test C3: Less than with F64 value
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric < 1.0
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+(10 rows)
+
+-- Test C4: Less than negative (tests I64 negative range)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric < -1000
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+(3 rows)
+
+-- ============================================================================
+-- SECTION D: GREATER THAN OR EQUAL (>=) OPERATOR
+-- ============================================================================
+-- Test D1: Greater than or equal with U64 boundary
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric >= 18446744073709551614
+ORDER BY id;
+ id |        value         
+----+----------------------
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+(2 rows)
+
+-- Test D2: Greater than or equal with I64 value
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric >= 1000
+ORDER BY id;
+ id |        value         
+----+----------------------
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+(12 rows)
+
+-- Test D3: Greater than or equal to zero
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric >= 0
+ORDER BY id;
+ id |        value         
+----+----------------------
+  5 | 0
+  6 | 1
+  7 | 42
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(29 rows)
+
+-- ============================================================================
+-- SECTION E: LESS THAN OR EQUAL (<=) OPERATOR
+-- ============================================================================
+-- Test E1: Less than or equal with small I64 value
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric <= 1
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+  6 | 1
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+(11 rows)
+
+-- Test E2: Less than or equal to i64::MAX + 1 (first U64 value)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric <= 9223372036854775808
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+  6 | 1
+  7 | 42
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(33 rows)
+
+-- Test E3: Less than or equal to zero
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric <= 0
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  4 | -1
+  5 | 0
+ 15 | -42.5
+ 16 | -3.14159
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+(9 rows)
+
+-- ============================================================================
+-- SECTION F: BETWEEN OPERATOR
+-- Tests range queries with lower and upper bounds
+-- ============================================================================
+-- Test F1: BETWEEN with I64 range
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 0 AND 100
+ORDER BY id;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({COERCEVIAIO :arg {OPEXPR :opno 3477 :opfuncid 3214 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 3802 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 110 117 109 ]}) :location -1} :resulttype 1700 :resultcollid 0 :coerceformat 1 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 6 [ 24 0 0 0 0 -128 ]}) :location -1}","description":"OpExpr with operator OID 1757"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({COERCEVIAIO :arg {OPEXPR :opno 3477 :opfuncid 3214 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 3802 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 110 117 109 ]}) :location -1} :resulttype 1700 :resultcollid 0 :coerceformat 1 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1755"}]}}]}}
+(9 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 0 AND 100
+ORDER BY id;
+ id |  value  
+----+---------
+  5 | 0
+  6 | 1
+  7 | 42
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+(11 rows)
+
+-- Test F2: BETWEEN crossing type boundaries (I64 to U64)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 9223372036854775807 AND 9223372036854775808
+ORDER BY id;
+ id |        value        
+----+---------------------
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+(2 rows)
+
+-- Test F3: BETWEEN with U64 range
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 18446744073709551613 AND 18446744073709551615
+ORDER BY id;
+ id |        value         
+----+----------------------
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+(3 rows)
+
+-- Test F4: BETWEEN with negative range (I64)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN -1000 AND -1
+ORDER BY id;
+ id |  value   
+----+----------
+  2 | -1000
+  3 | -42
+  4 | -1
+ 15 | -42.5
+ 16 | -3.14159
+(5 rows)
+
+-- Test F5: BETWEEN crossing zero
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN -10 AND 10
+ORDER BY id;
+ id |  value   
+----+----------
+  4 | -1
+  5 | 0
+  6 | 1
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+(6 rows)
+
+-- Test F6: BETWEEN around cross-type values (should match both 100 and 100.0)
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 99 AND 101
+ORDER BY id;
+ id | value | json_type 
+----+-------+-----------
+ 20 | 100   | number
+ 21 | 100.0 | number
+ 32 | 99    | number
+ 33 | 99.5  | number
+ 34 | 100.5 | number
+ 35 | 101   | number
+(6 rows)
+
+-- ============================================================================
+-- SECTION G: IN OPERATOR
+-- Tests term set queries with multi-type expansion
+-- ============================================================================
+-- Test G1: IN with ONLY I64 values
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (-42, -1, 42)
+ORDER BY id;
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":-42.0,"is_datetime":false},{"field":"data.num","value":-1.0,"is_datetime":false},{"field":"data.num","value":42.0,"is_datetime":false}]}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (-42, -1, 42)
+ORDER BY id;
+ id | value 
+----+-------
+  3 | -42
+  4 | -1
+  7 | 42
+(3 rows)
+
+-- Test G2: IN with ONLY U64 values
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (9223372036854775808, 18446744073709551615)
+ORDER BY id;
+ id |        value         
+----+----------------------
+ 10 | 9223372036854775808
+ 14 | 18446744073709551615
+(2 rows)
+
+-- Test G3: IN with ONLY F64 values
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (0.5, 3.14159, 42.5)
+ORDER BY id;
+ id |  value  
+----+---------
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+(3 rows)
+
+-- Test G4: IN with mixed types (I64, U64, F64)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (
+    -42,                      -- I64
+    42.5,                     -- F64
+    9223372036854775808,      -- U64
+    18446744073709551615      -- U64
+)
+ORDER BY id;
+ id |        value         
+----+----------------------
+  3 | -42
+ 10 | 9223372036854775808
+ 14 | 18446744073709551615
+ 19 | 42.5
+(4 rows)
+
+-- Test G5: IN with cross-type values (should match both int and float)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (100, 999)
+ORDER BY id;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+         Table: json_numeric_types
+         Index: json_numeric_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":100.0,"is_datetime":false},{"field":"data.num","value":999.0,"is_datetime":false}]}}]}}
+(8 rows)
+
+SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (100, 999)
+ORDER BY id;
+ id | value | json_type 
+----+-------+-----------
+ 20 | 100   | number
+ 21 | 100.0 | number
+ 22 | 999   | number
+ 23 | 999.0 | number
+(4 rows)
+
+-- Test G6: IN with boundary values
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric IN (
+    -9223372036854775808,     -- i64::MIN
+    9223372036854775807,      -- i64::MAX
+    18446744073709551615      -- u64::MAX
+)
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  9 | 9223372036854775807
+ 14 | 18446744073709551615
+(3 rows)
+
+-- ============================================================================
+-- SECTION H: NOT IN OPERATOR
+-- Tests exclusion with multi-type expansion
+-- ============================================================================
+-- Test H1: NOT IN with cross-type values (should exclude both 100 and 100.0)
+SELECT COUNT(*) as count_not_in_list
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric NOT IN (100, 999);
+ count_not_in_list 
+-------------------
+                33
+(1 row)
+
+-- Test H2: NOT IN with specific values
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric NOT IN (0, -1, 1, 42)
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+  2 | -1000
+  3 | -42
+  8 | 1000
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 15 | -42.5
+ 16 | -3.14159
+ 17 | 0.5
+ 18 | 3.14159
+ 19 | 42.5
+ 20 | 100
+ 21 | 100.0
+ 22 | 999
+ 23 | 999.0
+ 24 | -9007199254740992
+ 25 | -9007199254740991
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+ 31 | 50
+ 32 | 99
+ 33 | 99.5
+ 34 | 100.5
+ 35 | 101
+ 36 | 150
+ 37 | 200
+(33 rows)
+
+-- ============================================================================
+-- SECTION I: BOUNDARY AND EDGE CASES
+-- ============================================================================
+-- Test I1: F64 precision boundary (2^53 - 1)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 9007199254740991
+ORDER BY id;
+ id |      value       
+----+------------------
+ 26 | 9007199254740991
+(1 row)
+
+-- Test I2: Beyond F64 safe precision (2^53 + 1)
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = 9007199254740993
+ORDER BY id;
+ id |      value       
+----+------------------
+ 28 | 9007199254740993
+(1 row)
+
+-- Test I3: i64::MIN boundary
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric = -9223372036854775808
+ORDER BY id;
+ id |        value         
+----+----------------------
+  1 | -9223372036854775808
+(1 row)
+
+-- Test I4: Range query around 2^53 boundary
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740993
+ORDER BY id;
+ id |      value       
+----+------------------
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+(3 rows)
+
+-- ============================================================================
+-- SECTION J: EDGE CASES AND ERROR HANDLING
+-- ============================================================================
+-- Test J1: Empty range (inverted bounds) - should return 0 rows
+-- Tests is_empty_range() function
+SELECT COUNT(*) as count_should_be_zero
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 200 AND 100;
+ count_should_be_zero 
+----------------------
+                    0
+(1 row)
+
+-- Test J2: Boundary-exact range (100 to 100) - should match 100 and 100.0
+-- Tests Bound::Included handling
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 100 AND 100
+ORDER BY id;
+ id | value 
+----+-------
+ 20 | 100
+ 21 | 100.0
+(2 rows)
+
+-- Test J3: Excluded bounds test (> 99 AND < 101)
+-- Tests Bound::Excluded handling
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric > 99
+AND (data->>'num')::numeric < 101
+ORDER BY id;
+ id | value 
+----+-------
+ 20 | 100
+ 21 | 100.0
+ 33 | 99.5
+ 34 | 100.5
+(4 rows)
+
+-- Test J4: Single-type optimization (U64 only beyond 2^53)
+-- Tests single RangeQuery optimization path
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 9007199254740993 AND 18446744073709551615
+ORDER BY id;
+ id |        value         
+----+----------------------
+  9 | 9223372036854775807
+ 10 | 9223372036854775808
+ 11 | 10000000000000000000
+ 12 | 18446744073709551613
+ 13 | 18446744073709551614
+ 14 | 18446744073709551615
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+ 30 | 9007199254740995
+(9 rows)
+
+-- Test J5: F64-only range (decimals only)
+-- Tests single F64 RangeQuery when no integers match
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 99.5 AND 100.5
+ORDER BY id;
+ id | value 
+----+-------
+ 20 | 100
+ 21 | 100.0
+ 33 | 99.5
+ 34 | 100.5
+(4 rows)
+
+-- Test J6: Range at exact 2^53 boundary
+-- Tests precision boundary F64_SAFE_INTEGER_MAX
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740992
+ORDER BY id;
+ id |      value       
+----+------------------
+ 26 | 9007199254740991
+ 27 | 9007199254740992
+(2 rows)
+
+-- Test J7: Range crossing 2^53 boundary
+-- Tests type transitions at precision limit
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 9007199254740992 AND 9007199254740994
+ORDER BY id;
+ id |      value       
+----+------------------
+ 27 | 9007199254740992
+ 28 | 9007199254740993
+ 29 | 9007199254740994
+(3 rows)
+
+-- Test J8: Negative empty range (inverted)
+SELECT COUNT(*) as count_should_be_zero
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 100 AND 50;
+ count_should_be_zero 
+----------------------
+                    0
+(1 row)
+
+-- Test J9: Narrow range (100 to 101)
+-- Tests multi-type matching in narrow window
+SELECT id, data->>'num' as value
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric BETWEEN 100 AND 101
+ORDER BY id;
+ id | value 
+----+-------
+ 20 | 100
+ 21 | 100.0
+ 34 | 100.5
+ 35 | 101
+(4 rows)
+
+-- Test J10: Excluded upper bound at exact match
+-- Tests (>= 100 AND < 100) - should be empty
+SELECT COUNT(*) as count_should_be_zero
+FROM json_numeric_types
+WHERE id @@@ paradedb.all()
+AND (data->>'num')::numeric >= 100
+AND (data->>'num')::numeric < 100;
+ count_should_be_zero 
+----------------------
+                    0
+(1 row)
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+DROP TABLE json_numeric_types;
+-- ============================================================================
+-- PART 3: JSON Fast Field Numeric Range Query Tests
+-- ============================================================================
+-- Tests JSON numeric range queries on fast fields with both NUMERIC and FLOAT8
+-- pushdown. Both produce the same behavior because fast fields store values
+-- as F64 when mixed int/float data exists.
+-- ============================================================================
+CREATE TABLE json_fast_field_test (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+-- Insert test data with mixed integers and floats
+-- The presence of float values causes the fast field column to store ALL values as F64
+INSERT INTO json_fast_field_test (data) VALUES
+    ('{"value": 100}'),
+    ('{"value": 200}'),
+    ('{"value": 500}'),
+    ('{"value": 1000}'),
+    ('{"value": 1.5}'),                 -- Float triggers F64 storage
+    ('{"value": 99.9}'),
+    ('{"value": 9007199254740991}'),    -- 2^53 - 1 (safe in F64)
+    ('{"value": 9007199254740992}'),    -- 2^53 (exact in F64)
+    ('{"value": 9007199254740993}'),    -- 2^53 + 1 (precision loss in F64)
+    ('{"value": 9007199254740994}');    -- 2^53 + 2
+CREATE INDEX json_fast_idx ON json_fast_field_test
+USING bm25 (id, data)
+WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+-- ============================================================================
+-- SECTION K: Comparison of NUMERIC vs FLOAT8 pushdown on JSON fast fields
+-- Both should produce IDENTICAL results since fast fields use F64 internally
+-- ============================================================================
+-- Test K1a: NUMERIC pushdown - basic range
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 100 AND (data->>'value')::numeric <= 500
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100
+  2 | 200
+  3 | 500
+(3 rows)
+
+-- Test K1b: FLOAT8 pushdown - same range (should match K1a exactly)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::float8 >= 100 AND (data->>'value')::float8 <= 500
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100
+  2 | 200
+  3 | 500
+(3 rows)
+
+-- Test K2a: NUMERIC pushdown - 2^53 boundary precision test
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 9007199254740993 AND (data->>'value')::numeric < 9007199254740994
+ORDER BY id;
+ id |      value       
+----+------------------
+  8 | 9007199254740992
+  9 | 9007199254740993
+(2 rows)
+
+-- Test K2b: FLOAT8 pushdown - same 2^53 boundary (should match K2a exactly)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::float8 >= 9007199254740993 AND (data->>'value')::float8 < 9007199254740994
+ORDER BY id;
+ id |      value       
+----+------------------
+  8 | 9007199254740992
+  9 | 9007199254740993
+(2 rows)
+
+-- ============================================================================
+-- SECTION L: Complete range query tests on JSON fast fields
+-- ============================================================================
+-- Test L1: Range including both integer and float values
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 1 AND (data->>'value')::numeric <= 200
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100
+  2 | 200
+  5 | 1.5
+  6 | 99.9
+(4 rows)
+
+-- Test L2: Greater than comparison
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric > 500
+ORDER BY id;
+ id |      value       
+----+------------------
+  4 | 1000
+  7 | 9007199254740991
+  8 | 9007199254740992
+  9 | 9007199254740993
+ 10 | 9007199254740994
+(5 rows)
+
+-- Test L3: Less than comparison
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric < 200
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100
+  5 | 1.5
+  6 | 99.9
+(3 rows)
+
+-- Test L4: Range at 2^53 boundary (all values in this range)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 9007199254740991 AND (data->>'value')::numeric <= 9007199254740994
+ORDER BY id;
+ id |      value       
+----+------------------
+  7 | 9007199254740991
+  8 | 9007199254740992
+  9 | 9007199254740993
+ 10 | 9007199254740994
+(4 rows)
+
+-- Test L5: Exact match at 2^53 (uses F64 comparison)
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 9007199254740992
+ORDER BY id;
+ id |      value       
+----+------------------
+  8 | 9007199254740992
+(1 row)
+
+-- Test L6: BETWEEN syntax
+SELECT id, data->>'value' as value
+FROM json_fast_field_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric BETWEEN 100 AND 1000
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100
+  2 | 200
+  3 | 500
+  4 | 1000
+(4 rows)
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+DROP TABLE json_fast_field_test;

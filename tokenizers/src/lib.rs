@@ -22,6 +22,7 @@ pub mod icu;
 pub mod lindera;
 pub mod manager;
 pub mod token_length;
+pub mod token_trim;
 mod unicode_words;
 
 use tantivy::tokenizer::{LowerCaser, RawTokenizer, TextAnalyzer, TokenizerManager};

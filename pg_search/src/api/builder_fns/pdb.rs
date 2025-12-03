@@ -19,13 +19,17 @@ pub use pdb::*;
 
 #[pgrx::pg_schema]
 mod pdb {
+    use std::collections::Bound;
+
+    use crate::api::HashSet;
     use crate::postgres::types::TantivyValue;
     use crate::query::pdb_query::pdb;
     use crate::schema::AnyEnum;
+
     use macros::builder_fn;
+    use pgrx::aggregate::Aggregate;
     use pgrx::datum::RangeBound;
-    use pgrx::{default, pg_extern, AnyElement, AnyNumeric, Range};
-    use std::collections::Bound;
+    use pgrx::{default, pg_extern, pg_sys, AnyElement, AnyNumeric, Internal, Range};
     use tantivy::schema::{OwnedValue, Value};
 
     #[pg_extern(immutable, parallel_safe, name = "all")]
@@ -137,6 +141,20 @@ mod pdb {
             distance: distance.map(|n| n as u8),
             transposition_cost_one,
             prefix,
+            conjunction_mode,
+        }
+    }
+
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "parse")]
+    pub fn parse_query(
+        query_string: String,
+        lenient: default!(Option<bool>, "NULL"),
+        conjunction_mode: default!(Option<bool>, "NULL"),
+    ) -> pdb::Query {
+        pdb::Query::Parse {
+            query_string,
+            lenient,
             conjunction_mode,
         }
     }
@@ -674,10 +692,6 @@ mod pdb {
         OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
     );
 
-    use crate::api::HashSet;
-    use pgrx::aggregate::Aggregate;
-    use pgrx::{pg_sys, Internal};
-
     #[derive(pgrx::AggregateName, Default)]
     #[aggregate_name = "term_set"]
     pub struct TermSetAggI64;
@@ -715,6 +729,13 @@ mod pdb {
             _direct_arg: Self::OrderedSetArgs,
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
+            pg_sys::panic::ErrorReport::new(
+                pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+                "using `pdb.term_set` in aggregate position is deprecated",
+                pgrx::function_name!(),
+            )
+                .set_detail("using `pdb.term_set` in aggregate position is deprecated, because it is not faster than using `pdb.term_set` with an `array_agg`")
+                .set_hint("use `pdb.term_set` with an `array_agg`").report(pgrx::PgLogLevel::WARNING);
             let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
             pdb::Query::TermSet {
                 terms: inner.iter().cloned().map(OwnedValue::I64).collect(),

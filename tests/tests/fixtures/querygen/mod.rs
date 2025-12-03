@@ -328,6 +328,7 @@ impl PgGucs {
         writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
         writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
+        writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
         gucs
     }
 }

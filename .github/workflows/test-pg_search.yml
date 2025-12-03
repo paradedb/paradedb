@@ -37,25 +37,44 @@ jobs:
         id: set-matrix
         run: |
           if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 17."
-            echo "matrix=[17]" >> $GITHUB_OUTPUT
+            echo "Push event detected; using only PostgreSQL version 18."
+            echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
+            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
-  test-pg_search-postgres:
-    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+  test-pg_search:
+    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
+      fail-fast: false
       matrix:
+        # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+        pg_impl: [system]
+        # TODO: See https://github.com/paradedb/paradedb/issues/3613
+        runner: [ubicloud-standard-8-ubuntu-2204]
+        arch: [amd64]
+        include:
+          # Add pgrx-managed Postgres for PG 18 (regular runner)
+          - pg_version: 18
+            pg_impl: pgrx
+            # TODO: See https://github.com/paradedb/paradedb/issues/3613
+            runner: ubicloud-standard-8-ubuntu-2204
+            arch: amd64
+          # Add ARM run for PG 18 (system Postgres)
+          - pg_version: 18
+            pg_impl: system
+            # TODO: See https://github.com/paradedb/paradedb/issues/3613
+            runner: ubicloud-standard-8-arm-ubuntu-2204
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -71,27 +90,12 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
-
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-      # Needed for hybrid search unit tests
-      - name: Install pgvector
-        run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
@@ -99,119 +103,93 @@ jobs:
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
-      - name: Initialize cargo-pgrx environment
+      # ---------- System-managed Postgres setup ----------
+      - name: Install & Configure Supported PostgreSQL Version (system)
+        if: matrix.pg_impl == 'system'
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Initialize cargo-pgrx environment (system)
+        if: matrix.pg_impl == 'system'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      - name: Add pg_search to shared_preload_libraries
-        if: matrix.pg_version < 17
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+      # ---------- pgrx-managed Postgres setup ----------
+      - name: Initialize cargo-pgrx environment (pgrx download)
+        if: matrix.pg_impl == 'pgrx'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
-      - name: Compile & install pg_search extension
-        working-directory: pg_search/
-        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-
-      - name: Start Postgres via cargo-pgrx
-        working-directory: pg_search/
+      # Needed for hybrid search unit/integration tests
+      - name: Install pgvector (system)
+        if: matrix.pg_impl == 'system'
         run: |
-          # Necessary for the ephemeral Postgres test to have proper permissions
-          sudo chown -R $(whoami) /var/run/postgresql/
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+          cd pgvector/
+          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
+          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
 
-          # Start Postgres
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-
-      - name: Run pg_search Integration Tests
+      - name: Install pgvector (pgrx)
+        if: matrix.pg_impl == 'pgrx'
         run: |
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
-
-      - name: Run pg_search Unit Tests
-        working-directory: pg_search/
-        run: |
-          # Necessary for the ephemeral Postgres test to have proper permissions
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
-
-          # Run tests
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
-
-      - name: Print the Postgres Logs
-        if: always()
-        run: cat ~/.pgrx/${{ matrix.pg_version}}.log
-
-  test-pg_search-pgrx-postgres:
-    name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
-    strategy:
-      matrix:
-        pg_version: [17]
-
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Extract pgrx Version
-        id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
-
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
-          cache-targets: true
-          cache-all-crates: true
-
-      - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
-
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-
-      - name: Install cargo-pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
-
-      - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
-
-      # Needed for hybrid search unit tests
-      - name: Install pgvector
-        run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
-      - name: Add pg_search to shared_preload_libraries
+      - name: Add pg_search to shared_preload_libraries (<17 only)
         if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-      - name: Stop postgres
+      - name: Compile & install pg_search extension (system)
+        if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx stop all
+        run: cargo pgrx install --sudo --features "icu,block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      - name: Compile & install pg_search extension
+      - name: Compile & install pg_search extension (pgrx)
+        if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},icu,block_tracker"
 
-      - name: Start Postgres and create database
+      # ---------- Start Postgres ----------
+      - name: Start Postgres (system)
+        if: matrix.pg_impl == 'system'
+        working-directory: pg_search/
+        run: |
+          sudo chown -R $(whoami) /var/run/postgresql/
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+
+      - name: Start Postgres and create database (pgrx)
+        if: matrix.pg_impl == 'pgrx'
         working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
-      - name: Run pg_search Integration Tests Against pgrx-managed Postgres
+      # ---------- Tests ----------
+      - name: Run pg_search Integration Tests (system)
+        if: matrix.pg_impl == 'system'
+        run: |
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
+
+      - name: Run pg_search Unit Tests (system)
+        if: matrix.pg_impl == 'system'
+        working-directory: pg_search/
+        run: |
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
+
+      - name: Run pg_search Integration Tests (pgrx-managed)
+        if: matrix.pg_impl == 'pgrx'
         run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
 
-      - name: Run pg_search Regression Tests Against pgrx-managed Postgres
+      - name: Run pg_search Regression Tests (pgrx-managed)
+        if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
           if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto; then

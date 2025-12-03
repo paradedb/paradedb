@@ -1,60 +1,35 @@
 ---
-title: Overview
+title: How Text Search Works
+description: Understand how ParadeDB uses token matching to efficiently search large corpuses of text
+canonical: https://docs.paradedb.com/documentation/full-text/overview
 ---
 
-<Note>
-  **Prerequisite** Before performing full text search over a table, ensure that
-  it has been [indexed](/documentation/indexing/create_index) and properly
-  [tuned](/documentation/configuration).
-</Note>
+Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
 
-`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query."
-`@@@` accepts two styles of queries:
+Token matching consists of two steps. First, at indexing time, text is processed by a tokenizer, which breaks input into discrete units called **tokens** or
+**terms**. For example, the [default](/documentation/indexing/create-index) tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
 
-## Query String Syntax
+Second, at query time, the query engine looks for token matches based on the specified query and query type. Some common query types include:
 
-The left-hand side of `@@@` is the **field to search against**, and the right-hand side is a **query string**.
-For example, the following query returns all rows where the `description` field matches the query `shoes`.
+- [Match](/documentation/full-text/match): Matches documents containing any or all query tokens
+- [Phrase](/documentation/full-text/phrase): Matches documents where all tokens appear in the same order as the query
+- [Term](/documentation/full-text/term): Matches documents containing an exact token
+- ...and many more [advanced](/documentation/query-builder/overview) query types
 
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes';
-```
+## Not Substring Matching
 
-Under the hood, the query string is tokenized with the same tokenizer that the field used at index creation time.
+While ParadeDB supports substring matching via [regex](/documentation/query-builder/term/regex) queries, it's important to note that token matching is **not** the
+same as substring matching.
 
-This syntax is friendly to ORMs and prepared statements. For consistency, all examples in this section use the query string syntax.
+Token matching is a much more versatile and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
 
-### Special Characters
+## Similarity Search
 
-The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `<`, `>`,`~`, `!`, `\\`, `\*`, and `SPACE` must
-be escaped by a `\` inside the query term.
+Text search is different than similarity search, also known as vector search. Whereas text search matches based on token matches, similarity search
+matches based on semantic meaning.
 
-## Query Builder Syntax
+ParadeDB currently does not build its own extensions for similarity search. Most ParadeDB users install [pgvector](https://github.com/pgvector/pgvector), the
+Postgres extension for vector search, for this use case.
 
-The left-hand side of `@@@` is the **[key field](/documentation/indexing/create_index#choosing-a-key-field)** and the right-hand side is
-a **[query builder function or JSON object](/documentation/advanced/overview)**. This syntax is necessary for capturing more complex query types
-like fuzzy matching or term-level search that cannot be expressed by query strings.
-
-<CodeGroup>
-
-```sql Function Syntax
-SELECT description, rating, category
-FROM mock_items
-WHERE id @@@ paradedb.match('description', 'shoes');
-```
-
-```sql JSON Syntax
-SELECT description, rating, category
-FROM mock_items
-WHERE id @@@
-'{
-    "match": {
-        "field": "description",
-        "value": "shoes"
-    }
-}'::jsonb;
-```
-
-</CodeGroup>
+We have tentative long-term plans in our [roadmap](/welcome/roadmap#vector-search-improvements) to make improvements to Postgres' vector search.
+If this is useful to you, please [reach out](mailto:support@paradedb.com).

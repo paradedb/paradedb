@@ -1,11 +1,12 @@
 ---
 title: 0.15.8
+noindex: true
 ---
 
 ## Performance Improvements 🚀
 
 - We have significantly improved write throughput by optimizing our segment merge policy. We introduced a new setting,
-  [paradedb.segment_merge_scale_factor](/documentation/configuration/write_throughput#segment-merge-scale-factor), which allows
+  [paradedb.segment_merge_scale_factor](/documentation/performance-tuning/writes), which allows
   expensive merge operations to be deferred until a certain number of small segments have accumulated.
 - Implemented pushdown of `IS NOT NULL` into the custom scan
 
@@ -23,4 +24,4 @@ title: 0.15.8
 
 ## Full Changelog
 
-The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.8).
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.15.8).

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["pg_search", "tests", "tokenizers", "benchmarks", "macros"]
 
 [workspace.package]
-version = "0.19.1"
+version = "0.20.0"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -16,11 +16,9 @@ panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
-[profile.prof]
+[profile.release-with-debug]
 inherits = "release"
 debug = true
-lto = "thin"
-codegen-units = 32
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "493794f0eac7ac9e5eb20c1a898eb756bd319e76", features = [

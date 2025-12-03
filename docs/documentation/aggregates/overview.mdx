@@ -1,43 +1,76 @@
 ---
-title: Overview
+title: Aggregate Syntax
+description: Accelerate aggregates with the ParadeDB index
+canonical: https://docs.paradedb.com/documentation/aggregates/overview
 ---
 
+The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. It executes the aggregate using the
+[columnar](/welcome/architecture#columnar-index) portion of the ParadeDB index, which can significantly accelerate performance compared to vanilla Postgres.
+
+For example, the following query counts the total number of results for a search query.
+
+```sql
+SELECT pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics';
+```
+
+```ini Expected Response
+      agg
+----------------
+ {"value": 5.0}
+(1 row)
+```
+
+This query counts the number of results for every distinct group:
+
+```sql
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics'
+GROUP BY rating
+ORDER BY rating
+LIMIT 5;
+```
+
+```ini Expected Response
+ rating |      agg
+--------+----------------
+      3 | {"value": 1.0}
+      4 | {"value": 3.0}
+      5 | {"value": 1.0}
+(3 rows)
+```
+
+## Multiple Aggregations
+
+To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
+
+```sql
+SELECT
+  pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
+  pdb.agg('{"value_count": {"field": "id"}}') AS count
+FROM mock_items
+WHERE category === 'electronics';
+```
+
+```ini Expected Response
+   avg_rating   |     count
+----------------+----------------
+ {"value": 4.0} | {"value": 5.0}
+(1 row)
+```
+
+## JSON Fields
+
+If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
+
+```sql
+SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
 <Note>
-Aggregate pushdown is currently a beta feature.
+If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
 </Note>
-
-## Basic Usage
-
-ParadeDB can accelerate certain styles of aggregates by pushing them down to the BM25 index. This feature is disabled by default and can be enabled by running
-
-```sql
-SET paradedb.enable_aggregate_custom_scan TO on;
-```
-
-With this setting enabled, queries like the following can be pushed down:
-
-```sql
-SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-To verify that a query is pushed down, look for `ParadeDB Aggregate Scan` in the `EXPLAIN` output:
-
-```sql
-EXPLAIN SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-```csv Expected Response
-                                       QUERY PLAN
-----------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=32)
-   Index: search_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"avg":{"field":"rating"}}}
-(4 rows)
-```
-
-We are actively working on expanding the types of aggregates that can be pushed down. The following aggregates are currently supported:
-[count](/documentation/aggregates/metrics/count), [sum](/documentation/aggregates/metrics/sum), [min/max](/documentation/aggregates/metrics/minmax),
-[average](/documentation/aggregates/metrics/average), and [terms](/documentation/aggregates/bucket/terms).

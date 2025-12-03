@@ -1,0 +1,157 @@
+# workflows/schemabot-generate-diff.yml
+#
+# SchemaBot Generate Diff
+# Determine if a commit introduces an extension schema change for pg_search.
+
+name: SchemaBot Generate Diff
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/schemabot-generate-diff.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schemabot-generate-diff:
+    name: Generate Schema Diff
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+    strategy:
+      matrix:
+        pg_version: [14] # pg_search's minimum supported Postgres version
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch the entire history
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
+          cache-all-crates: true
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install pg-schema-diff and its Required Dependencies
+        run: |
+          sudo apt install clang llvm diffutils
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
+
+      - name: Install cargo-pgrx
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+          # Save the pgrx version for comparison later
+          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+
+      - name: Generate Schema from this git rev
+        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+
+      - name: Switch to Base git rev and Generate Schema Again
+        run: |
+          # Add the PR target repo as 'upstream' (works for both same-repo & forks, and for pull_request & push events)
+          git remote add upstream "https://github.com/${{ github.event.pull_request.base.repo.full_name || github.repository }}.git" || true
+
+          # Fetch exactly the base commit object
+          git fetch --no-tags --depth=1 upstream ${{ github.event.pull_request.base.sha }}
+
+          # Discard local changes and check out the fetched commit detached
+          git reset --hard
+          git checkout --detach FETCH_HEAD
+
+          # Recompute cargo-pgrx version and re-init if needed
+          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
+            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+
+          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+
+      - name: Generate Schema Diffs
+        run: |
+          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1) || true
+          (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
+          cat ~/diff.sql
+
+      - name: Generate Commit Message
+        id: generate_commit_message
+        run: |
+          if test -s ~/diff.sql; then
+            echo "Generating GitHub comment message"
+            {
+              echo 'A schema difference was detected.'
+              echo
+              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
+              echo
+              echo '```sql'
+              cat ~/diff.sql
+              echo '```'
+
+              #
+              # Include the full schema diff, for informational purposes
+              #
+
+              echo
+              echo '<details>'
+              echo '<summary>The full diff between both schemas is:</summary>'
+              echo
+              echo '```diff'
+              cat ~/diff.patch
+              echo '```'
+              echo '</details>'
+            } >> commit-message.md
+
+            # Set a flag to indicate a schema difference was detected
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload comment artifact (only if diff)
+        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: schemabot-comment-${{ github.event.pull_request.head.sha }}
+          path: commit-message.md
+          if-no-files-found: error
+          retention-days: 7

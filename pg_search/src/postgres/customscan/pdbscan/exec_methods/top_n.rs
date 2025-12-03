@@ -17,16 +17,37 @@
 
 use std::cell::RefCell;
 
-use crate::api::OrderByInfo;
-use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
+use crate::aggregate::vischeck::TSVisibilityChecker;
+use crate::api::{HashMap, MvccVisibility, OrderByInfo};
+use crate::gucs;
+use crate::index::reader::index::{
+    SearchIndexReader, TopNAuxiliaryCollector, TopNSearchResults, MAX_TOPN_FEATURES,
+};
+use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
+use crate::postgres::customscan::aggregatescan::AggregateType;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
+use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
+use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::index::SegmentId;
+
+struct PreparedAggregations {
+    aggregations: Aggregations,
+    combined_agg_types: Vec<AggregateType>,
+    agg_index_to_te_index: Vec<usize>,
+    /// Whether MVCC filtering should be enabled for these aggregations.
+    /// Determined by the mvcc_visibility setting of any pdb.agg() calls.
+    /// If any aggregate has MVCC disabled, this will be false.
+    mvcc_enabled: bool,
+}
 
 pub struct TopNScanExecState {
     // required
@@ -48,6 +69,8 @@ pub struct TopNScanExecState {
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
     scale_factor: f64,
+    // Window aggregates to compute
+    window_aggregates: Vec<WindowAggregateInfo>,
 }
 
 impl TopNScanExecState {
@@ -93,6 +116,7 @@ impl TopNScanExecState {
             chunk_size: 0,
             claimed_segments: RefCell::default(),
             scale_factor,
+            window_aggregates: Vec::new(),
         }
     }
 
@@ -149,9 +173,127 @@ impl TopNScanExecState {
             }
         }
     }
+
+    fn prepare_aggregations(&self, state: &mut PdbScanState) -> Option<PreparedAggregations> {
+        if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
+            // There are no aggregates, or we already executed them and stashed their results.
+            return None;
+        }
+
+        // Combine all window aggregates from all TargetLists
+        // This allows us to execute all aggregations in a single Tantivy pass
+        // NOTE: This could also be done via a multi-collector.
+        let mut combined_agg_types = Vec::new();
+        let mut agg_index_to_te_index = Vec::new();
+        for agg_info in &self.window_aggregates {
+            for agg_type in agg_info.targetlist.aggregates() {
+                combined_agg_types.push(agg_type.clone());
+                agg_index_to_te_index.push(agg_info.target_entry_index);
+            }
+        }
+
+        // Determine if MVCC filtering should be enabled.
+        // Check for contradicting solve_mvcc settings - error if some have true and some have false.
+        // Only consider Custom aggregates (pdb.agg) since standard SQL aggregates always use default.
+        let custom_mvcc_settings: Vec<MvccVisibility> = combined_agg_types
+            .iter()
+            .filter_map(|agg_type| {
+                if let AggregateType::Custom {
+                    mvcc_visibility, ..
+                } = agg_type
+                {
+                    Some(*mvcc_visibility)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Check for contradicting settings
+        if !custom_mvcc_settings.is_empty() {
+            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
+            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+            if has_enabled && has_disabled {
+                pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
+                );
+            }
+        }
+
+        // If any custom aggregate has MVCC disabled, disable for all.
+        // Standard SQL aggregates always use MVCC enabled (default behavior).
+        let mvcc_enabled = !custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+
+        // Convert aggregates to Tantivy Aggregations
+        let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
+        for (idx, agg_type) in combined_agg_types.iter().enumerate() {
+            let agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
+                // For Custom aggregates, Tantivy's deserializer handles nested "aggs" automatically
+                serde_json::from_value(agg_json.clone())
+                    .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
+            } else {
+                // For standard aggregates, convert to variant and wrap with empty sub_aggregation
+                let agg_variant = agg_type.clone().into();
+                tantivy::aggregation::agg_req::Aggregation {
+                    agg: agg_variant,
+                    sub_aggregation: tantivy::aggregation::agg_req::Aggregations::new(),
+                }
+            };
+            aggregations.insert(idx.to_string(), agg);
+        }
+
+        Some(PreparedAggregations {
+            aggregations,
+            combined_agg_types,
+            agg_index_to_te_index,
+            mvcc_enabled,
+        })
+    }
+
+    fn finalize_aggregates(
+        &self,
+        aggregations: PreparedAggregations,
+        agg_limits: AggregationLimitsGuard,
+        intermediate_results: IntermediateAggregationResults,
+    ) -> HashMap<usize, pg_sys::Datum> {
+        let final_result = intermediate_results
+            .into_final_result(aggregations.aggregations, agg_limits)
+            .expect("failed to finalize aggregate");
+
+        // For window functions (no GROUP BY), we expect a single ungrouped result
+        // Convert to AggregationResults and extract Datums
+        let agg_results_wrapper: AggregationResults = final_result.into();
+        let datum_vec =
+            agg_results_wrapper.flatten_ungrouped_to_datums(&aggregations.combined_agg_types);
+
+        // Map aggregate results to target entry indices
+        aggregations
+            .agg_index_to_te_index
+            .into_iter()
+            .enumerate()
+            .map(|(agg_idx, te_idx)| {
+                let datum = datum_vec
+                    .get(agg_idx)
+                    .and_then(|d| *d)
+                    .unwrap_or(pg_sys::Datum::null());
+                (te_idx, datum)
+            })
+            .collect()
+    }
 }
 
 impl ExecMethod for TopNScanExecState {
+    /// Initialize the exec method with data from the scan state
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Call the default init behavior first
+        self.reset(state);
+
+        // Transfer window aggregates from scan state to exec state
+        self.window_aggregates = state.window_aggregates.clone();
+    }
+
     ///
     /// Query more results.
     ///
@@ -175,16 +317,99 @@ impl ExecMethod for TopNScanExecState {
             (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
-        self.search_results = state
-            .search_reader
-            .as_ref()
-            .unwrap()
-            .search_top_n_in_segments(
-                self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
-                self.orderby_info.as_ref(),
-                local_limit,
-                self.offset,
-            );
+        let aggregations = self.prepare_aggregations(state);
+        let agg_limits = AggregationLimitsGuard::new(
+            Some(gucs::adjust_work_mem().get().try_into().unwrap()),
+            // TODO: configure?
+            Some(tantivy::aggregation::DEFAULT_BUCKET_LIMIT),
+        );
+
+        // Run the TopN (and optional aggregate) query.
+        self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
+            let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
+                // Create the aggregation collector
+                let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    agg_limits.clone(),
+                );
+
+                // Optionally wrap with MVCC filtering to respect transaction visibility.
+                // This can be disabled via pdb.agg(..., false) for performance
+                // in cases where accuracy is less important than speed.
+                // See: https://github.com/paradedb/paradedb/issues/3500
+                let vischeck = if aggregations.mvcc_enabled {
+                    let heaprel = state.heaprel();
+                    Some(TSVisibilityChecker::with_rel_and_snap(
+                        heaprel.as_ptr(),
+                        unsafe { pg_sys::GetActiveSnapshot() },
+                    ))
+                } else {
+                    None
+                };
+
+                TopNAuxiliaryCollector {
+                    aggregation_collector,
+                    vischeck,
+                }
+            });
+            self.search_reader
+                .as_ref()
+                .unwrap()
+                .search_top_n_in_segments(
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
+                    orderby_info,
+                    local_limit,
+                    self.offset,
+                    maybe_aux_collector,
+                )
+        } else {
+            self.search_reader
+                .as_ref()
+                .unwrap()
+                .search_top_n_unordered_in_segments(
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
+                    local_limit,
+                    self.offset,
+                )
+        };
+
+        // If aggregates were executed, publish their results in our state for projection during
+        // the scan.
+        if let Some(aggregations) = aggregations {
+            let agg_result = self
+                .search_results
+                .take_aggregation_results()
+                .expect("an aggregation request should produce a result");
+            let intermediate_results = if let Some(parallel_state) = state.parallel_state {
+                let segment_count = self
+                    .claimed_segments
+                    .borrow()
+                    .as_ref()
+                    .expect("Should have claimed segments while running.")
+                    .len();
+                unsafe {
+                    (*parallel_state)
+                        .aggregation_append(agg_result, segment_count)
+                        .expect("Failed to append aggregation result");
+
+                    (*parallel_state).aggregation_wait()
+                }
+            } else {
+                // Not parallel: finalize without propagating through the parallel state.
+                agg_result
+            };
+
+            let window_aggregate_results =
+                self.finalize_aggregates(aggregations, agg_limits, intermediate_results);
+
+            state.window_aggregate_results = Some(window_aggregate_results);
+        }
 
         // Record the offset to start from for the next query.
         self.offset = next_offset;
@@ -254,6 +479,14 @@ impl ExecMethod for TopNScanExecState {
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
         self.search_results = TopNSearchResults::empty();
+
+        // Get window aggregates from state if available
+        if let ExecMethodType::TopN {
+            window_aggregates, ..
+        } = &state.exec_method_type
+        {
+            self.window_aggregates = window_aggregates.clone();
+        }
 
         // Reset counters - excluding nresults which tracks processed results
         self.chunk_size = 0;

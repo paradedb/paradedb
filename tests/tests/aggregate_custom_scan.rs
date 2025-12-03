@@ -136,6 +136,25 @@ fn test_group_by(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_group_by_null_bucket(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    assert_uses_custom_scan(
+        &mut conn,
+        true,
+        r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'keyboard'
+        GROUP BY rating
+        ORDER BY rating NULLS FIRST
+    "#,
+    );
+}
+
+#[rstest]
 fn test_no_bm25_index(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'no_bm25', schema_name => 'paradedb');"
         .execute(&mut conn);

@@ -30,9 +30,7 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
-use crate::api::tokenizers::{
-    lookup_alias_typmod, lookup_generic_typmod, type_is_alias, type_is_tokenizer,
-};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -268,6 +266,27 @@ pub unsafe fn tantivy_field_name_from_node(
     Some((indexrel, Some(field_name)))
 }
 
+/// Compare two Vars for equality, ignoring varno and other context-dependent fields.
+///
+/// In CTE contexts, several fields may legitimately differ:
+/// - varno: points to different range table entries (CTE vs original table)
+/// - varnosyn, varattnosyn: syntactic variants that may differ in query rewriting
+/// - varlevelsup: may differ in nested subquery contexts
+/// - varnullingrels: nulling relationships may vary
+/// - location: source location in the query text
+///
+/// The essential fields that must match for the Vars to represent the same column:
+/// - varattno: the actual column number in the table
+/// - vartype: the column's data type
+/// - vartypmod: type modifier (e.g., varchar length)
+/// - varcollid: collation (important for text comparisons)
+unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var) -> bool {
+    (*a).varattno == (*b).varattno
+        && (*a).vartype == (*b).vartype
+        && (*a).vartypmod == (*b).vartypmod
+        && (*a).varcollid == (*b).varcollid
+}
+
 unsafe fn field_name_from_node(
     context: VarContext,
     heaprel: &PgSearchRelation,
@@ -277,8 +296,10 @@ unsafe fn field_name_from_node(
     // just directly reach in and pluck out the alias if the type is cast to it
     if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
         if type_is_alias((*relabel).resulttype) {
-            if let Ok(alias) = lookup_alias_typmod((*relabel).resulttypmod) {
-                return Some(FieldName::from(alias.alias));
+            let typmod =
+                AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| panic!("{e}"));
+            if let Some(alias) = typmod.alias() {
+                return Some(FieldName::from(alias));
             }
         }
     }
@@ -315,16 +336,21 @@ unsafe fn field_name_from_node(
 
                 if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
                     let vars = find_vars(expression.cast());
-                    if vars.len() == 1 && pg_sys::equal(node.cast(), vars[0].cast()) {
-                        // the Var is the expression that matches the Var we're looking for
-                        // but lets make sure the whole expression is one without an alias
-                        // we pick the first un-aliased custom tokenizer expression that uses the
-                        // Var as the matching indexed expression
-                        let typmod = pg_sys::exprTypmod(expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-                        if parsed.alias().is_none() {
-                            return attname_from_var(heaprel, var);
+                    if vars.len() == 1 {
+                        let expr_var = vars[0];
+                        // Use our custom equality check that ignores varno
+                        if vars_equal_ignoring_varno(expr_var, var) {
+                            // the Var is the expression that matches the Var we're looking for
+                            // but lets make sure the whole expression is one without an alias
+                            // we pick the first un-aliased custom tokenizer expression that uses the
+                            // Var as the matching indexed expression
+                            let typmod = pg_sys::exprTypmod(expression.cast());
+                            let alias = UncheckedTypmod::try_from(typmod)
+                                .unwrap_or_else(|e| panic!("{e}"))
+                                .alias();
+                            if alias.is_none() {
+                                return attname_from_var(heaprel, var);
+                            }
                         }
                     }
                     expr_no += 1;
@@ -364,10 +390,10 @@ unsafe fn field_name_from_node(
                         indexed_expression.cast(),
                     )) {
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let parsed = lookup_generic_typmod(typmod)
-                            .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
+                        let typmod =
+                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
 
-                        parsed.alias().map(FieldName::from).or_else(|| {
+                        typmod.alias().map(FieldName::from).or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })

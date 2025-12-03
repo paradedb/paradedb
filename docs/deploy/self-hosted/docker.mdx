@@ -1,5 +1,7 @@
 ---
 title: Docker
+description: How to run the ParadeDB Docker container
+canonical: https://docs.paradedb.com/deploy/self-hosted/docker
 ---
 
 <Note>
@@ -9,7 +11,7 @@ title: Docker
 
 To deploy ParadeDB via Docker, pull and run the `paradedb/paradedb` image locally. This is the recommended deployment method for
 testing and hobby deployments. We do not recommend running the ParadeDB Docker image in production, as it
-does not provide [high availability](/deploy/self-hosted/high-availability).
+does not provide [high availability](/deploy/self-hosted/high-availability/configuration).
 
 ```bash
 docker run \
@@ -17,7 +19,7 @@ docker run \
   -e POSTGRES_USER=myuser \
   -e POSTGRES_PASSWORD=mypassword \
   -e POSTGRES_DB=mydatabase \
-  -v paradedb_data:/var/lib/postgresql/data/ \
+  -v paradedb_data:/var/lib/postgresql/ \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest

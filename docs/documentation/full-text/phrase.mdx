@@ -1,41 +1,106 @@
 ---
 title: Phrase
+description: Phrase queries are like match queries, but with order and position of matching tokens enforced
+canonical: https://docs.paradedb.com/documentation/full-text/phrase
 ---
 
-Searches for the presence of a [phrase](/documentation/concepts/phrase). The field must be indexed with [record](/documentation/indexing/record) of `position`.
-For more granular controls, see the [phrase query](/documentation/advanced/phrase).
+Phrase queries work exactly like [match conjunction](/documentation/full-text/match#match-conjunction), but are more strict in that they require the
+order and position of tokens to be the same.
 
-## Basic Usage
+Suppose our query is `running shoes`, and we want to omit results like
+`running sleek shoes` or `shoes running` — these results contain the right tokens, but not in the exact order and position
+that the query specifies.
 
-Phrases must be wrapped inside double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
+Enter the `###` phrase operator:
 
 ```sql
+INSERT INTO mock_items (description, rating, category) VALUES
+('running sleek shoes', 5, 'Footwear'),
+('shoes running', 5, 'Footwear');
+
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ '"plastic keyboard"';
+WHERE description ### 'running shoes';
 ```
 
-Under the hood, the query string is first tokenized in the same way as the field was at index time. Then, a phrase query is executed with the tokenized
-values.
+This query returns:
 
-## Slop Operator
-
-The `~` slop operator allows for other words to come in between words in the query phrase. For instance, the following query finds documents containing
-the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word in between.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ '"ergonomic keyboard"~1';
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
 ```
 
-## Phrase Prefix
+Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
+`shoes` because they appear in the wrong order or with other words in between.
 
-The `*` prefix operator allows for the last term in the phrase query to be the prefix of another word. For instance,
-`"plastic keyb"*` matches `plastic keyboard`.
+## How It Works
+
+Let's look at what happens under the hood for the above phrase query:
+
+1. Retrieves the tokenizer configuration of the `description` column. In this example,
+   let's assume `description` uses the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer.
+2. Tokenizes the query string with the same tokenizer. This means `running shoes` becomes two tokens: `running` and `shoes`.
+3. Finds all rows where `description` contains `running` immediately followed by `shoes`.
+
+## Examples
+
+Let’s consider a few more hypothetical documents to see whether they would be returned by the phrase query.
+These examples assume that index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
+
+| Original Text       | Tokens                    | Match | Reason                                         | Related                                                               |
+| ------------------- | ------------------------- | ----- | ---------------------------------------------- | --------------------------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. |
+| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/documentation/full-text/match#match-conjunction) |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/documentation/indexing/create-index)                   |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](/documentation/indexing/create-index)                      |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`.   |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`.   |
+
+## Adding Slop
+
+Slop allows the token ordering requirement of phrase queries to be relaxed. It specifies how many changes — like extra words in between or transposed word positions — are allowed while still considering the phrase a match:
+
+- An extra word in between (e.g. `sleek shoes` vs. `sleek running shoes`) has a slop of `1`
+- A transposition (e.g. `running shoes` vs. `shoes running`) has a slop of `2`
+
+To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ '"plastic keyb"*';
+WHERE description ### 'shoes running'::pdb.slop(2);
+```
+
+## Using a Custom Tokenizer
+
+The phrase query supports custom query tokenization.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes'::pdb.whitespace;
+```
+
+## Using Pretokenized Text
+
+The phrase operator also accepts a text array as the right-hand side argument. If a text array is provided, each element of the array is treated as an exact token,
+which means that no further processing is done.
+
+The following query matches documents containing the token `shoes` immediately followed by `running`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### ARRAY['running', 'shoes'];
+```
+
+Adding slop is supported:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 ```

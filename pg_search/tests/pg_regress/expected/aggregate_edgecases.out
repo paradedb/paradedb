@@ -1,0 +1,170 @@
+-- Test aggregate edge cases
+-- 1. Large aggregation result that should error
+-- 2. Aggregation after deletion to test consistency
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.global_mutable_segment_rows = 0;
+-- =====================================================================
+-- SECTION 1: Large Aggregation Error
+-- =====================================================================
+-- Test that a window aggregation that returns a very large result errors gracefully.
+-- We expect an error message about the result being too large.
+CREATE TABLE large_agg_test (
+    id SERIAL PRIMARY KEY,
+    data TEXT
+);
+CREATE INDEX large_agg_test_idx ON large_agg_test
+USING bm25 (id, data)
+WITH (
+    key_field = 'id',
+    text_fields = '{"data": {"fast": true}}'
+);
+-- Insert enough data to make the terms aggregation result > 1MB
+INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(1, 50000) g;
+-- Test as window function
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
+FROM large_agg_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 1;
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":50000,"field":"data"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), id
+   ->  Gather Merge
+         Output: (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":50000,"field":"data"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), id
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on public.large_agg_test
+               Output: pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":50000,"field":"data"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), id
+               Table: large_agg_test
+               Index: large_agg_test_idx
+               Exec Method: TopNScanExecState
+               Scores: false
+                  TopN Order By: id asc
+                  TopN Limit: 1
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(15 rows)
+
+SELECT pdb.agg('{"terms": {"field": "data", "size": 50000}}'::jsonb) OVER ()
+FROM large_agg_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 1;
+ERROR:  Aggregate result is too large: 1800010 vs 1048576. Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC.
+DROP TABLE large_agg_test;
+-- =====================================================================
+-- SECTION 2: Aggregation After Deletion
+-- =====================================================================
+-- Test that aggregations are correct after rows are deleted.
+CREATE TABLE delete_agg_test (
+    id INT PRIMARY KEY,
+    name TEXT
+);
+CREATE INDEX delete_agg_test_idx ON delete_agg_test
+USING bm25 (id, name)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {}}'
+);
+INSERT INTO delete_agg_test VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e');
+-- Delete all but one row
+DELETE FROM delete_agg_test WHERE id > 1;
+-- Test as aggregate function
+-- Should return 1
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: delete_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT COUNT(*) FROM delete_agg_test WHERE id @@@ paradedb.all();
+ count 
+-------
+     1
+(1 row)
+
+-- Should return {"value": 1.0}
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: delete_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"id","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+      agg       
+----------------
+ {"value": 1.0}
+(1 row)
+
+-- Should return count: 1
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.delete_agg_test
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: delete_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"id"}})
+     Aggregate Definition: {"0":{"stats":{"field":"id","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"stats": {"field": "id"}}'::jsonb) FROM delete_agg_test WHERE id @@@ paradedb.all();
+                             agg                              
+--------------------------------------------------------------
+ {"avg": 1.0, "max": 1.0, "min": 1.0, "sum": 1.0, "count": 1}
+(1 row)
+
+-- Test as window function
+-- Should return 1 and {"value": 1.0}
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT
+    COUNT(*) OVER (),
+    pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
+FROM delete_agg_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 1;
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"value_count":{"field":"id"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), id
+   ->  Custom Scan (ParadeDB Scan) on public.delete_agg_test
+         Output: pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"value_count":{"field":"id"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), id
+         Table: delete_agg_test
+         Index: delete_agg_test_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 1
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(12 rows)
+
+SELECT
+    COUNT(*) OVER (),
+    pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER ()
+FROM delete_agg_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 1;
+ count |      agg       
+-------+----------------
+     1 | {"value": 1.0}
+(1 row)
+
+DROP TABLE delete_agg_test;

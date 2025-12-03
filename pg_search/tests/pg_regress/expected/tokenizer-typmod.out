@@ -68,7 +68,7 @@ SELECT 'Running Shoes.  olé'::pdb.chinese_compatible('lowercase=false', 'stemme
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera::text[]; -- error, needs a language
-ERROR:  typmod lookup should not fail: MissingKey("language")
+ERROR:  Missing required option: 'language'
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=chinese')::text[]; -- error, needs a language
               text              
 --------------------------------
@@ -142,7 +142,7 @@ SELECT 'Running Shoes.  olé'::pdb.jieba('lowercase=false', 'stemmer=english', '
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.ngram::text[]; -- error, needs min/max
-ERROR:  typmod lookup should not fail: MissingKey("min")
+ERROR:  Missing required option: 'min'
 SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3)::text[];
                                                                         text                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -288,7 +288,7 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=turkish')::text[];
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=foo')::text[]; -- error
-ERROR:  unknown stemmer: foo
+ERROR:  Invalid value for option 'stemmer': must be one of: [Arabic, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian, Italian, Norwegian, Portuguese, Romanian, Russian, Spanish, Swedish, Tamil, Turkish], got 'foo'
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 'ascii_folding=true')::text[];
       text      
 ----------------
@@ -296,7 +296,7 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english', 'lowercase=false', 
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.regex_pattern::text[]; -- error, needs a regular expression
-ERROR:  typmod lookup should not fail: MissingKey("pattern")
+ERROR:  Missing required option: 'pattern'
 SELECT 'Running Shoes.  olé'::pdb.regex_pattern('ing|oes')::text[];
    text    
 -----------
@@ -345,3 +345,20 @@ SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemme
  {"Running Shoes.  ole"}
 (1 row)
 
+-- Invalid configurations
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];
+ERROR:  Invalid option: 'stemmmer'. Allowed options: alias, alpha_num_only, ascii_folding, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+SELECT 'Running Shoes.  olé'::pdb.simple('min=english')::text[];
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=foo')::text[];
+ERROR:  Cannot parse value of 'ascii_folding=foo'
+SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=f')::text[];
+ERROR:  Cannot parse value of 'ascii_folding=f'
+SELECT 'Running Shoes.  olé'::pdb.simple(ascii_folding)::text[];
+ERROR:  Option 'ascii_folding' is not allowed at position 0
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_short=0')::text[];
+ERROR:  Invalid value for option 'remove_short': must be >= 1, got 0
+SELECT 'Running Shoes.  olé'::pdb.simple('remove_long=0')::text[];
+ERROR:  Invalid value for option 'remove_long': must be >= 1, got 0
+SELECT 'Running Shoes.  olé'::pdb.ngram(2, 'invalid')::text[];
+ERROR:  Cannot parse value of 'invalid'

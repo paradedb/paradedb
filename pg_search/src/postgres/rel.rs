@@ -29,6 +29,24 @@ use tantivy::TantivyError;
 
 type NeedClose = bool;
 
+#[repr(transparent)]
+struct IsCreateIndex(Rc<RefCell<bool>>);
+impl Default for IsCreateIndex {
+    fn default() -> Self {
+        Self(Rc::new(RefCell::new(false)))
+    }
+}
+
+impl IsCreateIndex {
+    fn set(&self, value: bool) {
+        self.0.replace(value);
+    }
+
+    fn get(&self) -> bool {
+        *self.0.borrow()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum SchemaError {
     RelationNotBM25Index,
@@ -64,6 +82,7 @@ pub struct PgSearchRelation(
             Option<pg_sys::LOCKMODE>,
             RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
             BM25IndexOptions,
+            IsCreateIndex,
         )>,
     >,
 );
@@ -118,6 +137,7 @@ impl PgSearchRelation {
             None,
             Default::default(),
             BM25IndexOptions::from_relation(relation),
+            IsCreateIndex::default(),
         ))))
     }
 
@@ -139,6 +159,7 @@ impl PgSearchRelation {
                 None,
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
+                IsCreateIndex::default(),
             ))))
         }
     }
@@ -159,6 +180,7 @@ impl PgSearchRelation {
                     None,
                     Default::default(),
                     BM25IndexOptions::from_relation(relation),
+                    IsCreateIndex::default(),
                 )))))
             }
         }
@@ -177,8 +199,17 @@ impl PgSearchRelation {
                 Some(lockmode),
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
+                IsCreateIndex::default(),
             ))))
         }
+    }
+
+    pub fn set_is_create_index(&mut self) {
+        self.0.as_ref().unwrap().5.set(true);
+    }
+
+    pub fn is_create_index(&self) -> bool {
+        self.0.as_ref().unwrap().5.get()
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {

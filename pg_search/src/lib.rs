@@ -81,20 +81,25 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     std::env::set_var("RUST_LOG_STYLE", "never");
     env_logger::init();
 
-    if cfg!(not(feature = "pg17")) && !pg_sys::process_shared_preload_libraries_in_progress {
+    if cfg!(not(any(feature = "pg17", feature = "pg18")))
+        && !pg_sys::process_shared_preload_libraries_in_progress
+    {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
 
     postgres::options::init();
     gucs::init();
 
-    #[cfg(not(feature = "pg17"))]
+    #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();
 
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
+
+    // Register global planner hook for window function support
+    customscan::register_window_aggregate_hook();
 }
 
 #[pg_extern]
@@ -136,7 +141,7 @@ pub mod pg_test {
 
         let mut options: Vec<&'static str> = Vec::new();
 
-        if cfg!(not(feature = "pg17")) {
+        if cfg!(not(any(feature = "pg17", feature = "pg18"))) {
             options.push("shared_preload_libraries='pg_search'");
         }
 

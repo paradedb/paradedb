@@ -1,0 +1,21 @@
+---
+title: Stats
+description: Compute several metrics at once
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/stats
+---
+
+The stats aggregation returns the count, sum, min, max, and average all at once.
+
+```sql
+SELECT pdb.agg('{"stats": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+                                      agg
+--------------------------------------------------------------------------------
+ {"avg": 3.8536585365853657, "max": 5.0, "min": 1.0, "sum": 158.0, "count": 41}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.StatsAggregation.html) for all available options.

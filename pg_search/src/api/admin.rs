@@ -176,6 +176,22 @@ pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
 }
 
 #[pg_extern]
+pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let mut sizes: Vec<_> = index
+        .options()
+        .foreground_layer_sizes()
+        .into_iter()
+        .chain(index.options().background_layer_sizes())
+        .map(|layer_size| layer_size.into())
+        .collect();
+
+    sizes.sort_unstable();
+    sizes.dedup();
+    sizes.into_iter().collect()
+}
+
+#[pg_extern]
 unsafe fn merge_info(
     index: PgRelation,
 ) -> TableIterator<
@@ -282,7 +298,7 @@ fn index_info(
     for index in index_kind.partitions() {
         // open the specified index
         let mut segment_components = MetaPage::open(&index).segment_metas();
-        let all_entries = unsafe { segment_components.list() };
+        let all_entries = unsafe { segment_components.list(None) };
 
         for entry in all_entries {
             if !show_invisible && unsafe { !entry.visible() } {
@@ -552,6 +568,7 @@ fn merge_lock_garbage_collect(index: PgRelation) -> SetOfIterator<'static, i32> 
     }
 }
 
+// Deprecated: Use `pdb.index_layer_info` instead.
 extension_sql!(
     r#"create view paradedb.index_layer_info as
 select relname::text,
@@ -591,4 +608,48 @@ GRANT SELECT ON paradedb.index_layer_info TO PUBLIC;
 "#,
     name = "index_layer_info",
     requires = [index_info, layer_sizes]
+);
+
+// `pdb.index_layer_info` supersedes `paradedb.index_layer_info`
+// It shows both the foreground and background layer sizes, whereas
+// `paradedb.index_layer_info` only shows the foreground layer sizes.
+extension_sql!(
+    r#"create view pdb.index_layer_info as
+select relname::text,
+       layer_size,
+       low,
+       high,
+       byte_size,
+       case when segments = ARRAY [NULL] then 0 else count end       as count,
+       case when segments = ARRAY [NULL] then NULL else segments end as segments
+from (select relname,
+             coalesce(pg_size_pretty(case when low = 0 then null else low end), '') || '..' ||
+             coalesce(pg_size_pretty(case when high = 9223372036854775807 then null else high end), '') as layer_size,
+             count(*),
+             coalesce(sum(byte_size), 0)                                                                as byte_size,
+             min(low)                                                                                   as low,
+             max(high)                                                                                  as high,
+             array_agg(segno)                                                                           as segments
+      from (with indexes as (select oid::regclass as relname
+                             from pg_class
+                             where relam = (select oid from pg_am where amname = 'bm25')),
+                 segments as (select relname, index_info.*
+                              from indexes
+                                       inner join paradedb.index_info(indexes.relname, true) on true),
+                 layer_sizes as (select relname, coalesce(lead(unnest) over (), 0) low, unnest as high
+                                 from indexes
+                                          inner join lateral (select unnest(0 || paradedb.combined_layer_sizes(indexes.relname) || 9223372036854775807)
+                                                              order by 1 desc) x on true)
+            select layer_sizes.relname, layer_sizes.low, layer_sizes.high, segments.segno, segments.byte_size
+            from layer_sizes
+                     left join segments on layer_sizes.relname = segments.relname and
+                                           (byte_size * 1.33)::bigint between low and high) x
+      where low < high
+      group by relname, low, high
+      order by relname, low desc) x;
+
+GRANT SELECT ON pdb.index_layer_info TO PUBLIC;
+"#,
+    name = "pdb_index_layer_info",
+    requires = [index_info, combined_layer_sizes]
 );

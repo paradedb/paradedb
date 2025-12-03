@@ -21,12 +21,14 @@ use std::io::Write;
 use std::ops::Range;
 
 use crate::api::HashMap;
+use crate::gucs;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
+use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
 
@@ -46,7 +48,7 @@ mod build_parallel;
 pub mod catalog;
 pub mod customscan;
 pub mod datetime;
-#[cfg(not(feature = "pg17"))]
+#[cfg(not(any(feature = "pg17", feature = "pg18")))]
 pub mod fake_aminsertcleanup;
 pub mod heap;
 pub mod index;
@@ -101,7 +103,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
-    #[cfg(feature = "pg17")]
+    #[cfg(any(feature = "pg17", feature = "pg18"))]
     {
         amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
         amroutine.amcanbuildparallel = true;
@@ -143,6 +145,14 @@ const SEGMENT_ID_SIZE: usize = 16;
 
 const SEGMENT_CLAIM_UNCLAIMED: i32 = -2;
 
+#[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+struct AggregatesPayloadHeader {
+    watermark: usize,
+    received_count: usize,
+    serialized_aggregations_len: usize,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 struct ParallelScanPayloadLayout {
@@ -151,12 +161,18 @@ struct ParallelScanPayloadLayout {
     deleted_docs: Range<usize>,
     max_docs: Range<usize>,
     claims: Range<usize>,
+    aggregates_header: Option<Range<usize>>,
+    aggregates_data: Option<Range<usize>>,
     /// The padded size of the layout.
     total: Layout,
 }
 
 impl ParallelScanPayloadLayout {
-    fn new(nsegments: usize, serialized_query: &[u8]) -> Result<Self, std::alloc::LayoutError> {
+    fn new(
+        nsegments: usize,
+        serialized_query: &[u8],
+        with_aggregates: bool,
+    ) -> Result<Self, std::alloc::LayoutError> {
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
         let query_range = 0..(layout.size());
@@ -179,8 +195,24 @@ impl ParallelScanPayloadLayout {
 
         // Segment claims. Must be aligned for i32.
         let claims_layout = Layout::array::<i32>(nsegments)?;
-        let (layout, claims_offset) = layout.extend(claims_layout)?;
+        let (mut layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = (claims_offset)..(claims_offset + claims_layout.size());
+
+        let (aggregates_header, aggregates_data) = if with_aggregates {
+            let (l, offset) = layout.extend(Layout::new::<AggregatesPayloadHeader>())?;
+            layout = l;
+            let header_range =
+                Some(offset..offset + std::mem::size_of::<AggregatesPayloadHeader>());
+
+            let data_size = gucs::max_window_aggregate_response_bytes();
+            let (l, offset) = layout.extend(Layout::from_size_align(data_size, 1)?)?;
+            layout = l;
+            let data_range = Some(offset..offset + data_size);
+
+            (header_range, data_range)
+        } else {
+            (None, None)
+        };
 
         Ok(Self {
             query: query_range,
@@ -188,6 +220,8 @@ impl ParallelScanPayloadLayout {
             deleted_docs: deleted_docs_range,
             max_docs: max_docs_range,
             claims: claims_range,
+            aggregates_header,
+            aggregates_data,
             // Finalize the layout by padding it to its overall alignment.
             total: layout.pad_to_align(),
         })
@@ -206,9 +240,9 @@ struct ParallelScanPayload {
 }
 
 impl ParallelScanPayload {
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
         // Compute and assign our Layout: must match what we were allocated with.
-        self.layout = ParallelScanPayloadLayout::new(segments.len(), query)
+        self.layout = ParallelScanPayloadLayout::new(segments.len(), query, with_aggregates)
             .expect("could not layout `ParallelScanPayload` for initialization");
 
         // Query.
@@ -300,6 +334,46 @@ impl ParallelScanPayload {
         let claims_range = self.layout.claims.clone();
         bytemuck::try_cast_slice_mut(&mut self.data_mut()[claims_range]).unwrap()
     }
+
+    fn aggregates_header(&self) -> Option<&AggregatesPayloadHeader> {
+        let range = self.layout.aggregates_header.clone()?;
+        Some(bytemuck::from_bytes(&self.data()[range]))
+    }
+
+    fn aggregates_mut_parts(
+        &mut self,
+    ) -> (Option<&mut AggregatesPayloadHeader>, Option<&mut [u8]>) {
+        if let (Some(header_range), Some(data_range)) = (
+            self.layout.aggregates_header.clone(),
+            self.layout.aggregates_data.clone(),
+        ) {
+            // This is safe because we know the layout of the parallel scan payload
+            // ensures that the header and data ranges are disjoint.
+            unsafe {
+                let data_ptr = self.data_mut().as_mut_ptr();
+                let header =
+                    &mut *(data_ptr.add(header_range.start) as *mut AggregatesPayloadHeader);
+                let data = std::slice::from_raw_parts_mut(
+                    data_ptr.add(data_range.start),
+                    data_range.len(),
+                );
+                (Some(header), Some(data))
+            }
+        } else {
+            (None, None)
+        }
+    }
+
+    fn aggregates_data(&self) -> Option<&[u8]> {
+        let range = self.layout.aggregates_data.clone()?;
+        Some(&self.data()[range])
+    }
+}
+
+pub struct ParallelScanArgs<'a> {
+    segment_readers: &'a [SegmentReader],
+    query: Vec<u8>,
+    with_aggregates: bool,
 }
 
 // We do not know ahead of time how many workers there will be, so we preallocate fixed size
@@ -316,19 +390,25 @@ pub struct ParallelScanState {
 }
 
 impl ParallelScanState {
-    fn size_of(nsegments: usize, serialized_query: &[u8]) -> usize {
-        let dynamic_layout = ParallelScanPayloadLayout::new(nsegments, serialized_query)
-            .expect("could not layout `ParallelScanPayload` for allocation");
-        size_of::<Self>() + dynamic_layout.total.size()
+    fn size_of(nsegments: usize, serialized_query: &[u8], with_aggregates: bool) -> usize {
+        let dynamic_layout =
+            ParallelScanPayloadLayout::new(nsegments, serialized_query, with_aggregates)
+                .expect("could not layout `ParallelScanPayload` for allocation");
+        std::mem::size_of::<Self>() + dynamic_layout.total.size()
     }
 
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+    fn init(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
-        self.init_without_mutex(segments, query);
+        self.init_without_mutex(args.segment_readers, &args.query, args.with_aggregates);
     }
 
-    fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
-        self.payload.init(segments, query);
+    fn init_without_mutex(
+        &mut self,
+        segments: &[SegmentReader],
+        query: &[u8],
+        with_aggregates: bool,
+    ) {
+        self.payload.init(segments, query, with_aggregates);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
@@ -359,6 +439,135 @@ impl ParallelScanState {
         let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         if let Some(query_count) = self.query_count(parallel_worker_number) {
             *query_count = query_count.saturating_add(1);
+        }
+    }
+
+    /// Append intermediate aggregation results, including the number of segments that they
+    /// represent.
+    pub fn aggregation_append(
+        &mut self,
+        mut result: IntermediateAggregationResults,
+        segment_count: usize,
+    ) -> anyhow::Result<()> {
+        let _lock = self.acquire_mutex();
+
+        let (Some(agg_header), Some(agg_data)) = self.payload.aggregates_mut_parts() else {
+            panic!("No aggregations expected!");
+        };
+
+        let serialized_result = postcard::to_allocvec(&result)?;
+        let result_len = serialized_result.len();
+        let watermark = agg_header.watermark;
+        let max_response_bytes = gucs::max_window_aggregate_response_bytes();
+
+        assert!(
+            result_len < max_response_bytes,
+            "Initial aggregate result is too large: {result_len:?} vs {max_response_bytes}. \
+            Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC."
+        );
+
+        let buffer_full = watermark + std::mem::size_of::<usize>() + result_len
+            > (agg_data.len() - agg_header.serialized_aggregations_len);
+
+        agg_header.received_count += segment_count;
+        let all_received = agg_header.received_count == self.nsegments;
+
+        // If there is a room in the buffer, and we have not received all of the requests,
+        // serialize it.
+        if !buffer_full && !all_received {
+            let buffer = &mut agg_data[agg_header.serialized_aggregations_len..];
+            // Write length prefix
+            let len_bytes = result_len.to_le_bytes();
+            buffer[watermark..watermark + len_bytes.len()].copy_from_slice(&len_bytes);
+            // Write data
+            let data_start = watermark + len_bytes.len();
+            buffer[data_start..data_start + result_len].copy_from_slice(&serialized_result);
+            // Update watermark
+            agg_header.watermark += len_bytes.len() + result_len;
+
+            return Ok(());
+        }
+
+        // The buffer is full, or we are receiving the final result value: aggregate them down to a single
+        // result, in place.
+        let mut current_offset = 0;
+        let buffer = &agg_data[agg_header.serialized_aggregations_len..];
+        let watermark = agg_header.watermark;
+
+        while current_offset < watermark {
+            let len_bytes_end = current_offset + std::mem::size_of::<usize>();
+            let len_bytes: [u8; std::mem::size_of::<usize>()] = buffer
+                [current_offset..len_bytes_end]
+                .try_into()
+                .expect("slice with incorrect length");
+            let len = usize::from_le_bytes(len_bytes);
+
+            let data_start = len_bytes_end;
+            let data_end = data_start + len;
+            let res: IntermediateAggregationResults =
+                postcard::from_bytes(&buffer[data_start..data_end])?;
+            result.merge_fruits(res)?;
+            current_offset = data_end;
+        }
+
+        let serialized_merged = postcard::to_allocvec(&result)?;
+        let merged_len = serialized_merged.len();
+        let len_bytes = merged_len.to_le_bytes();
+
+        assert!(
+            merged_len < max_response_bytes,
+            "Aggregate result is too large: {merged_len:?} vs {max_response_bytes}. \
+            Consider increasing the 'paradedb.max_window_aggregate_response_bytes' GUC."
+        );
+
+        // Reset buffer and write single merged result
+        agg_header.watermark = 0;
+        let watermark = agg_header.watermark;
+        let buffer = &mut agg_data[agg_header.serialized_aggregations_len..];
+        buffer[watermark..watermark + len_bytes.len()].copy_from_slice(&len_bytes);
+        let data_start = watermark + len_bytes.len();
+        buffer[data_start..data_start + merged_len].copy_from_slice(&serialized_merged);
+        agg_header.watermark += len_bytes.len() + merged_len;
+
+        Ok(())
+    }
+
+    /// Wait for intermediate aggregation results to have been reported for all segments, and then
+    /// return the single final result.
+    pub fn aggregation_wait(&mut self) -> IntermediateAggregationResults {
+        loop {
+            check_for_interrupts!();
+
+            // See whether the aggregations has been finalized: if not, keep waiting.
+            let lock = self.acquire_mutex();
+            let agg_header = self
+                .payload
+                .aggregates_header()
+                .expect("cannot wait for aggregations without an aggregations payload");
+            if agg_header.received_count != self.nsegments {
+                std::mem::drop(lock);
+                // TODO: Use another synchronization primitive.
+                // https://github.com/paradedb/paradedb/issues/3489
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
+
+            // Aggregation has been finalized: deserialize and return it.
+            let agg_data = self.payload.aggregates_data().unwrap();
+            let buffer = &agg_data[agg_header.serialized_aggregations_len..];
+            assert!(
+                agg_header.watermark > 0,
+                "Expected a finalized aggregation result."
+            );
+            let len_bytes_end = std::mem::size_of::<usize>();
+            let len_bytes: [u8; std::mem::size_of::<usize>()] = buffer[0..len_bytes_end]
+                .try_into()
+                .expect("slice with incorrect length");
+            let len = usize::from_le_bytes(len_bytes);
+            let data_start = len_bytes_end;
+            let data_end = data_start + len;
+            return postcard::from_bytes(&buffer[data_start..data_end])
+                .expect("failed to deserialize aggregation result");
         }
     }
 
@@ -401,7 +610,10 @@ impl ParallelScanState {
         }
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, u32> {
+    /// Returns a map of segment IDs to their deleted document counts.
+    pub fn segments(&mut self) -> HashMap<SegmentId, u32> {
+        let _mutex = self.acquire_mutex();
+
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));

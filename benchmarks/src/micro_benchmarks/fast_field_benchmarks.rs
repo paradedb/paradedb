@@ -457,7 +457,7 @@ pub async fn benchmark_mixed_fast_fields(
         conn,
         agg_query,
         "Agg Query - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        &["NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -599,7 +599,7 @@ pub async fn benchmark_mixed_fast_fields(
         conn,
         group_count_query,
         "Group By Count - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        &["NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -625,7 +625,7 @@ pub async fn benchmark_mixed_fast_fields(
         conn,
         sum_query,
         "Sum Aggregation - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        &["NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -638,7 +638,7 @@ pub async fn benchmark_mixed_fast_fields(
         conn,
         string_group_query,
         "String Group Count - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        &["NormalScanExecState"],
         &mut results,
         &config,
     )

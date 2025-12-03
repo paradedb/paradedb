@@ -20,6 +20,7 @@ pub struct UnicodeWordsTokenStream<'a> {
     remove_emojis: bool,
     iter: unicode_segmentation::UWordBounds<'a>,
     token: &'a mut Token,
+    text: &'a str,
 }
 
 impl Tokenizer for UnicodeWordsTokenizer {
@@ -30,6 +31,7 @@ impl Tokenizer for UnicodeWordsTokenizer {
             remove_emojis: self.remove_emojis,
             iter: text.split_word_bounds(),
             token: &mut self.token,
+            text,
         }
     }
 }
@@ -46,6 +48,13 @@ impl TokenStream for UnicodeWordsTokenStream<'_> {
                     continue;
                 }
                 self.token.position = self.token.position.wrapping_add(1);
+
+                // Calculate byte offsets
+                let offset_from = unsafe { next.as_ptr().offset_from(self.text.as_ptr()) as usize };
+                let offset_to = offset_from + next.len();
+
+                self.token.offset_from = offset_from;
+                self.token.offset_to = offset_to;
 
                 self.token.text.clear();
                 self.token.text.push_str(next);
@@ -72,47 +81,59 @@ mod tests {
     #[test]
     fn test_unicode_words_with_emojis() {
         let mut tokenizer = UnicodeWordsTokenizer::default();
-        let mut stream = tokenizer.token_stream("it's Paul's birthday today!  🎂  hurray!");
+        let text = "it's Paul's birthday today!  🎂  hurray!";
+        let mut stream = tokenizer.token_stream(text);
 
         let mut tokens = vec![];
         while stream.advance() {
             let token = stream.token();
 
-            tokens.push((token.text.clone(), token.position));
+            tokens.push((
+                token.text.clone(),
+                token.position,
+                token.offset_from,
+                token.offset_to,
+            ));
         }
 
         assert_eq!(
             tokens,
             vec![
-                ("it's".into(), 0),
-                ("Paul's".into(), 1),
-                ("birthday".into(), 2),
-                ("today".into(), 3),
-                ("🎂".into(), 4),
-                ("hurray".into(), 5)
+                ("it's".into(), 0, 0, 4),
+                ("Paul's".into(), 1, 5, 11),
+                ("birthday".into(), 2, 12, 20),
+                ("today".into(), 3, 21, 26),
+                ("🎂".into(), 4, 29, 33),
+                ("hurray".into(), 5, 35, 41)
             ]
         )
     }
     #[test]
     fn test_unicode_words_without_emojis() {
         let mut tokenizer = UnicodeWordsTokenizer::new(true);
-        let mut stream = tokenizer.token_stream("it's Paul's birthday today!  🎂  hurray!");
+        let text = "it's Paul's birthday today!  🎂  hurray!";
+        let mut stream = tokenizer.token_stream(text);
 
         let mut tokens = vec![];
         while stream.advance() {
             let token = stream.token();
 
-            tokens.push((token.text.clone(), token.position));
+            tokens.push((
+                token.text.clone(),
+                token.position,
+                token.offset_from,
+                token.offset_to,
+            ));
         }
 
         assert_eq!(
             tokens,
             vec![
-                ("it's".into(), 0),
-                ("Paul's".into(), 1),
-                ("birthday".into(), 2),
-                ("today".into(), 3),
-                ("hurray".into(), 4)
+                ("it's".into(), 0, 0, 4),
+                ("Paul's".into(), 1, 5, 11),
+                ("birthday".into(), 2, 12, 20),
+                ("today".into(), 3, 21, 26),
+                ("hurray".into(), 4, 35, 41)
             ]
         )
     }

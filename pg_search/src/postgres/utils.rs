@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{lookup_generic_typmod, type_is_alias, type_is_tokenizer};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -48,7 +48,14 @@ extern "C-unwind" {
 /// let context_guard = ExprContextGuard::new();
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
+#[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+
+// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
+// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
+// these are never actually shared across threads in our PostgreSQL context.
+unsafe impl Send for ExprContextGuard {}
+unsafe impl Sync for ExprContextGuard {}
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context
@@ -65,7 +72,10 @@ impl ExprContextGuard {
 impl Drop for ExprContextGuard {
     fn drop(&mut self) {
         unsafe {
-            pg_sys::FreeExprContext(self.0, true);
+            // If this is an abort or other unclean shutdown, setting `isCommit = false` will avoid
+            // complex cleanup logic.
+            let is_commit = pg_sys::IsTransactionState() && !std::thread::panicking();
+            pg_sys::FreeExprContext(self.0, is_commit);
         }
     }
 }
@@ -281,10 +291,10 @@ pub unsafe fn extract_field_attributes(
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
-                        lookup_generic_typmod(typmod).expect("typmod should be valid");
+                        UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
                     let vars = find_vars(node);
 
-                    normalizer = parsed_typmod.filters.normalizer;
+                    normalizer = parsed_typmod.normalizer();
 
                     attname = parsed_typmod.alias();
                     if attname.is_none() && vars.len() == 1 {
@@ -430,15 +440,21 @@ pub unsafe fn row_to_search_document<'a>(
         }
 
         if *is_array {
-            for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_array(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
-            for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
+            for value in TantivyValue::try_from_datum_json(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            }) {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(datum, *base_oid)?;
+            let tv = TantivyValue::try_from_datum(datum, *base_oid).unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
         }
     }
@@ -601,4 +617,102 @@ impl<T> ToPalloc for T {
     fn palloc_in(mut self, mut mcxt: PgMemoryContexts) -> *mut Self {
         unsafe { mcxt.copy_ptr_into((&mut self as *mut T).cast(), size_of::<T>()) }
     }
+}
+
+/// Recursively check if an expression tree contains any of the specified operators
+/// Uses PostgreSQL's expression_tree_walker for robust traversal
+///
+/// NOTE: This logic is duplicated with `extract_quals` in qual_inspect.rs.
+/// Both need to traverse expression trees looking for operators, so changes to one
+/// should be reflected in the other.
+/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
+pub unsafe fn expr_contains_any_operator(
+    node: *mut pg_sys::Node,
+    target_opnos: &[pg_sys::Oid],
+) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &*(data as *const Context);
+        let node_type = (*node).type_;
+
+        // Check if this node is an OpExpr with one of our target operators
+        if node_type == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = node as *mut pg_sys::OpExpr;
+            if context.target_opnos.contains(&(*opexpr).opno) {
+                // Found a match! Set the flag and stop walking
+                (*(data as *mut Context)).found = true;
+                return true; // Stop walking
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Context {
+        target_opnos: Vec<pg_sys::Oid>,
+        found: bool,
+    }
+
+    let mut context = Context {
+        target_opnos: target_opnos.to_vec(),
+        found: false,
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.found
+}
+
+/// Look up a function in the pdb schema by name and argument types.
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
+pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
+    unsafe {
+        // Look up the pdb schema
+        let pdb_schema = pg_sys::get_namespace_oid(c"pdb".as_ptr(), true);
+        if pdb_schema == pg_sys::InvalidOid {
+            return pg_sys::InvalidOid;
+        }
+
+        // Build the qualified function name list: pdb.<func_name>
+        let mut func_name_list = PgList::<pg_sys::Node>::new();
+        func_name_list.push(pg_sys::makeString(c"pdb".as_ptr() as *mut std::ffi::c_char) as *mut _);
+        // Convert func_name to CString for makeString
+        let func_name_cstr = std::ffi::CString::new(func_name).unwrap();
+        func_name_list
+            .push(pg_sys::makeString(func_name_cstr.as_ptr() as *mut std::ffi::c_char) as *mut _);
+
+        // LookupFuncName returns InvalidOid if function doesn't exist (with missing_ok = true)
+        pg_sys::LookupFuncName(
+            func_name_list.as_ptr(),
+            arg_types.len() as i32,
+            arg_types.as_ptr(),
+            true, // missing_ok = true, don't error if not found
+        )
+    }
+}
+
+#[macro_export]
+macro_rules! debug1 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pg_sys::debug1!($($arg)*);
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! debug2 {
+    ($($arg:tt)*) => {{
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG2 as _) } {
+            pg_sys::debug2!($($arg)*);
+        }
+    }};
 }

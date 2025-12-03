@@ -1,0 +1,237 @@
+-- tests for pdb.snippets
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS snippets_test;
+CREATE TABLE snippets_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+-- Insert data with multiple potential snippets
+INSERT INTO snippets_test (id, content) VALUES
+(1, 'The quick brown fox jumps over the lazy dog. The dog is very lazy. The fox is quick.'),
+(2, 'A lazy dog is a happy dog. Dogs are the best, especially a lazy one.'),
+(3, 'Foxes and dogs are not friends. A quick fox is a clever fox.'),
+(4, 'This text does not contain the search words.'),
+(5, 'The lazy brown dog, and the quick red fox. The dog and fox are here.'),
+(6, 'A sentence with no matching words.'),
+(7, 'A test sentence for testing. Another test sentence.');
+CREATE INDEX idx_snippets_test ON snippets_test USING bm25 (id, content) WITH (key_field = 'id');
+-- =====================================================================
+-- Basic tests for pdb.snippets
+-- =====================================================================
+\echo '--- Basic pdb.snippets tests ---'
+--- Basic pdb.snippets tests ---
+-- Basic usage with a single keyword, multiple occurrences
+SELECT id, pdb.snippets(content) FROM snippets_test WHERE content @@@ 'lazy' ORDER BY id;
+ id |                                               snippets                                                
+----+-------------------------------------------------------------------------------------------------------
+  1 | {"The quick brown fox jumps over the <b>lazy</b> dog. The dog is very <b>lazy</b>. The fox is quick"}
+  2 | {"A <b>lazy</b> dog is a happy dog. Dogs are the best, especially a <b>lazy</b> one"}
+  5 | {"The <b>lazy</b> brown dog, and the quick red fox. The dog and fox are here"}
+(3 rows)
+
+-- Multiple keywords (OR)
+SELECT id, pdb.snippets(content) FROM snippets_test WHERE content @@@ 'fox OR dog' ORDER BY id;
+ id |                                                      snippets                                                       
+----+---------------------------------------------------------------------------------------------------------------------
+  1 | {"The quick brown <b>fox</b> jumps over the lazy <b>dog</b>. The <b>dog</b> is very lazy. The <b>fox</b> is quick"}
+  2 | {"A lazy <b>dog</b> is a happy <b>dog</b>. Dogs are the best, especially a lazy one"}
+  3 | {"Foxes and dogs are not friends. A quick <b>fox</b> is a clever <b>fox</b>"}
+  5 | {"The lazy brown <b>dog</b>, and the quick red <b>fox</b>. The <b>dog</b> and <b>fox</b> are here"}
+(4 rows)
+
+-- Phrase search
+SELECT id, pdb.snippets(content) FROM snippets_test WHERE content @@@ '"lazy dog"' ORDER BY id;
+ id |                                                      snippets                                                       
+----+---------------------------------------------------------------------------------------------------------------------
+  1 | {"The quick brown fox jumps over the <b>lazy</b> <b>dog</b>. The <b>dog</b> is very <b>lazy</b>. The fox is quick"}
+  2 | {"A <b>lazy</b> <b>dog</b> is a happy <b>dog</b>. Dogs are the best, especially a <b>lazy</b> one"}
+(2 rows)
+
+-- =====================================================================
+-- Tests for pdb.snippets with arguments
+-- =====================================================================
+\echo '--- pdb.snippets with arguments ---'
+--- pdb.snippets with arguments ---
+-- Custom tags
+SELECT id, pdb.snippets(content, start_tag => '<em>', end_tag => '</em>') FROM snippets_test WHERE content @@@ 'quick' ORDER BY id;
+ id |                                                 snippets                                                  
+----+-----------------------------------------------------------------------------------------------------------
+  1 | {"The <em>quick</em> brown fox jumps over the lazy dog. The dog is very lazy. The fox is <em>quick</em>"}
+  3 | {"Foxes and dogs are not friends. A <em>quick</em> fox is a clever fox"}
+  5 | {"The lazy brown dog, and the <em>quick</em> red fox. The dog and fox are here"}
+(3 rows)
+
+-- =====================================================================
+-- Tests for pdb.snippets with limit and offset
+-- =====================================================================
+\echo '--- pdb.snippets with limit and offset ---'
+--- pdb.snippets with limit and offset ---
+-- With a small max_num_chars, we can generate multiple snippets per document.
+-- This query should produce 2 snippets for id=1, 2 for id=3, and 2 for id=5
+SELECT id, pdb.snippets(content, max_num_chars => 25) FROM snippets_test WHERE content @@@ 'fox' ORDER BY id;
+ id |                                snippets                                 
+----+-------------------------------------------------------------------------
+  1 | {"The quick brown <b>fox</b> jumps","dog is very lazy. The <b>fox</b>"}
+  3 | {"friends. A quick <b>fox</b> is a","clever <b>fox</b>"}
+  5 | {"the quick red <b>fox</b>. The","dog and <b>fox</b> are here"}
+(3 rows)
+
+-- Test limit: should return only the first snippet for each document
+SELECT id, pdb.snippets(content, max_num_chars => 25, "limit" => 1) FROM snippets_test WHERE content @@@ 'fox' ORDER BY id;
+ id |               snippets               
+----+--------------------------------------
+  1 | {"The quick brown <b>fox</b> jumps"}
+  3 | {"friends. A quick <b>fox</b> is a"}
+  5 | {"the quick red <b>fox</b>. The"}
+(3 rows)
+
+-- Test offset: should return the second snippet for each document
+SELECT id, pdb.snippets(content, max_num_chars => 25, "limit" => 1, "offset" => 1) FROM snippets_test WHERE content @@@ 'fox' ORDER BY id;
+ id |               snippets               
+----+--------------------------------------
+  1 | {"dog is very lazy. The <b>fox</b>"}
+  3 | {"clever <b>fox</b>"}
+  5 | {"dog and <b>fox</b> are here"}
+(3 rows)
+
+-- Test offset without limit: should return all snippets starting from the second one
+SELECT id, pdb.snippets(content, max_num_chars => 25, "offset" => 1) FROM snippets_test WHERE content @@@ 'fox' ORDER BY id;
+ id |               snippets               
+----+--------------------------------------
+  1 | {"dog is very lazy. The <b>fox</b>"}
+  3 | {"clever <b>fox</b>"}
+  5 | {"dog and <b>fox</b> are here"}
+(3 rows)
+
+-- Test offset beyond the number of snippets: should return empty array
+SELECT id, pdb.snippets(content, max_num_chars => 25, "offset" => 2) FROM snippets_test WHERE content @@@ 'fox' ORDER BY id;
+ id | snippets 
+----+----------
+  1 | {}
+  3 | {}
+  5 | {}
+(3 rows)
+
+-- Test with a different max_num_chars to ensure limit and offset are behaving correctly
+-- This should produce 2 snippets for id=1
+SELECT id, pdb.snippets(content, max_num_chars => 40) FROM snippets_test WHERE content @@@ 'dog' ORDER BY id;
+ id |                                        snippets                                         
+----+-----------------------------------------------------------------------------------------
+  1 | {"<b>dog</b>. The <b>dog</b> is very lazy. The fox is"}
+  2 | {"A lazy <b>dog</b> is a happy <b>dog</b>. Dogs are the"}
+  5 | {"The lazy brown <b>dog</b>, and the quick red","fox. The <b>dog</b> and fox are here"}
+(3 rows)
+
+SELECT id, pdb.snippets(content, max_num_chars => 40, "limit" => 1) FROM snippets_test WHERE content @@@ 'dog' ORDER BY id;
+ id |                         snippets                          
+----+-----------------------------------------------------------
+  1 | {"<b>dog</b>. The <b>dog</b> is very lazy. The fox is"}
+  2 | {"A lazy <b>dog</b> is a happy <b>dog</b>. Dogs are the"}
+  5 | {"The lazy brown <b>dog</b>, and the quick red"}
+(3 rows)
+
+SELECT id, pdb.snippets(content, max_num_chars => 40, "limit" => 1, "offset" => 1) FROM snippets_test WHERE content @@@ 'dog' ORDER BY id;
+ id |                 snippets                 
+----+------------------------------------------
+  1 | {}
+  2 | {}
+  5 | {"fox. The <b>dog</b> and fox are here"}
+(3 rows)
+
+SELECT id, pdb.snippets(content, max_num_chars => 40, "offset" => 1) FROM snippets_test WHERE content @@@ 'dog' ORDER BY id;
+ id |                 snippets                 
+----+------------------------------------------
+  1 | {}
+  2 | {}
+  5 | {"fox. The <b>dog</b> and fox are here"}
+(3 rows)
+
+SELECT id, pdb.snippets(content, max_num_chars => 40, "offset" => 2) FROM snippets_test WHERE content @@@ 'dog' ORDER BY id;
+ id | snippets 
+----+----------
+  1 | {}
+  2 | {}
+  5 | {}
+(3 rows)
+
+-- Test `limit` and `offset` on a query that returns a single snippet by default
+SELECT id, pdb.snippets(content, "limit" => 1) FROM snippets_test WHERE content @@@ 'test' ORDER BY id;
+ id |                               snippets                               
+----+----------------------------------------------------------------------
+  7 | {"A <b>test</b> sentence for testing. Another <b>test</b> sentence"}
+(1 row)
+
+SELECT id, pdb.snippets(content, "limit" => 1, "offset" => 1) FROM snippets_test WHERE content @@@ 'test' ORDER BY id;
+ id | snippets 
+----+----------
+  7 | {}
+(1 row)
+
+-- Test with multiple search terms, small max_num_chars, and limit/offset
+-- This should generate a lot of snippets
+SELECT id, pdb.snippets(content, max_num_chars => 20) FROM snippets_test WHERE content @@@ 'fox OR dog OR lazy OR quick' ORDER BY id;
+ id |                                                                       snippets                                                                        
+----+-------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | {"The <b>quick</b> brown <b>fox</b>","<b>dog</b>. The <b>dog</b> is very","<b>lazy</b>. The <b>fox</b> is","jumps over the <b>lazy</b>",<b>quick</b>}
+  2 | {"A <b>lazy</b> <b>dog</b> is a","happy <b>dog</b>. Dogs are","a <b>lazy</b> one"}
+  3 | {"<b>fox</b> is a clever <b>fox</b>","not friends. A <b>quick</b>"}
+  5 | {"<b>fox</b>. The <b>dog</b> and <b>fox</b>","The <b>lazy</b> brown <b>dog</b>","and the <b>quick</b> red"}
+(4 rows)
+
+-- With limit
+SELECT id, pdb.snippets(content, max_num_chars => 20, "limit" => 2) FROM snippets_test WHERE content @@@ 'fox OR dog OR lazy OR quick' ORDER BY id;
+ id |                                     snippets                                     
+----+----------------------------------------------------------------------------------
+  1 | {"The <b>quick</b> brown <b>fox</b>","<b>dog</b>. The <b>dog</b> is very"}
+  2 | {"A <b>lazy</b> <b>dog</b> is a","happy <b>dog</b>. Dogs are"}
+  3 | {"<b>fox</b> is a clever <b>fox</b>","not friends. A <b>quick</b>"}
+  5 | {"<b>fox</b>. The <b>dog</b> and <b>fox</b>","The <b>lazy</b> brown <b>dog</b>"}
+(4 rows)
+
+-- With limit and offset
+SELECT id, pdb.snippets(content, max_num_chars => 20, "limit" => 2, "offset" => 1) FROM snippets_test WHERE content @@@ 'fox OR dog OR lazy OR quick' ORDER BY id;
+ id |                                snippets                                 
+----+-------------------------------------------------------------------------
+  1 | {"<b>dog</b>. The <b>dog</b> is very","<b>lazy</b>. The <b>fox</b> is"}
+  2 | {"happy <b>dog</b>. Dogs are","a <b>lazy</b> one"}
+  3 | {"not friends. A <b>quick</b>"}
+  5 | {"The <b>lazy</b> brown <b>dog</b>","and the <b>quick</b> red"}
+(4 rows)
+
+-- With offset
+SELECT id, pdb.snippets(content, max_num_chars => 20, "offset" => 3) FROM snippets_test WHERE content @@@ 'fox OR dog OR lazy OR quick' ORDER BY id;
+ id |                  snippets                   
+----+---------------------------------------------
+  1 | {"jumps over the <b>lazy</b>",<b>quick</b>}
+  2 | {}
+  3 | {}
+  5 | {}
+(4 rows)
+
+-- =====================================================================
+-- Tests for pdb.snippets with sort_by
+-- =====================================================================
+\echo '--- pdb.snippets with sort_by ---'
+--- pdb.snippets with sort_by ---
+INSERT INTO snippets_test (id, content) VALUES (8, 'term1 term2. some other text. term1 term1 term2.');
+-- Test with sort_by => 'score' (default)
+-- The second snippet has more matches, so it should be first
+SELECT id, pdb.snippets(content, max_num_chars => 20, sort_by => 'score') FROM snippets_test WHERE content @@@ 'term1 OR term2' AND id = 8;
+ id |                                          snippets                                          
+----+--------------------------------------------------------------------------------------------
+  8 | {"<b>term1</b> <b>term2</b>. some","<b>term1</b> <b>term2</b>","other text. <b>term1</b>"}
+(1 row)
+
+-- Test with sort_by => 'position'
+-- Snippets should be in order of appearance
+SELECT id, pdb.snippets(content, max_num_chars => 20, sort_by => 'position') FROM snippets_test WHERE content @@@ 'term1 OR term2' AND id = 8;
+ id |                                          snippets                                          
+----+--------------------------------------------------------------------------------------------
+  8 | {"<b>term1</b> <b>term2</b>. some","other text. <b>term1</b>","<b>term1</b> <b>term2</b>"}
+(1 row)
+
+-- Test with an invalid sort_by value
+SELECT id, pdb.snippets(content, sort_by => 'invalid') FROM snippets_test WHERE content @@@ 'lazy' AND id = 1;
+ERROR:  invalid sort_by value for pdb.snippets: must be 'score' or 'position'
+-- Cleanup
+DROP TABLE snippets_test;

@@ -1,5 +1,7 @@
 ---
 title: Kubernetes
+description: How to deploy ParadeDB as a Kubernetes cluster into production
+canonical: https://docs.paradedb.com/deploy/self-hosted/kubernetes
 ---
 
 Kubernetes is the recommended way to run ParadeDB in production. Both ParadeDB Community and Enterprise binaries
@@ -75,7 +77,7 @@ cluster:
 <Note>
   If you are using ParadeDB Enterprise, `instances` should be set to a number
   greater than `1` for [high
-  availability](/deploy/self-hosted/high-availability).
+  availability](/deploy/self-hosted/high-availability/configuration).
 </Note>
 
 Next, create a namespace for this step or use an existing namespace. The namespace can be any value.
@@ -128,7 +130,7 @@ To connect to the Grafana dashboard for your cluster, we suggested port forwardi
 kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80
 ```
 
-You can then access the Grafana dasbhoard at [http://localhost:3000/](http://localhost:3000/) using the credentials `admin` as username
-and `prom-operator` as password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
-file used as the `values.yaml` file in [Installing the Prometheus CRDs](#installing-the-prometheus-stack) and can be modified by providing
-your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/current/monitoring/).
+`You can then access the Grafana dasbhoard at `localhost:3000` using the credentials`admin`as username
+and`prom-operator` as password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
+file used as the `values.yaml`file in [Installing the Prometheus CRDs](#installing-the-prometheus-stack) and can be modified by providing
+your own`values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/current/monitoring/).

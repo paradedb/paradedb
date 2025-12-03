@@ -1,13 +1,13 @@
 ---
 title: Performance Tuning
+description: Several settings can be tuned to improve the performance of aggregates in ParadeDB
+canonical: https://docs.paradedb.com/documentation/aggregates/tuning
 ---
-
-Several settings can be tuned to improve the performance of aggregates in ParadeDB.
 
 ### Configure Parallel Workers
 
 ParadeDB uses Postgres parallel workers. By default, Postgres allows two workers per parallel query.
-Increasing the number of [parallel workers](/documentation/configuration/read_throughput) allows parallel queries to use all of the available hardware on the host machine and can deliver significant
+Increasing the number of [parallel workers](/documentation/performance-tuning/reads) allows parallel queries to use all of the available hardware on the host machine and can deliver significant
 speedups.
 
 ### Run `VACUUM`

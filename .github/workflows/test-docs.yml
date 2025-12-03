@@ -22,12 +22,12 @@ concurrency:
 
 jobs:
   test-docs:
-    name: Test Docs for Broken Links
+    name: Test Docs for Broken Links & SEO Issues
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Mintlify CLI
         run: npm install -g mintlify
@@ -39,6 +39,69 @@ jobs:
           if [[ "$output" == *"success no broken links found"* ]]; then
             echo "No broken links found."
           else
+            echo "Broken links found:"
             echo "$output"
             exit 1
           fi
+
+      # Check that:
+      # - There are no underscores in URLs
+      # - Each .mdx file has a title, description, and canonical URL
+      # - Each canonical URL matches the file path
+      - name: Test for SEO Issues
+        working-directory: docs/
+        run: |
+          echo "Running SEO validation..."
+
+          echo ""
+          echo "Checking for underscores in URLs..."
+          files=$(find . -type f -name "*_*" ! -path "./images/*" ! -path "./logo/*")
+          if [ -n "$files" ]; then
+            echo "❌ Found files with underscores:"
+            echo "$files" | sed 's/^/  - /'
+            exit 1
+          else
+            echo "✅ No filenames with underscores (excluding /images/ and /logo/)."
+          fi
+
+          echo ""
+          echo "Checking that each file has title, description, and canonical URL..."
+          missing_meta=0
+          for file in $(find . -name "*.mdx" \
+            ! -path "./legacy/*" \
+            ! -path "./changelog/*" \
+            ! -path "./welcome/support.mdx" \
+            ! -path "./documentation/aggregates/tantivy.mdx"); do
+
+            title=$(grep -E "^title:" "$file" || true)
+            desc=$(grep -E "^description:" "$file" || true)
+            canonical=$(grep -E "^canonical:" "$file" || true)
+
+            if [ -z "$title" ] || [ -z "$desc" ] || [ -z "$canonical" ]; then
+              echo "❌ Missing metadata in $file"
+              missing_meta=1
+              continue
+            fi
+
+            # Build expected canonical: https://docs.paradedb.com/<relative path without .mdx>
+            relative_path=$(echo "$file" | sed 's|^\./||; s|\.mdx$||; s|^docs/||')
+            expected_canonical="https://docs.paradedb.com/${relative_path}"
+
+            # Extract canonical from file (strip 'canonical:' and whitespace)
+            found_canonical=$(echo "$canonical" | sed 's/^canonical:[[:space:]]*//')
+
+            if [ "$found_canonical" != "$expected_canonical" ]; then
+              echo "❌ Canonical URL mismatch in $file"
+              echo "   Expected: $expected_canonical"
+              echo "   Found:    $found_canonical"
+              missing_meta=1
+            fi
+          done
+
+          if [ "$missing_meta" -eq 1 ]; then
+            exit 1
+          else
+            echo "✅ All files have proper metadata and canonical URLs."
+          fi
+
+          echo "🎉 All SEO checks passed!"

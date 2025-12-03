@@ -1,39 +1,43 @@
 ---
 title: Average
+description: Compute the average value of a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/average
 ---
 
-`AVG` computes the average value over a specific column:
+The following query computes the average value over a specific field:
+
+```sql
+SELECT pdb.agg('{"avg": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+              agg
+-------------------------------
+ {"value": 3.8536585365853657}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.AverageAggregation.html) for all available options.
+
+## SQL Average Syntax
+
+SQL's `AVERAGE` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
 ```sql
 SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
-
-<Note>
-  The field being averaged, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast_fields).
-</Note>
 
 By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:
 
 ```sql
 SELECT AVG(COALESCE(rating, 0)) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-To verify that `AVG` was pushed down, look for a `ParadeDB Aggregate Scan` with `average` in the `EXPLAIN` output:
-
-```sql
-EXPLAIN SELECT AVG(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-```sql Expected Response
-                                       QUERY PLAN
-----------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=32)
-   Index: search_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"avg":{"field":"rating"}}}
-(4 rows)
+WHERE id @@@ pdb.all();
 ```

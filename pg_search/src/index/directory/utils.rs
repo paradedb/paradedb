@@ -160,7 +160,7 @@ pub unsafe fn save_new_metas(
 
             let existing_segment = incoming_segments.get(id).unwrap();
             let (mut meta_entry, blockno, _) = linked_list
-                .lookup_ex(|entry| entry.segment_id() == *id)
+                .lookup_ex(|entry| entry.segment_id() == *id, None)
                 .unwrap_or_else(|e| {
                     panic!("segment id `{id}` should be in the segment meta linked list:  {e}")
                 });
@@ -191,7 +191,7 @@ pub unsafe fn save_new_metas(
         .into_iter()
         .map(|id| {
             let (mut meta_entry, blockno, _) = linked_list
-                .lookup_ex(|entry| entry.segment_id() == *id)
+                .lookup_ex(|entry| entry.segment_id() == *id, None)
                 .unwrap_or_else(|e| {
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });

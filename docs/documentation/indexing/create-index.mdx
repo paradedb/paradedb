@@ -1,0 +1,71 @@
+---
+title: Create an Index
+description: Index a Postgres table for full text search
+canonical: https://docs.paradedb.com/documentation/indexing/create-index
+---
+
+Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
+The following code block creates a BM25 index over several columns in the `mock_items` table.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field='id');
+```
+
+By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
+Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)
+to find the most suitable one before running `CREATE INDEX`.
+
+For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.icu), category)
+WITH (key_field='id');
+```
+
+Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
+including columns used for sorting, grouping, filtering, and aggregations.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
+
+## Track Create Index Progress
+
+To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
+
+```sql
+SELECT pid, phase, blocks_done, blocks_total
+FROM pg_stat_progress_create_index;
+```
+
+Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
+`blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
+
+## Choosing a Key Field
+
+In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
+Every BM25 index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
+
+The `key_field` must:
+
+1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
+2. Be the first column in the column list.
+3. Be untokenized, if it is a text field.
+
+## Token Filters
+
+After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
+For example, the following code block adds English stemming to `description`:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
+WITH (key_field='id');
+```

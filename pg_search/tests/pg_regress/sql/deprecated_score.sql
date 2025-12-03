@@ -1,0 +1,243 @@
+-- Test case for issue #2530: BM25 scores return null when not all predicates are indexed
+-- This test demonstrates the problem where score functions return null/zero results
+-- when search predicates are handled by join filters instead of custom scan filters
+
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Setup test tables
+DROP TABLE IF EXISTS authors;
+DROP TABLE IF EXISTS books;
+
+CREATE TABLE authors (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    age INT
+);
+
+CREATE TABLE books (
+    id INT,
+    author_id INT,
+    content TEXT,
+    titles TEXT[],
+    metadata JSONB,
+    PRIMARY KEY (id, author_id)
+);
+
+INSERT INTO authors (name, age) VALUES
+('J.K. Rowling', 55),
+('Stephen King', 75),
+('Agatha Christie', 80),
+('Dan Brown', 60),
+('J.R.R. Tolkien', 100),
+('Sami Bowling', 66);
+
+INSERT INTO books (id, author_id,content, titles, metadata) VALUES
+(1, 2, 'This is a test test of the snippet function with multiple test words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 1, 'This is a final final of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 6, 'This is a final test of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(2, 2, 'Another test of the snippet snippet function with repeated snippet words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
+(3, 1, 'Yet another test test test of the function function function', ARRAY['test', 'snippet', 'test'], '{"test": "test"}'),
+(4, 3, 'test Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? test At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae. Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. test', ARRAY['test', 'snippet', 'function'], '{"test": "test"}');
+
+
+-- Create BM25 indexes
+CREATE INDEX ON authors USING bm25 (
+    id,
+    name,
+    age
+) WITH (key_field = 'id');
+
+CREATE INDEX ON books USING bm25 (
+    id,
+    author_id,
+    content,
+    titles
+) WITH (key_field = 'id');
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
+
+-- For comparison, show a working case where predicates can be pushed down
+-- This should work correctly because all predicates for 'a' can be pushed to the authors scan
+SELECT
+    a.id as author_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score
+FROM authors a
+WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
+ORDER BY a.id;
+
+-- Show another working case with books
+SELECT
+    b.id as book_id,
+    paradedb.score(b.id) as book_score
+FROM books b
+WHERE b.content @@@ 'test'
+ORDER BY b.id;
+
+-- Test case with only join predicate - should show the issue more clearly
+-- This demonstrates scores being null when the scoring predicate is in the join filter
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
+ORDER BY b.id, a.id;
+
+-- Test with mixed predicates - some indexed, some not
+-- This should show partial scores based on what can be indexed
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
+ORDER BY b.id, a.id;
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY b.id, a.id;
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
+ORDER BY b.id, a.id;
+
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
+ORDER BY b.id, a.id;
+
+-- Test score comparison - direct vs join query
+-- Show how the same author gets different scores in different query contexts
+-- Direct query (should work)
+SELECT
+    'Direct Query' as query_type,
+    a.id as author_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score
+FROM authors a
+WHERE a.name @@@ 'Rowling'
+ORDER BY a.id;
+
+-- Join query (currently shows issue)
+SELECT
+    'Join Query' as query_type,
+    a.id as author_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE a.name @@@ 'Rowling'
+ORDER BY a.id;
+
+-- Test with different join types to see if the issue persists
+-- LEFT JOIN case
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+LEFT JOIN authors a ON b.author_id = a.id
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
+
+-- RIGHT JOIN case
+SELECT
+    a.id as author_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    COALESCE(paradedb.score(b.id), 0) as book_score
+FROM books b
+RIGHT JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
+ORDER BY a.id;
+
+-- Test multiple score functions in same query
+-- This tests if score calculation is consistent across multiple score calls
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score_1,
+    paradedb.score(a.id) as author_score_2,  -- Should be same as author_score_1
+    paradedb.score(b.id) as book_score_1,
+    paradedb.score(b.id) as book_score_2     -- Should be same as book_score_1
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
+
+-- Test score with ORDER BY to verify scores make sense for ranking
+-- Even if scores are null/zero, the ordering should still work
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY paradedb.score(a.id) DESC, paradedb.score(b.id) DESC, b.id, a.id
+GROUP BY b.id, a.id;
+
+-- Test combining scores and snippets to show they should be consistent
+-- Both should reflect the same search context
+SELECT
+    b.id as book_id,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.score(b.id) as book_score,
+    paradedb.snippet(b.content) as book_snippet
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
+
+-- Test LEFT JOIN behavior
+SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+FROM books b
+LEFT JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY b.id, a.id;
+
+-- Test RIGHT JOIN behavior
+SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+FROM books b
+RIGHT JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY a.id;
+
+-- Cleanup
+DROP TABLE IF EXISTS books;
+DROP TABLE IF EXISTS authors;

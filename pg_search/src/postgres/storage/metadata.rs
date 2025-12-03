@@ -18,14 +18,16 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
-    init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
+    init_new_buffer, Buffer, BufferManager, BufferMut, ImmutablePage, PinnedBuffer,
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::iter::TableIterator;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, name, pg_extern, pg_sys, PgLogLevel, PgRelation, PgSqlErrorCode};
+use pgrx::{
+    function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
+    PgSqlErrorCode,
+};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -69,7 +71,9 @@ pub struct MetaPageData {
     /// The block where our current, v2, FSM starts
     v2_fsm: pg_sys::BlockNumber,
 
-    bgmerger: pg_sys::BlockNumber,
+    /// Allow up to 2 concurrent background merges
+    /// If one of these blocks is pinned, that means a background merge is running
+    bgmerger: [pg_sys::BlockNumber; 2],
 }
 
 /// Provides read access to the metadata page
@@ -107,12 +111,12 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
-            metadata.bgmerger = init_new_buffer(indexrel).number();
+            metadata.bgmerger = std::array::from_fn(|_| init_new_buffer(indexrel).number());
         }
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } {
+        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
@@ -137,12 +141,15 @@ impl MetaPage {
         //
         // These will have either been initialized in `MetaPage::init()` or known to be
         // our old hardcoded values
+        let bgmerger = metadata.bgmerger;
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.v2_fsm)
             || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.bgmerger);
+            || bgmerger
+                .iter()
+                .any(|&blockno| !block_number_is_valid(blockno));
 
         drop(buffer);
 
@@ -188,8 +195,10 @@ impl MetaPage {
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
-                if !block_number_is_valid(metadata.bgmerger) {
-                    metadata.bgmerger = init_new_buffer(indexrel).number();
+                for i in 0..2 {
+                    if !block_number_is_valid(metadata.bgmerger[i]) {
+                        metadata.bgmerger[i] = init_new_buffer(indexrel).number();
+                    }
                 }
             }
 
@@ -254,7 +263,7 @@ impl MetaPage {
     pub fn bgmerger(&self) -> BgMergerPage {
         BgMergerPage {
             bman: self.bman.clone(),
-            blockno: self.data.bgmerger,
+            blocknos: self.data.bgmerger,
         }
     }
 }
@@ -343,80 +352,106 @@ impl MetaPage {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(u8)]
-enum BgMergerState {
-    Stopped = 0,
-    Starting = 1,
-    Running = 2,
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-struct BgMergerPageData {
-    data: (i32, BgMergerState),
-}
+// We at most allow 2 concurrent background merges
+// The first background merge is for "small" merges, the second is for "large" merges
+// This makes it so that a long-running large merge doesn't block smaller merges from happening
+// We arbitrarily say that a merge is "large" if the largest layer size is greater than
+// or equal to this threshold
+const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
 
 pub struct BgMergerPage {
     bman: BufferManager,
-    blockno: pg_sys::BlockNumber,
+    blocknos: [pg_sys::BlockNumber; 2],
 }
 
 impl BgMergerPage {
-    fn data(&self) -> (i32, BgMergerState) {
-        let buffer = self.bman.get_buffer(self.blockno);
-        let page = buffer.page();
-        let contents = page.contents::<BgMergerPageData>();
-        contents.data
+    pub fn can_start(&mut self, largest_layer_size: u64) -> Option<pg_sys::BlockNumber> {
+        let blockno = if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+            1
+        } else {
+            0
+        };
+
+        assert!(block_number_is_valid(self.blocknos[blockno]));
+
+        let buffer = self
+            .bman
+            .get_buffer_for_cleanup_conditional(self.blocknos[blockno]);
+        buffer.map(|_| self.blocknos[blockno])
     }
 
-    pub fn try_starting(&mut self) -> bool {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        let contents = page.contents_mut::<BgMergerPageData>();
-        match contents.data {
-            // it's currently stopped
-            (_, BgMergerState::Stopped) => {
-                contents.data = (1, BgMergerState::Starting);
-                true
-            }
+    pub fn try_starting(&mut self, blockno: pg_sys::BlockNumber) -> Option<ImmutablePage> {
+        assert!(blockno == self.blocknos[0] || blockno == self.blocknos[1]);
 
-            // it's tagged as running but the process doesn't belong to Postgres
-            (pid, BgMergerState::Running) if unsafe { !pg_sys::IsBackendPid(pid) } => {
-                contents.data = (1, BgMergerState::Starting);
-                true
-            }
-
-            _ => false,
-        }
-    }
-
-    pub fn set_running(&mut self) {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        page.contents_mut::<BgMergerPageData>().data =
-            (unsafe { pg_sys::MyProcPid }, BgMergerState::Running);
-    }
-
-    pub fn set_stopped(&mut self) {
-        let mut buffer = self.bman.get_buffer_mut(self.blockno);
-        let mut page = buffer.page_mut();
-        page.contents_mut::<BgMergerPageData>().data = (0, BgMergerState::Stopped);
+        let buffer = self.bman.get_buffer_for_cleanup_conditional(blockno);
+        buffer.map(|buffer| buffer.into_immutable_page())
     }
 }
 
+#[allow(unused_variables)]
 #[pg_extern]
 unsafe fn reset_bgworker_state(index: PgRelation) {
-    let index = PgSearchRelation::from_pg(index.as_ptr());
-    let mut bgmerger = MetaPage::open(&index).bgmerger();
-    bgmerger.set_stopped();
+    pgrx::warning!("reset_bgworker_state has been deprecated");
 }
 
+#[allow(unused_variables)]
 #[pg_extern]
 unsafe fn bgmerger_state(
     index: PgRelation,
 ) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
-    let index = PgSearchRelation::from_pg(index.as_ptr());
-    let bgmerger = MetaPage::open(&index).bgmerger().data();
-    TableIterator::new(std::iter::once((bgmerger.0, format!("{:?}", bgmerger.1))))
+    pgrx::warning!("bgmerger_state has been deprecated");
+    TableIterator::new(std::iter::empty())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    fn create_index() -> pg_sys::Oid {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
+        Spi::run("CREATE TABLE IF NOT EXISTS t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .unwrap()
+    }
+
+    #[pg_test]
+    fn test_bgmerger_max_concurrent_merges() {
+        let index_oid = create_index();
+        let index = PgSearchRelation::open(index_oid);
+        let metadata = MetaPage::open(&index);
+        let mut bgmerger = metadata.bgmerger();
+
+        let pin1 = bgmerger.try_starting(bgmerger.blocknos[1]);
+        assert!(pin1.is_some());
+
+        let pin2 = bgmerger.try_starting(bgmerger.blocknos[1]);
+        assert!(pin2.is_none());
+
+        let pin3 = bgmerger.try_starting(bgmerger.blocknos[0]);
+        assert!(pin3.is_some());
+
+        let pin4 = bgmerger.try_starting(bgmerger.blocknos[0]);
+        assert!(pin4.is_none());
+
+        // drop one pin, should be able to start another
+        drop(pin1.unwrap());
+        let pin5 = bgmerger.try_starting(bgmerger.blocknos[1]);
+        assert!(pin5.is_some());
+
+        // drop one pin, should be able to start another
+        drop(pin3.unwrap());
+        let pin6 = bgmerger.try_starting(bgmerger.blocknos[0]);
+        assert!(pin6.is_some());
+
+        // drop the rest
+        drop(pin5.unwrap());
+        drop(pin6.unwrap());
+    }
 }

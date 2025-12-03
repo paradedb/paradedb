@@ -1,0 +1,38 @@
+---
+title: Facets
+description: Compute a Top N and aggregate in one query
+canonical: https://docs.paradedb.com/documentation/aggregates/facets
+---
+
+A common pattern in search is to query for both an aggregate and a set of search results. For example, "find the top 10
+results, and also count the total number of results."
+
+Instead of issuing two separate queries -- one for the search results, and another for the aggregate -- `pdb.agg` allows for
+these results to be returned in a single "faceted" query. This can significantly improve read throughput, since issuing a single
+query uses less CPU and disk I/O.
+
+For example, this query returns the top 3 search results alongside the total number of results found.
+
+```sql
+SELECT
+  id, description, rating,
+  pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE category === 'electronics'
+ORDER BY rating DESC
+LIMIT 3;
+```
+
+```ini Expected Response
+ id |         description         | rating |      agg
+----+-----------------------------+--------+----------------
+ 12 | Innovative wireless earbuds |      5 | {"value": 5.0}
+  1 | Ergonomic metal keyboard    |      4 | {"value": 5.0}
+  2 | Plastic Keyboard            |      4 | {"value": 5.0}
+(3 rows)
+```
+
+<Note>
+  Faceted queries require that `pdb.agg` be used as a window function:
+  `pdb.agg() OVER ()`.
+</Note>

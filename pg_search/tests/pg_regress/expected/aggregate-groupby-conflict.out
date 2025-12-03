@@ -49,7 +49,7 @@ ORDER BY rating;
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
-   Output: rating, now(), now()
+   Output: rating, pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: AVG(rating), COUNT(*)
@@ -84,7 +84,7 @@ ORDER BY price;
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
-   Output: price, now(), now()
+   Output: price, pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: SUM(price), COUNT(*)
@@ -125,7 +125,7 @@ ORDER BY views;
                                                                                                           QUERY PLAN                                                                                                           
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
-   Output: views, now(), now()
+   Output: views, pdb.agg_fn('MAX'::text), pdb.agg_fn('MIN'::text)
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: MAX(views), MIN(views)
@@ -171,7 +171,7 @@ ORDER BY rating;
                                                                                                                                    QUERY PLAN                                                                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
-   Output: rating, now(), now(), now(), now()
+   Output: rating, pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: AVG(rating), MIN(rating), MAX(rating), COUNT(*)

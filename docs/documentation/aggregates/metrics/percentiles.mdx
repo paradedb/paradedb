@@ -1,0 +1,22 @@
+---
+title: Percentiles
+description: Analyze the distribution of a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/percentiles
+---
+
+The percentiles aggregation computes the values below which a given percentage of the data falls.
+In this example, the aggregation will return the 50th and 95th percentiles for `rating`.
+
+```sql
+SELECT pdb.agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+                                 agg
+---------------------------------------------------------------------
+ {"values": {"50.0": 4.014835333028612, "95.0": 5.0028295751107414}}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.PercentilesAggregationReq.html) for all available options.

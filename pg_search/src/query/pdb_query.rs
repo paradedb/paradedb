@@ -21,11 +21,13 @@ use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
-    check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
+    check_range_bounds, coerce_bound_to_field_type, expand_json_numeric_to_terms, value_to_term,
+    QueryError, SearchQueryInput,
 };
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
+use smallvec::smallvec;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
@@ -227,6 +229,11 @@ pub mod pdb {
             distance: Option<u8>,
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
+            conjunction_mode: Option<bool>,
+        },
+        Parse {
+            query_string: String,
+            lenient: Option<bool>,
             conjunction_mode: Option<bool>,
         },
         ParseWithField {
@@ -540,12 +547,17 @@ impl pdb::Query {
                 prefix,
                 conjunction_mode,
             )?,
+            pdb::Query::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            } => parse(parser, query_string, lenient, conjunction_mode)?,
             pdb::Query::ParseWithField {
                 query_string,
                 lenient,
                 conjunction_mode,
                 fuzzy_data,
-            } => parse(
+            } => parse_with_field(
                 &field,
                 parser,
                 schema,
@@ -671,31 +683,78 @@ fn proximity(
     Ok(Box::new(prox))
 }
 
+/// Creates TermSetQuery for pdb::Query::TermSet (used by === operator for TEXT, not for numeric IN pushdown).
+/// For JSON numeric fields, expands each value into I64/U64/F64 variants for cross-type matching.
+/// Numeric IN clauses use query/mod.rs::SearchQueryInput::TermSet instead.
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
     terms: Vec<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    // For JSON paths like "data.amount", we must look up the root field "data" in the schema
+    // to correctly identify it as a JSON field type. Using the full path would fail the lookup
+    // since only the root column exists in the schema as a JsonObject field.
     let search_field = schema
-        .search_field(&field)
+        .search_field(field.root())
         .expect("field should exist in schema");
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
 
-    let terms = terms
-        .into_iter()
-        .map(|term| {
-            value_to_term(
-                tantivy_field,
-                &term,
-                field_type,
-                field.path().as_deref(),
-                is_date_time,
-            )
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(Box::new(TermSetQuery::new(terms)))
+    // Check if this is a JSON numeric field requiring multi-type matching
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some();
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let has_numeric_terms = terms.iter().any(|v| {
+        matches!(
+            v,
+            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+        )
+    });
+
+    if is_json_numeric_field && has_numeric_terms && !is_date_time {
+        // For JSON numeric fields, each term may expand to multiple type variants
+        // Pass iterator directly to avoid allocating an intermediate Vec
+        return Ok(Box::new(TermSetQuery::new(terms.into_iter().flat_map(
+            |term_value| {
+                if matches!(
+                    term_value,
+                    OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+                ) {
+                    // Expand numeric value to all possible type variants
+                    expand_json_numeric_to_terms(
+                        tantivy_field,
+                        &term_value,
+                        field.path().as_deref(),
+                    )
+                    .expect("could not expand JSON numeric to terms")
+                } else {
+                    // Non-numeric values use standard term creation
+                    smallvec![value_to_term(
+                        tantivy_field,
+                        &term_value,
+                        field_type,
+                        field.path().as_deref(),
+                        is_date_time,
+                    )
+                    .expect("could not convert argument to search term")]
+                }
+            },
+        ))));
+    }
+
+    // Standard term set for non-JSON or non-numeric fields
+    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
+        value_to_term(
+            tantivy_field,
+            &term,
+            field_type,
+            field.path().as_deref(),
+            is_date_time,
+        )
+        .expect("could not convert argument to search term")
+    }))))
 }
 
 fn term(
@@ -710,6 +769,49 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+
+    // For JSON numeric fields, create multi-type query to handle I64/F64 matching
+    // Check if the root field is JSON AND if we have a nested path (indicating JSON field access)
+    let is_json_field = search_field.is_json();
+    let has_nested_path = field.path().is_some(); // If path exists, we're accessing a nested field
+    let is_json_numeric_field = is_json_field && has_nested_path;
+
+    let is_numeric_value = matches!(
+        value,
+        OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
+    );
+
+    if is_json_numeric_field && is_numeric_value && !is_datetime {
+        // Use the shared helper function to expand numeric values to multiple type variants
+        let expanded_terms =
+            expand_json_numeric_to_terms(search_field.field(), value, field.path().as_deref())?;
+
+        // Convert record_option once to avoid ownership issues in closure
+        let index_record_option = record_option.into();
+
+        // If only one term variant, return a simple TermQuery (optimization)
+        if expanded_terms.len() == 1 {
+            return Ok(Box::new(TermQuery::new(
+                expanded_terms.into_iter().next().unwrap(),
+                index_record_option,
+            )));
+        }
+
+        // Multiple term variants: create BooleanQuery with OR logic (should)
+        let term_queries: Vec<(Occur, Box<dyn TantivyQuery>)> = expanded_terms
+            .into_iter()
+            .map(|term| {
+                (
+                    Occur::Should,
+                    Box::new(TermQuery::new(term, index_record_option)) as Box<dyn TantivyQuery>,
+                )
+            })
+            .collect();
+
+        return Ok(Box::new(BooleanQuery::new(term_queries)));
+    }
+
+    // Standard single-term query for non-JSON or non-numeric fields
     let term = value_to_term(
         search_field.field(),
         value,
@@ -757,6 +859,7 @@ fn regex(
     ))
 }
 
+/// Note: For JSON numeric fast field limitations, see documentation on [`range`].
 fn range_within(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -1309,6 +1412,25 @@ fn range_contains(
     ])))
 }
 
+/// Creates a range query for the given field and bounds.
+///
+/// # JSON Numeric Range Queries and Fast Fields
+///
+/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
+/// Fast field storage has important limitations for JSON numeric values:
+///
+/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
+/// - Column type is determined at index time based on values stored:
+///   - All integers that fit in i64 → I64 column
+///   - All non-negative integers, some exceeding i64::MAX → U64 column
+///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
+/// - When column is F64, integers > 2^53 lose precision (e.g., 9007199254740993 → 9007199254740992.0)
+///
+/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
+/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
+///
+/// References:
+/// - Fast field column type selection: tantivy columnar/src/columnar/writer/column_writers.rs
 fn range(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -1526,6 +1648,30 @@ fn phrase_array(
 }
 
 fn parse<QueryParserCtor: Fn() -> QueryParser>(
+    parser: &QueryParserCtor,
+    query_string: String,
+    lenient: Option<bool>,
+    conjunction_mode: Option<bool>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let mut parser = parser();
+    if let Some(true) = conjunction_mode {
+        parser.set_conjunction_by_default();
+    }
+
+    let lenient = lenient.unwrap_or(false);
+    Ok(if lenient {
+        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
+        Box::new(parsed_query)
+    } else {
+        Box::new(
+            parser
+                .parse_query(&query_string)
+                .map_err(|err| QueryError::ParseError(err, query_string))?,
+        )
+    })
+}
+
+fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
     parser: &QueryParserCtor,
     schema: &SearchIndexSchema,

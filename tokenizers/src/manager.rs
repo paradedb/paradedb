@@ -25,11 +25,15 @@ use crate::{
     code::CodeTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
+    token_trim::TokenTrimFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
+
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
@@ -47,6 +51,7 @@ pub struct SearchTokenizerFilters {
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
+    pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
 }
 
@@ -66,6 +71,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
+            trim: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -80,6 +86,7 @@ impl SearchTokenizerFilters {
             stopwords: None,
             ascii_folding: None,
             alpha_num_only: None,
+            trim: None,
             normalizer: Some(SearchNormalizer::Raw),
         }
     }
@@ -138,6 +145,14 @@ impl SearchTokenizerFilters {
         if let Some(ascii_folding) = value.get("ascii_folding") {
             filters.ascii_folding = Some(ascii_folding.as_bool().ok_or_else(|| {
                 anyhow::anyhow!("ascii_folding tokenizer requires a valid 'ascii_folding' field")
+            })?);
+        }
+        if let Some(trim) = value.get("trim") {
+            filters.trim = Some(trim.as_bool().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'trim' value passed to the pg_search tokenizer configuration \
+                     must be of type bool, found: {trim:#?}"
+                )
             })?);
         }
 
@@ -245,6 +260,13 @@ impl SearchTokenizerFilters {
         }
     }
 
+    fn trim_filter(&self) -> Option<TokenTrimFilter> {
+        match self.trim {
+            Some(true) => Some(TokenTrimFilter::new()), // Only enable if explicitly requested.
+            _ => None,
+        }
+    }
+
     fn normalizer(&self) -> Option<SearchNormalizer> {
         self.normalizer
     }
@@ -254,6 +276,7 @@ macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
         tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
+            .filter($filters.trim_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
             .filter($filters.stopwords_language())
@@ -277,7 +300,8 @@ macro_rules! add_filters {
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
-    Default(SearchTokenizerFilters),
+    #[strum(serialize = "default")]
+    Simple(SearchTokenizerFilters),
     Keyword,
     #[deprecated(
         since = "0.19.0",
@@ -330,7 +354,10 @@ pub enum LinderaLanguage {
 
 impl Default for SearchTokenizer {
     fn default() -> Self {
-        Self::Default(SearchTokenizerFilters::default())
+        Self::UnicodeWords {
+            remove_emojis: false,
+            filters: SearchTokenizerFilters::default(),
+        }
     }
 }
 
@@ -347,7 +374,7 @@ impl SearchTokenizer {
         let filters = SearchTokenizerFilters::from_json_value(value)?;
 
         match tokenizer_type {
-            "default" => Ok(SearchTokenizer::Default(filters)),
+            "default" => Ok(SearchTokenizer::Simple(filters)),
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
@@ -410,7 +437,7 @@ impl SearchTokenizer {
 
     pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
         let analyzer = match self {
-            SearchTokenizer::Default(filters) => {
+            SearchTokenizer::Simple(filters) => {
                 add_filters!(SimpleTokenizer::default(), filters)
             }
             // the keyword tokenizer is a special case that does not have filters
@@ -494,7 +521,7 @@ impl SearchTokenizer {
 
     fn filters(&self) -> &SearchTokenizerFilters {
         match self {
-            SearchTokenizer::Default(filters) => filters,
+            SearchTokenizer::Simple(filters) => filters,
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => SearchTokenizerFilters::keyword_deprecated(),
@@ -522,34 +549,34 @@ impl SearchTokenizer {
     }
 }
 
-pub fn language_to_str(lang: &Language) -> &str {
-    match lang {
-        Language::Arabic => "Arabic",
-        Language::Danish => "Danish",
-        Language::Dutch => "Dutch",
-        Language::English => "English",
-        Language::Finnish => "Finnish",
-        Language::French => "French",
-        Language::German => "German",
-        Language::Greek => "Greek",
-        Language::Hungarian => "Hungarian",
-        Language::Italian => "Italian",
-        Language::Norwegian => "Norwegian",
-        Language::Portuguese => "Portuguese",
-        Language::Romanian => "Romanian",
-        Language::Russian => "Russian",
-        Language::Spanish => "Spanish",
-        Language::Swedish => "Swedish",
-        Language::Tamil => "Tamil",
-        Language::Turkish => "Turkish",
-    }
-}
+pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(Language::Arabic, "Arabic");
+    map.insert(Language::Danish, "Danish");
+    map.insert(Language::Dutch, "Dutch");
+    map.insert(Language::English, "English");
+    map.insert(Language::Finnish, "Finnish");
+    map.insert(Language::French, "French");
+    map.insert(Language::German, "German");
+    map.insert(Language::Greek, "Greek");
+    map.insert(Language::Hungarian, "Hungarian");
+    map.insert(Language::Italian, "Italian");
+    map.insert(Language::Norwegian, "Norwegian");
+    map.insert(Language::Portuguese, "Portuguese");
+    map.insert(Language::Romanian, "Romanian");
+    map.insert(Language::Russian, "Russian");
+    map.insert(Language::Spanish, "Spanish");
+    map.insert(Language::Swedish, "Swedish");
+    map.insert(Language::Tamil, "Tamil");
+    map.insert(Language::Turkish, "Turkish");
+    map
+});
 
 impl SearchTokenizer {
     pub fn name(&self) -> String {
         let filters_suffix = self.filters().name_suffix();
         match self {
-            SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
+            SearchTokenizer::Simple(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Keyword => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
@@ -623,7 +650,7 @@ mod tests {
 
     #[rstest]
     fn test_search_tokenizer() {
-        let tokenizer = SearchTokenizer::default();
+        let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
         assert_eq!(tokenizer.name(), "default".to_string());
 
         let json = r#"{
@@ -652,6 +679,7 @@ mod tests {
                     stopwords_language: None,
                     stopwords: None,
                     ascii_folding: None,
+                    trim: None,
                     normalizer: None,
                     alpha_num_only: None,
                 }
@@ -676,6 +704,7 @@ mod tests {
                 stopwords_language: None,
                 stopwords: None,
                 ascii_folding: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             },
@@ -720,6 +749,7 @@ mod tests {
                     "公园".to_string()
                 ]),
                 ascii_folding: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -772,6 +802,7 @@ mod tests {
                 stopwords_language: Some(Language::English),
                 stopwords: None,
                 ascii_folding: None,
+                trim: None,
                 normalizer: None,
                 alpha_num_only: None,
             })
@@ -798,5 +829,197 @@ mod tests {
         assert!(tokens.contains(&"library".to_string()));
         assert!(tokens.contains(&"读书".to_string()));
         assert!(tokens.contains(&"learning".to_string()));
+    }
+
+    #[rstest]
+    fn test_jieba_tokenizer_with_trim_filter() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Jieba tokenizer with trim filter
+        let json = r#"{
+            "type": "jieba",
+            "trim": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_short: None,
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: None,
+                stopwords: None,
+                ascii_folding: None,
+                trim: Some(true),
+                normalizer: None,
+                alpha_num_only: None,
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing text with spaces (which Jieba may produce as separate tokens)
+        let text = "富裕 劳动力";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that space tokens are filtered out
+        assert!(!tokens.contains(&" ".to_string()));
+        assert!(!tokens.iter().any(|t| t.trim().is_empty()));
+
+        // Verify that content words are still present
+        assert!(tokens.contains(&"富裕".to_string()));
+        assert!(tokens.contains(&"劳动".to_string()) || tokens.contains(&"劳动力".to_string()));
+    }
+
+    #[rstest]
+    fn test_korean_lindera_tokenizer_with_trim_filter() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Korean Lindera tokenizer with trim filter
+        let json = r#"{
+            "type": "korean_lindera",
+            "trim": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::KoreanLindera(SearchTokenizerFilters {
+                remove_short: None,
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: None,
+                stopwords: None,
+                ascii_folding: None,
+                trim: Some(true),
+                normalizer: None,
+                alpha_num_only: None,
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing Korean text with spaces
+        // "아름다운 우리나라" (Beautiful our country)
+        let text = "아름다운 우리나라";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that space tokens are filtered out
+        assert!(!tokens.contains(&" ".to_string()));
+        assert!(!tokens.iter().any(|t| t.trim().is_empty()));
+
+        // Verify that Korean words are still present
+        assert!(!tokens.is_empty());
+    }
+
+    #[rstest]
+    fn test_chinese_lindera_tokenizer_preserves_whitespace() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Chinese Lindera tokenizer preserves whitespace by default
+        // (backward compatible behavior)
+        let json = r#"{
+            "type": "chinese_lindera"
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing text with spaces
+        let text = "this is a test";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that space tokens are preserved (backward compatible behavior)
+        assert!(tokens.contains(&" ".to_string()));
+
+        // Verify that words are still present
+        assert!(tokens.contains(&"this".to_string()));
+        assert!(tokens.contains(&"is".to_string()));
+        assert!(tokens.contains(&"a".to_string()));
+        assert!(tokens.contains(&"test".to_string()));
+    }
+
+    #[rstest]
+    fn test_trim_filter_with_multiple_tokenizers() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test that trim filter works across different tokenizers
+
+        // Test 1: Chinese Lindera tokenizer with trim filter
+        let json_lindera = r#"{
+            "type": "chinese_lindera",
+            "trim": true
+        }"#;
+
+        let tokenizer_lindera =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_lindera).unwrap()).unwrap();
+        let mut analyzer_lindera = tokenizer_lindera.to_tantivy_tokenizer().unwrap();
+
+        let text_lindera = "富裕 劳动力";
+        let mut token_stream_lindera = analyzer_lindera.token_stream(text_lindera);
+
+        let mut tokens_lindera = Vec::new();
+        while token_stream_lindera.advance() {
+            let token = token_stream_lindera.token();
+            tokens_lindera.push(token.text.clone());
+        }
+
+        // Verify no whitespace tokens
+        assert!(!tokens_lindera.contains(&" ".to_string()));
+        assert!(!tokens_lindera.iter().any(|t| t.trim().is_empty()));
+        assert!(!tokens_lindera.is_empty());
+
+        // Test 2: Chinese Compatible tokenizer with trim filter
+        let json_chinese = r#"{
+            "type": "chinese_compatible",
+            "trim": true
+        }"#;
+
+        let tokenizer_chinese =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json_chinese).unwrap()).unwrap();
+        let mut analyzer_chinese = tokenizer_chinese.to_tantivy_tokenizer().unwrap();
+
+        let text_chinese = "中文 测试 文本";
+        let mut token_stream_chinese = analyzer_chinese.token_stream(text_chinese);
+
+        let mut tokens_chinese = Vec::new();
+        while token_stream_chinese.advance() {
+            let token = token_stream_chinese.token();
+            tokens_chinese.push(token.text.clone());
+        }
+
+        // Verify no whitespace tokens
+        assert!(!tokens_chinese.contains(&" ".to_string()));
+        assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
     }
 }

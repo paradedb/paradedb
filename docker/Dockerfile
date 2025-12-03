@@ -1,5 +1,5 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
-ARG PG_VERSION_MAJOR=17
+ARG PG_VERSION_MAJOR=18
 
 ###############################################
 # First Stage: Builder
@@ -79,9 +79,15 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
 
-# Build the extension
+# Build the extension in release mode, but with debug symbols (which will be split out later)
 WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# Strip debug symbols from the extension and add a debug link
+RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
+    objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg" && \
+    objcopy --strip-debug "${LIB_PATH}" && \
+    objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
 
 ######################
 # pgvector
@@ -94,9 +100,9 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+RUN git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 WORKDIR /tmp/pgvector
-RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
+RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && \
     echo "trusted = true" >> vector.control && \
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
@@ -112,7 +118,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.6.4 https://github.com/citusdata/pg_cron.git
+RUN git clone --branch v1.6.7 https://github.com/citusdata/pg_cron.git
 WORKDIR /tmp/pg_cron
 RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
@@ -129,7 +135,7 @@ ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.9 https://github.com/sraoss/pg_ivm.git
+RUN git clone --branch v1.13 https://github.com/sraoss/pg_ivm.git
 WORKDIR /tmp/pg_ivm
 RUN echo "trusted = true" >> pg_ivm.control && \
     make clean -j && \
@@ -142,7 +148,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-    org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+    org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR
@@ -164,8 +170,8 @@ COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERS
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.

@@ -1,3 +1,4 @@
+SET paradedb.global_mutable_segment_rows = 0;
 -- uses the same schema as the mixed fast fields queries
 \i common/mixedff_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -8,6 +9,7 @@ SET paradedb.enable_mixed_fast_field_exec = true;
 -- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
 -- more permutations of selected columns.
 SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.enable_aggregate_custom_scan = false;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -50,7 +52,6 @@ CREATE INDEX documents_search ON documents USING bm25 (
     key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:56: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX files_search ON files USING bm25 (
     id,
     documentId,
@@ -61,7 +62,6 @@ CREATE INDEX files_search ON files USING bm25 (
     key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:67: WARNING:  the `raw` tokenizer is deprecated
 CREATE INDEX pages_search ON pages USING bm25 (
     id,
     fileId,
@@ -72,7 +72,6 @@ CREATE INDEX pages_search ON pages USING bm25 (
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
-psql:common/mixedff_queries_setup.sql:78: WARNING:  the `raw` tokenizer is deprecated
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -104,7 +103,7 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte1', 'file_cte1', 1, 'Page 1 with searchable content for CTE testing'),
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
-('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing'); 
+('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
 -- Enable parallel workers to ensure they work too
 SET max_parallel_workers_per_gather = 2;
 SET enable_indexscan to OFF;
@@ -176,8 +175,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 1
    ->  Sort
@@ -197,7 +196,7 @@ ORDER BY d.id;
                  Scores: true
                     TopN Order By: pdb.score() desc
                     TopN Limit: 1
-                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
+                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (20 rows)
 
 SELECT d.id, d.title, d.parents,

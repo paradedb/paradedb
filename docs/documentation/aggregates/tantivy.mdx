@@ -1,16 +1,8 @@
 ---
 title: Tantivy Aggregates
+description: Run Tantivy JSON aggregations over ParadeDB BM25 indexes
+noindex: true
 ---
-
-<Info>
-  Tantivy aggregates are a ParadeDB enterprise feature. [Contact
-  us](mailto:sales@paradedb.com) for access.
-</Info>
-
-<Note>
-  All fields referenced by a Tantivy aggregate JSON string must be indexed as
-  [fast fields](/documentation/indexing/fast_fields).
-</Note>
 
 In addition to plain SQL aggregates, ParadeDB also has the ability to compute aggregates over a single BM25 index by accepting JSON query strings.
 
@@ -51,7 +43,7 @@ SELECT * FROM paradedb.aggregate(
     paradedb.all(),
     '{
         "rating_total": {
-            "sum": {"field": "rating"}
+            "value_count": {"field": "rating"}
         }
     }'
 );

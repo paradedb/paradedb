@@ -37,8 +37,12 @@ impl ParallelQueryCapable for PdbScan {
             PdbScan::init_search_reader(state);
         }
 
-        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
-        ParallelScanState::size_of(segments.len(), &serialized_query)
+        let args = state.custom_state().parallel_scan_args();
+        ParallelScanState::size_of(
+            args.segment_readers.len(),
+            &args.query,
+            args.with_aggregates,
+        )
     }
 
     fn initialize_dsm_custom_scan(
@@ -46,12 +50,12 @@ impl ParallelQueryCapable for PdbScan {
         pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
-        let (segments, serialized_query) = state.custom_state().parallel_serialization_data();
+        let args = state.custom_state().parallel_scan_args();
 
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).init(segments, &serialized_query);
+            (*pscan_state).init(args);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }
@@ -97,6 +101,7 @@ pub fn compute_nworkers(
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
+    contains_exec_param: bool,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -125,6 +130,16 @@ pub fn compute_nworkers(
     if contains_external_var {
         // Don't attempt to parallelize during a join.
         // TODO: Re-evaluate.
+        nworkers = 0;
+    }
+
+    if contains_exec_param {
+        // Don't attempt to parallelize when we have PARAM_EXEC nodes (from scalar subqueries,
+        // correlated subqueries, InitPlans, etc.). These parameters are evaluated by the leader
+        // and need special handling to be made available to parallel workers. Currently, we don't
+        // support this, so we disable parallelism to avoid crashes when workers try to access
+        // these parameters.
+        // TODO: Implement proper PARAM_EXEC parameter sharing with parallel workers.
         nworkers = 0;
     }
 

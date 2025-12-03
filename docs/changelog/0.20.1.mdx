@@ -1,0 +1,99 @@
+---
+title: 0.20.0
+noindex: true
+---
+
+<Note>
+  `0.20.0` promotes the v2 API to default. The v2 API should be used for all new
+  indexes. The original API is now referred to as the legacy API and will be
+  removed in a future version.
+</Note>
+
+<Note>
+  While there are no breaking changes, the default tokenizer has been changed
+  from `simple` to `unicode_words`, which will affect new indexes that don't
+  specify tokenizers for all columns.
+</Note>
+
+A massive thank you to our external contributors for this release:
+
+- [**buriedpot**](https://github.com/buriedpot) - Fixed ExecutorRun hook handling ([#3461](https://github.com/paradedb/paradedb/pull/3461))
+- [**matthew p robertson**](https://github.com/mpr1255) - Added trim token filter ([#3545](https://github.com/paradedb/paradedb/pull/3545))
+- [**Daniil Tatarinov**](https://github.com/idkwhttsay) - Implemented JSON key sorting and GROUP BY NULL handling ([#3479](https://github.com/paradedb/paradedb/pull/3479), [#3454](https://github.com/paradedb/paradedb/pull/3454))
+
+## New Features 🎉
+
+### Search Aggregation and Faceting
+
+ParadeDB 0.20 introduces powerful [search aggregation capabilities](/documentation/aggregates/overview) through the new `pdb.agg()` function. This function can be used in two ways to push analytics down into the Tantivy index for optimal performance.
+
+The first is as a **window function** for fast faceting alongside TopN queries:
+
+```sql
+SELECT
+  id,
+  title,
+  price,
+  pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_facets
+FROM products
+WHERE description @@@ 'electronics'
+ORDER BY price DESC
+LIMIT 10;
+```
+
+This returns both your search results and facet counts in a single, efficient query.
+
+The second is as a **standard aggregate function** that pushes complex aggregations into the search index:
+
+```sql
+SELECT
+  brand,
+  pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price,
+  pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown
+FROM products
+WHERE description @@@ 'electronics'
+GROUP BY brand;
+```
+
+Standard PostgreSQL aggregations like [`COUNT(*)`](/documentation/aggregates/metrics/count) are automatically routed to use this optimized path when possible.
+
+### v2 API
+
+The v2 API has reached feature parity (except for custom stopwords and dismax) with the legacy API.
+
+It has now been promoted to the default API and can be found documented at [http://docs.paradedb.com/documentation](/documentation/). The old API can be found [here](/legacy/indexing/create-index) and will be removed in a future version.
+
+As a reminder the v2 API has the following improvements:
+
+- Index creation using SQL rather than JSON blobs
+- Tokenizers as Postgres types
+- Columnar fast fields by default for all non-text and literal tokenized types, removing the need to configure manually.
+- Improved SQL query API, optimizing for both developer experience AND ORM integration
+
+Most of the v2 API was introduced in 0.19.x, but the following additions have been made:
+
+**Improved Default Tokenizer**: The default [tokenizer](/documentation/tokenizers/overview) has been changed to `pdb.unicode_words`, which splits text based on the [Unicode Standard Annex #29](http://www.unicode.org/reports/tr29/) rules for better international text support.
+
+**Text Array Tokenization**: Arrays of text can now be tokenized directly in the v2 API, enabling more flexible document structures.
+
+**New Token Filters**: Added a `trim` [token filter](/documentation/token-filters/overview) that removes leading and trailing whitespace from tokens, improving search precision.
+
+## Performance Improvements 🚀
+
+### Write Throughput
+
+We have made significant improvements to ParadeDB's [write throughput](/documentation/performance-tuning/writes) through two major architectural changes. The first is enabling [mutable segments](https://github.com/paradedb/paradedb/pull/3516) by default, which are designed to incur minimal overhead during single-row writes. The overhead of tokenizing, serializing, and flushing an immutable segment is now completely eliminated for these operations.
+
+The second improvement is [default background merging](https://github.com/paradedb/paradedb/pull/3518). All merging operations now happen in background threads by default, dramatically improving write performance by removing merge overhead from the critical write path. The system allows up to 2 concurrent background mergers for optimal resource utilization.
+
+### Query Performance
+
+**Window Aggregate Pipelining**: Implemented pipelined execution of window aggregates, significantly improving performance for analytical queries that combine search with aggregation operations.
+
+**Optimized Large Term Sets**: Added a fast field variant of TermSet for queries involving very large sets of terms, reducing memory usage and improving query response times.
+
+**Reduced Memory Copying**: Eliminated unnecessary Postgres buffer copies during query processing, reducing CPU overhead and improving throughput for complex queries.
+
+**Numeric Data Type Support**: ParadeDB now supports pushing down `numeric` data types in aggregate queries, enabling efficient calculations on decimal fields like prices and financial data.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.0).

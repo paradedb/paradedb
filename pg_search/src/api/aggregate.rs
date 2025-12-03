@@ -215,6 +215,47 @@ mod pdb {
         )
         }
     }
+    /// Placeholder aggregate for `pdb.agg(jsonb, bool)` with explicit MVCC control.
+    ///
+    /// The second parameter (solve_mvcc) controls MVCC visibility filtering:
+    /// - `true`: Apply MVCC filtering for transaction-accurate aggregates
+    /// - `false`: Skip MVCC filtering for faster but potentially stale aggregates
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "aggtest"]
+    pub struct AggTestPlaceholder;
+
+    #[pgrx::pg_aggregate(parallel_safe)]
+    impl Aggregate<AggTestPlaceholder> for AggTestPlaceholder {
+        type Args = (JsonB, bool);
+        type State = Internal;
+        type Finalize = JsonB;
+
+        fn state(
+            _current: Self::State,
+            _arg: Self::Args,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            pgrx::error!(
+            "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
+        }
+
+        fn finalize(
+            _current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            _fcinfo: pgrx::pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            pgrx::error!(
+            "pdb.agg() must be handled by ParadeDB's custom scan. \
+             This error usually means the query syntax is not supported. \
+             Try adding '@@@ paradedb.all()' to your WHERE clause to force custom scan usage, \
+             or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported."
+        )
+        }
+    }
 
     /// Placeholder function for aggregate replacement in custom scans.
     ///

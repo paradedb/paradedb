@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764739485768,
+  "lastUpdate": 1764740235859,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23324,6 +23324,54 @@ window.BENCHMARK_DATA = {
             "value": 112.12582603649346,
             "unit": "median tps",
             "extra": "avg tps: 113.6177782364776, max tps: 528.9224922540318, count: 107424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d467765b59cfefb314fc45607343ea6afd0ebc0c",
+          "message": "fix: `varchar[]` types can be indexed (#3673)\n\n# Ticket(s) Closed\n\n- Closes #3644 \n\n## What\n\nSee above issue.\n\n## Why\n\n## How\n\nHad to add an extra generic to `GenericTypeWrapper` because right now\n`GenericTypeWrapper<$rust_name>` has a 1:1 mapping to the SQL name, i.e.\n`Vec<String>` to `text[]`.\n\nIn the case of `text[]` and `varchar[]` we have a one to many mapping;\nboth have `Vec<String>` rust types.\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-02T23:27:39-05:00",
+          "tree_id": "a051c0968cff78a2d1375dc7d1f88197504ca4b6",
+          "url": "https://github.com/paradedb/paradedb/commit/d467765b59cfefb314fc45607343ea6afd0ebc0c"
+        },
+        "date": 1764740232374,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 480.32145298902947,
+            "unit": "median tps",
+            "extra": "avg tps: 480.6477125573906, max tps: 682.0286680981035, count: 53752"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 534.4275158606551,
+            "unit": "median tps",
+            "extra": "avg tps: 537.2396126304938, max tps: 771.0878285644781, count: 53752"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.4276195411086,
+            "unit": "median tps",
+            "extra": "avg tps: 84.49375947042148, max tps: 90.56078738488232, count: 53752"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.53597558465114,
+            "unit": "median tps",
+            "extra": "avg tps: 108.56799553615897, max tps: 518.5803448196287, count: 107504"
           }
         ]
       }

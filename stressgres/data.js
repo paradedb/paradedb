@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764738735532,
+  "lastUpdate": 1764739481971,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18206,6 +18206,60 @@ window.BENCHMARK_DATA = {
             "value": 13.942967537489855,
             "unit": "median tps",
             "extra": "avg tps: 13.930134326484142, max tps: 19.578719216575564, count: 55696"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d467765b59cfefb314fc45607343ea6afd0ebc0c",
+          "message": "fix: `varchar[]` types can be indexed (#3673)\n\n# Ticket(s) Closed\n\n- Closes #3644 \n\n## What\n\nSee above issue.\n\n## Why\n\n## How\n\nHad to add an extra generic to `GenericTypeWrapper` because right now\n`GenericTypeWrapper<$rust_name>` has a 1:1 mapping to the SQL name, i.e.\n`Vec<String>` to `text[]`.\n\nIn the case of `text[]` and `varchar[]` we have a one to many mapping;\nboth have `Vec<String>` rust types.\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-02T23:27:39-05:00",
+          "tree_id": "a051c0968cff78a2d1375dc7d1f88197504ca4b6",
+          "url": "https://github.com/paradedb/paradedb/commit/d467765b59cfefb314fc45607343ea6afd0ebc0c"
+        },
+        "date": 1764739479153,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.53704327506203,
+            "unit": "median tps",
+            "extra": "avg tps: 32.20807109496225, max tps: 33.37873074710165, count: 55537"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 235.4056695958689,
+            "unit": "median tps",
+            "extra": "avg tps: 258.7042061022343, max tps: 2529.3399876112217, count: 55537"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1888.4986468864588,
+            "unit": "median tps",
+            "extra": "avg tps: 1876.541787926355, max tps: 2224.480880909737, count: 55537"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.32202149437057,
+            "unit": "median tps",
+            "extra": "avg tps: 194.20425615455594, max tps: 1663.601992336979, count: 111074"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.775530226703747,
+            "unit": "median tps",
+            "extra": "avg tps: 14.839210469013132, max tps: 20.35244512393118, count: 55537"
           }
         ]
       }

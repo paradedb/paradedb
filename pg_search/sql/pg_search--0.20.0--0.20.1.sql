@@ -155,3 +155,48 @@ CREATE CAST (varchar[] AS pdb.chinese_compatible) WITH FUNCTION pdb.varchar_arra
 CREATE CAST (varchar[] AS pdb.alias) WITH FUNCTION pdb.varchar_array_to_alias AS ASSIGNMENT;
 CREATE CAST (varchar[] AS pdb.jieba) WITH FUNCTION pdb.varchar_array_to_jieba AS ASSIGNMENT;
 CREATE CAST (varchar[] AS pdb.whitespace) WITH FUNCTION pdb.varchar_array_to_whitespace AS ASSIGNMENT;
+
+/* pg_search::api::aggregate::pdb */
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:94
+-- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
+CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(
+	"this" internal, /* pgrx::datum::internal::Internal */
+	"arg_one" jsonb /* pgrx::datum::json::JsonB */
+) RETURNS internal /* pgrx::datum::internal::Internal */
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:94
+-- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize
+CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(
+	"this" internal /* pgrx::datum::internal::Internal */
+) RETURNS jsonb /* pgrx::datum::json::JsonB */
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:94
+-- pg_search::api::aggregate::pdb::AggPlaceholder
+CREATE AGGREGATE pdb.agg (
+	jsonb /* pgrx::datum::json::JsonB */
+)
+(
+	SFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state", /* pg_search::api::aggregate::pdb::AggPlaceholder::state */
+	STYPE = internal, /* pgrx::datum::internal::Internal */
+	FINALFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize" /* pg_search::api::aggregate::pdb::AggPlaceholder::final */
+);
+/* pg_search::api::aggregate::pdb */
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/aggregate.rs:150
+-- pg_search::api::aggregate::pdb::agg_fn
+CREATE  FUNCTION pdb."agg_fn"(
+	"_agg_name" TEXT /* &str */
+	"_solve_mvcc" bool /* bool */
+) RETURNS jsonb /* pgrx::datum::json::JsonB */
+STRICT VOLATILE PARALLEL SAFE
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'agg_fn_placeholder_wrapper';

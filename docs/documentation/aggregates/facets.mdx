@@ -36,3 +36,22 @@ LIMIT 3;
   Faceted queries require that `pdb.agg` be used as a window function:
   `pdb.agg() OVER ()`.
 </Note>
+
+### Faceted Performance Optimization
+
+On every query, ParadeDB runs checks to ensure that deleted or updated-away rows are not factored into the result set.
+
+If your table is not frequently updated or you can tolerate an approximate result, the performance of faceted queries can be improved by disabling these visibility checks.
+To do so, set the second argument of `pdb.agg` to `false`.
+
+```sql
+SELECT
+     description, rating, category,
+     pdb.agg('{"value_count": {"field": "id"}}', false) OVER ()
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+Disabling this check can improve query times by 2-3x in some cases (at the expense of correctness).

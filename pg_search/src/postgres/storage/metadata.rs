@@ -18,7 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
-    init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
+    init_new_buffer, Buffer, BufferManager, BufferMut, ImmutablePage, PinnedBuffer,
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
@@ -380,11 +380,11 @@ impl BgMergerPage {
         buffer.map(|_| self.blocknos[blockno])
     }
 
-    pub fn try_starting(&mut self, blockno: pg_sys::BlockNumber) -> Option<PinnedBuffer> {
+    pub fn try_starting(&mut self, blockno: pg_sys::BlockNumber) -> Option<ImmutablePage> {
         assert!(blockno == self.blocknos[0] || blockno == self.blocknos[1]);
 
         let buffer = self.bman.get_buffer_for_cleanup_conditional(blockno);
-        buffer.map(|buffer| buffer.exchange_pinned())
+        buffer.map(|buffer| buffer.into_immutable_page())
     }
 }
 

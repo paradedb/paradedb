@@ -126,7 +126,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                     custom_ps: std::ptr::null_mut(),
                     pscan_len: 0,
                     methods: CS::exec_methods(),
-                    #[cfg(any(feature = "pg16", feature = "pg17"))]
+                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
                     slotOps: std::ptr::null_mut(),
                 },
                 custom_state: self.custom_state,

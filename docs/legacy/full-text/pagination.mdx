@@ -1,0 +1,31 @@
+---
+title: Pagination
+noindex: true
+---
+
+<Danger>
+  **Legacy Docs:** This page describes our legacy API. It will be deprecated in
+  a future version. Please use the [v2 API](/) where possible.
+</Danger>
+
+## Limit
+
+Passing `LIMIT` into a query can significantly improve query times for queries that return large result sets.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 5;
+```
+
+## Offset
+
+`OFFSET` can be used with `LIMIT` to paginate through results.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 1 OFFSET 2;
+```

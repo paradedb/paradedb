@@ -843,7 +843,7 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
         let posix_time = val.to_posix_time();
         let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
-            .expect("postgres Date should be valid OffsetDateTime");
+            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
         let tantivy_date =
             tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
@@ -1142,6 +1142,9 @@ impl TryFrom<ConstNode> for TantivyValue {
 
 #[derive(Error, Debug)]
 pub enum TantivyValueError {
+    #[error("date {0} is out of range: {1}")]
+    DateOutOfRange(pgrx::datum::Date, String),
+
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
 

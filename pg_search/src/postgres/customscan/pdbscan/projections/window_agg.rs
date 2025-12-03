@@ -67,10 +67,12 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
@@ -84,6 +86,7 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ptr::addr_of_mut;
 
 /// Feature flags for window functions.
 ///
@@ -97,9 +100,6 @@ pub mod window_aggregates {
     /// When true, window functions are only replaced with window_agg in TopN execution context.
     /// When false, window functions can be replaced in any query context.
     pub const ONLY_ALLOW_TOP_N: bool = true;
-
-    /// Enable support for window functions in subqueries.
-    pub const SUBQUERY_SUPPORT: bool = false;
 
     /// Enable support for window functions in queries with HAVING clauses.
     pub const HAVING_SUPPORT: bool = false;
@@ -228,15 +228,56 @@ pub unsafe fn extract_and_convert_window_functions(
         }
     }
 
-    // Note: SUBQUERY_SUPPORT is checked at a higher level in the planner hook
-    // since subqueries are processed recursively
-
     let mut window_aggs = HashMap::new();
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
     // Extract all window functions and check if they're supported
+    // Use expression_tree_walker to find WindowFunc nodes even when wrapped in other functions
     for (idx, te) in tlist.iter_ptr().enumerate() {
-        if let Some(window_agg) = nodecast!(WindowFunc, T_WindowFunc, (*te).expr) {
+        // Helper to find WindowFunc nodes in the expression tree
+        struct WindowFuncFinder {
+            window_funcs: Vec<*mut pg_sys::WindowFunc>,
+        }
+
+        unsafe extern "C-unwind" fn find_window_func(
+            node: *mut pg_sys::Node,
+            context: *mut core::ffi::c_void,
+        ) -> bool {
+            if node.is_null() {
+                return false;
+            }
+
+            let ctx = context.cast::<WindowFuncFinder>();
+
+            // Check if this node is a WindowFunc
+            if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
+                (*ctx).window_funcs.push(window_func);
+            }
+
+            // Continue walking the tree
+            pg_sys::expression_tree_walker(node, Some(find_window_func), context)
+        }
+
+        let mut finder = WindowFuncFinder {
+            window_funcs: Vec::new(),
+        };
+
+        // Walk the expression tree to find all WindowFunc nodes
+        find_window_func(
+            (*te).expr as *mut pg_sys::Node,
+            addr_of_mut!(finder) as *mut core::ffi::c_void,
+        );
+
+        // Process each WindowFunc found in this target entry
+        // Note: We only support one WindowFunc per target entry for now
+        if !finder.window_funcs.is_empty() {
+            if finder.window_funcs.len() > 1 {
+                // Multiple window functions in one target entry - not supported
+                return HashMap::new();
+            }
+
+            let window_agg = finder.window_funcs[0];
+
             // Extract the aggregate function and its details first
             if let Some(agg_type) = convert_window_func_to_aggregate_type(parse, window_agg) {
                 // Build TargetList and validate OVER clause
@@ -267,7 +308,6 @@ unsafe fn convert_window_func_to_aggregate_type(
     window_agg: *mut pg_sys::WindowFunc,
 ) -> Option<AggregateType> {
     use pg_sys::*;
-    use pgrx::{FromDatum, JsonB};
 
     let aggfnoid = (*window_agg).winfnoid.to_u32();
     let args = PgList::<pg_sys::Node>::from_pg((*window_agg).args);
@@ -279,24 +319,42 @@ unsafe fn convert_window_func_to_aggregate_type(
         None
     };
 
-    // Handle custom agg function
+    // Handle custom agg function pdb.agg() (both overloads)
     let custom_agg_oid = agg_funcoid().to_u32();
-    if aggfnoid == custom_agg_oid {
+    let custom_agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+
+    if aggfnoid == custom_agg_oid || aggfnoid == custom_agg_with_mvcc_oid {
         if args.is_empty() {
             return None;
         }
 
-        // Extract the jsonb argument
+        // Extract the jsonb argument (first arg)
         let first_arg = args.get_ptr(0)?;
         let json_value = if let Some(const_node) = nodecast!(Const, T_Const, first_arg) {
             if (*const_node).constisnull {
                 return None;
             }
             let jsonb_datum = (*const_node).constvalue;
-            let jsonb = JsonB::from_datum(jsonb_datum, false)?;
+            let jsonb = <pgrx::JsonB as pgrx::FromDatum>::from_datum(jsonb_datum, false)?;
             jsonb.0
         } else {
             return None;
+        };
+
+        // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
+        let solve_mvcc = if aggfnoid == custom_agg_with_mvcc_oid {
+            args.get_ptr(1)
+                .and_then(|mvcc_arg| nodecast!(Const, T_Const, mvcc_arg))
+                .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                .unwrap_or(true)
+        } else {
+            true // Single-arg overload: default to solve_mvcc = true
+        };
+
+        let mvcc_visibility = if solve_mvcc {
+            MvccVisibility::Enabled
+        } else {
+            MvccVisibility::Disabled
         };
 
         // Validate that the JSON is a valid Tantivy aggregation
@@ -353,6 +411,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             agg_json: json_value,
             filter,
             indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
+            mvcc_visibility,
         });
     }
 

@@ -16,6 +16,7 @@ on:
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
+      - "Cargo.toml"
   workflow_dispatch:
 
 # This is the first pg_search version that has a rust-toolchain.toml file which allows us to use a version of rust known
@@ -30,14 +31,16 @@ concurrency:
 jobs:
   test-pg_search-upgrade:
     name: Test upgrading pg_search via ALTER EXTENSION
-    runs-on: ubicloud-standard-8
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
+        # TODO: Once we release our first PG18 version, we should use PRIOR_PG_SEARCH_VERSION to test upgrades on PG18 instead
         pg_version: [17]
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Fetch the entire history (required to checkout tags)
 
@@ -72,7 +75,7 @@ jobs:
       # Needed for hybrid search unit tests
       - name: Install pgvector
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j

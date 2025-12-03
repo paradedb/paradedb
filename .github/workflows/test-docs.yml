@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Mintlify CLI
         run: npm install -g mintlify
@@ -67,7 +67,12 @@ jobs:
           echo ""
           echo "Checking that each file has title, description, and canonical URL..."
           missing_meta=0
-          for file in $(find . -name "*.mdx" ! -path "./documentation/*" ! -path "./changelog/*" ! -path "./welcome/support.mdx"); do
+          for file in $(find . -name "*.mdx" \
+            ! -path "./legacy/*" \
+            ! -path "./changelog/*" \
+            ! -path "./welcome/support.mdx" \
+            ! -path "./documentation/aggregates/tantivy.mdx"); do
+
             title=$(grep -E "^title:" "$file" || true)
             desc=$(grep -E "^description:" "$file" || true)
             canonical=$(grep -E "^canonical:" "$file" || true)

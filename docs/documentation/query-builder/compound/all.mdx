@@ -1,0 +1,30 @@
+---
+title: All
+description: Search all rows in the index
+canonical: https://docs.paradedb.com/documentation/query-builder/compound/all
+---
+
+The all query means "search all rows in the index."
+
+The primary use case for the all query is to force the query to be executed by the ParadeDB index instead of Postgres' other execution methods.
+Because ParadeDB executes a query only when a ParadeDB operator is present in the query, the all query injects an operator into the query
+without changing the query's meaning.
+
+To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
+
+```sql
+-- Top N executed by standard Postgres
+SELECT * FROM mock_items
+WHERE rating IS NOT NULL
+ORDER BY rating
+LIMIT 5;
+
+-- Top N executed by ParadeDB
+SELECT * FROM mock_items
+WHERE rating IS NOT NULL AND id @@@ pdb.all()
+ORDER BY rating
+LIMIT 5;
+```
+
+This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
+like [Top N](/documentation/sorting/topn) or [aggregate](/documentation/aggregates/overview) queries.

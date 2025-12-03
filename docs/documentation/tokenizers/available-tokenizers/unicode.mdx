@@ -1,0 +1,35 @@
+---
+title: Unicode
+description: The default text tokenizer in ParadeDB
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/unicode
+---
+
+The unicode tokenizer splits text according to word boundaries defined by the [Unicode Standard Annex #29](https://www.unicode.org/reports/tr29/)
+rules. All characters are [lowercased](/documentation/token-filters/lowercase) by default.
+
+This tokenizer is the default text tokenizer. If no tokenizer is specified for a text field, the unicode tokenizer will be used
+(unless the text field is the [key field](/documentation/indexing/create-index#choosing-a-key-field), in which case the text is not tokenized).
+
+```sql
+-- The following two configurations are equivalent
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field='id');
+
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.unicode_words))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Tokenize me!'::pdb.unicode_words::text[];
+```
+
+```ini Expected Response
+     text
+---------------
+ {tokenize,me}
+(1 row)
+```

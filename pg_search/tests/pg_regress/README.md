@@ -73,7 +73,7 @@ cargo pgrx regress
 
 ```bash
 cd pg_search
-cargo pgrx regress pg17 PREFIX_your_test
+cargo pgrx regress pg18 PREFIX_your_test
 ```
 
 ## Common Pitfalls

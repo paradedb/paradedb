@@ -1,40 +1,43 @@
 ---
 title: Sum
-noindex: true
+description: Compute the sum of a field
+canonical: https://docs.paradedb.com/documentation/aggregates/metrics/sum
 ---
 
-`SUM` computes the total over a specific column:
+The sum aggregation computes the sum of a field.
+
+```sql
+SELECT pdb.agg('{"sum": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ini Expected Response
+       agg
+------------------
+ {"value": 158.0}
+(1 row)
+```
+
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.SumAggregation.html) for all available options.
+
+## SQL Sum Syntax
+
+SQL's `SUM` syntax is supported in beta. To enable it, first run
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
 ```sql
 SELECT SUM(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
+WHERE id @@@ pdb.all();
 ```
-
-<Note>
-  The field being summed, in this case `rating`, must be indexed as
-  [fast](/documentation/indexing/fast-fields).
-</Note>
 
 By default, `SUM` ignores null values. Use `COALESCE` to include them in the final sum:
 
 ```sql
 SELECT SUM(COALESCE(rating, 0)) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-To verify that `SUM` was pushed down, look for a `ParadeDB Aggregate Scan` with `sum` in the `EXPLAIN` output:
-
-```sql
-EXPLAIN SELECT SUM(rating) FROM mock_items
-WHERE id @@@ paradedb.all();
-```
-
-```sql Expected Response
-                                               QUERY PLAN
---------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
-   Index: search_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"sum":{"field":"rating"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(4 rows)
+WHERE id @@@ pdb.all();
 ```

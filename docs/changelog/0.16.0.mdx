@@ -9,7 +9,7 @@ Please read the changelog carefully.
 ## New Features 🎉
 
 - `CREATE INDEX`/`REINDEX` can now leverage Postgres parallel workers, which significantly improves index build times. To fully take advantage
-  of parallel index builds, some [Postgres settings](/documentation/configuration/index-build) may require tuning. Additionally, the old `paradedb.create_index_*` and `paradedb.statement_*` settings have been removed in favor of the built-in
+  of parallel index builds, some [Postgres settings](/documentation/performance-tuning/overview) may require tuning. Additionally, the old `paradedb.create_index_*` and `paradedb.statement_*` settings have been removed in favor of the built-in
   `postgresql.conf` settings.
 - Indexing expressions is a new beta feature for advanced users.
 - `paradedb.snippet` now works for JSON.

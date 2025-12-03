@@ -1,0 +1,25 @@
+---
+title: Exists
+description: Checks that a field is not null
+canonical: https://docs.paradedb.com/documentation/query-builder/term/exists
+---
+
+<Note>
+  For most use cases, we recommend using `IS NOT NULL` instead of `pdb.exists`.
+</Note>
+
+<Note>
+  Text fields must use the
+  [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer in
+  order for `pdb.exists` to work.
+</Note>
+
+Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.
+This query produces the same results as Postgres' `IS NOT NULL`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE rating @@@ pdb.exists()
+LIMIT 5;
+```

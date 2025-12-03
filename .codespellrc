@@ -1,0 +1,2 @@
+[codespell]
+ignore-multiline-regex = \{\s*/\*\s*\*\s*codespell:ignore-begin\s*\*\s*\*/\s*\}.*?\{\s*/\*\s*\*\s*codespell:ignore-end\s*\*\s*\*/\s*\}

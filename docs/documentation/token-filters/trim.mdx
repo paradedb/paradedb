@@ -1,0 +1,32 @@
+---
+title: Trim
+description: Remove trailing and leading whitespace from a token
+canonical: https://docs.paradedb.com/documentation/token-filters/trim
+---
+
+The trim filter removes leading and trailing whitespace from a token (but not whitespace in the middle). If a token consists
+entirely of whitespace, the token is eliminated entirely.
+
+This filter is useful for tokenizers that don't already split on whitespace, like the [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized)
+tokenizer or certain language-specific tokenizers.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.literal_normalized('trim=true')))
+WITH (key_field='id');
+```
+
+To demonstrate this token filter, let's compare the output of the following two statements:
+
+```sql
+SELECT
+  '    token with whitespace   '::pdb.literal_normalized::text[],
+  '    token with whitespace   '::pdb.literal_normalized('trim=true')::text[];
+```
+
+```ini Expected Response
+               text               |           text
+----------------------------------+---------------------------
+ {"    token with whitespace   "} | {"token with whitespace"}
+(1 row)
+```

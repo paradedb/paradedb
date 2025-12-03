@@ -1,18 +1,32 @@
 ---
 title: Create an Index
-noindex: true
+description: Index a Postgres table for full text search
+canonical: https://docs.paradedb.com/documentation/indexing/create-index
 ---
 
-## Basic Usage
+Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
+The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-<Note>
-  For large indexes, tuning Postgres' default memory and parallel worker
-  settings prior to running `CREATE INDEX` is strongly recommended. Please see
-  [index tuning](/documentation/configuration/index-build) for details.
-</Note>
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field='id');
+```
 
-The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
-All columns that are relevant to the search query, including columns used for sorting and filtering, should be indexed for optimal performance.
+By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
+Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)
+to find the most suitable one before running `CREATE INDEX`.
+
+For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.icu), category)
+WITH (key_field='id');
+```
+
+Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
+including columns used for sorting, grouping, filtering, and aggregations.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -20,151 +34,38 @@ USING bm25 (id, description, category, rating, in_stock, created_at, metadata, w
 WITH (key_field='id');
 ```
 
-Note that the index's column list contains fields of type text, JSON, numeric, timestamp, and boolean. See the [Field Configuration](/documentation/indexing/field-options) section for how to configure these fields.
+Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
 
-## Syntax
+## Track Create Index Progress
+
+To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 
 ```sql
-CREATE INDEX <index_name> ON <schema_name>.<table_name>
-USING bm25 (<columns_or_expressions>)
-WITH (key_field='<key_field>');
+SELECT pid, phase, blocks_done, blocks_total
+FROM pg_stat_progress_create_index;
 ```
 
-<ParamField body="index_name">
-  The name of the index being created. If unspecified, Postgres will
-  automatically choose a name.
-</ParamField>
-<ParamField body="schema_name">
-  The name of the schema that the table belongs to. If unspecified, `CURRENT
-  SCHEMA` is used.
-</ParamField>
-<ParamField body="table_name" required>
-  The name of the table being indexed.
-</ParamField>
-<ParamField body="columns_or_expressions" required>
-  A comma-separated list of columns or [expressions](#indexes-on-expressions) to
-  index, starting with the `key_field`. Text, numeric, datetime, boolean, range,
-  enum, and JSON types can be indexed.
-</ParamField>
-<ParamField body="key_field" required>
-  The name of a column in the table that represents a unique identifier for each
-  record. Usually, this is the same column that is the primary key of the table.
-</ParamField>
+Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
+`blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
 
 ## Choosing a Key Field
 
-The `key_field` must have a `UNIQUE` constraint. A non-unique key field is likely to lead to undefined behavior
-or incorrect search results.
+In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
+Every BM25 index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
 
-While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most
-performant. The Postgres `SERIAL` type is an easy way to create a unique integer column.
+The `key_field` must:
 
-Finally, the key field must be the first column in the target list.
+1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
+2. Be the first column in the column list.
+3. Be untokenized, if it is a text field.
 
-```sql
--- Recommended: key_field is the first column in the list
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
-WITH (key_field = 'id');
+## Token Filters
 
--- NOT recommended: key_field is not the first column
-CREATE INDEX search_idx ON mock_items
-USING bm25 (description, id)
-WITH (key_field = 'id');
-```
-
-## Partitioned Index
-
-In Postgres, a partitioned index is an index created over a [partitioned table](https://www.postgresql.org/docs/current/ddl-partitioning.html).
-A BM25 index can be created over a partitioned table in the same way as a normal table.
-
-<Note>
-  If the partition key of your partitioned table is only indexed as a fast field
-  by the BM25 index (and not additionally indexed via a B-Tree index), note that
-  the `@@@` operator [must be
-  used](/documentation/aggregates/limitations#filtering) in order for filtering
-  to be optimized by the index.
-</Note>
-
-## Partial Index
-
-The following code block demonstrates how to pass predicates to `CREATE INDEX`
-to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial
-indexes are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
+For example, the following code block adds English stemming to `description`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
-WITH (key_field='id')
-WHERE category = 'Electronics' AND rating > 2;
-```
-
-## Indexes on Expressions
-
-Postgres supports creating [indexes on expressions](https://www.postgresql.org/docs/current/indexes-expressional.html),
-which can be useful for optimizing queries that involve computed values.
-A BM25 index can also be created over an expression, as shown below:
-
-```sql
-CREATE INDEX search_idx ON mock_items
--- index a single field converting a text field to lowercase
-USING bm25 (id, description, lower(description))
+USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
-```
-
-In order to modify how the BM25 engine will index the expression, you can specify
-the newly computed field as `_pg_search_{i}` where `{i}` is the 0-based ordinal position
-of the expression in the index definition. In the example above, the lowercase version
-of the `description` field will be referred to as `_pg_search_2`.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, lower(description))
-WITH (
-  key_field='id',
-  text_fields='{
-    "_pg_search_2": {
-      "fast":true,
-      "tokenizer": {"type": "keyword"},
-      "record": "basic"
-    }
-  }'
-);
-```
-
-This rule holds for querying the field as well:
-
-```sql
-SELECT * FROM mock_items
-WHERE mock_items @@@ paradedb.term('_pg_search_2', 'television');
-```
-
-## Concurrent Indexing
-
-To create a new index without blocking writes to your table, use the `CONCURRENTLY` keyword:
-
-```sql
-CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
-USING bm25 (id, description, category, rating, in_stock)
-WITH (key_field='id');
-```
-
-This is particularly useful when you need to:
-
-- Reindex with different settings
-- Update an existing index without downtime
-- Change the indexed columns
-
-`pg_search` can only use a single BM25 index per table - the most recently created one will automatically be used for queries. After creating a new index concurrently and verifying it works as expected, you can safely drop the old index:
-
-```sql
-DROP INDEX search_idx;
-```
-
-## Delete Index
-
-The following command deletes a BM25 index.
-
-```sql
-DROP INDEX search_idx;
 ```

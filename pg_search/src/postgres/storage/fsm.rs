@@ -632,6 +632,7 @@ pub mod v1 {
 /// outside holding any other locks.  It would be possible for two concurrent transactions to try
 /// and delete the same xid entry.  This is fine -- one will win and the other will happily think it won.
 pub mod v2 {
+    use crate::debug2;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::avl::{
         AvlTreeMap, AvlTreeMapHeader, AvlTreeMapView, Error, Slot,
@@ -641,7 +642,6 @@ pub mod v2 {
         init_new_buffer, BufferManager, BufferMut, Page, PageMut,
     };
     use crate::postgres::storage::fsm::{FSMBlockHeader, FSMBlockKind, FreeSpaceManager};
-    use crate::{debug1, debug2};
     use pgrx::pg_sys;
     use std::iter::Peekable;
 
@@ -761,8 +761,6 @@ pub mod v2 {
             bman: &mut BufferManager,
             many: usize,
         ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'static {
-            debug2!("drain: asked FSM for {} blocks", many);
-
             let current_xid = unsafe {
                 pg_sys::GetCurrentFullTransactionIdIfAny()
                     .value
@@ -795,16 +793,11 @@ pub mod v2 {
                     // draining the xid's freelist from its the head
                     let mut buffer = match bman.get_buffer_conditional(blockno) {
                         Some(buffer) => {
-                            debug2!(
-                                "drain: got slot with xid {} at blockno {}",
-                                found_xid,
-                                blockno
-                            );
                             drop(root.take());
                             buffer
                         }
                         None => {
-                            debug1!(
+                            debug2!(
                                 "drain: failed to lock slot with xid {} at blockno {}",
                                 found_xid,
                                 blockno
@@ -828,7 +821,7 @@ pub mod v2 {
                     };
 
                     if is_empty && blockno != head_blockno {
-                        debug1!("drain: skipping empty freelist blockno {}", blockno);
+                        debug2!("drain: skipping empty freelist blockno {}", blockno);
                         drop(buffer);
                         blockno = next_blockno;
                         continue;
@@ -878,7 +871,7 @@ pub mod v2 {
                     };
 
                     if !modified {
-                        debug1!("drain: no changes to freelist blockno {}", blockno);
+                        debug2!("drain: no changes to freelist blockno {}", blockno);
                         // we didn't change anything
                         buffer.set_dirty(false);
                     }
@@ -889,7 +882,6 @@ pub mod v2 {
                     drop(buffer);
 
                     if should_unlink_head {
-                        debug1!("drain: possibly unlinking head blockno {}", head_blockno);
                         let old_head = head_blockno;
 
                         // get mutable tree without holding any other locks
@@ -901,7 +893,6 @@ pub mod v2 {
                         if let Some(slot) = tree.get_slot_mut(&found_xid) {
                             // make sure that a concurrent process didn't unlink the same head
                             if slot.tag as pg_sys::BlockNumber == head_blockno {
-                                debug1!("drain: actually unlinking head blockno {}", head_blockno);
                                 did_update_head = true;
                                 slot.tag = next_blockno;
                             }
@@ -922,7 +913,6 @@ pub mod v2 {
                     // if this was the last block in the list *and* the entire list is empty,
                     // remove the XID entry from the tree. We must hold no other locks while doing this
                     if next_blockno == pg_sys::InvalidBlockNumber && cnt == 0 {
-                        debug1!("drain: removing xid {} from freelist (cnt == 0)", found_xid);
                         let mut root = bman.get_buffer_mut(self.start_blockno);
                         let mut page = root.page_mut();
                         let mut tree = self.avl_mut(&mut page);
@@ -946,8 +936,6 @@ pub mod v2 {
                 if blocks.len() == many {
                     break;
                 }
-
-                debug2!("drain: wanted {} blocks, got {}", many, blocks.len());
 
                 // exhausted this list
                 // move to the next candidate XID below this one.
@@ -1039,7 +1027,6 @@ pub mod v2 {
             mut root: BufferMut,
             when_recyclable: pg_sys::FullTransactionId,
         ) -> Tag {
-            debug2!("handling full tree");
             let mut page = root.page_mut();
             let mut tree = self.avl_mut(&mut page);
 
@@ -1050,11 +1037,6 @@ pub mod v2 {
                 .expect("a full tree must have a maximum entry");
 
             if when_recyclable.value > max_slot.key {
-                debug2!(
-                    "updating max slot from {} to {}",
-                    max_slot.key,
-                    when_recyclable.value
-                );
                 // this is safe as the tree still maintains its balance.  we also have an exclusive lock
                 // on the tree at this stage which means no concurrent backends can be changing the tree
                 max_slot.key = when_recyclable.value;
@@ -1085,7 +1067,6 @@ pub mod v2 {
                     };
 
                     if peek_next_full {
-                        debug2!("extend_freelist: using fast splice path");
                         // this block is full and the next block is also full
                         // so we're going to populate a brand-new list with the rest of the iterator
                         // and then link it in between this block and the next block.  This avoids
@@ -1123,7 +1104,6 @@ pub mod v2 {
 
                 let mut next_blockno = page.next_blockno();
                 if next_blockno == pg_sys::InvalidBlockNumber {
-                    debug2!("extend_freelist:adding a new block to the freelist");
                     // link in a new block
                     let new_buffer = AvlLeaf::init_new_page(bman);
                     next_blockno = new_buffer.number();
@@ -1131,10 +1111,6 @@ pub mod v2 {
                     page.special_mut::<BM25PageSpecialData>().next_blockno = next_blockno;
                     buffer = new_buffer;
                 } else {
-                    debug2!(
-                        "extend_freelist:moving to next block already in the freelist: {}",
-                        next_blockno
-                    );
                     // move to next block already in the list
                     buffer = bman.get_buffer_mut(next_blockno);
                 }

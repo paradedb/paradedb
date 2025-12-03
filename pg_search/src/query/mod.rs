@@ -39,7 +39,9 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{
+    pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
+};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::{smallvec, SmallVec};
@@ -559,6 +561,49 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
 impl ExplainFormat for SearchQueryInput {
     fn explain_format(&self) -> String {
         format_for_explain(self)
+    }
+}
+
+impl SearchQueryInput {
+    pub unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
+        if is_null {
+            return None;
+        }
+
+        // Check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
+        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
+        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
+        let is_sqi_array = (*array).ndim >= 1
+            && (*array).ndim <= pg_sys::MAXDIM as i32
+            && (*array).elemtype == searchqueryinput_typoid();
+
+        if is_sqi_array {
+            if let Some(elements) =
+                FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())
+            {
+                return Some(Self::boolean_disjunction(elements));
+            }
+        }
+
+        // Detoast if needed (PostgreSQL memory context handles cleanup)
+        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+        let bytes = varlena_to_byte_slice(detoasted);
+
+        serde_cbor::from_slice::<SearchQueryInput>(bytes)
+            .or_else(|_| serde_json::from_slice::<SearchQueryInput>(bytes))
+            .ok()
+    }
+
+    pub fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
+        match elements.len() {
+            0 => SearchQueryInput::Empty,
+            1 => elements.pop().unwrap(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![],
+                should: elements,
+                must_not: vec![],
+            },
+        }
     }
 }
 

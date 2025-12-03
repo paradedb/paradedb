@@ -13,7 +13,7 @@ noindex: true
 
 ### Broadened Aggregate Pushdown Support
 
-The [custom aggregate scan](/documentation/aggregates) has pushdown support for several new query types. The first is `FILTER`,
+The [custom aggregate scan](/documentation/aggregates/overview) has pushdown support for several new query types. The first is `FILTER`,
 which is analogous to the Elastic filters aggregation. It allows a single query to efficiently collect aggregates over multiple
 `WHERE` clauses:
 
@@ -47,14 +47,14 @@ which means that ParadeDB Community can now run as a logical replica.
 
 ### New v2 API Capabilities
 
-We have made significant progress on the new [v2 API](/v2/overview). A non-exhaustive list of additions includes:
+We have made significant progress on the new [v2 API](/documentation/overview). A non-exhaustive list of additions includes:
 
-- A new way to specify index configuration options like [tokenizers](/v2/tokenizers/overview) and [token filters](/v2/token-filters/overview) without the
+- A new way to specify index configuration options like [tokenizers](/documentation/tokenizers/overview) and [token filters](/documentation/token-filters/overview) without the
   old JSON string syntax
-- First class support for [multiple tokenizers per field](/v2/tokenizers/multiple-per-field)
-- New token filters like [alpha numeric only](/v2/token-filters/alphanumeric) and [token length](/v2/token-filters/token-length)
-- A new way to cast queries to [fuzzy](/v2/full-text/fuzzy), [slop](/v2/full-text/phrase#adding-slop), and [boost](/v2/sorting/boost)
-- An improved [more like this](/v2/query-builder/specialized/more-like-this) function
+- First class support for [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)
+- New token filters like [alpha numeric only](/documentation/token-filters/alphanumeric) and [token length](/documentation/token-filters/token-length)
+- A new way to cast queries to [fuzzy](/documentation/full-text/fuzzy), [slop](/documentation/full-text/phrase#adding-slop), and [boost](/documentation/sorting/boost)
+- An improved [more like this](/documentation/query-builder/specialized/more-like-this) function
 
 ## Performance Improvements 🚀
 

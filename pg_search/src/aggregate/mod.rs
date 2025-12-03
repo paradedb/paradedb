@@ -226,6 +226,8 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn execute_aggregate(
         &mut self,
         worker_style: QueryWorkerStyle,
+        expr_context: Option<*mut pg_sys::ExprContext>,
+        planstate: Option<*mut pg_sys::PlanState>,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
@@ -233,14 +235,24 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
-        let standalone_context = ExprContextGuard::new();
+
+        // Use provided context if available (for non-parallel/leader execution with correlation),
+        // otherwise create a standalone context (for parallel workers)
+        let standalone_context;
+        let context_ptr = if let Some(ctx) = expr_context {
+            ctx
+        } else {
+            standalone_context = ExprContextGuard::new();
+            standalone_context.as_ptr()
+        };
+
         let reader = SearchIndexReader::open_with_context(
             &indexrel,
             self.query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
-            NonNull::new(standalone_context.as_ptr()),
-            None,
+            NonNull::new(context_ptr),
+            planstate.and_then(NonNull::new),
         )?;
 
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
@@ -249,10 +261,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
             set_missing_on_terms(&mut aggregations);
         }
+
+        let nworkers = self.state.launched_workers();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
-                Some(self.config.memory_limit),
+                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
                 Some(self.config.bucket_limit),
             ),
         );
@@ -330,7 +344,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
         }
 
         if let Some(intermediate_results) =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number))?
+            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None)?
         {
             let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
@@ -340,6 +354,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
@@ -348,6 +363,7 @@ pub fn execute_aggregate(
     memory_limit: u64,
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
+    planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     unsafe {
         // Determine once whether this aggregation request originated from SQL
@@ -358,7 +374,7 @@ pub fn execute_aggregate(
             false,
             MvccSatisfies::Snapshot,
             NonNull::new(expr_context),
-            None,
+            NonNull::new(planstate),
         )?;
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
@@ -418,7 +434,11 @@ pub fn execute_aggregate(
             if pg_sys::parallel_leader_participation {
                 let mut worker =
                     ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
-                if let Some(result) = worker.execute_aggregate(QueryWorkerStyle::ParallelLeader)? {
+                if let Some(result) = worker.execute_aggregate(
+                    QueryWorkerStyle::ParallelLeader,
+                    Some(expr_context),
+                    Some(planstate),
+                )? {
                     agg_results.push(Ok(result));
                 }
             }
@@ -468,7 +488,11 @@ pub fn execute_aggregate(
                 bucket_limit as _,
                 &mut state,
             );
-            if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+            if let Some(agg_results) = worker.execute_aggregate(
+                QueryWorkerStyle::NonParallel,
+                Some(expr_context),
+                Some(planstate),
+            )? {
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
@@ -633,8 +657,10 @@ pub mod vischeck {
     impl Drop for TSVisibilityChecker {
         fn drop(&mut self) {
             unsafe {
-                if !pg_sys::IsTransactionState() {
-                    // we are not in a transaction, so we can't do things like release buffers and close relations
+                if !pg_sys::IsTransactionState() || std::thread::panicking() {
+                    // TODO: None of the below operations care about the transaction state: in
+                    // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
+                    // lock. Consider removing this guard.
                     return;
                 }
 

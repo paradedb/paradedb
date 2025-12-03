@@ -8,10 +8,14 @@
     "dark": "#818cf8"
   },
   "favicon": "/favicon.png",
+  "banner": {
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
+    "dismissible": false
+  },
   "navigation": {
     "versions": [
       {
-        "version": "v0.19.7",
+        "version": "v0.20.1",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -41,157 +45,128 @@
                   {
                     "group": "Reference",
                     "pages": [
-                      "documentation/overview",
                       {
                         "group": "Indexing",
                         "pages": [
                           "documentation/indexing/create-index",
-                          "documentation/indexing/inspect-index",
-                          {
-                            "group": "Index Tuning",
-                            "pages": [
-                              "documentation/configuration/overview",
-                              "documentation/configuration/index-build",
-                              "documentation/configuration/write-throughput",
-                              "documentation/configuration/read-throughput"
-                            ]
-                          },
-                          {
-                            "group": "Feature Flags",
-                            "pages": ["documentation/configuration/custom-scan"]
-                          }
+                          "documentation/indexing/indexing-expressions",
+                          "documentation/indexing/indexing-json",
+                          "documentation/indexing/indexing-arrays",
+                          "documentation/indexing/reindexing"
                         ]
                       },
                       {
-                        "group": "Field Configuration",
+                        "group": "Tokenizers",
                         "pages": [
-                          "documentation/indexing/field-options",
-                          "documentation/indexing/tokenizers",
-                          "documentation/indexing/token-filters",
-                          "documentation/indexing/fast-fields",
-                          "documentation/indexing/record"
+                          "documentation/tokenizers/overview",
+                          {
+                            "group": "Available Tokenizers",
+                            "pages": [
+                              "documentation/tokenizers/available-tokenizers/unicode",
+                              "documentation/tokenizers/available-tokenizers/literal",
+                              "documentation/tokenizers/available-tokenizers/literal-normalized",
+                              "documentation/tokenizers/available-tokenizers/whitespace",
+                              "documentation/tokenizers/available-tokenizers/ngrams",
+                              "documentation/tokenizers/available-tokenizers/simple",
+                              "documentation/tokenizers/available-tokenizers/regex",
+                              "documentation/tokenizers/available-tokenizers/chinese-compatible",
+                              "documentation/tokenizers/available-tokenizers/lindera",
+                              "documentation/tokenizers/available-tokenizers/icu",
+                              "documentation/tokenizers/available-tokenizers/jieba",
+                              "documentation/tokenizers/available-tokenizers/source-code"
+                            ]
+                          },
+                          "documentation/tokenizers/multiple-per-field"
+                        ]
+                      },
+                      {
+                        "group": "Token Filters",
+                        "pages": [
+                          "documentation/token-filters/overview",
+                          "documentation/token-filters/alphanumeric",
+                          "documentation/token-filters/ascii-folding",
+                          "documentation/token-filters/lowercase",
+                          "documentation/token-filters/stopwords",
+                          "documentation/token-filters/stemming",
+                          "documentation/token-filters/token-length",
+                          "documentation/token-filters/trim"
                         ]
                       },
                       {
                         "group": "Full Text Search",
                         "pages": [
                           "documentation/full-text/overview",
-                          "documentation/full-text/boolean",
+                          "documentation/full-text/match",
                           "documentation/full-text/phrase",
-                          "documentation/full-text/filtering",
-                          "documentation/full-text/pagination",
-                          "documentation/full-text/scoring",
-                          "documentation/full-text/highlighting",
-                          "documentation/full-text/sorting",
-                          "documentation/full-text/boosting"
+                          "documentation/full-text/term",
+                          "documentation/full-text/fuzzy",
+                          "documentation/full-text/highlight",
+                          "documentation/full-text/proximity"
                         ]
                       },
                       {
-                        "group": "Query Builder",
+                        "group": "Sorting",
                         "pages": [
-                          "documentation/advanced/overview",
-                          {
-                            "group": "Full Text Queries",
-                            "pages": ["documentation/advanced/full-text/match"]
-                          },
-                          {
-                            "group": "Term-Level Queries",
-                            "pages": [
-                              "documentation/advanced/term/exists",
-                              "documentation/advanced/term/fuzzy-term",
-                              "documentation/advanced/term/range",
-                              "documentation/advanced/term/range-term",
-                              "documentation/advanced/term/regex",
-                              "documentation/advanced/term/term",
-                              "documentation/advanced/term/term-set"
-                            ]
-                          },
-                          {
-                            "group": "Phrase-Level Queries",
-                            "pages": [
-                              "documentation/advanced/phrase/phrase",
-                              "documentation/advanced/phrase/phrase-prefix"
-                            ]
-                          },
-                          {
-                            "group": "JSON Queries",
-                            "pages": [
-                              "documentation/advanced/json/overview",
-                              "documentation/advanced/json/arrays",
-                              "documentation/advanced/json/range"
-                            ]
-                          },
-                          {
-                            "group": "Compound Queries",
-                            "pages": [
-                              "documentation/advanced/compound/overview",
-                              "documentation/advanced/compound/all",
-                              "documentation/advanced/compound/boolean",
-                              "documentation/advanced/compound/boost",
-                              "documentation/advanced/compound/const",
-                              "documentation/advanced/compound/disjunction-max",
-                              "documentation/advanced/compound/empty",
-                              "documentation/advanced/compound/parse"
-                            ]
-                          },
-                          {
-                            "group": "Specialized Queries",
-                            "pages": [
-                              "documentation/advanced/specialized/more-like-this"
-                            ]
-                          }
+                          "documentation/sorting/score",
+                          "documentation/sorting/boost",
+                          "documentation/sorting/topn"
                         ]
                       },
+                      "documentation/filtering",
                       {
                         "group": "Aggregates",
                         "pages": [
                           "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
-                            "pages": ["documentation/aggregates/bucket/terms"]
+                            "pages": [
+                              "documentation/aggregates/bucket/datehistogram",
+                              "documentation/aggregates/bucket/filters",
+                              "documentation/aggregates/bucket/histogram",
+                              "documentation/aggregates/bucket/range",
+                              "documentation/aggregates/bucket/terms"
+                            ]
                           },
                           {
                             "group": "Metrics",
                             "pages": [
+                              "documentation/aggregates/metrics/average",
+                              "documentation/aggregates/metrics/cardinality",
                               "documentation/aggregates/metrics/count",
-                              "documentation/aggregates/metrics/sum",
                               "documentation/aggregates/metrics/minmax",
-                              "documentation/aggregates/metrics/average"
+                              "documentation/aggregates/metrics/percentiles",
+                              "documentation/aggregates/metrics/stats",
+                              "documentation/aggregates/metrics/sum",
+                              "documentation/aggregates/metrics/tophits"
                             ]
                           },
+                          "documentation/aggregates/facets",
                           "documentation/aggregates/tuning",
                           "documentation/aggregates/limitations"
                         ]
                       },
                       {
-                        "group": "Similarity Search",
+                        "group": "Advanced Query Functions",
                         "pages": [
-                          "documentation/similarity/overview",
-                          "documentation/similarity/index",
-                          "documentation/similarity/search"
+                          "documentation/query-builder/overview",
+                          "documentation/query-builder/compound/all",
+                          "documentation/query-builder/specialized/more-like-this",
+                          "documentation/query-builder/phrase/phrase-prefix",
+                          "documentation/query-builder/compound/query-parser",
+                          "documentation/query-builder/term/range-term",
+                          "documentation/query-builder/term/regex"
+                        ]
+                      },
+                      {
+                        "group": "Performance Tuning",
+                        "pages": [
+                          "documentation/performance-tuning/overview",
+                          "documentation/performance-tuning/create-index",
+                          "documentation/performance-tuning/joins",
+                          "documentation/performance-tuning/reads",
+                          "documentation/performance-tuning/writes"
                         ]
                       }
-                    ]
-                  },
-                  {
-                    "group": "Tutorials",
-                    "pages": [
-                      "documentation/guides/overview",
-                      "documentation/guides/autocomplete",
-                      "documentation/guides/hybrid"
-                    ]
-                  },
-                  {
-                    "group": "Concepts",
-                    "pages": [
-                      "documentation/concepts/bm25",
-                      "documentation/concepts/index",
-                      "documentation/concepts/matching",
-                      "documentation/concepts/phrase",
-                      "documentation/concepts/search",
-                      "documentation/concepts/stemming",
-                      "documentation/concepts/tantivy",
-                      "documentation/concepts/term"
                     ]
                   },
                   "welcome/support"
@@ -200,130 +175,99 @@
             ]
           },
           {
-            "anchor": "Docs v2 (beta)",
-            "icon": "sparkles",
+            "anchor": "Legacy Docs",
+            "icon": "hourglass",
             "groups": [
               {
-                "group": "Documentation (v2)",
+                "group": "Legacy Docs",
                 "pages": [
-                  "v2/overview",
                   {
-                    "group": "Getting Started",
+                    "group": "Indexing",
                     "pages": [
-                      "v2/getting-started/install",
-                      "v2/getting-started/quickstart",
-                      "v2/getting-started/load"
+                      "legacy/indexing/create-index",
+                      "legacy/indexing/inspect-index"
                     ]
                   },
                   {
-                    "group": "Reference",
+                    "group": "Field Configuration",
                     "pages": [
+                      "legacy/indexing/field-options",
+                      "legacy/indexing/tokenizers",
+                      "legacy/indexing/token-filters",
+                      "legacy/indexing/fast-fields",
+                      "legacy/indexing/record"
+                    ]
+                  },
+                  {
+                    "group": "Full Text Search",
+                    "pages": [
+                      "legacy/full-text/overview",
+                      "legacy/full-text/boolean",
+                      "legacy/full-text/phrase",
+                      "legacy/full-text/filtering",
+                      "legacy/full-text/pagination",
+                      "legacy/full-text/scoring",
+                      "legacy/full-text/highlighting",
+                      "legacy/full-text/sorting",
+                      "legacy/full-text/boosting"
+                    ]
+                  },
+                  {
+                    "group": "Query Builder",
+                    "pages": [
+                      "legacy/advanced/overview",
                       {
-                        "group": "Indexing",
+                        "group": "Full Text Queries",
+                        "pages": ["legacy/advanced/full-text/match"]
+                      },
+                      {
+                        "group": "Term-Level Queries",
                         "pages": [
-                          "v2/indexing/create-index",
-                          "v2/indexing/indexing-expressions",
-                          "v2/indexing/indexing-json",
-                          "v2/indexing/reindexing"
+                          "legacy/advanced/term/exists",
+                          "legacy/advanced/term/fuzzy-term",
+                          "legacy/advanced/term/range",
+                          "legacy/advanced/term/range-term",
+                          "legacy/advanced/term/regex",
+                          "legacy/advanced/term/term",
+                          "legacy/advanced/term/term-set"
                         ]
                       },
                       {
-                        "group": "Tokenizers",
+                        "group": "Phrase-Level Queries",
                         "pages": [
-                          "v2/tokenizers/overview",
-                          {
-                            "group": "Available Tokenizers",
-                            "pages": [
-                              "v2/tokenizers/available-tokenizers/simple",
-                              "v2/tokenizers/available-tokenizers/exact",
-                              "v2/tokenizers/available-tokenizers/literal-normalized",
-                              "v2/tokenizers/available-tokenizers/whitespace",
-                              "v2/tokenizers/available-tokenizers/ngrams",
-                              "v2/tokenizers/available-tokenizers/regex",
-                              "v2/tokenizers/available-tokenizers/chinese-compatible",
-                              "v2/tokenizers/available-tokenizers/lindera",
-                              "v2/tokenizers/available-tokenizers/icu",
-                              "v2/tokenizers/available-tokenizers/jieba",
-                              "v2/tokenizers/available-tokenizers/source-code"
-                            ]
-                          },
-                          "v2/tokenizers/multiple-per-field"
+                          "legacy/advanced/phrase/phrase",
+                          "legacy/advanced/phrase/phrase-prefix"
                         ]
                       },
                       {
-                        "group": "Token Filters",
+                        "group": "JSON Queries",
                         "pages": [
-                          "v2/token-filters/overview",
-                          "v2/token-filters/alphanumeric",
-                          "v2/token-filters/ascii-folding",
-                          "v2/token-filters/lowercase",
-                          "v2/token-filters/stopwords",
-                          "v2/token-filters/stemming",
-                          "v2/token-filters/token-length"
+                          "legacy/advanced/json/overview",
+                          "legacy/advanced/json/arrays",
+                          "legacy/advanced/json/range"
                         ]
                       },
                       {
-                        "group": "Full Text Search",
+                        "group": "Compound Queries",
                         "pages": [
-                          "v2/full-text/overview",
-                          "v2/full-text/match",
-                          "v2/full-text/phrase",
-                          "v2/full-text/term",
-                          "v2/full-text/term-set",
-                          "v2/full-text/fuzzy",
-                          "v2/full-text/highlight",
-                          "v2/full-text/proximity"
+                          "legacy/advanced/compound/overview",
+                          "legacy/advanced/compound/all",
+                          "legacy/advanced/compound/boolean",
+                          "legacy/advanced/compound/boost",
+                          "legacy/advanced/compound/const",
+                          "legacy/advanced/compound/disjunction-max",
+                          "legacy/advanced/compound/empty",
+                          "legacy/advanced/compound/parse"
                         ]
                       },
                       {
-                        "group": "Sorting",
+                        "group": "Specialized Queries",
                         "pages": [
-                          "v2/sorting/score",
-                          "v2/sorting/boost",
-                          "v2/sorting/topn"
+                          "legacy/advanced/specialized/more-like-this"
                         ]
-                      },
-                      {
-                        "group": "Query Builder",
-                        "pages": [
-                          "v2/query-builder/overview",
-                          "v2/query-builder/match",
-                          {
-                            "group": "Phrase",
-                            "pages": [
-                              "v2/query-builder/phrase/phrase",
-                              "v2/query-builder/phrase/phrase-prefix",
-                              "v2/query-builder/phrase/regex-phrase"
-                            ]
-                          },
-                          {
-                            "group": "Term",
-                            "pages": [
-                              "v2/query-builder/term/exists",
-                              "v2/query-builder/term/fuzzy-term",
-                              "v2/query-builder/term/range",
-                              "v2/query-builder/term/range-term",
-                              "v2/query-builder/term/regex",
-                              "v2/query-builder/term/term",
-                              "v2/query-builder/term/term-set"
-                            ]
-                          },
-                          {
-                            "group": "Specialized",
-                            "pages": [
-                              "v2/query-builder/specialized/more-like-this"
-                            ]
-                          },
-                          "v2/query-builder/json"
-                        ]
-                      },
-                      {
-                        "group": "Aggregates",
-                        "pages": ["v2/aggregates/overview"]
                       }
                     ]
-                  },
-                  "welcome/support"
+                  }
                 ]
               }
             ]
@@ -376,6 +320,12 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.20.1",
+                  "changelog/0.20.0",
+                  "changelog/0.19.11",
+                  "changelog/0.19.10",
+                  "changelog/0.19.9",
+                  "changelog/0.19.8",
                   "changelog/0.19.7",
                   "changelog/0.19.6",
                   "changelog/0.19.5",

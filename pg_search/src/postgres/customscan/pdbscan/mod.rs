@@ -22,6 +22,11 @@ mod privdat;
 pub mod projections;
 mod scan_state;
 
+use std::ffi::CStr;
+use std::ptr::addr_of_mut;
+use std::sync::atomic::Ordering;
+use std::sync::Once;
+
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
@@ -74,11 +79,9 @@ use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
+
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
-use std::ffi::CStr;
-use std::ptr::addr_of_mut;
-use std::sync::atomic::Ordering;
+use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -362,6 +365,74 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
+/// Is the function identified by `funcid` an approved set-returning-function
+/// that is safe for our limit push-down optimization?
+fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {
+    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
+    static APPROVE_SRF_ONCE: Once = Once::new();
+
+    unsafe {
+        APPROVE_SRF_ONCE.call_once(|| {
+            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pg_catalog.unnest(anyarray)".into_datum()],
+            ) {
+                UNNEST_OID = oid;
+            }
+        });
+        funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid
+    }
+}
+
+/// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
+/// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
+///
+/// Only set returning functions which produce at least as many rows as they consume are safe.
+unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> {
+    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
+        return None;
+    }
+    // non-Const LIMIT is not a thing we can handle here
+    let limit_const = nodecast!(Const, T_Const, (*(*root).parse).limitCount)?;
+    let limit =
+        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)?;
+
+    let offset = if (*(*root).parse).limitOffset.is_null() {
+        0.0
+    } else if let Some(offset_const) = nodecast!(Const, T_Const, (*(*root).parse).limitOffset) {
+        i64::from_datum((*offset_const).constvalue, (*offset_const).constisnull)
+            .map(|v| v as f64)?
+    } else {
+        // non-Const OFFSET is not a thing we can handle here
+        return None;
+    };
+
+    let mut found_limit_safe_srf = false;
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    for te in target_list.iter_ptr() {
+        if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
+            // It's a set-returning function, is it one we approve of?
+            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                if is_limit_safe_srf((*func_expr).funcid) {
+                    found_limit_safe_srf = true;
+                } else {
+                    // We don't recognize this SRF, and can't vouch for it.
+                    return None;
+                }
+            }
+        }
+    }
+
+    // A LIMIT was applied in the parse for our node, but is being handled elsewhere
+    // due to a set-returning-function that we know produces at least as many tuples as
+    // it is given.
+    if found_limit_safe_srf {
+        Some(limit + offset)
+    } else {
+        None
+    }
+}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -494,7 +565,7 @@ impl CustomScan for PdbScan {
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
-            #[cfg(any(feature = "pg16", feature = "pg17"))]
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             let baserels = (*builder.args().root).all_query_rels;
 
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
@@ -506,16 +577,23 @@ impl CustomScan for PdbScan {
                         baserels,
                     );
 
-                if rel_is_single_or_partitioned {
+                // Check for LEFT JOIN LATERAL where left side drives the query
+                let is_left_driven_lateral = is_left_join_lateral(builder.args().root, rel)
+                    && where_clause_only_references_left(builder.args().root, rti);
+
+                if rel_is_single_or_partitioned || is_left_driven_lateral {
                     // We can use the limit for estimates if:
                     // a) we have a limit, and
-                    // b) we're querying a single relation OR partitions of a partitioned table
+                    // b) we're either:
+                    //    * querying a single relation OR
+                    //    * querying partitions of a partitioned table OR
+                    //    * we're in a LEFT JOIN LATERAL where the left side drives the query
                     Some((*builder.args().root).limit_tuples)
                 } else {
                     None
                 }
             } else {
-                None
+                maybe_limit_from_parse(builder.args().root)
             };
 
             // Get all columns referenced by this RTE throughout the entire query
@@ -616,6 +694,7 @@ impl CustomScan for PdbScan {
                     total_rows,
                     segment_count,
                     quals.contains_external_var(),
+                    quals.contains_exec_param(),
                 )
             } else {
                 0
@@ -1463,6 +1542,8 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
 
 /// Inject placeholder Const nodes for window aggregates at execution time
 /// At this point, the WindowFunc has been replaced with paradedb.window_agg(json) calls
+/// This function finds those calls (which may be wrapped in other functions)
+/// and replaces them with placeholder Const nodes that will be filled in during execution.
 unsafe fn inject_window_aggregate_placeholders(
     targetlist: *mut pg_sys::List,
     window_aggs: &[WindowAggregateInfo],
@@ -1476,41 +1557,111 @@ unsafe fn inject_window_aggregate_placeholders(
         return (targetlist, const_nodes);
     }
 
-    for agg_info in window_aggs {
-        let te_idx = agg_info.target_entry_index;
+    // Process each window aggregate target entry
+    let mut new_tlist = PgList::<pg_sys::TargetEntry>::new();
 
-        // Get the target entry at this index
-        if let Some(te) = tlist.get_ptr(te_idx) {
-            let node_type = (*(*te).expr).type_;
+    for (idx, te) in tlist.iter_ptr().enumerate() {
+        // Check if this target entry is one of our window aggregates
+        let agg_info = window_aggs.iter().find(|a| a.target_entry_index == idx);
 
-            // Check if this is our window_agg FuncExpr
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if (*funcexpr).funcid == window_agg_procid {
-                    // Create a placeholder Const node with the appropriate type
-                    let const_node = pg_sys::makeConst(
-                        agg_info.result_type_oid(),
-                        -1,
-                        pg_sys::DEFAULT_COLLATION_OID,
-                        if agg_info.result_type_oid() == pg_sys::INT8OID {
-                            8
-                        } else {
-                            -1
-                        },
-                        pg_sys::Datum::null(),
-                        true,                                          // constisnull
-                        agg_info.result_type_oid() == pg_sys::INT8OID, // constbyval (true for INT8)
-                    );
+        if let Some(agg_info) = agg_info {
+            // This target entry should contain a window_agg call (possibly wrapped)
+            let (new_expr, const_node_opt) = replace_window_agg_with_const(
+                (*te).expr as *mut pg_sys::Node,
+                window_agg_procid,
+                agg_info.result_type_oid(),
+            );
 
-                    // Replace the window_agg FuncExpr with our Const node
-                    (*te).expr = const_node.cast();
+            // Create a new target entry with the modified expression
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+            (*new_te).expr = new_expr.cast();
+            new_tlist.push(new_te);
 
-                    const_nodes.insert(te_idx, const_node);
-                }
+            if let Some(const_node) = const_node_opt {
+                const_nodes.insert(idx, const_node);
             }
+        } else {
+            // Not a window aggregate - just copy it
+            new_tlist.push(te);
         }
     }
 
-    (tlist.into_pg(), const_nodes)
+    (new_tlist.into_pg(), const_nodes)
+}
+
+// Helper function to recursively search and replace window_agg calls
+//
+// Note: This follows a similar recursive pattern to replace_in_node() in hook.rs,
+// but operates at a different stage:
+// - That function: Planning stage - replaces WindowFunc → window_agg() placeholder
+// - This function: Execution stage - replaces window_agg() → Const placeholder for value injection
+//
+// TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
+// See https://github.com/paradedb/paradedb/issues/3455
+unsafe fn replace_window_agg_with_const(
+    node: *mut pg_sys::Node,
+    window_agg_procid: pg_sys::Oid,
+    result_type_oid: pg_sys::Oid,
+) -> (*mut pg_sys::Node, Option<*mut pg_sys::Const>) {
+    if node.is_null() {
+        return (node, None);
+    }
+
+    // Check if this is the window_agg FuncExpr
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if (*funcexpr).funcid == window_agg_procid {
+            // Found it! Replace with a Const node
+            let const_node = pg_sys::makeConst(
+                result_type_oid,
+                -1,
+                pg_sys::DEFAULT_COLLATION_OID,
+                if result_type_oid == pg_sys::INT8OID {
+                    8
+                } else {
+                    -1
+                },
+                pg_sys::Datum::null(),
+                true,                               // constisnull
+                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+            );
+
+            return (const_node.cast(), Some(const_node));
+        }
+
+        // Not window_agg, but might have window_agg as an argument
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        let mut new_args = PgList::<pg_sys::Node>::new();
+        let mut found_const = None;
+        let mut modified = false;
+
+        for arg in args.iter_ptr() {
+            let (new_arg, const_opt) =
+                replace_window_agg_with_const(arg, window_agg_procid, result_type_oid);
+            if const_opt.is_some() {
+                found_const = const_opt;
+                modified = true;
+            }
+            if new_arg != arg {
+                modified = true;
+            }
+            new_args.push(new_arg);
+        }
+
+        if modified {
+            // Create a new FuncExpr with modified arguments
+            let new_funcexpr = pg_sys::makeFuncExpr(
+                (*funcexpr).funcid,
+                (*funcexpr).funcresulttype,
+                new_args.into_pg(),
+                (*funcexpr).funccollid,
+                (*funcexpr).inputcollid,
+                (*funcexpr).funcformat,
+            );
+            return (new_funcexpr.cast(), found_const);
+        }
+    }
+
+    (node, None)
 }
 
 #[derive(Debug, Clone)]
@@ -1613,8 +1764,18 @@ where
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
+            // Check if this is a PlaceHolderVar containing a score function
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
+                    if is_score_func(funcexpr.cast(), rti) {
+                        pathkey_styles.push(OrderByStyle::Score(pathkey));
+                        found_valid_member = true;
+                        break;
+                    }
+                }
+            }
             // Check if this is a score function
-            if is_score_func(expr.cast(), rti) {
+            else if is_score_func(expr.cast(), rti) {
                 pathkey_styles.push(OrderByStyle::Score(pathkey));
                 found_valid_member = true;
                 break;
@@ -1947,4 +2108,196 @@ unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
             }
         }
     }
+}
+
+/// Check if the query contains a LEFT JOIN LATERAL pattern
+///
+/// This function verifies that the query has the specific structure:
+/// `... LEFT JOIN LATERAL (...) ...`
+///
+/// We verify:
+/// 1. The parse tree contains a LEFT JOIN node
+/// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
+///
+/// This enables TopN optimization because LEFT JOIN semantics guarantee all
+/// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
+/// left table, we can safely apply TopN to the left scan before the join.
+unsafe fn is_left_join_lateral(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    // Check if this is a join query
+    if !(*root).hasJoinRTEs {
+        return false;
+    }
+
+    // Check if this is a base relation (not a join itself)
+    if (*rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+        return false;
+    }
+
+    // Check the parse tree for LEFT JOIN patterns with LATERAL
+    // We need to verify:
+    // 1. There's a LEFT JOIN in the query
+    // 2. The right side of that LEFT JOIN is LATERAL
+    //
+    // We use a combination of checks:
+    // - Parse tree: to find LEFT JOIN structure
+    // - RTE lateral flag: to confirm the right side is LATERAL
+
+    // First, quickly check if any LATERAL references exist at all
+    let simple_rel_array = (*root).simple_rel_array;
+    if simple_rel_array.is_null() {
+        return false;
+    }
+
+    let mut has_lateral = false;
+    let simple_rel_array_size = (*root).simple_rel_array_size;
+    for i in 1..simple_rel_array_size {
+        let other_rel = *simple_rel_array.add(i as usize);
+        if !other_rel.is_null() && !(*other_rel).lateral_relids.is_null() {
+            has_lateral = true;
+            break;
+        }
+    }
+
+    if !has_lateral {
+        return false;
+    }
+
+    // Now check the parse tree for LEFT JOIN structure
+    let jointree = (*(*root).parse).jointree;
+    if jointree.is_null() || (*jointree).fromlist.is_null() {
+        return false;
+    }
+
+    let fromlist = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in fromlist.iter_ptr() {
+        if has_left_join_lateral_pattern(node, (*root).parse) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Recursively check if a node contains a LEFT JOIN LATERAL pattern
+unsafe fn has_left_join_lateral_pattern(
+    node: *mut pg_sys::Node,
+    query: *mut pg_sys::Query,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+        // Check if this is a LEFT JOIN
+        if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT {
+            // Check if the right side has LATERAL
+            if is_lateral_subquery((*join_expr).rarg, query) {
+                return true;
+            }
+        }
+
+        // Recursively check nested joins
+        if has_left_join_lateral_pattern((*join_expr).larg, query) {
+            return true;
+        }
+        if has_left_join_lateral_pattern((*join_expr).rarg, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a node represents a LATERAL subquery
+unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
+    if node.is_null() || query.is_null() {
+        return false;
+    }
+
+    // Check if it's a RangeTblRef pointing to a LATERAL RTE
+    if let Some(rtref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
+        let rtable = (*query).rtable;
+        if !rtable.is_null() {
+            let rte = pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable);
+            if !rte.is_null() && (*rte).lateral {
+                return true;
+            }
+        }
+    }
+
+    // For nested joins, recursively check
+    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+        if is_lateral_subquery((*join_expr).larg, query) {
+            return true;
+        }
+        if is_lateral_subquery((*join_expr).rarg, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Verify WHERE clause only references the left table (current relation)
+///
+/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as TopN.
+/// Because TopN eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
+/// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
+/// limit which would be filtered by conditions on the right hand side.
+unsafe fn where_clause_only_references_left(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> bool {
+    // Get WHERE clause
+    let quals = if !(*root).parse.is_null()
+        && !(*(*root).parse).jointree.is_null()
+        && !(*(*(*root).parse).jointree).quals.is_null()
+    {
+        (*(*(*root).parse).jointree).quals
+    } else {
+        return true; // No WHERE clause means it only references left
+    };
+
+    // Walk the quals to check if they only reference our relation
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let rti = *(data as *const pg_sys::Index);
+            // If we find a Var that's not from our relation, return true (fail)
+            if (*var).varno as i32 != rti as i32 && (*var).varno > 0 {
+                return true;
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    // If walker returns true, it found a reference to another relation
+    !walker(quals, &rti as *const _ as *mut _)
+}
+
+/// Extract FuncExpr from PlaceHolderVar node
+unsafe fn extract_funcexpr_from_placeholder(
+    phv: *mut pg_sys::PlaceHolderVar,
+) -> Option<*mut pg_sys::FuncExpr> {
+    if phv.is_null() || (*phv).phexpr.is_null() {
+        return None;
+    }
+
+    // The phexpr should contain our FuncExpr
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+        return Some(funcexpr);
+    }
+
+    None
 }

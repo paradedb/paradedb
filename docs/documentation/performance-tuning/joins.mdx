@@ -1,0 +1,167 @@
+---
+title: Joins
+description: Optimize JOIN queries in ParadeDB
+canonical: https://docs.paradedb.com/documentation/performance-tuning/joins
+---
+
+ParadeDB supports all PostgreSQL JOIN types and extends them with BM25-powered full-text search. This guide explains how JOINs behave with search, how to identify sub-optimal query plans, and offers strategies to keep queries fast.
+
+## Supported JOIN Types
+
+ParadeDB supports all PostgreSQL JOINs:
+
+- `INNER JOIN`
+- `LEFT / RIGHT / FULL OUTER JOIN`
+- `CROSS JOIN`
+- `LATERAL`
+- Semi and Anti JOINs
+
+For the most part you can mix search and relational queries without changing your SQL.
+
+## Scoring in JOINs
+
+When using `paradedb.score()` or `paradedb.snippet()` inside JOINs:
+
+- Scores and snippets are computed **before the JOIN** at the base table level.
+- JOIN conditions never change the score, they only determine which rows are combined.
+
+This design keeps scores predictable and consistent across queries.
+
+## Performance Characteristics
+
+### Fast Cases
+
+Queries are efficient when search filters can be applied directly to the underlying tables.
+In these cases, PostgreSQL can push down the `|||` operators so that each table does its own filtered index scan before the JOIN runs.
+
+That means:
+
+- Each table only contributes rows that already match the search condition.
+- The JOIN operates on much smaller intermediate sets.
+
+In this query, both `a.bio` and `b.content` are filtered independently.
+The planner runs efficient index scans on each table and then joins the results.
+
+```sql
+SELECT a.name, b.title, paradedb.score(a.id)
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE
+    a.bio ||| 'science fiction'
+    AND b.content ||| 'space travel';
+```
+
+The plan will have this shape:
+
+```
+Gather
+  -> Parallel Hash Join
+       Hash Cond: (b.id = a.id)
+       -> Parallel ParadeDB Scan on authors a
+       -> Parallel Hash
+            -> Parallel ParadeDB Scan on books b
+```
+
+### Slower Cases
+
+Queries become slower when search conditions span multiple tables in a way that prevents PostgreSQL from pushing them down. The most common example is an `OR` across different tables:
+
+```sql
+SELECT a.name, b.title
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE
+    a.bio ||| 'science'
+    OR b.content ||| 'artificial';
+```
+
+Because the condition references both `a` and `b`, PostgreSQL cannot apply it until after the join. As a result, both tables must be scanned in full, joined, and only then filtered.
+
+The plan will have this shape:
+
+```
+Gather
+  -> Parallel Hash Join
+       Hash Cond: (a.id = b.author_id)
+       Join Filter: (a.bio ||| (...) OR b.content ||| (...))
+       -> Parallel Seq Scan on authors a
+       -> Parallel Hash
+            -> Parallel Seq Scan on books b
+```
+
+Note that the `|||` query is in the _Join Filter_, not in the scan.
+
+## Diagnosing Performance
+
+Use `EXPLAIN` to check the query plan:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT a.name, b.title, paradedb.score(a.id)
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE a.bio ||| 'science'
+   OR b.content ||| 'artificial';
+```
+
+Watch for:
+
+- `Custom Scan` nodes with large row counts
+- ParadeDB operators inside JOIN conditions
+- `Tantivy Query: all` (full index scan)
+
+## Writing Faster JOIN Queries
+
+### Replace Cross-Table OR with UNION
+
+If you don’t need scores/snippets and have a simple JOIN, express the OR as a UNION of two separately filtered joins. This lets PostgreSQL push each search predicate down to a Custom Index Scan and avoid a join-time filter.
+
+```sql
+SELECT a.name, b.title
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE a.bio ||| 'science'
+UNION
+SELECT a.name, b.title
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE b.content ||| 'artificial';
+```
+
+### Use CTEs for Complex Queries
+
+Use common table expressions (CTEs) to pre-filter each table with its own search condition, then join the smaller result sets together.
+If possible, add a `LIMIT` to each CTE to keep the result sets small.
+
+```sql
+WITH matching_authors AS (
+  SELECT id, name, paradedb.score(id) AS author_score
+  FROM authors
+  WHERE bio ||| 'science'
+  LIMIT 100
+),
+matching_books AS (
+  SELECT id, title, author_id, paradedb.score(id) AS book_score
+  FROM books
+  WHERE content ||| 'artificial'
+  LIMIT 100
+)
+SELECT
+  COALESCE(ma.name, a.name) AS name,
+  COALESCE(mb.title, b.title) AS title,
+  ma.author_score,
+  mb.book_score
+FROM matching_authors ma
+FULL JOIN matching_books mb ON ma.id = mb.author_id
+LEFT JOIN authors a ON mb.author_id = a.id AND ma.id IS NULL
+LEFT JOIN books b ON ma.id = b.author_id AND mb.id IS NULL;
+```
+
+BM25 scores should not be added, if you want to combine scores then consider using [reciprocal rank fusion (RRF)](https://www.paradedb.com/learn/search-concepts/reciprocal-rank-fusion).
+
+## Roadmap
+
+We really want to remove the need to think about the way to do `JOIN`s in ParadeDB. At the moment we are actively working on:
+
+- A `CustomScan Join API` for native join handling
+- Smarter cost estimation for the PostgreSQL planner

@@ -40,6 +40,255 @@ WITH (
         "in_stock": {"fast": true}
     }'
 );
+-- =============================================================================
+-- OPERATOR SUPPORT TESTS
+-- Testing that window aggregate pushdown works with all search operators
+-- =============================================================================
+-- Test 1a: Window aggregate with ||| operator (match disjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ||| 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1b: Window aggregate with &&& operator (match conjunction)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description &&& 'laptop powerful'
+ORDER BY rating DESC
+LIMIT 3;
+ id | name | rating | total_count 
+----+------+--------+-------------
+(0 rows)
+
+-- Test 1c: Window aggregate with === operator (term search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description === 'laptop'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           4
+  5 | ASUS ROG    |    4.7 |           4
+  3 | ThinkPad X1 |    4.5 |           4
+(3 rows)
+
+-- Test 1d: Window aggregate with ### operator (phrase search)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description ### 'laptop for'
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           1
+(1 row)
+
+-- Test 1e: Window aggregate with proximity operator (## - any order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"any_order":10},"right":{"term":"powerful"}}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ## 10 ## 'powerful')
+ORDER BY rating DESC
+LIMIT 3;
+ id | name | rating | total_count 
+----+------+--------+-------------
+(0 rows)
+
+-- Test 1f: Window aggregate with proximity operator (##> - in order)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"in_order":10},"right":{"term":"professionals"}}}}}
+(11 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    COUNT(*) OVER () as total_count
+FROM products
+WHERE description @@@ ('laptop' ##> 10 ##> 'professionals')
+ORDER BY rating DESC
+LIMIT 3;
+ id |    name     | rating | total_count 
+----+-------------+--------+-------------
+  1 | MacBook Pro |    4.8 |           1
+(1 row)
+
+-- =============================================================================
+-- BASIC TOPN TESTS
+-- =============================================================================
 -- Test 1: Basic TopN without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -187,12 +436,13 @@ LIMIT 3;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, rating, (count(*) OVER (?))
+   Output: id, name, category, rating, (count(*) OVER w1)
    ->  Sort
-         Output: id, name, category, rating, (count(*) OVER (?))
+         Output: id, name, category, rating, (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, category, rating, count(*) OVER (?)
+               Output: id, name, category, rating, count(*) OVER w1
+               Window: w1 AS (PARTITION BY products.category)
                ->  Sort
                      Output: category, id, name, rating
                      Sort Key: products.category
@@ -203,7 +453,7 @@ LIMIT 3;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 SELECT 
     id,
@@ -237,9 +487,10 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (sum(price) OVER (?))
+   Output: id, name, rating, price, (sum(price) OVER w1)
    ->  WindowAgg
-         Output: id, name, rating, price, sum(price) OVER (?)
+         Output: id, name, rating, price, sum(price) OVER w1
+         Window: w1 AS (ORDER BY products.rating)
          ->  Sort
                Output: rating, id, name, price
                Sort Key: products.rating DESC
@@ -250,7 +501,7 @@ LIMIT 3;
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT 
     id,
@@ -283,9 +534,10 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (avg(rating) OVER (?))
+   Output: id, name, rating, (avg(rating) OVER w1)
    ->  WindowAgg
-         Output: id, name, rating, avg(rating) OVER (?)
+         Output: id, name, rating, avg(rating) OVER w1
+         Window: w1 AS (ORDER BY products.rating ROWS BETWEEN '1'::bigint PRECEDING AND '1'::bigint FOLLOWING)
          ->  Sort
                Output: rating, id, name
                Sort Key: products.rating DESC
@@ -296,7 +548,7 @@ LIMIT 3;
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT 
     id,
@@ -375,12 +627,13 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE in_stock) OVER (?))
+   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE in_stock) OVER w1)
    ->  Sort
-         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE in_stock) OVER (?))
+         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE in_stock) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, in_stock, count(*) FILTER (WHERE in_stock) OVER (?)
+               Output: id, name, rating, in_stock, count(*) FILTER (WHERE in_stock) OVER w1
+               Window: w1 AS ()
                ->  Custom Scan (ParadeDB Scan) on public.products
                      Output: id, name, rating, in_stock
                      Table: products
@@ -388,7 +641,7 @@ LIMIT 3;
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT 
     id,
@@ -465,12 +718,13 @@ LIMIT 3;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, rating, (count(*) OVER (?))
+   Output: id, name, category, brand, rating, (count(*) OVER w1)
    ->  Sort
-         Output: id, name, category, brand, rating, (count(*) OVER (?))
+         Output: id, name, category, brand, rating, (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, category, brand, rating, count(*) OVER (?)
+               Output: id, name, category, brand, rating, count(*) OVER w1
+               Window: w1 AS (PARTITION BY products.category ORDER BY products.rating)
                ->  Sort
                      Output: category, rating, id, name, brand
                      Sort Key: products.category, products.rating DESC
@@ -481,7 +735,7 @@ LIMIT 3;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 SELECT 
     id,
@@ -513,7 +767,8 @@ WHERE description @@@ 'laptop';
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
-   Output: id, name, rating, count(*) OVER (?)
+   Output: id, name, rating, count(*) OVER w1
+   Window: w1 AS ()
    ->  Custom Scan (ParadeDB Scan) on public.products
          Output: id, name, rating
          Table: products
@@ -521,7 +776,7 @@ WHERE description @@@ 'laptop';
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT 
     id,
@@ -553,12 +808,13 @@ LIMIT 3;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (sum(price) OVER (?))
+   Output: id, name, rating, price, (sum(price) OVER w1)
    ->  Sort
-         Output: id, name, rating, price, (sum(price) OVER (?))
+         Output: id, name, rating, price, (sum(price) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, price, sum(price) OVER (?)
+               Output: id, name, rating, price, sum(price) OVER w1
+               Window: w1 AS (ORDER BY products.rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING)
                ->  Sort
                      Output: rating, id, name, price
                      Sort Key: products.rating
@@ -569,7 +825,7 @@ LIMIT 3;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 SELECT 
     id,
@@ -606,19 +862,22 @@ LIMIT 3;
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?))
+   Output: id, name, category, brand, rating, (count(*) OVER w2), (count(*) OVER w1), (count(*) OVER w3)
    ->  Sort
-         Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?))
+         Output: id, name, category, brand, rating, (count(*) OVER w2), (count(*) OVER w1), (count(*) OVER w3)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, category, brand, rating, (count(*) OVER (?)), (count(*) OVER (?)), count(*) OVER (?)
+               Output: id, name, category, brand, rating, (count(*) OVER w2), (count(*) OVER w1), count(*) OVER w3
+               Window: w3 AS ()
                ->  WindowAgg
-                     Output: category, brand, id, name, rating, (count(*) OVER (?)), count(*) OVER (?)
+                     Output: category, brand, id, name, rating, (count(*) OVER w1), count(*) OVER w2
+                     Window: w2 AS (PARTITION BY products.category)
                      ->  Sort
-                           Output: category, brand, id, name, rating, (count(*) OVER (?))
+                           Output: category, brand, id, name, rating, (count(*) OVER w1)
                            Sort Key: products.category
                            ->  WindowAgg
-                                 Output: category, brand, id, name, rating, count(*) OVER (?)
+                                 Output: category, brand, id, name, rating, count(*) OVER w1
+                                 Window: w1 AS (PARTITION BY products.brand)
                                  ->  Sort
                                        Output: category, brand, id, name, rating
                                        Sort Key: products.brand
@@ -629,7 +888,7 @@ LIMIT 3;
                                              Exec Method: NormalScanExecState
                                              Scores: false
                                              Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+(27 rows)
 
 SELECT 
     id,
@@ -665,12 +924,13 @@ LIMIT 3;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (count(*) OVER (?))
+   Output: id, name, rating, (count(*) OVER w1)
    ->  Sort
-         Output: id, name, rating, (count(*) OVER (?))
+         Output: id, name, rating, (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, count(*) OVER (?)
+               Output: id, name, rating, count(*) OVER w1
+               Window: w1 AS (ORDER BY products.rating GROUPS BETWEEN '1'::bigint PRECEDING AND CURRENT ROW)
                ->  Sort
                      Output: rating, id, name
                      Sort Key: products.rating
@@ -681,7 +941,7 @@ LIMIT 3;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(18 rows)
 
 SELECT 
     id,
@@ -710,19 +970,20 @@ FROM products
 WHERE rating > 4.5
 ORDER BY rating DESC
 LIMIT 3;
-                        QUERY PLAN                         
------------------------------------------------------------
+                        QUERY PLAN                        
+----------------------------------------------------------
  Limit
-   Output: id, name, rating, (count(*) OVER (?))
+   Output: id, name, rating, (count(*) OVER w1)
    ->  Sort
-         Output: id, name, rating, (count(*) OVER (?))
+         Output: id, name, rating, (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, count(*) OVER (?)
+               Output: id, name, rating, count(*) OVER w1
+               Window: w1 AS ()
                ->  Seq Scan on public.products
                      Output: id, name, rating
                      Filter: (products.rating > 4.5)
-(10 rows)
+(11 rows)
 
 SELECT 
     id,
@@ -807,28 +1068,25 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+   Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Sort
-         Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
+         Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
          Sort Key: products.price DESC
          ->  Limit
-               Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-               ->  Sort
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     Sort Key: products.rating DESC
-                     ->  WindowAgg
-                           Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                           ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: products.id, products.name, products.rating, products.price
-                                 Table: products
-                                 Index: products_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+               Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                     Table: products
+                     Index: products_idx
+                     Exec Method: TopNScanExecState
+                     Scores: false
+                        TopN Order By: rating desc
+                        TopN Limit: 5
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT * FROM (
     SELECT 
@@ -866,14 +1124,16 @@ LIMIT 3;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, rating, (count(*) OVER (?)), (count(*) OVER (?))
+   Output: id, name, category, rating, (count(*) OVER w2), (count(*) OVER w1)
    ->  Sort
-         Output: id, name, category, rating, (count(*) OVER (?)), (count(*) OVER (?))
+         Output: id, name, category, rating, (count(*) OVER w2), (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, category, rating, count(*) OVER (?), (count(*) OVER (?))
+               Output: id, name, category, rating, count(*) OVER w2, (count(*) OVER w1)
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: category, id, name, rating, count(*) OVER (?)
+                     Output: category, id, name, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY products.category)
                      ->  Sort
                            Output: category, id, name, rating
                            Sort Key: products.category
@@ -884,7 +1144,7 @@ LIMIT 3;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -925,17 +1185,19 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER (?)), (count(*) OVER (?)), rating
+   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
    ->  Sort
-         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER (?)), (count(*) OVER (?)), rating
+         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER (?), (count(*) OVER (?)), rating
+               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER w2, (count(*) OVER w1), rating
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER (?)
+                     Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END))
                      ->  Sort
                            Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
                            Sort Key: (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END)
@@ -946,7 +1208,7 @@ LIMIT 5;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -992,14 +1254,16 @@ LIMIT 3;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, (count(*) OVER (?)), (count(*) OVER (?)), (avg(price) OVER (?)), rating
+   Output: id, name, brand, price, (count(*) OVER w2), (count(*) OVER w1), (avg(price) OVER w1), rating
    ->  Sort
-         Output: id, name, brand, price, (count(*) OVER (?)), (count(*) OVER (?)), (avg(price) OVER (?)), rating
+         Output: id, name, brand, price, (count(*) OVER w2), (count(*) OVER w1), (avg(price) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, brand, price, count(*) OVER (?), (count(*) OVER (?)), (avg(price) OVER (?)), rating
+               Output: id, name, brand, price, count(*) OVER w2, (count(*) OVER w1), (avg(price) OVER w1), rating
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: brand, id, name, price, rating, count(*) OVER (?), avg(price) OVER (?)
+                     Output: brand, id, name, price, rating, count(*) OVER w1, avg(price) OVER w1
+                     Window: w1 AS (PARTITION BY products.brand)
                      ->  Sort
                            Output: brand, id, name, price, rating
                            Sort Key: products.brand
@@ -1010,7 +1274,7 @@ LIMIT 3;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -1048,14 +1312,16 @@ LIMIT 3;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, price, (count(*) OVER (?)), (min(price) OVER (?)), (max(price) OVER (?)), rating
+   Output: id, name, category, price, (count(*) OVER w2), (min(price) OVER w1), (max(price) OVER w1), rating
    ->  Sort
-         Output: id, name, category, price, (count(*) OVER (?)), (min(price) OVER (?)), (max(price) OVER (?)), rating
+         Output: id, name, category, price, (count(*) OVER w2), (min(price) OVER w1), (max(price) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, category, price, count(*) OVER (?), (min(price) OVER (?)), (max(price) OVER (?)), rating
+               Output: id, name, category, price, count(*) OVER w2, (min(price) OVER w1), (max(price) OVER w1), rating
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: category, id, name, price, rating, min(price) OVER (?), max(price) OVER (?)
+                     Output: category, id, name, price, rating, min(price) OVER w1, max(price) OVER w1
+                     Window: w1 AS (PARTITION BY products.category)
                      ->  Sort
                            Output: category, id, name, price, rating
                            Sort Key: products.category
@@ -1066,7 +1332,7 @@ LIMIT 3;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -1102,14 +1368,16 @@ LIMIT 3;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, in_stock, (count(*) OVER (?)), (count(*) OVER (?)), rating
+   Output: id, name, in_stock, (count(*) OVER w2), (count(*) OVER w1), rating
    ->  Sort
-         Output: id, name, in_stock, (count(*) OVER (?)), (count(*) OVER (?)), rating
+         Output: id, name, in_stock, (count(*) OVER w2), (count(*) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, in_stock, count(*) OVER (?), (count(*) OVER (?)), rating
+               Output: id, name, in_stock, count(*) OVER w2, (count(*) OVER w1), rating
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: in_stock, id, name, rating, count(*) OVER (?)
+                     Output: in_stock, id, name, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY products.in_stock)
                      ->  Sort
                            Output: in_stock, id, name, rating
                            Sort Key: products.in_stock
@@ -1120,7 +1388,7 @@ LIMIT 3;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -1216,17 +1484,19 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER (?)), (count(*) OVER (?))
+   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
    ->  Sort
-         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER (?)), (count(*) OVER (?))
+         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER (?), (count(*) OVER (?))
+               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER w2, (count(*) OVER w1)
+               Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER (?)
+                     Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END))
                      ->  Sort
                            Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
                            Sort Key: (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
@@ -1237,7 +1507,7 @@ LIMIT 5;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(21 rows)
 
 SELECT 
     id,
@@ -1294,27 +1564,31 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, rating, in_stock, (count(*) OVER (?)), (avg(price) OVER (?)), (avg(rating) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+   Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
    ->  Sort
-         Output: id, name, brand, price, rating, in_stock, (count(*) OVER (?)), (avg(price) OVER (?)), (avg(rating) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+         Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, brand, price, rating, in_stock, count(*) OVER (?), avg(price) OVER (?), avg(rating) OVER (?), (count(*) OVER (?)), (count(*) OVER (?)), (count(*) OVER (?)), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+               Output: id, name, brand, price, rating, in_stock, count(*) OVER w4, avg(price) OVER w4, avg(rating) OVER w4, (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+               Window: w4 AS ()
                ->  WindowAgg
-                     Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?)), (count(*) OVER (?)), count(*) OVER (?)
+                     Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2), count(*) OVER w3
+                     Window: w3 AS (PARTITION BY products.brand)
                      ->  Sort
-                           Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?)), (count(*) OVER (?))
+                           Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2)
                            Sort Key: products.brand
                            ->  WindowAgg
-                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?)), count(*) OVER (?)
+                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), count(*) OVER w2
+                                 Window: w2 AS (PARTITION BY (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END))
                                  ->  Sort
-                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER (?))
+                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1)
                                        Sort Key: (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                                        ->  WindowAgg
-                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER (?)
+                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER w1
+                                             Window: w1 AS (PARTITION BY products.in_stock)
                                              ->  Sort
                                                    Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating
                                                    Sort Key: products.in_stock
@@ -1325,7 +1599,7 @@ LIMIT 3;
                                                          Exec Method: NormalScanExecState
                                                          Scores: false
                                                          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(29 rows)
+(33 rows)
 
 SELECT 
     id,
@@ -1377,12 +1651,13 @@ LIMIT 3;
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: category, (avg(price)), (count(*) OVER (?))
+   Output: category, (avg(price)), (count(*) OVER w1)
    ->  Sort
-         Output: category, (avg(price)), (count(*) OVER (?))
+         Output: category, (avg(price)), (count(*) OVER w1)
          Sort Key: (avg(products.price)) DESC
          ->  WindowAgg
-               Output: category, (avg(price)), count(*) OVER (?)
+               Output: category, (avg(price)), count(*) OVER w1
+               Window: w1 AS ()
                ->  GroupAggregate
                      Output: category, avg(price)
                      Group Key: products.category
@@ -1397,7 +1672,7 @@ LIMIT 3;
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(22 rows)
 
 SELECT 
     category,
@@ -1441,12 +1716,13 @@ LIMIT 3;
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.id, p.name, p.rating, pc.description, (count(*) OVER (?))
+   Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
    ->  Sort
-         Output: p.id, p.name, p.rating, pc.description, (count(*) OVER (?))
+         Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
          Sort Key: p.rating DESC
          ->  WindowAgg
-               Output: p.id, p.name, p.rating, pc.description, count(*) OVER (?)
+               Output: p.id, p.name, p.rating, pc.description, count(*) OVER w1
+               Window: w1 AS ()
                ->  Nested Loop
                      Output: p.id, p.name, p.rating, pc.description
                      Join Filter: (p.category = pc.name)
@@ -1459,7 +1735,7 @@ LIMIT 3;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT 
     p.id,
@@ -1497,8 +1773,8 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
    ->  Sort
@@ -1508,20 +1784,17 @@ LIMIT 3;
                Output: subq.id, subq.name, subq.rating, subq.price, subq.total_count
                Filter: (subq.total_count > 0)
                ->  Limit
-                     Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                     ->  Sort
-                           Output: products.id, products.name, products.rating, products.price, (count(*) OVER (?))
-                           Sort Key: products.rating DESC
-                           ->  WindowAgg
-                                 Output: products.id, products.name, products.rating, products.price, count(*) OVER (?)
-                                 ->  Custom Scan (ParadeDB Scan) on public.products
-                                       Output: products.id, products.name, products.rating, products.price
-                                       Table: products
-                                       Index: products_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                     Output: products.id, products.name, products.rating, products.price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+                     ->  Custom Scan (ParadeDB Scan) on public.products
+                           Output: products.id, products.name, products.rating, products.price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+                           Table: products
+                           Index: products_idx
+                           Exec Method: TopNScanExecState
+                           Scores: false
+                              TopN Order By: rating desc
+                              TopN Limit: 5
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT *
 FROM (
@@ -1569,20 +1842,22 @@ WHERE rank <= 2;
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
-   Output: inner_query.id, inner_query.name, inner_query.rating, inner_query.total_count, row_number() OVER (?)
-   Run Condition: (row_number() OVER (?) <= 2)
+   Output: inner_query.id, inner_query.name, inner_query.rating, inner_query.total_count, row_number() OVER w1
+   Window: w1 AS (ORDER BY inner_query.total_count ROWS UNBOUNDED PRECEDING)
+   Run Condition: (row_number() OVER w1 <= 2)
    ->  Sort
          Output: inner_query.total_count, inner_query.id, inner_query.name, inner_query.rating
          Sort Key: inner_query.total_count DESC
          ->  Subquery Scan on inner_query
                Output: inner_query.total_count, inner_query.id, inner_query.name, inner_query.rating
                ->  Limit
-                     Output: products.id, products.name, products.rating, (count(*) OVER (?))
+                     Output: products.id, products.name, products.rating, (count(*) OVER w1)
                      ->  Sort
-                           Output: products.id, products.name, products.rating, (count(*) OVER (?))
+                           Output: products.id, products.name, products.rating, (count(*) OVER w1)
                            Sort Key: products.rating DESC
                            ->  WindowAgg
-                                 Output: products.id, products.name, products.rating, count(*) OVER (?)
+                                 Output: products.id, products.name, products.rating, count(*) OVER w1
+                                 Window: w1 AS ()
                                  ->  Custom Scan (ParadeDB Scan) on public.products
                                        Output: products.id, products.name, products.rating
                                        Table: products
@@ -1590,7 +1865,7 @@ WHERE rank <= 2;
                                        Exec Method: NormalScanExecState
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(24 rows)
 
 SELECT outer_query.*
 FROM (
@@ -1633,12 +1908,13 @@ LIMIT 2;
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.category, pc.description, (avg(p.price)), (count(*) OVER (?))
+   Output: p.category, pc.description, (avg(p.price)), (count(*) OVER w1)
    ->  Sort
-         Output: p.category, pc.description, (avg(p.price)), (count(*) OVER (?))
+         Output: p.category, pc.description, (avg(p.price)), (count(*) OVER w1)
          Sort Key: (avg(p.price)) DESC
          ->  WindowAgg
-               Output: p.category, pc.description, (avg(p.price)), count(*) OVER (?)
+               Output: p.category, pc.description, (avg(p.price)), count(*) OVER w1
+               Window: w1 AS ()
                ->  GroupAggregate
                      Output: p.category, pc.description, avg(p.price)
                      Group Key: p.category, pc.description
@@ -1658,7 +1934,7 @@ LIMIT 2;
                                        Exec Method: NormalScanExecState
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(27 rows)
 
 SELECT 
     p.category,
@@ -1693,12 +1969,13 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER (?))
+   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
    ->  Sort
-         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER (?))
+         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > 4.5)) OVER (?)
+               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > 4.5)) OVER w1
+               Window: w1 AS ()
                ->  Custom Scan (ParadeDB Scan) on public.products
                      Output: id, name, rating, in_stock
                      Table: products
@@ -1706,7 +1983,7 @@ LIMIT 3;
                      Exec Method: NormalScanExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT 
     id,
@@ -1855,7 +2132,8 @@ WHERE description @@@ 'laptop';
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
-   Output: id, name, rating, count(*) OVER (?)
+   Output: id, name, rating, count(*) OVER w1
+   Window: w1 AS ()
    ->  Custom Scan (ParadeDB Scan) on public.products
          Output: id, name, rating
          Table: products
@@ -1863,7 +2141,7 @@ WHERE description @@@ 'laptop';
          Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT 
     id,
@@ -1893,10 +2171,11 @@ ORDER BY rating DESC;
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: id, name, rating, (count(*) OVER (?))
+   Output: id, name, rating, (count(*) OVER w1)
    Sort Key: products.rating DESC
    ->  WindowAgg
-         Output: id, name, rating, count(*) OVER (?)
+         Output: id, name, rating, count(*) OVER w1
+         Window: w1 AS ()
          ->  Custom Scan (ParadeDB Scan) on public.products
                Output: id, name, rating
                Table: products
@@ -1904,7 +2183,7 @@ ORDER BY rating DESC;
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(13 rows)
 
 SELECT 
     id,
@@ -1935,9 +2214,10 @@ LIMIT 3;
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (count(*) OVER (?))
+   Output: id, name, rating, (count(*) OVER w1)
    ->  WindowAgg
-         Output: id, name, rating, count(*) OVER (?)
+         Output: id, name, rating, count(*) OVER w1
+         Window: w1 AS ()
          ->  Custom Scan (ParadeDB Scan) on public.products
                Output: id, name, rating
                Table: products
@@ -1945,7 +2225,7 @@ LIMIT 3;
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 SELECT 
     id,
@@ -2054,12 +2334,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2090,12 +2370,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2127,12 +2407,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                         QUERY PLAN                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState

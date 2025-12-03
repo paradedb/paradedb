@@ -297,6 +297,7 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+SET paradedb.enable_aggregate_custom_scan TO on;
 \echo 'Test: Aggregation query'
 Test: Aggregation query
 -- Check execution plan for COUNT
@@ -304,16 +305,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM pages
 WHERE content @@@ 'Socienty';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on pages
-         Table: pages
-         Index: pages_search
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pages
+   Index: pages_search
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 -- Test COUNT aggregation
 SELECT COUNT(*)
@@ -333,17 +332,14 @@ SELECT
     MAX(page_number) AS max_page
 FROM pages
 WHERE content @@@ 'Socienty';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on pages
-         Table: pages
-         Index: pages_search
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: page_number
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on pages
+   Index: pages_search
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), AVG(page_number), MIN(page_number), MAX(page_number)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"avg":{"field":"page_number","missing":null}},"2":{"min":{"field":"page_number","missing":null}},"3":{"max":{"field":"page_number","missing":null}}}
+(5 rows)
 
 -- Test other aggregations
 SELECT 
@@ -353,11 +349,12 @@ SELECT
     MAX(page_number) AS max_page
 FROM pages
 WHERE content @@@ 'Socienty';
- count |        avg_page        | min_page | max_page 
--------+------------------------+----------+----------
-     2 | 1.00000000000000000000 |        1 |        1
+ count | avg_page | min_page | max_page 
+-------+----------+----------+----------
+     2 |        1 |        1 |        1
 (1 row)
 
+RESET paradedb.enable_aggregate_custom_scan;
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)

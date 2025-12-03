@@ -104,7 +104,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
         uses: actions/checkout@v5

@@ -40,6 +40,18 @@ jobs:
           git config --global user.name "paradedb-bot"
           git config --global user.email "developers@paradedb.com"
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build enterprise-sync binary
+        run: |
+          echo "Building enterprise-sync tool..."
+          cargo build --package enterprise-sync --release
+          echo "✅ Built enterprise-sync at: $(pwd)/target/release/enterprise-sync"
+
+          # Verify the binary works
+          ./target/release/enterprise-sync --help || echo "Binary built but help failed"
+
       - name: Install GitHub CLI
         run: |
           # GitHub CLI is pre-installed on ubuntu-latest, but ensure it's configured
@@ -52,6 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          USERNAME_MAPPING_GITHUB_TO_SLACK: ${{ vars.USERNAME_MAPPING_GITHUB_TO_SLACK }}
         run: |
           set -euo pipefail
           echo "Starting community rebase process..."
@@ -68,29 +81,10 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
         run: |
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
-            COMMON_FIELDS='[
-              {"title": "Repository", "value": "${{ github.repository }}", "short": true},
-              {"title": "Workflow", "value": "${{ github.workflow }}", "short": true},
-              {"title": "Run ID", "value": "${{ github.run_id }}", "short": true},
-              {"title": "View Logs", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>", "short": true}
-            ]'
-
             # Check if this is a conflict situation or actual failure
-            if [ -f "/tmp/rebase-conflict-details.json" ]; then
-              JSON_DATA="{
-                \"text\": \"🔧 Community Rebase Needs Resolution - <@ankit>\",
-                \"attachments\": [
-                  {
-                    \"color\": \"warning\",
-                    \"fields\": $(echo "$COMMON_FIELDS" | jq '.')
-                  }
-                ]
-              }"
-
-              CONFLICT_DATA=$(cat /tmp/rebase-conflict-details.json)
-              CONFLICT_AUTHOR=$(echo "$CONFLICT_DATA" | jq -r '.commit_author')
-              CONFLICT_MESSAGE=$(echo "$CONFLICT_DATA" | jq -r '.commit_message')
-              JSON_DATA=$(echo "$JSON_DATA" | jq --arg author "$CONFLICT_AUTHOR" --arg message "$CONFLICT_MESSAGE" '.attachments[0].fields += [{"title": "Commit Author", "value": $author, "short": true}, {"title": "Commit Message", "value": $message, "short": false}]')
+            if [ -f "/tmp/rebase-conflict-slack-payload.json" ]; then
+              # Rust program generated the complete Slack payload
+              JSON_DATA=$(cat /tmp/rebase-conflict-slack-payload.json)
             else
               # Actual failure - show original failure message
               JSON_DATA="{
@@ -98,7 +92,11 @@ jobs:
                 \"attachments\": [
                   {
                     \"color\": \"danger\",
-                    \"fields\": $(echo "$COMMON_FIELDS" | jq '.')
+                    \"fields\": [
+                      {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                      {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
+                      {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": true}
+                    ]
                   }
                 ]
               }"

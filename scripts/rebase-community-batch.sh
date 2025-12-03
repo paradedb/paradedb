@@ -253,31 +253,26 @@ for ((attempt=0; attempt < MAX_COMMITS; attempt++)); do
     log_error "5. Use manual promotion workflow in GitHub Actions to land this new branch to main once CI passes."
     log_error ""
 
-    CONFLICT_CONTENT="/tmp/rebase-conflict-details.json"
+    SLACK_PAYLOAD_FILE="/tmp/rebase-conflict-slack-payload.json"
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    ENTERPRISE_SYNC_BIN="$REPO_ROOT/target/release/enterprise-sync"
 
-    # Get commit details
-    COMMIT_AUTHOR=$(git log -1 --format="%an" "$NEXT_COMMIT" 2>/dev/null || echo "Unknown")
-    COMMIT_MESSAGE=$(git log -1 --format="%s" "$NEXT_COMMIT" 2>/dev/null || echo "Unknown")
-
-    # Truncate commit message to 100 characters
-    if [[ ${#COMMIT_MESSAGE} -gt 100 ]]; then
-      COMMIT_MESSAGE="${COMMIT_MESSAGE:0:100}..."
+    log_info "Generating Slack notification payload..."
+    if [[ -x "$ENTERPRISE_SYNC_BIN" ]]; then
+      "$ENTERPRISE_SYNC_BIN" \
+        --repo "${GITHUB_REPOSITORY:-paradedb/paradedb}" \
+        --commit-sha "$NEXT_COMMIT" \
+        --slack-payload > "$SLACK_PAYLOAD_FILE"
+    else
+      echo '{"text":"🔧 Rebase conflict - <@ankit> (enterprise-sync rust binary failed)"}' > "$SLACK_PAYLOAD_FILE"
     fi
-
-    # Generate JSON
-    cat > "$CONFLICT_CONTENT" << EOF
-{
-  "commit_author": "$COMMIT_AUTHOR",
-  "commit_message": "$COMMIT_MESSAGE"
-}
-EOF
 
     if [[ "$DEBUG" == "true" ]]; then
       log_debug "Conflicted commit details:"
       show_commit_info "$NEXT_COMMIT"
-      log_debug "Conflict details written to: $CONFLICT_CONTENT"
-      if [[ -f "$CONFLICT_CONTENT" ]]; then
-        head -n 5 "$CONFLICT_CONTENT"
+      log_debug "Slack payload written to: $SLACK_PAYLOAD_FILE"
+      if [[ -f "$SLACK_PAYLOAD_FILE" ]]; then
+        head -n 20 "$SLACK_PAYLOAD_FILE"
       fi
     fi
 

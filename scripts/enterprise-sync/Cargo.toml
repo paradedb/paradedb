@@ -1,0 +1,16 @@
+[package]
+name = "enterprise-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.8"

@@ -261,10 +261,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
             set_missing_on_terms(&mut aggregations);
         }
+
+        let nworkers = self.state.launched_workers();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
-                Some(self.config.memory_limit),
+                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
                 Some(self.config.bucket_limit),
             ),
         );
@@ -655,7 +657,7 @@ pub mod vischeck {
     impl Drop for TSVisibilityChecker {
         fn drop(&mut self) {
             unsafe {
-                if !pg_sys::IsTransactionState() {
+                if !pg_sys::IsTransactionState() || std::thread::panicking() {
                     // TODO: None of the below operations care about the transaction state: in
                     // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
                     // lock. Consider removing this guard.

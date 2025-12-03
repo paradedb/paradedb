@@ -10,11 +10,12 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["pg17"]
+default = ["pg18"]
 pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
+pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = []
 icu = ["tokenizers/icu"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
@@ -40,6 +41,7 @@ pgrx.workspace = true
 rustc-hash = "2.1.1"
 serde = "1.0.219"
 serde_json = { version = "1.0.140", features = ["preserve_order"] }
+serde_cbor = "0.11.2"
 tantivy.workspace = true
 thiserror = "2.0.12"
 ordered-float = "5.0.0"
@@ -67,6 +69,7 @@ macros = { path = "../macros" }
 half = "2.6.0"
 bytemuck = { version = "1.23.2", features = ["derive", "min_const_generics"] }
 smallvec = "1.13.2"
+paste = "1.0.15"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

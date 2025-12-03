@@ -1,0 +1,140 @@
+-- Test for self-join with score() functions
+-- PostgreSQL 18 introduces self-join elimination (SJE) which can affect score() calculations
+--
+-- When SJE kicks in on PG18, self-joins on the same table with equality on the
+-- primary key are optimized into a single scan. This means:
+-- 1. Both aliases (a and b) refer to the same scan
+-- 2. The combined query is executed as a single Boolean query
+-- 3. Both score() calls return the same combined score, not individual scores
+--
+-- This is a known limitation when SJE is active. The scores will differ between:
+-- - PG17 (no SJE): separate scores for each alias based on their individual queries
+-- - PG18 (with SJE): same combined score for both aliases
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Setup: Create test table
+DROP TABLE IF EXISTS test_items CASCADE;
+CREATE TABLE test_items (
+    id SERIAL PRIMARY KEY,
+    description TEXT
+);
+
+INSERT INTO test_items (description) VALUES
+    ('teddy bear'),
+    ('brown bear'),
+    ('polar bear'),
+    ('teddy'),
+    ('bear toy');
+
+-- Create BM25 index
+CREATE INDEX test_items_idx ON test_items USING bm25 (id, description)
+WITH (key_field = 'id');
+
+-- Test 1: Simple self-join with AND condition and score on both sides
+-- a.description @@@ 'bear' AND b.description @@@ 'teddy bear'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+
+-- Test 2: Simple self-join with OR condition and score on both sides
+-- a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+
+SELECT a.id,
+       paradedb.score(a.id) as a_score,
+       b.id,
+       paradedb.score(b.id) as b_score
+FROM test_items a
+INNER JOIN test_items b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+
+-- Test 3: Self-join with subqueries that include score()
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+
+-- Test 4: Self-join with subqueries and OR condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+
+SELECT a.id, a.score, b.id, b.score
+FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
+INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
+WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+ORDER BY a.id
+LIMIT 1;
+
+-- Test 5: Non-self-join (should work normally)
+-- Create a second table to ensure non-self-joins are not affected
+CREATE TABLE test_orders (
+    order_id SERIAL PRIMARY KEY,
+    item_id INTEGER REFERENCES test_items(id),
+    customer TEXT
+);
+
+INSERT INTO test_orders (item_id, customer) VALUES
+    (1, 'alice'),
+    (2, 'bob'),
+    (1, 'charlie');
+
+CREATE INDEX test_orders_idx ON test_orders USING bm25 (order_id, customer)
+WITH (key_field = 'order_id');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id,
+       paradedb.score(i.id) as item_score,
+       o.order_id,
+       paradedb.score(o.order_id) as order_score
+FROM test_items i
+INNER JOIN test_orders o ON i.id = o.item_id
+WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+
+SELECT i.id,
+       paradedb.score(i.id) as item_score,
+       o.order_id,
+       paradedb.score(o.order_id) as order_score
+FROM test_items i
+INNER JOIN test_orders o ON i.id = o.item_id
+WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+
+-- Cleanup
+DROP TABLE test_orders CASCADE;
+DROP TABLE test_items CASCADE;
+

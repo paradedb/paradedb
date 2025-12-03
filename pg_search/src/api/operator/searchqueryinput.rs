@@ -32,7 +32,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
-    FromDatum, Internal, PgList, PgOid, PgRelation,
+    Internal, PgList, PgOid, PgRelation,
 };
 use std::ptr::NonNull;
 

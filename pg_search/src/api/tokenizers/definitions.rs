@@ -22,8 +22,12 @@ use std::ffi::CStr;
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
-    use crate::api::tokenizers::{CowString, DatumWrapper, GenericTypeWrapper};
+    use crate::api::tokenizers::{
+        CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
+        TextArrayMarker, VarcharArrayMarker,
+    };
     use macros::generate_tokenizer_sql;
+    use paste::paste;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -39,7 +43,7 @@ pub(crate) mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -50,10 +54,6 @@ pub(crate) mod pdb {
             }
 
             impl DatumWrapper for $rust_name {
-                fn sql_name() -> &'static str {
-                    concat!("pdb", ".", $sql_name)
-                }
-
                 fn from_datum(datum: pg_sys::Datum) -> Self {
                     $rust_name(datum)
                 }
@@ -151,25 +151,54 @@ pub(crate) mod pdb {
                 tokens
             }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            fn $json_cast_name(
-                json: GenericTypeWrapper<pgrx::Json>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(json.datum)
-            }
+            paste! {
+                struct [<$rust_name JsonMarker>];
+                impl SqlNameMarker for [<$rust_name JsonMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            unsafe fn $jsonb_cast_name(
-                jsonb: GenericTypeWrapper<pgrx::JsonB>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(jsonb.datum)
-            }
+                struct [<$rust_name JsonbMarker>];
+                impl SqlNameMarker for [<$rust_name JsonbMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            unsafe fn $text_array_cast_name(
-                arr: GenericTypeWrapper<Vec<String>>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(arr.datum)
+                struct [<$rust_name TextArrayMarker>];
+                impl SqlNameMarker for [<$rust_name TextArrayMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
+                struct [<$rust_name VarcharArrayMarker>];
+                impl SqlNameMarker for [<$rust_name VarcharArrayMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn $json_cast_name(
+                    json: GenericTypeWrapper<pgrx::Json, JsonMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonMarker>]> {
+                    GenericTypeWrapper::new(json.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $jsonb_cast_name(
+                    jsonb: GenericTypeWrapper<pgrx::JsonB, JsonbMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonbMarker>]> {
+                    GenericTypeWrapper::new(jsonb.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $text_array_cast_name(
+                    arr: GenericTypeWrapper<Vec<String>, TextArrayMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name TextArrayMarker>]> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $varchar_array_cast_name(
+                    arr: GenericTypeWrapper<Vec<String>, VarcharArrayMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name VarcharArrayMarker>]> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
             }
 
             generate_tokenizer_sql!(
@@ -181,6 +210,7 @@ pub(crate) mod pdb {
                 json_cast_name = $json_cast_name,
                 jsonb_cast_name = $jsonb_cast_name,
                 text_array_cast_name = $text_array_cast_name,
+                varchar_array_cast_name = $varchar_array_cast_name,
                 schema = pdb
             );
         };
@@ -193,6 +223,7 @@ pub(crate) mod pdb {
         json_to_alias,
         jsonb_to_alias,
         text_array_to_alias,
+        varchar_array_to_alias,
         "alias",
         preferred = false,
         custom_typmod = false
@@ -205,6 +236,7 @@ pub(crate) mod pdb {
         json_to_simple,
         jsonb_to_simple,
         text_array_to_simple,
+        varchar_array_to_simple,
         "simple",
         preferred = true,
         custom_typmod = false
@@ -217,6 +249,7 @@ pub(crate) mod pdb {
         json_to_whitespace,
         jsonb_to_whitespace,
         text_array_to_whitespace,
+        varchar_array_to_whitespace,
         "whitespace",
         preferred = false,
         custom_typmod = false
@@ -229,6 +262,7 @@ pub(crate) mod pdb {
         json_to_literal,
         jsonb_to_literal,
         text_array_to_literal,
+        varchar_array_to_literal,
         "literal",
         preferred = false,
         custom_typmod = true
@@ -241,6 +275,7 @@ pub(crate) mod pdb {
         json_to_literal_normalized,
         jsonb_to_literal_normalized,
         text_array_to_literal_normalized,
+        varchar_array_to_literal_normalized,
         "literal_normalized",
         preferred = false,
         custom_typmod = false
@@ -253,6 +288,7 @@ pub(crate) mod pdb {
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,
         text_array_to_chinese_compatible,
+        varchar_array_to_chinese_compatible,
         "chinese_compatible",
         preferred = false,
         custom_typmod = false
@@ -265,6 +301,7 @@ pub(crate) mod pdb {
         json_to_lindera,
         jsonb_to_lindera,
         text_array_to_lindera,
+        varchar_array_to_lindera,
         "lindera",
         preferred = false,
         custom_typmod = false
@@ -277,6 +314,7 @@ pub(crate) mod pdb {
         json_to_jieba,
         jsonb_to_jieba,
         text_array_to_jieba,
+        varchar_array_to_jieba,
         "jieba",
         preferred = false,
         custom_typmod = false
@@ -289,6 +327,7 @@ pub(crate) mod pdb {
         json_to_source_code,
         jsonb_to_source_code,
         text_array_to_source_code,
+        varchar_array_to_source_code,
         "source_code",
         preferred = false,
         custom_typmod = false
@@ -302,6 +341,7 @@ pub(crate) mod pdb {
         json_to_icu,
         jsonb_to_icu,
         text_array_to_icu,
+        varchar_array_to_icu,
         "icu",
         preferred = false,
         custom_typmod = false
@@ -319,6 +359,7 @@ pub(crate) mod pdb {
         json_to_ngram,
         jsonb_to_ngram,
         text_array_to_ngram,
+        varchar_array_to_ngram,
         "ngram",
         preferred = false,
         custom_typmod = false
@@ -334,6 +375,7 @@ pub(crate) mod pdb {
         json_to_regex,
         jsonb_to_regex,
         text_array_to_regex_pattern,
+        varchar_array_to_regex_pattern,
         "regex_pattern",
         preferred = false,
         custom_typmod = false
@@ -349,6 +391,7 @@ pub(crate) mod pdb {
         json_to_unicode_words,
         jsonb_to_unicode_words,
         text_array_to_unicode_words,
+        varchar_array_to_unicode_words,
         "unicode_words",
         preferred = false,
         custom_typmod = false

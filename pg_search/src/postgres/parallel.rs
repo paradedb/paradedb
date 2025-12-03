@@ -28,7 +28,10 @@ pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_v
 }
 
 #[pg_guard]
-pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
+pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {
+    // Note: PostgreSQL doesn't actually call this function for index scans for our custom scan.
+    // Rescanning is handled in amrescan itself, which is called by both leader and workers.
+}
 
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
@@ -48,6 +51,23 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     ParallelScanState::size_of(u16::MAX as usize, &[], false)
 }
 
+#[cfg(feature = "pg18")]
+#[pg_guard]
+pub unsafe extern "C-unwind" fn amestimateparallelscan(
+    rel: *mut pg_sys::RelationData,
+    _nkeys: i32,
+    _norderbys: i32,
+) -> pg_sys::Size {
+    // In PG18, we have access to the relation, so we can get a better estimate
+    // using target_segment_count() instead of the worst-case u16::MAX
+    let nsegments = if rel.is_null() {
+        u16::MAX as usize
+    } else {
+        crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
+    };
+    ParallelScanState::size_of(nsegments, &[], false)
+}
+
 unsafe fn bm25_shared_state(
     scan: &mut pg_sys::IndexScanDescData,
 ) -> Option<&mut ParallelScanState> {
@@ -56,12 +76,24 @@ unsafe fn bm25_shared_state(
     } else {
         scan.parallel_scan
             .cast::<std::ffi::c_void>()
-            .add((*scan.parallel_scan).ps_offset)
+            .add({
+                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                {
+                    (*scan.parallel_scan).ps_offset
+                }
+                #[cfg(feature = "pg18")]
+                {
+                    (*scan.parallel_scan).ps_offset_am
+                }
+            })
             .cast::<ParallelScanState>()
             .as_mut()
     }
 }
 
+/// Initialize parallel scan state for index scans.
+///
+/// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,

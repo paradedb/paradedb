@@ -37,11 +37,11 @@ jobs:
         id: set-matrix
         run: |
           if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 17."
-            echo "matrix=[17]" >> $GITHUB_OUTPUT
+            echo "Push event detected; using only PostgreSQL version 18."
+            echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17]" >> $GITHUB_OUTPUT
+            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search:
@@ -59,14 +59,14 @@ jobs:
         runner: [ubicloud-standard-8-ubuntu-2204]
         arch: [amd64]
         include:
-          # Add pgrx-managed Postgres for PG 17 (regular runner)
-          - pg_version: 17
+          # Add pgrx-managed Postgres for PG 18 (regular runner)
+          - pg_version: 18
             pg_impl: pgrx
             # TODO: See https://github.com/paradedb/paradedb/issues/3613
             runner: ubicloud-standard-8-ubuntu-2204
             arch: amd64
-          # Add ARM run for PG 17 (system Postgres)
-          - pg_version: 17
+          # Add ARM run for PG 18 (system Postgres)
+          - pg_version: 18
             pg_impl: system
             # TODO: See https://github.com/paradedb/paradedb/issues/3613
             runner: ubicloud-standard-8-arm-ubuntu-2204
@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -125,7 +125,7 @@ jobs:
       - name: Install pgvector (system)
         if: matrix.pg_impl == 'system'
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
@@ -133,7 +133,7 @@ jobs:
       - name: Install pgvector (pgrx)
         if: matrix.pg_impl == 'pgrx'
         run: |
-          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
           cd pgvector/
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j

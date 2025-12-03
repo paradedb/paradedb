@@ -668,7 +668,7 @@ pub fn index_memory_segment(
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
         | MvccSatisfies::LargestSegment => SnapshotDropper::active(),
-        _ => SnapshotDropper::transaction(),
+        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => SnapshotDropper::transaction(),
     };
 
     for ctid in ctids {

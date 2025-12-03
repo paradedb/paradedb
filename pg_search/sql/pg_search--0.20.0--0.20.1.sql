@@ -194,7 +194,7 @@ CREATE AGGREGATE pdb.agg (
 -- pg_search/src/api/aggregate.rs:150
 -- pg_search::api::aggregate::pdb::agg_fn
 CREATE  FUNCTION pdb."agg_fn"(
-	"_agg_name" TEXT /* &str */
+	"_agg_name" TEXT, /* &str */
 	"_solve_mvcc" bool /* bool */
 ) RETURNS jsonb /* pgrx::datum::json::JsonB */
 STRICT VOLATILE PARALLEL SAFE

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764739481971,
+  "lastUpdate": 1764739485768,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22020,6 +22020,114 @@ window.BENCHMARK_DATA = {
             "value": 162.40625,
             "unit": "median mem",
             "extra": "avg mem: 159.57440229381373, max mem: 162.78125, count: 55696"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d467765b59cfefb314fc45607343ea6afd0ebc0c",
+          "message": "fix: `varchar[]` types can be indexed (#3673)\n\n# Ticket(s) Closed\n\n- Closes #3644 \n\n## What\n\nSee above issue.\n\n## Why\n\n## How\n\nHad to add an extra generic to `GenericTypeWrapper` because right now\n`GenericTypeWrapper<$rust_name>` has a 1:1 mapping to the SQL name, i.e.\n`Vec<String>` to `text[]`.\n\nIn the case of `text[]` and `varchar[]` we have a one to many mapping;\nboth have `Vec<String>` rust types.\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-02T23:27:39-05:00",
+          "tree_id": "a051c0968cff78a2d1375dc7d1f88197504ca4b6",
+          "url": "https://github.com/paradedb/paradedb/commit/d467765b59cfefb314fc45607343ea6afd0ebc0c"
+        },
+        "date": 1764739482956,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.57952519394198, max cpu: 42.687748, count: 55537"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 153.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.04516323295732, max mem: 164.0625, count: 55537"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7435351191422725, max cpu: 27.961164, count: 55537"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 112.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 111.47798996896213, max mem: 112.6328125, count: 55537"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.811546141301466, max cpu: 9.495549, count: 55537"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 114.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.97461278629562, max mem: 146.3515625, count: 55537"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13886,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14030.855879863875, max block_count: 25203.0, count: 55537"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.315170266347994, max cpu: 4.655674, count: 55537"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 87.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 81.29215243047427, max mem: 123.09765625, count: 55537"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.748329942200694, max segment_count: 40.0, count: 55537"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.848293631895153, max cpu: 32.18391, count: 111074"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 145.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 127.44645658524948, max mem: 151.2265625, count: 111074"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.122204245154522, max cpu: 28.458496, count: 55537"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 162.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.1559895458208, max mem: 163.78515625, count: 55537"
           }
         ]
       }

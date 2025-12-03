@@ -763,7 +763,7 @@ impl SearchQueryInput {
             }
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
-                Ok(builder.build_leaf(SearchQueryInput::All, query, || "All Query".to_string()))
+                Ok(builder.build_leaf(&SearchQueryInput::All, query, || "All Query".to_string()))
             }
             SearchQueryInput::Boolean {
                 must,
@@ -803,7 +803,7 @@ impl SearchQueryInput {
                 for (idx, child) in must_children.into_iter().enumerate() {
                     let child_query = B::extract_query(&child);
                     let wrapped = builder.build_with_children(
-                        SearchQueryInput::Empty,
+                        &SearchQueryInput::Empty,
                         child_query.box_clone(),
                         || format!("Must Clause [{}]", idx),
                         || vec![child],
@@ -813,7 +813,7 @@ impl SearchQueryInput {
                 for (idx, child) in should_children.into_iter().enumerate() {
                     let child_query = B::extract_query(&child);
                     let wrapped = builder.build_with_children(
-                        SearchQueryInput::Empty,
+                        &SearchQueryInput::Empty,
                         child_query.box_clone(),
                         || format!("Should Clause [{}]", idx),
                         || vec![child],
@@ -823,7 +823,7 @@ impl SearchQueryInput {
                 for (idx, child) in must_not_children.into_iter().enumerate() {
                     let child_query = B::extract_query(&child);
                     let wrapped = builder.build_with_children(
-                        SearchQueryInput::Empty,
+                        &SearchQueryInput::Empty,
                         child_query.box_clone(),
                         || format!("MustNot Clause [{}]", idx),
                         || vec![child],
@@ -832,7 +832,7 @@ impl SearchQueryInput {
                 }
 
                 Ok(builder.build_with_children(
-                    SearchQueryInput::Boolean {
+                    &SearchQueryInput::Boolean {
                         must: Vec::new(),
                         should: Vec::new(),
                         must_not: Vec::new(),
@@ -850,7 +850,7 @@ impl SearchQueryInput {
                 let inner_tantivy = B::clone_query(&inner_output);
                 let query = Box::new(BoostQuery::new(inner_tantivy, factor));
                 Ok(builder.build_with_children(
-                    SearchQueryInput::Boost {
+                    &SearchQueryInput::Boost {
                         query: Box::new(SearchQueryInput::Uninitialized),
                         factor,
                     },
@@ -867,7 +867,7 @@ impl SearchQueryInput {
                 let inner_tantivy = B::clone_query(&inner_output);
                 let query = Box::new(ConstScoreQuery::new(inner_tantivy, score));
                 Ok(builder.build_with_children(
-                    SearchQueryInput::ConstScore {
+                    &SearchQueryInput::ConstScore {
                         query: Box::new(SearchQueryInput::Uninitialized),
                         score,
                     },
@@ -885,7 +885,7 @@ impl SearchQueryInput {
                 let inner_tantivy = B::clone_query(&inner_output);
                 let query = Box::new(ScoreFilter::new(bounds.clone(), inner_tantivy));
                 Ok(builder.build_with_children(
-                    SearchQueryInput::ScoreFilter {
+                    &SearchQueryInput::ScoreFilter {
                         bounds: bounds.clone(),
                         query: Some(Box::new(SearchQueryInput::Uninitialized)),
                     },
@@ -908,7 +908,7 @@ impl SearchQueryInput {
 
                     let child_query = B::extract_query(&output);
                     let wrapped = builder.build_with_children(
-                        SearchQueryInput::All, // Placeholder
+                        &SearchQueryInput::All, // Placeholder
                         child_query.box_clone(),
                         || format!("Disjunct [{}]", idx),
                         || vec![output],
@@ -926,7 +926,7 @@ impl SearchQueryInput {
                 };
 
                 Ok(builder.build_with_children(
-                    SearchQueryInput::DisjunctionMax {
+                    &SearchQueryInput::DisjunctionMax {
                         disjuncts: Vec::new(),
                         tie_breaker,
                     },
@@ -943,10 +943,9 @@ impl SearchQueryInput {
             }
             SearchQueryInput::Empty => {
                 let query = Box::new(EmptyQuery);
-                Ok(
-                    builder
-                        .build_leaf(SearchQueryInput::Empty, query, || "Empty Query".to_string()),
-                )
+                Ok(builder.build_leaf(&SearchQueryInput::Empty, query, || {
+                    "Empty Query".to_string()
+                }))
             }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
@@ -1029,7 +1028,7 @@ impl SearchQueryInput {
                 };
 
                 Ok(builder.build_leaf(
-                    SearchQueryInput::MoreLikeThis {
+                    &SearchQueryInput::MoreLikeThis {
                         min_doc_frequency,
                         max_doc_frequency,
                         min_term_frequency,
@@ -1069,7 +1068,7 @@ impl SearchQueryInput {
                 };
 
                 Ok(builder.build_leaf(
-                    SearchQueryInput::Parse {
+                    &SearchQueryInput::Parse {
                         query_string,
                         lenient,
                         conjunction_mode,
@@ -1122,7 +1121,7 @@ impl SearchQueryInput {
                 )));
 
                 Ok(
-                    builder.build_leaf(SearchQueryInput::TermSet { terms }, query, || {
+                    builder.build_leaf(&SearchQueryInput::TermSet { terms }, query, || {
                         "TermSet Query".to_string()
                     }),
                 )
@@ -1136,7 +1135,7 @@ impl SearchQueryInput {
                 let inner_output = recurse(*inner_query)?;
                 let inner_tantivy = B::clone_query(&inner_output);
                 Ok(builder.build_with_children(
-                    SearchQueryInput::WithIndex {
+                    &SearchQueryInput::WithIndex {
                         oid,
                         query: inner_query_copy,
                     },
@@ -1169,7 +1168,7 @@ impl SearchQueryInput {
                 ));
 
                 Ok(builder.build_with_children(
-                    SearchQueryInput::HeapFilter {
+                    &SearchQueryInput::HeapFilter {
                         indexed_query: indexed_query_copy,
                         field_filters: field_filters.clone(),
                     },
@@ -1193,7 +1192,7 @@ impl SearchQueryInput {
                 )?;
                 let field_clone = field.clone();
                 Ok(builder.build_leaf(
-                    SearchQueryInput::FieldedQuery {
+                    &SearchQueryInput::FieldedQuery {
                         field: field.clone(),
                         query: pdb_query,
                     },

@@ -261,10 +261,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
             set_missing_on_terms(&mut aggregations);
         }
+
+        let nworkers = self.state.launched_workers();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
-                Some(self.config.memory_limit),
+                Some(self.config.memory_limit / nworkers as u64),
                 Some(self.config.bucket_limit),
             ),
         );

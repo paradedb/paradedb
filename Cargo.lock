@@ -3235,7 +3235,6 @@ dependencies = [
  "strum",
  "tantivy",
  "tantivy-fst",
- "tantivy-jieba",
  "thiserror 2.0.17",
  "time",
  "tokenizers",

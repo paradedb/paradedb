@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764773900845,
+  "lastUpdate": 1764774676628,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9304,6 +9304,42 @@ window.BENCHMARK_DATA = {
             "value": 5.219571896802803,
             "unit": "median tps",
             "extra": "avg tps: 4.689688140349395, max tps: 5.8293414782249995, count: 57590"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b6afb496728ac26d1810ae22ca433d5ef072f59",
+          "message": "fix: Split memory limit among parallel aggregation workers (#3693)",
+          "timestamp": "2025-12-03T09:41:32-05:00",
+          "tree_id": "a2c481ed08df76f3867eec444b56c298d3d84adc",
+          "url": "https://github.com/paradedb/paradedb/commit/4b6afb496728ac26d1810ae22ca433d5ef072f59"
+        },
+        "date": 1764774673857,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.8120764611727695,
+            "unit": "median tps",
+            "extra": "avg tps: 6.702730743541529, max tps: 10.223458688909082, count: 57755"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.29418868620573,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7457771860258005, max tps: 5.916493812446695, count: 57755"
           }
         ]
       }

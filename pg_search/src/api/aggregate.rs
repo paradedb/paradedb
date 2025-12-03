@@ -120,14 +120,6 @@ mod pdb {
             _arg: Self::Args,
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
-            // This should never execute - if it does, the query wasn't handled by our custom scan
-            if !crate::gucs::enable_aggregate_custom_scan() {
-                pgrx::error!(
-                    "pdb.agg() requires aggregate custom scan to be enabled. \
-                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
-                );
-            }
-
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
@@ -141,14 +133,6 @@ mod pdb {
             _direct_arg: Self::OrderedSetArgs,
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
-            // This should never execute - if it does, the query wasn't handled by our custom scan
-            if !crate::gucs::enable_aggregate_custom_scan() {
-                pgrx::error!(
-                    "pdb.agg() requires aggregate custom scan to be enabled. \
-                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
-                );
-            }
-
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
@@ -178,14 +162,6 @@ mod pdb {
             _arg: Self::Args,
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::State {
-            // This should never execute - if it does, the query wasn't handled by our custom scan
-            if !crate::gucs::enable_aggregate_custom_scan() {
-                pgrx::error!(
-                    "pdb.agg() requires aggregate custom scan to be enabled. \
-                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
-                );
-            }
-
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \
@@ -199,14 +175,6 @@ mod pdb {
             _direct_arg: Self::OrderedSetArgs,
             _fcinfo: pgrx::pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
-            // This should never execute - if it does, the query wasn't handled by our custom scan
-            if !crate::gucs::enable_aggregate_custom_scan() {
-                pgrx::error!(
-                    "pdb.agg() requires aggregate custom scan to be enabled. \
-                     Set 'paradedb.enable_aggregate_custom_scan = on' to use pdb.agg()."
-                );
-            }
-
             pgrx::error!(
             "pdb.agg() must be handled by ParadeDB's custom scan. \
              This error usually means the query syntax is not supported. \

@@ -266,7 +266,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
-                Some(self.config.memory_limit / nworkers as u64),
+                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
                 Some(self.config.bucket_limit),
             ),
         );

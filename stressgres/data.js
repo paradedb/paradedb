@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764774680519,
+  "lastUpdate": 1764775477054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13356,6 +13356,54 @@ window.BENCHMARK_DATA = {
             "value": 5.542597161791074,
             "unit": "median tps",
             "extra": "avg tps: 5.543730645208484, max tps: 6.6419435667663365, count: 56153"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b6afb496728ac26d1810ae22ca433d5ef072f59",
+          "message": "fix: Split memory limit among parallel aggregation workers (#3693)",
+          "timestamp": "2025-12-03T09:41:32-05:00",
+          "tree_id": "a2c481ed08df76f3867eec444b56c298d3d84adc",
+          "url": "https://github.com/paradedb/paradedb/commit/4b6afb496728ac26d1810ae22ca433d5ef072f59"
+        },
+        "date": 1764775474249,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1149.7841130309453,
+            "unit": "median tps",
+            "extra": "avg tps: 1155.4093943001853, max tps: 1213.6941886555005, count: 56684"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1197.0297571854992,
+            "unit": "median tps",
+            "extra": "avg tps: 1192.8885708229868, max tps: 1253.4391235953647, count: 56684"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1930.9322997323372,
+            "unit": "median tps",
+            "extra": "avg tps: 1911.292690538885, max tps: 2096.960661605478, count: 56684"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.594015787143199,
+            "unit": "median tps",
+            "extra": "avg tps: 5.583318296273659, max tps: 6.70171792473946, count: 56684"
           }
         ]
       }

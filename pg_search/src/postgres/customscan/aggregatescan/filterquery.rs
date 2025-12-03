@@ -17,7 +17,6 @@
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -27,65 +26,75 @@ use pgrx::pg_sys;
 use std::ptr::NonNull;
 use std::sync::Arc;
 use tantivy::aggregation::agg_req::AggregationVariants;
-use tantivy::aggregation::bucket::{FilterAggregation, SerializableQuery};
-use tantivy::query::{EmptyQuery, EnableScoring, Query, QueryParser, Weight};
+use tantivy::aggregation::bucket::{FilterAggregation, QueryBuilder};
+use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
+use tantivy::schema::Schema;
+use tantivy::tokenizer::TokenizerManager;
+use tantivy::TantivyError;
 
-#[derive(Debug)]
-pub struct FilterQuery {
-    query: SearchQueryInput,
-    indexrelid: pg_sys::Oid,
+/// A wrapper that holds both a tantivy Query and the ExprContextGuard that must
+/// stay alive as long as the query exists (for queries that hold raw pointers to
+/// the ExprContext, such as HeapFilterQuery for correlated subqueries).
+/// Uses Arc for the context so it can be cloned (Query trait requires Clone).
+struct QueryWithContext {
     tantivy_query: Box<dyn Query>,
-    // Keep the ExprContextGuard alive as long as the FilterQuery (and any clones) live.
-    // This is needed because the tantivy_query (HeapFilterQuery) holds a raw pointer
-    // to the ExprContext, and we need to ensure the context is not freed while the query exists.
-    // We use Arc so that clones share ownership - the context is only freed when all
-    // FilterQuery instances (original and clones) are dropped.
     #[allow(dead_code)]
-    expr_context_guard: Option<Arc<ExprContextGuard>>,
+    expr_context_guard: Arc<ExprContextGuard>,
 }
 
-impl From<FilterQuery> for AggregationVariants {
-    fn from(val: FilterQuery) -> Self {
-        AggregationVariants::Filter(FilterAggregation::new_with_query(Box::new(val)))
-    }
-}
-
-impl Clone for FilterQuery {
+impl Clone for QueryWithContext {
     fn clone(&self) -> Self {
         Self {
-            query: self.query.clone(),
-            indexrelid: self.indexrelid,
             tantivy_query: self.tantivy_query.box_clone(),
-            // Clone the Arc to share ownership of the ExprContextGuard.
-            // The cloned tantivy_query holds the same raw pointer to the ExprContext,
-            // so we must keep the guard alive until all clones are dropped.
             expr_context_guard: self.expr_context_guard.clone(),
         }
     }
 }
 
-impl Query for FilterQuery {
+impl std::fmt::Debug for QueryWithContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueryWithContext")
+            .field("tantivy_query", &self.tantivy_query)
+            .finish()
+    }
+}
+
+impl Query for QueryWithContext {
     fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        // todo: assert once that we are in execution time
         self.tantivy_query.weight(enable_scoring)
     }
 }
 
-impl SerializableQuery for FilterQuery {
-    fn clone_box(&self) -> Box<dyn SerializableQuery> {
-        Box::new(self.clone())
+/// FilterQuery is a QueryBuilder that builds tantivy queries from SearchQueryInput.
+/// The actual query building is deferred until `build_query()` is called, which allows
+/// proper serialization/deserialization for distributed aggregation scenarios.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FilterQuery {
+    query: SearchQueryInput,
+    indexrelid: pg_sys::Oid,
+}
+
+impl From<FilterQuery> for AggregationVariants {
+    fn from(val: FilterQuery) -> Self {
+        AggregationVariants::Filter(FilterAggregation::new_with_builder(Box::new(val)))
     }
 }
 
-impl serde::Serialize for FilterQuery {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let raw = self.query.explain_format();
-        serde_json::from_str::<serde_json::Value>(&raw)
-            .expect("should be able to serialize searchqueryinput")
-            .serialize(serializer)
+#[typetag::serde]
+impl QueryBuilder for FilterQuery {
+    fn build_query(
+        &self,
+        _schema: &Schema,
+        _tokenizers: &TokenizerManager,
+    ) -> tantivy::Result<Box<dyn Query>> {
+        // Build the tantivy query at execution time using our stored SearchQueryInput
+        // and indexrelid. This is called by tantivy when it needs the actual query.
+        self.build_tantivy_query()
+            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))
+    }
+
+    fn box_clone(&self) -> Box<dyn QueryBuilder> {
+        Box::new(self.clone())
     }
 }
 
@@ -93,26 +102,22 @@ impl FilterQuery {
     pub fn new(
         query: SearchQueryInput,
         indexrelid: pg_sys::Oid,
-        is_execution_time: bool,
+        _is_execution_time: bool,
     ) -> Result<Self> {
-        // If not called at execution time, Postgres expressions in the `SearchQueryInput`
-        // have not been solved and generating the Tantivy query will fail. To get around this,
-        // we produce a junk Tantivy query (which doesn't matter since we're not in execution time).
-        if !is_execution_time {
-            return Ok(Self {
-                query,
-                indexrelid,
-                tantivy_query: Box::new(EmptyQuery),
-                expr_context_guard: None,
-            });
-        }
+        // We no longer build the query at construction time.
+        // The query will be built lazily when build_query() is called.
+        Ok(Self { query, indexrelid })
+    }
 
+    /// Build the actual tantivy query from the stored SearchQueryInput.
+    /// This is called from build_query() at execution time.
+    fn build_tantivy_query(&self) -> Result<Box<dyn Query>> {
         let standalone_context = ExprContextGuard::new();
-        let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+        let index = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
         let schema = index.schema()?;
         let reader = SearchIndexReader::open_with_context(
             &index,
-            query.clone(),
+            self.query.clone(),
             false,
             MvccSatisfies::Snapshot,
             NonNull::new(standalone_context.as_ptr()),
@@ -125,7 +130,7 @@ impl FilterQuery {
             )
         };
         let heap_oid = index.heap_relation().map(|r| r.oid());
-        let tantivy_query = Box::new(query.clone().into_tantivy_query(
+        let tantivy_query = Box::new(self.query.clone().into_tantivy_query(
             &schema,
             &parser,
             reader.searcher(),
@@ -135,13 +140,12 @@ impl FilterQuery {
             None,
         )?);
 
-        Ok(Self {
-            query,
-            indexrelid,
+        // Wrap the query with its ExprContextGuard to keep the context alive
+        // as long as the query exists (needed for HeapFilterQuery and similar
+        // queries that hold raw pointers to the ExprContext).
+        Ok(Box::new(QueryWithContext {
             tantivy_query,
-            // Store the ExprContextGuard in an Arc so it lives as long as
-            // the FilterQuery and any of its clones
-            expr_context_guard: Some(Arc::new(standalone_context)),
-        })
+            expr_context_guard: Arc::new(standalone_context),
+        }))
     }
 }

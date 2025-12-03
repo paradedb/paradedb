@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764737940289,
+  "lastUpdate": 1764738731718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12696,6 +12696,54 @@ window.BENCHMARK_DATA = {
             "value": 5.541815685535642,
             "unit": "median tps",
             "extra": "avg tps: 5.545046224872403, max tps: 6.701584872549995, count: 55900"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d467765b59cfefb314fc45607343ea6afd0ebc0c",
+          "message": "fix: `varchar[]` types can be indexed (#3673)\n\n# Ticket(s) Closed\n\n- Closes #3644 \n\n## What\n\nSee above issue.\n\n## Why\n\n## How\n\nHad to add an extra generic to `GenericTypeWrapper` because right now\n`GenericTypeWrapper<$rust_name>` has a 1:1 mapping to the SQL name, i.e.\n`Vec<String>` to `text[]`.\n\nIn the case of `text[]` and `varchar[]` we have a one to many mapping;\nboth have `Vec<String>` rust types.\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-02T23:27:39-05:00",
+          "tree_id": "a051c0968cff78a2d1375dc7d1f88197504ca4b6",
+          "url": "https://github.com/paradedb/paradedb/commit/d467765b59cfefb314fc45607343ea6afd0ebc0c"
+        },
+        "date": 1764738728898,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1117.99263693473,
+            "unit": "median tps",
+            "extra": "avg tps: 1117.6267471515123, max tps: 1154.4978511101074, count: 56460"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1199.682657592097,
+            "unit": "median tps",
+            "extra": "avg tps: 1195.7660933849363, max tps: 1211.1456090205318, count: 56460"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1834.4088447255936,
+            "unit": "median tps",
+            "extra": "avg tps: 1812.7966816933497, max tps: 1978.1683236934691, count: 56460"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.346800204747748,
+            "unit": "median tps",
+            "extra": "avg tps: 5.371736060738567, max tps: 6.614227641253637, count: 56460"
           }
         ]
       }

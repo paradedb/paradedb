@@ -81,7 +81,7 @@ trait CollectNested<Key: AggregationKey> {
         let groupings: Vec<_> = self.iter_leaves()?.collect();
 
         let nested = groupings.into_iter().rfold(children, |sub, leaf| {
-            Aggregations::from([(
+            Aggregations::from_iter([(
                 GroupedKey::NAME.to_string(),
                 Aggregation {
                     agg: leaf,
@@ -163,14 +163,14 @@ impl CollectAggregations for AggregateCSClause {
                     } else {
                         Aggregation {
                             agg: metric.into(),
-                            sub_aggregation: Aggregations::new(),
+                            sub_aggregation: Default::default(),
                         }
                     };
 
                     let agg = match filter {
                         Some(filter) => Aggregation {
                             agg: filter.into(),
-                            sub_aggregation: Aggregations::from([(0.to_string(), metric_agg)]),
+                            sub_aggregation: Aggregations::from_iter([(0.to_string(), metric_agg)]),
                         },
                         None => metric_agg,
                     };
@@ -187,7 +187,7 @@ impl CollectAggregations for AggregateCSClause {
                             field: "ctid".to_string(),
                             missing: None,
                         }),
-                        sub_aggregation: Aggregations::new(),
+                        sub_aggregation: Default::default(),
                     },
                 );
             }
@@ -196,11 +196,11 @@ impl CollectAggregations for AggregateCSClause {
         } else {
             let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,
-                Aggregations::new(),
-                Aggregations::new(),
+                Default::default(),
+                Default::default(),
             )?;
             let term_aggs =
-                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+                <Self as CollectNested<GroupedKey>>::collect(self, Default::default(), metrics)?;
 
             if self.has_filter() {
                 let metrics =
@@ -212,16 +212,16 @@ impl CollectAggregations for AggregateCSClause {
                     .zip(metrics)
                     .enumerate()
                     .map(|(idx, (filter, metric))| {
-                        let metric_agg = Aggregations::from([(
+                        let metric_agg = Aggregations::from_iter([(
                             0.to_string(),
                             Aggregation {
                                 agg: metric.into(),
-                                sub_aggregation: Aggregations::new(),
+                                sub_aggregation: Default::default(),
                             },
                         )]);
                         let sub_agg = <Self as CollectNested<GroupedKey>>::collect(
                             self,
-                            Aggregations::new(),
+                            Default::default(),
                             metric_agg,
                         )
                         .expect("should be able to collect nested aggregations");

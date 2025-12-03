@@ -70,6 +70,8 @@ half = "2.6.0"
 bytemuck = { version = "1.23.2", features = ["derive", "min_const_generics"] }
 smallvec = "1.13.2"
 paste = "1.0.15"
+tantivy-jieba.workspace = true
+typetag = "0.2"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

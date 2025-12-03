@@ -41,9 +41,12 @@ use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::Key;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
+use tantivy::aggregation::{
+    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
+};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
+use tantivy::tokenizer::TokenizerManager;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -265,9 +268,12 @@ impl<'a> ParallelAggregationWorker<'a> {
         let nworkers = self.state.launched_workers();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
-            AggregationLimitsGuard::new(
-                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
-                Some(self.config.bucket_limit),
+            AggContextParams::new(
+                AggregationLimitsGuard::new(
+                    Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
+                    Some(self.config.bucket_limit),
+                ),
+                TokenizerManager::default(),
             ),
         );
 
@@ -459,7 +465,10 @@ pub fn execute_aggregate(
             }
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                AggContextParams::new(
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                    TokenizerManager::default(),
+                ),
             );
             Ok(collector.merge_fruits(agg_results)?.into_final_result(
                 aggregations,

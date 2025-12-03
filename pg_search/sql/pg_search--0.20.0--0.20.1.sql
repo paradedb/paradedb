@@ -179,14 +179,14 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_final
 /* </end connected objects> */
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:94
--- pg_search::api::aggregate::pdb::AggPlaceholder
+-- pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC
 CREATE AGGREGATE pdb.agg (
 	jsonb /* pgrx::datum::json::JsonB */
 )
 (
-	SFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state", /* pg_search::api::aggregate::pdb::AggPlaceholder::state */
+	SFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state", /* pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC::state */
 	STYPE = internal, /* pgrx::datum::internal::Internal */
-	FINALFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize" /* pg_search::api::aggregate::pdb::AggPlaceholder::final */
+	FINALFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize" /* pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC::final */
 );
 /* pg_search::api::aggregate::pdb */
 /* </end connected objects> */
@@ -199,4 +199,4 @@ CREATE  FUNCTION pdb."agg_fn"(
 ) RETURNS jsonb /* pgrx::datum::json::JsonB */
 STRICT VOLATILE PARALLEL SAFE
 LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'agg_fn_placeholder_wrapper';
+AS 'MODULE_PATHNAME', 'agg_fn_placeholder_with_mvcc_wrapper';

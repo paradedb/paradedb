@@ -239,7 +239,7 @@ impl CollectAggregations for AggregateCSClause {
                     Aggregation {
                         agg: FilterQuery::new(
                             self.quals.query().clone(),
-                            self.indexrelid,
+                            self.indexrelid.to_u32(),
                             self.is_execution_time,
                         )?
                         .into(),
@@ -463,7 +463,7 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
             agg.filter_expr().as_ref().map(|filter_expr| {
                 FilterQuery::new(
                     filter_expr.clone(),
-                    agg.indexrelid(),
+                    agg.indexrelid().to_u32(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")
@@ -478,14 +478,14 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
             if let Some(filter_expr) = agg.filter_expr() {
                 FilterQuery::new(
                     filter_expr.clone(),
-                    agg.indexrelid(),
+                    agg.indexrelid().to_u32(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")
             } else {
                 FilterQuery::new(
                     SearchQueryInput::All,
-                    agg.indexrelid(),
+                    agg.indexrelid().to_u32(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")

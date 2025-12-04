@@ -24,6 +24,7 @@ use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
+
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -404,6 +405,18 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
+            // Check if VACUUM is waiting for cleanup_lock_exclusive.
+            // We check under merge_lock to avoid false positives from other workers.
+            if gc_after_merge {
+                let merge_lock = metadata.acquire_merge_lock();
+                let should_exit = metadata.vacuum_waiting_is_pinned();
+                drop(merge_lock);
+
+                if should_exit {
+                    pgrx::debug1!("background merge cancelled by VACUUM");
+                    break;
+                }
+            }
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);

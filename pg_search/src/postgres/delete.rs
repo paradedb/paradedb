@@ -50,12 +50,17 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     };
 
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
-    // are no concurrent merges happening
+    // are no concurrent merges happening.
+    // Pin the vacuum_waiting buffer to signal background merge workers that VACUUM is waiting.
+    // Workers check this pin (under merge_lock) and exit early so we can acquire cleanup_lock_exclusive.
     let mut metadata = MetaPage::open(&index_relation);
+    let vacuum_waiting = metadata.pin_vacuum_waiting();
+
     let cleanup_lock = metadata.cleanup_lock_exclusive();
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
+    drop(vacuum_waiting);
 
     // garbage collecting the MergeList is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge

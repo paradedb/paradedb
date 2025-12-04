@@ -54,7 +54,7 @@ jobs:
         id: extract-config-metadata
         uses: docker/metadata-action@v5
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
             type=sha
 
@@ -65,7 +65,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
@@ -92,8 +92,8 @@ jobs:
           username: ${{ secrets.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb@${{ steps.build-push.outputs.digest }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb@${{ steps.build-push.outputs.digest }};docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push.outputs.digest }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push.outputs.digest }};docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: "developers@paradedb.com"
           additional_parameters: |-

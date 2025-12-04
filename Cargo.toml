@@ -28,6 +28,7 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 ], default-features = false }
 pgrx = "=0.16.1"
 pgrx-tests = "=0.16.1"
+tantivy-jieba = "0.17.0"
 
 [patch.crates-io]
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "fa559b0e63a01854a3512570b646f3e99445963b" }

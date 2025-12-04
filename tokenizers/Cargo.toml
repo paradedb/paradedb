@@ -21,7 +21,7 @@ tantivy.workspace = true
 tracing = "0.1.41"
 strum_macros = "0.27.1"
 strum = { version = "0.27.1", features = ["derive"] }
-tantivy-jieba = "0.17.0"
+tantivy-jieba = { workspace = true }
 emoji = "0.2.1"
 unicode-segmentation = "1.12.0"
 

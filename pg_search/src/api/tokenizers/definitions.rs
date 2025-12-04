@@ -42,7 +42,7 @@ pub(crate) mod pdb {
         fn make_search_tokenizer() -> SearchTokenizer;
     }
 
-    macro_rules! cast_alias_for_type {
+    macro_rules! allow_alias_for {
         ($sql_name:literal, $marker:ident, $rust_ty:ty, $fn_prefix:ident) => {
             paste::paste! {
                 struct [<$marker Marker>];
@@ -421,58 +421,91 @@ pub(crate) mod pdb {
         const SQL_NAME: &'static str = "pdb.alias";
     }
 
-    cast_alias_for_type!("smallint", SmallInt, i16, smallint);
-    cast_alias_for_type!("integer", Integer, i32, integer);
-    cast_alias_for_type!("bigint", BigInt, i64, bigint);
-    cast_alias_for_type!("oid", Oid, u32, oid);
-    cast_alias_for_type!("float4", Float4, f32, float4);
-    cast_alias_for_type!("float8", Float8, f64, float8);
-    cast_alias_for_type!("numeric", Numeric, pgrx::datum::AnyNumeric, numeric);
-    cast_alias_for_type!("boolean", Boolean, bool, boolean);
-    cast_alias_for_type!("date", Date, pgrx::datum::Date, date);
-    cast_alias_for_type!("time", Time, pgrx::datum::Time, time);
-    cast_alias_for_type!("timestamp", Timestamp, pgrx::datum::Timestamp, timestamp);
+    allow_alias_for!("smallint", SmallInt, i16, smallint);
+    allow_alias_for!("integer", Integer, i32, integer);
+    allow_alias_for!("bigint", BigInt, i64, bigint);
+    allow_alias_for!("oid", Oid, u32, oid);
+    allow_alias_for!("float4", Float4, f32, float4);
+    allow_alias_for!("float8", Float8, f64, float8);
+    allow_alias_for!("numeric", Numeric, pgrx::datum::AnyNumeric, numeric);
+    allow_alias_for!("boolean", Boolean, bool, boolean);
+    allow_alias_for!("date", Date, pgrx::datum::Date, date);
+    allow_alias_for!("time", Time, pgrx::datum::Time, time);
+    allow_alias_for!("timestamp", Timestamp, pgrx::datum::Timestamp, timestamp);
 
     // 🚨 these ones MUST have the explicit prefix because SQL type has spaces
-    cast_alias_for_type!(
+    allow_alias_for!(
         "timestamp with time zone",
         TimestampWithTimeZone,
         pgrx::datum::TimestampWithTimeZone,
         timestamp_with_time_zone
     );
-    cast_alias_for_type!(
+    allow_alias_for!(
         "time with time zone",
         TimeWithTimeZone,
         pgrx::datum::TimeWithTimeZone,
         time_with_time_zone
     );
 
-    cast_alias_for_type!("inet", Inet, pgrx::datum::Inet, inet);
-    cast_alias_for_type!("int4range", Int4Range, pgrx::datum::Range<i32>, int4range);
-    cast_alias_for_type!("int8range", Int8Range, pgrx::datum::Range<i64>, int8range);
-    cast_alias_for_type!(
+    allow_alias_for!("inet", Inet, pgrx::datum::Inet, inet);
+    allow_alias_for!("int4range", Int4Range, pgrx::datum::Range<i32>, int4range);
+    allow_alias_for!("int8range", Int8Range, pgrx::datum::Range<i64>, int8range);
+    allow_alias_for!(
         "numrange",
         NumRange,
         pgrx::datum::Range<pgrx::datum::AnyNumeric>,
         numrange
     );
-    cast_alias_for_type!(
+    allow_alias_for!(
         "daterange",
         DateRange,
         pgrx::datum::Range<pgrx::datum::Date>,
         daterange
     );
-    cast_alias_for_type!(
+    allow_alias_for!(
         "tsrange",
         TsRange,
         pgrx::datum::Range<pgrx::datum::Timestamp>,
         tsrange
     );
-    cast_alias_for_type!(
+    allow_alias_for!(
         "tstzrange",
         TstzRange,
         pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone>,
         tstzrange
+    );
+
+    allow_alias_for!("smallint[]", SmallIntArray, Vec<i16>, smallint_array);
+    allow_alias_for!("integer[]", IntegerArray, Vec<i32>, integer_array);
+    allow_alias_for!("bigint[]", BigIntArray, Vec<i64>, bigint_array);
+    allow_alias_for!("float4[]", Float4Array, Vec<f32>, float4_array);
+    allow_alias_for!("float8[]", Float8Array, Vec<f64>, float8_array);
+    allow_alias_for!(
+        "numeric[]",
+        NumericArray,
+        Vec<pgrx::datum::AnyNumeric>,
+        numeric_array
+    );
+    allow_alias_for!("boolean[]", BooleanArray, Vec<bool>, boolean_array);
+    allow_alias_for!("date[]", DateArray, Vec<pgrx::datum::Date>, date_array);
+    allow_alias_for!("time[]", TimeArray, Vec<pgrx::datum::Time>, time_array);
+    allow_alias_for!(
+        "timestamp[]",
+        TimestampArray,
+        Vec<pgrx::datum::Timestamp>,
+        timestamp_array
+    );
+    allow_alias_for!(
+        "timestamp with time zone[]",
+        TimestampWithTimeZoneArray,
+        Vec<pgrx::datum::TimestampWithTimeZone>,
+        timestamp_with_time_zone_array
+    );
+    allow_alias_for!(
+        "time with time zone[]",
+        TimeWithTimeZoneArray,
+        Vec<pgrx::datum::TimeWithTimeZone>,
+        time_with_time_zone_array
     );
 
     extension_sql!(
@@ -497,6 +530,18 @@ pub(crate) mod pdb {
         CREATE CAST (daterange AS pdb.alias) WITH FUNCTION pdb.daterange_to_alias AS ASSIGNMENT;
         CREATE CAST (tsrange AS pdb.alias) WITH FUNCTION pdb.tsrange_to_alias AS ASSIGNMENT;
         CREATE CAST (tstzrange AS pdb.alias) WITH FUNCTION pdb.tstzrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (smallint[] AS pdb.alias) WITH FUNCTION pdb.smallint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (integer[] AS pdb.alias) WITH FUNCTION pdb.integer_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (bigint[] AS pdb.alias) WITH FUNCTION pdb.bigint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float4[] AS pdb.alias) WITH FUNCTION pdb.float4_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float8[] AS pdb.alias) WITH FUNCTION pdb.float8_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (numeric[] AS pdb.alias) WITH FUNCTION pdb.numeric_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (boolean[] AS pdb.alias) WITH FUNCTION pdb.boolean_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (date[] AS pdb.alias) WITH FUNCTION pdb.date_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time[] AS pdb.alias) WITH FUNCTION pdb.time_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp[] AS pdb.alias) WITH FUNCTION pdb.timestamp_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp with time zone[] AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time with time zone[] AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_array_to_alias AS ASSIGNMENT;
         "#,
         name = "alias_casts",
         requires = [
@@ -522,6 +567,18 @@ pub(crate) mod pdb {
             daterange_to_alias,
             tsrange_to_alias,
             tstzrange_to_alias,
+            smallint_array_to_alias,
+            integer_array_to_alias,
+            bigint_array_to_alias,
+            float4_array_to_alias,
+            float8_array_to_alias,
+            numeric_array_to_alias,
+            boolean_array_to_alias,
+            date_array_to_alias,
+            time_array_to_alias,
+            timestamp_array_to_alias,
+            timestamp_with_time_zone_array_to_alias,
+            time_with_time_zone_array_to_alias
         ]
     );
 }

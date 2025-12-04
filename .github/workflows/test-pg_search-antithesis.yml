@@ -14,7 +14,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/workflows/test-pg_search.yml"
+      - ".github/workflows/test-pg_search-antithesis.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tests/**"

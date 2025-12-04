@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764879744162,
+  "lastUpdate": 1764880511460,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20636,6 +20636,60 @@ window.BENCHMARK_DATA = {
             "value": 14.571951595895817,
             "unit": "median tps",
             "extra": "avg tps: 14.599872497255573, max tps: 19.231540341569467, count: 55532"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "piotr.olszak@gmail.com",
+            "name": "Piotr Olszak",
+            "username": "ptr07"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b3117f76ca77aa276b23d13f52ac20444aa7545",
+          "message": "feat: Support stemming in Polish language #1625  (#3645)\n\n##  Ticket(s) Closed \n\n- Closes #1625\n\n## What\n\nThis update introduces support for Polish language stopwords and\nstemming while updating relevant documentation, tests, and dependencies,\nincluding an upgrade to tantivy.\n\n## Why\n\nUser feature request.\n\n## How\n\n- Added support for Polish language stopwords in `paradedb.tokenize`.\n- Included Polish stemmer in `pdb.simple` tokenizer.\n- Updated tests in `stopwords.sql`, `stopwords.out`,\n`tokenizer-typmod.sql`, and associated outputs.\n- Expanded documentation to list Polish in valid languages for stemming\nand stopwords.\n- Bumped `tantivy` and `tantivy-tokenizer-api` dependencies to new\nrevisions.\n- Updated dependencies and Cargo.lock with the latest versions.\n\n## Tests\nexisting tests pass\n\n---------\n\nCo-authored-by: Piotr Olszak <p.olszak@bosflow.com>",
+          "timestamp": "2025-12-04T11:36:58-08:00",
+          "tree_id": "b3dcf027ef639364220bcddbf50f58771434cf34",
+          "url": "https://github.com/paradedb/paradedb/commit/9b3117f76ca77aa276b23d13f52ac20444aa7545"
+        },
+        "date": 1764880508698,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.32822651815497,
+            "unit": "median tps",
+            "extra": "avg tps: 32.00542545429842, max tps: 32.77969043048307, count: 55572"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.74976189471408,
+            "unit": "median tps",
+            "extra": "avg tps: 261.7137652003893, max tps: 2801.8334721333813, count: 55572"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2013.9445949487992,
+            "unit": "median tps",
+            "extra": "avg tps: 1997.7095377507999, max tps: 2342.605860509411, count: 55572"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.01251596954557,
+            "unit": "median tps",
+            "extra": "avg tps: 194.22149517451035, max tps: 1732.0868841818558, count: 111144"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.66598701320758,
+            "unit": "median tps",
+            "extra": "avg tps: 15.814883243097505, max tps: 21.040201913560075, count: 55572"
           }
         ]
       }

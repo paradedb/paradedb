@@ -224,8 +224,8 @@ impl CustomScan for AggregateScan {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
                         // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
-                        // Note: U64 uses string sentinel for MIN (since 0 is valid),
-                        // so we only check MAX here. Bool uses 2 as sentinel (0=false, 1=true).
+                        // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
+                        // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
                         let is_bool_type = expected_typoid == pg_sys::BOOLOID;
                         let is_null_sentinel = match &key.0 {
                             OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,

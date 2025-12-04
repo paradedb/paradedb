@@ -527,9 +527,10 @@ pub fn execute_aggregate(
     }
 }
 
-// Sentinel strings for NULL values
-pub const NULL_SENTINEL_MIN: &str = "\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
-pub const NULL_SENTINEL_MAX: &str = "\u{FFFF}__PDB_NULL__"; // Sorts AFTER other strings
+// Sentinel strings for NULL values in terms aggregations (used for text/json columns).
+// Using longer prefixes and extreme Unicode codepoints to minimize collision risk.
+pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
+pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
 
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
 fn set_missing_on_terms(
@@ -551,9 +552,15 @@ fn set_missing_on_terms(
             if terms.missing.is_none() {
                 // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
                 let use_min = use_min_sentinel_fields.contains(&terms.field);
-                // Use type-appropriate sentinel that sorts appropriately
+                // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
+                // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
+                // for numeric column) would break the sort order.
+                //
+                // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
+                // theoretically collide with valid data values, though this is unlikely in practice.
+                // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
                 let sentinel = match schema.get_field_type(&terms.field) {
-                    Some(SearchFieldType::I64(_)) => {
+                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
                         if use_min {
                             Key::I64(i64::MIN)
                         } else {
@@ -561,8 +568,7 @@ fn set_missing_on_terms(
                         }
                     }
                     Some(SearchFieldType::U64(_)) => {
-                        // For MIN with U64, we can't use 0 as it might be a valid value
-                        // Use a string sentinel instead
+                        // For U64, 0 is a common value so we use string for MIN
                         if use_min {
                             Key::Str(NULL_SENTINEL_MIN.to_string())
                         } else {
@@ -576,15 +582,8 @@ fn set_missing_on_terms(
                             Key::F64(f64::MAX)
                         }
                     }
-                    Some(SearchFieldType::Date(_)) => {
-                        if use_min {
-                            Key::I64(i64::MIN)
-                        } else {
-                            Key::I64(i64::MAX)
-                        }
-                    }
                     Some(SearchFieldType::Bool(_)) => {
-                        // For bool: 0=false, 1=true. Use string for null to avoid conflicts
+                        // For bool: 0=false, 1=true. Use string for MIN to avoid conflicts
                         if use_min {
                             Key::Str(NULL_SENTINEL_MIN.to_string())
                         } else {
@@ -592,7 +591,7 @@ fn set_missing_on_terms(
                         }
                     }
                     _ => {
-                        // Default for text/json/etc
+                        // Default for text/json/etc - string sentinels are safe here
                         if use_min {
                             Key::Str(NULL_SENTINEL_MIN.to_string())
                         } else {

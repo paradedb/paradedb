@@ -40,12 +40,6 @@ jobs:
         with:
           fetch-depth: 0 # Fetch the entire history (required to checkout tags)
 
-      # Cross-compilation is incredibly slow, so we use an external service called Depot to
-      # speed up container builds for universal images. We could eventually replace this with
-      # Docker Build Cloud once they add support for multiple concurrent builders.
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
-
       - name: Set up Docker Buildxe
         uses: docker/setup-buildx-action@v3
 
@@ -78,17 +72,15 @@ jobs:
 
       - name: Build and Push Docker Image to Antithesis Registry
         id: build-push
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v5
         with:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             COMMIT_SHA=${{ github.sha }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           file: docker/Dockerfile
           push: true
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

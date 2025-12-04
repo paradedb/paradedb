@@ -19,7 +19,6 @@ pub mod aggregate_type;
 pub mod build;
 pub mod exec;
 pub mod filterquery;
-pub mod filterquery_impl;
 pub mod groupby;
 pub mod limit_offset;
 pub mod orderby;

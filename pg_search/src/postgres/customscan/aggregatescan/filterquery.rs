@@ -15,15 +15,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! FilterQuery implementation for tantivy's QueryBuilder trait.
+//! FilterQuery - a tantivy QueryBuilder for PostgreSQL filter aggregations.
 //!
-//! This module is carefully structured to avoid pulling PostgreSQL symbols into
-//! the pgrx_embed binary. The query is stored as JSON to avoid importing
-//! SearchQueryInput which has PostgreSQL dependencies.
+//! Uses a function pointer to defer PostgreSQL-dependent query building to runtime,
+//! avoiding link-time dependencies in pgrx_embed.
 
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::utils::ExprContextGuard;
+use crate::postgres::PgSearchRelation;
+use crate::query::SearchQueryInput;
+
+use pgrx::pg_sys;
+use std::fmt::Debug;
+use std::ptr::NonNull;
+use std::sync::Arc;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, QueryBuilder};
-use tantivy::query::Query;
+use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 use tantivy::schema::Schema;
 use tantivy::tokenizer::TokenizerManager;
 use tantivy::TantivyError;
@@ -40,12 +49,23 @@ pub type BuildFilterQueryFn = fn(&str, u32) -> anyhow::Result<Box<dyn Query>>;
 pub static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> =
     std::sync::OnceLock::new();
 
-/// FilterQuery is a QueryBuilder that builds tantivy queries from SearchQueryInput.
-/// The actual query building is deferred until `build_query()` is called, which allows
-/// proper serialization/deserialization for distributed aggregation scenarios.
-///
-/// IMPORTANT: This struct stores the query as JSON to avoid importing SearchQueryInput
-/// which has PostgreSQL dependencies that would be pulled into the pgrx_embed binary.
+/// Initialize the query builder. Call from `_PG_init`.
+pub fn init_filter_query_builder() {
+    BUILD_FILTER_QUERY_FN.get_or_init(|| build_query);
+}
+
+/// Create a FilterQuery from SearchQueryInput.
+pub fn new_filter_query(
+    query: SearchQueryInput,
+    indexrelid: pg_sys::Oid,
+) -> anyhow::Result<FilterQuery> {
+    Ok(FilterQuery {
+        query: serde_json::to_value(&query)?,
+        indexrelid: indexrelid.to_u32(),
+    })
+}
+
+/// A QueryBuilder wrapping SearchQueryInput as JSON to avoid link-time PostgreSQL dependencies.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FilterQuery {
     /// The SearchQueryInput serialized as JSON.
@@ -63,18 +83,13 @@ impl From<FilterQuery> for AggregationVariants {
 
 #[typetag::serde]
 impl QueryBuilder for FilterQuery {
-    fn build_query(
-        &self,
-        _schema: &Schema,
-        _tokenizers: &TokenizerManager,
-    ) -> tantivy::Result<Box<dyn Query>> {
+    fn build_query(&self, _: &Schema, _: &TokenizerManager) -> tantivy::Result<Box<dyn Query>> {
         // Get the builder function that was initialized at extension load time.
         // This indirection via function pointer avoids pulling PostgreSQL symbols
         // into the pgrx_embed binary at link time.
         let build_fn = BUILD_FILTER_QUERY_FN
             .get()
-            .expect("FilterQuery builder not initialized - call init_filter_query_builder() first");
-
+            .expect("call init_filter_query_builder() in _PG_init");
         let query_json = serde_json::to_string(&self.query)
             .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
 
@@ -87,19 +102,66 @@ impl QueryBuilder for FilterQuery {
     }
 }
 
-impl FilterQuery {
-    /// Create a new FilterQuery from a JSON-serialized SearchQueryInput.
-    ///
-    /// Takes the indexrelid as u32 to avoid storing pg_sys::Oid which would pull
-    /// PostgreSQL symbols into the pgrx_embed binary.
-    pub fn from_json(
-        query_json: serde_json::Value,
-        indexrelid: u32,
-        _is_execution_time: bool,
-    ) -> Self {
+fn build_query(query_json: &str, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
+    let query: SearchQueryInput = serde_json::from_str(query_json)?;
+    let indexrelid = pg_sys::Oid::from(indexrelid);
+    let context = ExprContextGuard::new();
+
+    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    let schema = index.schema()?;
+    let reader = SearchIndexReader::open_with_context(
+        &index,
+        query.clone(),
+        false,
+        MvccSatisfies::Snapshot,
+        NonNull::new(context.as_ptr()),
+        None,
+    )?;
+
+    let tantivy_query = query.into_tantivy_query(
+        &schema,
+        &|| {
+            QueryParser::for_index(
+                reader.searcher().index(),
+                schema.fields().map(|(f, _)| f).collect(),
+            )
+        },
+        reader.searcher(),
+        index.oid(),
+        index.heap_relation().map(|r| r.oid()),
+        NonNull::new(context.as_ptr()),
+        None,
+    )?;
+
+    Ok(Box::new(QueryWithContext {
+        query: Box::new(tantivy_query),
+        _context: Arc::new(context),
+    }))
+}
+
+/// Wraps a Query with its ExprContextGuard to extend the context's lifetime.
+struct QueryWithContext {
+    query: Box<dyn Query>,
+    _context: Arc<ExprContextGuard>,
+}
+
+impl Query for QueryWithContext {
+    fn weight(&self, scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        self.query.weight(scoring)
+    }
+}
+
+impl Clone for QueryWithContext {
+    fn clone(&self) -> Self {
         Self {
-            query: query_json,
-            indexrelid,
+            query: self.query.box_clone(),
+            _context: self._context.clone(),
         }
+    }
+}
+
+impl Debug for QueryWithContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.query.fmt(f)
     }
 }

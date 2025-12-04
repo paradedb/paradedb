@@ -18,8 +18,7 @@
 use crate::api::{FieldName, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
-use crate::postgres::customscan::aggregatescan::filterquery_impl::new_filter_query;
+use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
@@ -238,12 +237,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: new_filter_query(
-                            self.quals.query().clone(),
-                            self.indexrelid,
-                            self.is_execution_time,
-                        )?
-                        .into(),
+                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid)?.into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -461,14 +455,9 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
 impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            agg.filter_expr().as_ref().map(|filter_expr| {
-                new_filter_query(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            })
+            agg.filter_expr()
+                .as_ref()
+                .map(|q| new_filter_query(q.clone(), agg.indexrelid()).expect("filter query"))
         }))
     }
 }
@@ -476,21 +465,11 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
 impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterQuery>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            if let Some(filter_expr) = agg.filter_expr() {
-                new_filter_query(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            } else {
-                new_filter_query(
-                    SearchQueryInput::All,
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            }
+            let query = match agg.filter_expr() {
+                Some(q) => q.clone(),
+                None => SearchQueryInput::All,
+            };
+            new_filter_query(query, agg.indexrelid()).expect("filter query")
         }))
     }
 }

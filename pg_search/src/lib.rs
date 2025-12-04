@@ -102,7 +102,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     customscan::register_window_aggregate_hook();
 
     // Initialize the filter query builder function pointer
-    customscan::aggregatescan::filterquery_impl::init_filter_query_builder();
+    customscan::aggregatescan::filterquery::init_filter_query_builder();
 }
 
 #[pg_extern]

@@ -100,6 +100,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Register global planner hook for window function support
     customscan::register_window_aggregate_hook();
+
+    // Initialize the filter query builder function pointer
+    customscan::aggregatescan::filterquery::init_filter_query_builder();
 }
 
 #[pg_extern]

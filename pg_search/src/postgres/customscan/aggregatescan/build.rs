@@ -26,6 +26,7 @@ use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetL
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
@@ -344,6 +345,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let aggregate_json = {
             let mut aggregate_json =
                 serde_json::to_value(&aggregate).expect("should be able to serialize aggregations");
+            cleanup_json_for_explain(&mut aggregate_json);
             sort_json_keys(&mut aggregate_json);
             std::iter::once((
                 String::from("Aggregate Definition"),

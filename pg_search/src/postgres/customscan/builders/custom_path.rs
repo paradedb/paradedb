@@ -60,6 +60,14 @@ impl OrderByStyle {
         }
     }
 
+    pub fn nulls_first(&self) -> bool {
+        unsafe {
+            let pathkey = self.pathkey();
+            assert!(!pathkey.is_null());
+            (*pathkey).pk_nulls_first
+        }
+    }
+
     /// Extract ORDER BY information from query pathkeys
     /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
     pub fn extract_orderby_info(order_pathkeys: Option<&Vec<OrderByStyle>>) -> Vec<OrderByInfo> {
@@ -80,6 +88,7 @@ impl From<&OrderByStyle> for OrderByInfo {
         OrderByInfo {
             feature,
             direction: value.direction(),
+            nulls_first: value.nulls_first(),
         }
     }
 }

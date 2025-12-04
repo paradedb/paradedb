@@ -171,7 +171,7 @@ runs:
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 
-    # NB:  we'll publish every graph so they can be located for historical purposes
+    # NB: we'll publish every graph so they can be located for historical purposes
     - name: Publish Stressgres Graph
       uses: ./.github/actions/push-file
       with:

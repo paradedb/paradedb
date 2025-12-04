@@ -396,6 +396,311 @@ pub(crate) mod pdb {
         preferred = false,
         custom_typmod = false
     );
+
+    struct AliasMarker;
+    impl SqlNameMarker for AliasMarker {
+        const SQL_NAME: &'static str = "pdb.alias";
+    }
+
+    // allow <smallint>::pdb.alias
+    struct SmallIntMarker;
+    impl SqlNameMarker for SmallIntMarker {
+        const SQL_NAME: &'static str = "smallint";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn smallint_to_alias(
+        arr: GenericTypeWrapper<i16, SmallIntMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <integer>::pdb.alias
+    struct IntegerMarker;
+    impl SqlNameMarker for IntegerMarker {
+        const SQL_NAME: &'static str = "integer";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn integer_to_alias(
+        arr: GenericTypeWrapper<i32, IntegerMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <bigint>::pdb.alias
+    struct BigIntMarker;
+    impl SqlNameMarker for BigIntMarker {
+        const SQL_NAME: &'static str = "bigint";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn bigint_to_alias(
+        arr: GenericTypeWrapper<i64, BigIntMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <oid>::pdb.alias
+    struct OidMarker;
+    impl SqlNameMarker for OidMarker {
+        const SQL_NAME: &'static str = "oid";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn oid_to_alias(
+        arr: GenericTypeWrapper<u32, OidMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <float4>::pdb.alias
+    struct Float4Marker;
+    impl SqlNameMarker for Float4Marker {
+        const SQL_NAME: &'static str = "float4";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn float4_to_alias(
+        arr: GenericTypeWrapper<f32, Float4Marker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <float8>::pdb.alias
+    struct Float8Marker;
+    impl SqlNameMarker for Float8Marker {
+        const SQL_NAME: &'static str = "float8";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn float8_to_alias(
+        arr: GenericTypeWrapper<f64, Float8Marker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // // allow <numeric>::pdb.alias
+    // struct NumericMarker;
+    // impl SqlNameMarker for NumericMarker {
+    //     const SQL_NAME: &'static str = "numeric";
+    // }
+
+    // #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    // unsafe fn numeric_to_alias(
+    //     arr: GenericTypeWrapper<AnyNumeric, NumericMarker>,
+    // ) -> GenericTypeWrapper<Alias, AliasMarker> {
+    //     GenericTypeWrapper::new(arr.datum)
+    // }
+
+    // allow <boolean>::pdb.alias
+    struct BooleanMarker;
+    impl SqlNameMarker for BooleanMarker {
+        const SQL_NAME: &'static str = "boolean";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn boolean_to_alias(
+        arr: GenericTypeWrapper<bool, BooleanMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <date>::pdb.alias
+    struct DateMarker;
+    impl SqlNameMarker for DateMarker {
+        const SQL_NAME: &'static str = "date";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn date_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Date, DateMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <time>::pdb.alias
+    struct TimeMarker;
+    impl SqlNameMarker for TimeMarker {
+        const SQL_NAME: &'static str = "time";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn time_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Time, TimeMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <timestamp>::pdb.alias
+    struct TimestampMarker;
+    impl SqlNameMarker for TimestampMarker {
+        const SQL_NAME: &'static str = "timestamp";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn timestamp_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Timestamp, TimestampMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <timestamp with time zone>::pdb.alias
+    struct TimestampWithTimeZoneMarker;
+    impl SqlNameMarker for TimestampWithTimeZoneMarker {
+        const SQL_NAME: &'static str = "timestamp with time zone";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn timestamp_with_time_zone_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::TimestampWithTimeZone, TimestampWithTimeZoneMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <time with time zone>::pdb.alias
+    struct TimeWithTimeZoneMarker;
+    impl SqlNameMarker for TimeWithTimeZoneMarker {
+        const SQL_NAME: &'static str = "time with time zone";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn time_with_time_zone_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::TimeWithTimeZone, TimeWithTimeZoneMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <inet>::pdb.alias
+    struct InetMarker;
+    impl SqlNameMarker for InetMarker {
+        const SQL_NAME: &'static str = "inet";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn inet_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Inet, InetMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <int4range>::pdb.alias
+    struct Int4RangeMarker;
+    impl SqlNameMarker for Int4RangeMarker {
+        const SQL_NAME: &'static str = "int4range";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn int4range_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Range<i32>, Int4RangeMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // allow <int8range>::pdb.alias
+    struct Int8RangeMarker;
+    impl SqlNameMarker for Int8RangeMarker {
+        const SQL_NAME: &'static str = "int8range";
+    }
+
+    #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    unsafe fn int8range_to_alias(
+        arr: GenericTypeWrapper<pgrx::datum::Range<i64>, Int8RangeMarker>,
+    ) -> GenericTypeWrapper<Alias, AliasMarker> {
+        GenericTypeWrapper::new(arr.datum)
+    }
+
+    // // allow <numrange>::pdb.alias
+    // struct NumRangeMarker;
+    // impl SqlNameMarker for NumRangeMarker {
+    //     const SQL_NAME: &'static str = "numrange";
+    // }
+
+    // #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    // unsafe fn numrange_to_alias(
+    //     arr: GenericTypeWrapper<NumRange, NumRangeMarker>,
+    // ) -> GenericTypeWrapper<Alias, AliasMarker> {
+    //     GenericTypeWrapper::new(arr.datum)
+    // }
+
+    // // allow <daterange>::pdb.alias
+    // struct DateRangeMarker;
+    // impl SqlNameMarker for DateRangeMarker {
+    //     const SQL_NAME: &'static str = "daterange";
+    // }
+
+    // #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    // unsafe fn daterange_to_alias(
+    //     arr: GenericTypeWrapper<DateRange, DateRangeMarker>,
+    // ) -> GenericTypeWrapper<Alias, AliasMarker> {
+    //     GenericTypeWrapper::new(arr.datum)
+    // }
+
+    // // allow <tsrange>::pdb.alias
+    // struct TsRangeMarker;
+    // impl SqlNameMarker for TsRangeMarker {
+    //     const SQL_NAME: &'static str = "tsrange";
+    // }
+
+    // #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    // unsafe fn tsrange_to_alias(
+    //     arr: GenericTypeWrapper<TsRange, TsRangeMarker>,
+    // ) -> GenericTypeWrapper<Alias, AliasMarker> {
+    //     GenericTypeWrapper::new(arr.datum)
+    // }
+
+    // // allow <tstzrange>::pdb.alias
+    // struct TstzRangeMarker;
+    // impl SqlNameMarker for TstzRangeMarker {
+    //     const SQL_NAME: &'static str = "tstzrange";
+    // }
+
+    // #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+    // unsafe fn tstzrange_to_alias(
+    //     arr: GenericTypeWrapper<TstzRange, TstzRangeMarker>,
+    // ) -> GenericTypeWrapper<Alias, AliasMarker> {
+    //     GenericTypeWrapper::new(arr.datum)
+    // }
+
+    extension_sql!(
+        r#"
+            CREATE CAST (smallint AS pdb.alias) WITH FUNCTION pdb.smallint_to_alias AS ASSIGNMENT;
+            CREATE CAST (integer AS pdb.alias) WITH FUNCTION pdb.integer_to_alias AS ASSIGNMENT;
+            CREATE CAST (bigint AS pdb.alias) WITH FUNCTION pdb.bigint_to_alias AS ASSIGNMENT;
+            CREATE CAST (oid AS pdb.alias) WITH FUNCTION pdb.oid_to_alias AS ASSIGNMENT;
+            CREATE CAST (float4 AS pdb.alias) WITH FUNCTION pdb.float4_to_alias AS ASSIGNMENT;
+            CREATE CAST (float8 AS pdb.alias) WITH FUNCTION pdb.float8_to_alias AS ASSIGNMENT;
+            CREATE CAST (boolean AS pdb.alias) WITH FUNCTION pdb.boolean_to_alias AS ASSIGNMENT;
+            CREATE CAST (date AS pdb.alias) WITH FUNCTION pdb.date_to_alias AS ASSIGNMENT;
+            CREATE CAST (time AS pdb.alias) WITH FUNCTION pdb.time_to_alias AS ASSIGNMENT;
+            CREATE CAST (timestamp AS pdb.alias) WITH FUNCTION pdb.timestamp_to_alias AS ASSIGNMENT;
+            CREATE CAST (timestamp with time zone AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_to_alias AS ASSIGNMENT;
+            CREATE CAST (time with time zone AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_to_alias AS ASSIGNMENT;
+            CREATE CAST (inet AS pdb.alias) WITH FUNCTION pdb.inet_to_alias AS ASSIGNMENT;
+            CREATE CAST (int4range AS pdb.alias) WITH FUNCTION pdb.int4range_to_alias AS ASSIGNMENT;
+            CREATE CAST (int8range AS pdb.alias) WITH FUNCTION pdb.int8range_to_alias AS ASSIGNMENT;
+        "#,
+        name = "alias_cast",
+        requires = [
+            tokenize_alias,
+            "alias_definition",
+            smallint_to_alias,
+            integer_to_alias,
+            bigint_to_alias,
+            oid_to_alias,
+            float4_to_alias,
+            float8_to_alias,
+            boolean_to_alias,
+            date_to_alias,
+            time_to_alias,
+            timestamp_to_alias,
+            timestamp_with_time_zone_to_alias,
+            time_with_time_zone_to_alias,
+            inet_to_alias,
+            int4range_to_alias,
+            int8range_to_alias,
+        ]
+    );
 }
 
 #[pg_extern(immutable, parallel_safe)]

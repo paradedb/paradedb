@@ -58,6 +58,10 @@ pub fn search_field_config_from_type(
 ) -> Option<SearchFieldConfig> {
     let type_name = lookup_type_name(oid)?;
 
+    if type_name.as_str() == "alias" && oid != pg_sys::VARCHAROID && oid != pg_sys::TEXTOID {
+        return None;
+    }
+
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
@@ -370,6 +374,178 @@ impl DatumWrapper for pgrx::JsonB {
 impl DatumWrapper for Vec<String> {
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for i16 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <i16 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for i32 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <i32 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for i64 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <i64 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for u32 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <u32 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for f32 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <f32 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for f64 {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <f64 as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for bool {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <bool as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Date {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <pgrx::datum::Date as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Time {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <pgrx::datum::Time as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Timestamp {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Timestamp as FromDatum>::from_datum(datum, datum.is_null()).unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::TimestampWithTimeZone {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::TimestampWithTimeZone as FromDatum>::from_datum(datum, datum.is_null())
+                .unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::TimeWithTimeZone {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::TimeWithTimeZone as FromDatum>::from_datum(datum, datum.is_null())
+                .unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Inet {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe { <pgrx::datum::Inet as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+// impl DatumWrapper for pgrx::Numeric {
+//     fn from_datum(datum: pg_sys::Datum) -> Self {
+//         unsafe { <pgrx::Numeric as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
+//     }
+
+//     fn as_datum(&self) -> pg_sys::Datum {
+//         unreachable!("this is not supported")
+//     }
+// }
+
+impl DatumWrapper for pgrx::datum::Range<i32> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<i32> as FromDatum>::from_datum(datum, datum.is_null()).unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Range<i64> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<i64> as FromDatum>::from_datum(datum, datum.is_null()).unwrap()
+        }
     }
 
     fn as_datum(&self) -> pg_sys::Datum {

@@ -31,7 +31,7 @@ use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::api::tokenizers::{type_is_tokenizer, Typmod};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
@@ -120,8 +120,17 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             return Err(SearchIndexSchemaError::JsonArraysNotYetSupported);
         }
 
-        let (base_oid, _) = resolve_base_type(pg_oid)
+        let (mut base_oid, _) = resolve_base_type(pg_oid)
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
+
+        if matches!(base_oid, PgOid::Custom(alias_oid) if type_is_alias(alias_oid)) {
+            base_oid = PgOid::BuiltIn(
+                inner_typoid
+                    .try_into()
+                    .expect("type cast to `pdb.alias` not allowed"),
+            );
+        }
+
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {

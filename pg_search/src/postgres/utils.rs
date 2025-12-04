@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -285,9 +285,6 @@ pub unsafe fn extract_field_attributes(
                 let mut normalizer = None;
 
                 if type_is_tokenizer(typoid) {
-                    if type_is_alias(typoid) {
-                        panic!("`pdb.alias` is not allowed in index definitions")
-                    }
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
@@ -295,8 +292,8 @@ pub unsafe fn extract_field_attributes(
                     let vars = find_vars(node);
 
                     normalizer = parsed_typmod.normalizer();
-
                     attname = parsed_typmod.alias();
+
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         let heap_attname = heap_relation
@@ -327,6 +324,12 @@ pub unsafe fn extract_field_attributes(
                         attname = Some(heap_attname);
                         expression = None;
                         inner_typoid = pg_sys::exprType(inner_expression.cast());
+                    }
+
+                    if type_is_alias(typoid) {
+                        let alias_typmod =
+                            AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                        attname = alias_typmod.alias();
                     }
                 }
 

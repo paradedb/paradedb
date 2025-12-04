@@ -18,7 +18,7 @@
 //! FilterQuery - a tantivy QueryBuilder for PostgreSQL filter aggregations.
 //!
 //! Uses a function pointer to defer PostgreSQL-dependent query building to runtime,
-//! avoiding link-time dependencies in pgrx_embed.
+//! which is required to avoid linker errors in pgrx_embed.
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -40,14 +40,13 @@ use tantivy::TantivyError;
 /// Type alias for the filter query builder function.
 /// This function is set at runtime to avoid pulling PostgreSQL symbols into pgrx_embed.
 /// Takes the JSON-serialized query and indexrelid.
-pub type BuildFilterQueryFn = fn(&str, u32) -> anyhow::Result<Box<dyn Query>>;
+type BuildFilterQueryFn = fn(serde_json::Value, u32) -> anyhow::Result<Box<dyn Query>>;
 
 /// Global function pointer for building filter queries.
 /// This is initialized at extension load time via `init_filter_query_builder()`.
 /// Using a function pointer breaks the link-time dependency on PostgreSQL symbols,
 /// allowing the pgrx_embed binary to be built without them.
-pub static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> =
-    std::sync::OnceLock::new();
+static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> = std::sync::OnceLock::new();
 
 /// Initialize the query builder. Call from `_PG_init`.
 pub fn init_filter_query_builder() {
@@ -90,10 +89,7 @@ impl QueryBuilder for FilterQuery {
         let build_fn = BUILD_FILTER_QUERY_FN
             .get()
             .expect("call init_filter_query_builder() in _PG_init");
-        let query_json = serde_json::to_string(&self.query)
-            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
-
-        build_fn(&query_json, self.indexrelid)
+        build_fn(self.query.clone(), self.indexrelid)
             .map_err(|e| TantivyError::InvalidArgument(e.to_string()))
     }
 
@@ -102,8 +98,8 @@ impl QueryBuilder for FilterQuery {
     }
 }
 
-fn build_query(query_json: &str, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
-    let query: SearchQueryInput = serde_json::from_str(query_json)?;
+fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
+    let query: SearchQueryInput = serde_json::from_value(query_json)?;
     let indexrelid = pg_sys::Oid::from(indexrelid);
     let context = ExprContextGuard::new();
 

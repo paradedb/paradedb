@@ -44,16 +44,6 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             runner: ubicloud-standard-8
             image: redhat/ubi9:latest
-            pg_version: 14
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi9:latest
-            pg_version: 14
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
-            image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
@@ -80,21 +70,21 @@ jobs:
             runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 17
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 18
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 18
             arch: aarch64
           # Red Hat Enterprise Linux 10
           - name: Red Hat Enterprise Linux 10
             runner: ubicloud-standard-8
             image: redhat/ubi10:latest
-            pg_version: 14
-            arch: x86_64
-          - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
-            image: redhat/ubi10:latest
-            pg_version: 14
-            arch: aarch64
-          - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-8
-            image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
@@ -121,6 +111,16 @@ jobs:
             runner: ubicloud-standard-4-arm
             image: redhat/ubi10:latest
             pg_version: 17
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-8
+            image: redhat/ubi10:latest
+            pg_version: 18
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 10
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi10:latest
+            pg_version: 18
             arch: aarch64
 
     steps:
@@ -168,7 +168,7 @@ jobs:
           sudo dnf install -y rpmdevtools
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI

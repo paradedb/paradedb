@@ -47,7 +47,7 @@ jobs:
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
     env:
-      pg_version: 17
+      pg_version: 18
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 1
@@ -93,7 +93,7 @@ jobs:
 
       - name: Fetch the Latest Composite Actions
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
           path: actions-temp
@@ -214,7 +214,7 @@ jobs:
         run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Checkout Stressgres Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: paradedb/stressgres
           path: stressgres

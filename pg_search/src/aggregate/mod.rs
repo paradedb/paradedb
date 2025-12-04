@@ -267,10 +267,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             let schema = indexrel.schema()?;
             set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
+
+        let nworkers = self.state.launched_workers();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggregationLimitsGuard::new(
-                Some(self.config.memory_limit),
+                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
                 Some(self.config.bucket_limit),
             ),
         );

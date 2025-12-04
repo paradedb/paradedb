@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # This step is used to check if the PR author is a member of the org, since
       # access to GitHub Actions secrets is limited to org members.
@@ -92,7 +92,7 @@ jobs:
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
             -p 5432:5432 \
-            --tmpfs /var/lib/postgresql/data:size=1G \
+            --tmpfs /var/lib/postgresql:size=1G \
             paradedb/paradedb:latest
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly

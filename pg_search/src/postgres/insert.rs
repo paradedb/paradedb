@@ -85,7 +85,7 @@ pub struct InsertState {
 impl InsertState {
     unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
-            if cfg!(feature = "pg17") {
+            if cfg!(any(feature = "pg17", feature = "pg18")) {
                 if IsLogicalWorker() {
                     PgMemoryContexts::TopTransactionContext.value()
                 } else {
@@ -130,7 +130,7 @@ impl InsertState {
     }
 }
 
-#[cfg(not(feature = "pg17"))]
+#[cfg(not(any(feature = "pg17", feature = "pg18")))]
 unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -149,7 +149,7 @@ unsafe fn init_insert_state(
     get_insert_state((*index_relation).rd_id).expect("should have a pending insert state")
 }
 
-#[cfg(feature = "pg17")]
+#[cfg(any(feature = "pg17", feature = "pg18"))]
 #[allow(static_mut_refs)]
 unsafe fn logical_worker_state() -> &'static mut rustc_hash::FxHashMap<pg_sys::Oid, InsertState> {
     static mut LOGICAL_WORKER_STATE: Option<rustc_hash::FxHashMap<pg_sys::Oid, InsertState>> = None;
@@ -175,7 +175,7 @@ unsafe fn logical_worker_state() -> &'static mut rustc_hash::FxHashMap<pg_sys::O
     LOGICAL_WORKER_STATE.as_mut().unwrap()
 }
 
-#[cfg(feature = "pg17")]
+#[cfg(any(feature = "pg17", feature = "pg18"))]
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
@@ -328,7 +328,7 @@ unsafe fn insert(
     }
 }
 
-#[cfg(feature = "pg17")]
+#[cfg(any(feature = "pg17", feature = "pg18"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,

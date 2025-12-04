@@ -19,6 +19,7 @@ use crate::api::{FieldName, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
+use crate::postgres::customscan::aggregatescan::filterquery_impl::new_filter_query;
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
@@ -237,9 +238,9 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: FilterQuery::new(
+                        agg: new_filter_query(
                             self.quals.query().clone(),
-                            self.indexrelid.to_u32(),
+                            self.indexrelid,
                             self.is_execution_time,
                         )?
                         .into(),
@@ -461,9 +462,9 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
     fn iter_leaves(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             agg.filter_expr().as_ref().map(|filter_expr| {
-                FilterQuery::new(
+                new_filter_query(
                     filter_expr.clone(),
-                    agg.indexrelid().to_u32(),
+                    agg.indexrelid(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")
@@ -476,16 +477,16 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterQuery>> {
         Ok(self.targetlist.aggregates().map(|agg| {
             if let Some(filter_expr) = agg.filter_expr() {
-                FilterQuery::new(
+                new_filter_query(
                     filter_expr.clone(),
-                    agg.indexrelid().to_u32(),
+                    agg.indexrelid(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")
             } else {
-                FilterQuery::new(
+                new_filter_query(
                     SearchQueryInput::All,
-                    agg.indexrelid().to_u32(),
+                    agg.indexrelid(),
                     self.is_execution_time,
                 )
                 .expect("should be able to create filter query")

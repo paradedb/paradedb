@@ -18,10 +18,8 @@
 //! FilterQuery implementation for tantivy's QueryBuilder trait.
 //!
 //! This module is carefully structured to avoid pulling PostgreSQL symbols into
-//! the pgrx_embed binary. The PostgreSQL-dependent implementation is in a separate
-//! module (`filterquery_impl`) and registered via function pointer at runtime.
-
-use crate::query::SearchQueryInput;
+//! the pgrx_embed binary. The query is stored as JSON to avoid importing
+//! SearchQueryInput which has PostgreSQL dependencies.
 
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, QueryBuilder};
@@ -32,7 +30,8 @@ use tantivy::TantivyError;
 
 /// Type alias for the filter query builder function.
 /// This function is set at runtime to avoid pulling PostgreSQL symbols into pgrx_embed.
-pub type BuildFilterQueryFn = fn(&SearchQueryInput, u32) -> anyhow::Result<Box<dyn Query>>;
+/// Takes the JSON-serialized query and indexrelid.
+pub type BuildFilterQueryFn = fn(&str, u32) -> anyhow::Result<Box<dyn Query>>;
 
 /// Global function pointer for building filter queries.
 /// This is initialized at extension load time via `init_filter_query_builder()`.
@@ -45,11 +44,13 @@ pub static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> =
 /// The actual query building is deferred until `build_query()` is called, which allows
 /// proper serialization/deserialization for distributed aggregation scenarios.
 ///
-/// IMPORTANT: This struct must NOT contain any PostgreSQL types (like pg_sys::Oid)
-/// to avoid pulling PostgreSQL symbols into the pgrx_embed binary via typetag.
+/// IMPORTANT: This struct stores the query as JSON to avoid importing SearchQueryInput
+/// which has PostgreSQL dependencies that would be pulled into the pgrx_embed binary.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FilterQuery {
-    query: SearchQueryInput,
+    /// The SearchQueryInput serialized as JSON.
+    /// We store it as JSON to avoid importing SearchQueryInput which has PostgreSQL dependencies.
+    query: serde_json::Value,
     /// Index OID stored as u32 to avoid pg_sys::Oid which would pull in PostgreSQL symbols.
     indexrelid: u32,
 }
@@ -74,7 +75,10 @@ impl QueryBuilder for FilterQuery {
             .get()
             .expect("FilterQuery builder not initialized - call init_filter_query_builder() first");
 
-        build_fn(&self.query, self.indexrelid)
+        let query_json = serde_json::to_string(&self.query)
+            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
+
+        build_fn(&query_json, self.indexrelid)
             .map_err(|e| TantivyError::InvalidArgument(e.to_string()))
     }
 
@@ -84,19 +88,18 @@ impl QueryBuilder for FilterQuery {
 }
 
 impl FilterQuery {
-    /// Create a new FilterQuery.
+    /// Create a new FilterQuery from a JSON-serialized SearchQueryInput.
     ///
     /// Takes the indexrelid as u32 to avoid storing pg_sys::Oid which would pull
-    /// PostgreSQL symbols into the pgrx_embed binary. Callers should use
-    /// `indexrelid.to_u32()` to convert from pg_sys::Oid.
-    ///
-    /// Returns `Ok(Self)` for API compatibility (was previously fallible when
-    /// building the query eagerly).
-    pub fn new(
-        query: SearchQueryInput,
+    /// PostgreSQL symbols into the pgrx_embed binary.
+    pub fn from_json(
+        query_json: serde_json::Value,
         indexrelid: u32,
         _is_execution_time: bool,
-    ) -> anyhow::Result<Self> {
-        Ok(Self { query, indexrelid })
+    ) -> Self {
+        Self {
+            query: query_json,
+            indexrelid,
+        }
     }
 }

@@ -23,7 +23,9 @@
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::aggregatescan::filterquery::BUILD_FILTER_QUERY_FN;
+use crate::postgres::customscan::aggregatescan::filterquery::{
+    BuildFilterQueryFn, FilterQuery, BUILD_FILTER_QUERY_FN,
+};
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -35,7 +37,22 @@ use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
 
 /// Initialize the filter query builder function. Must be called at extension load time.
 pub fn init_filter_query_builder() {
-    BUILD_FILTER_QUERY_FN.get_or_init(|| build_filter_query_impl);
+    BUILD_FILTER_QUERY_FN.get_or_init(|| build_filter_query_impl as BuildFilterQueryFn);
+}
+
+/// Create a FilterQuery from a SearchQueryInput (convenience wrapper for callers in pg_search).
+/// This function lives here so that build.rs doesn't need to serialize to JSON manually.
+pub fn new_filter_query(
+    query: SearchQueryInput,
+    indexrelid: pg_sys::Oid,
+    is_execution_time: bool,
+) -> anyhow::Result<FilterQuery> {
+    let query_json = serde_json::to_value(&query)?;
+    Ok(FilterQuery::from_json(
+        query_json,
+        indexrelid.to_u32(),
+        is_execution_time,
+    ))
 }
 
 /// A wrapper that holds both a tantivy Query and the ExprContextGuard that must
@@ -70,12 +87,10 @@ impl Query for QueryWithContext {
     }
 }
 
-/// The actual implementation that builds a tantivy query from SearchQueryInput.
+/// The actual implementation that builds a tantivy query from JSON-serialized SearchQueryInput.
 /// This function contains all PostgreSQL-dependent code.
-fn build_filter_query_impl(
-    query: &SearchQueryInput,
-    indexrelid: u32,
-) -> anyhow::Result<Box<dyn Query>> {
+fn build_filter_query_impl(query_json: &str, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
+    let query: SearchQueryInput = serde_json::from_str(query_json)?;
     let indexrelid = pg_sys::Oid::from(indexrelid);
     let standalone_context = ExprContextGuard::new();
     let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);

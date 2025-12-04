@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764807200848,
+  "lastUpdate": 1764807741837,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25682,6 +25682,54 @@ window.BENCHMARK_DATA = {
             "value": 109.79989569970516,
             "unit": "median tps",
             "extra": "avg tps: 112.47824457869805, max tps: 500.52139035165493, count: 107420"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ac839a450027699255b553223c89e2f9f5267f2",
+          "message": "fix: Fail fast for unsupported query shapes (#3679)\n\n# Ticket(s) Closed\n\n- Closes #3622\n\n## What\n\nFail fast (with an error which points to\nhttps://github.com/orgs/paradedb/discussions/3678) for unsupported query\nshapes.\n\n## Why\n\nWe have long debated failing fast for projected functions which we have\nnot been able to capture with the custom scan, but had so far decided to\ncontinue to return an empty result. But #3622 helps to emphasize the\nrisks involved in failing silently, as it silently produces an empty\nresult.\n\nInstead, failing fast should allow us to more rapidly learn which query\nshapes matter, and avoid users being confused about whether an empty\nresult is intentional.",
+          "timestamp": "2025-12-03T15:13:26-08:00",
+          "tree_id": "9719df8cd8cffd1ba47af7fc43d35fbe15731068",
+          "url": "https://github.com/paradedb/paradedb/commit/3ac839a450027699255b553223c89e2f9f5267f2"
+        },
+        "date": 1764807738887,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 473.39761583141035,
+            "unit": "median tps",
+            "extra": "avg tps: 477.96772231251384, max tps: 664.1803749311176, count: 53691"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 533.6159405367973,
+            "unit": "median tps",
+            "extra": "avg tps: 541.0228985697275, max tps: 785.5695829111327, count: 53691"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.03075105056097,
+            "unit": "median tps",
+            "extra": "avg tps: 84.22728364214036, max tps: 91.60720722756437, count: 53691"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.18048674270094,
+            "unit": "median tps",
+            "extra": "avg tps: 108.84239172677266, max tps: 587.063172612342, count: 107382"
           }
         ]
       }

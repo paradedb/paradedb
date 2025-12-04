@@ -126,6 +126,15 @@ static MOCK_LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
         "forestilling",
     ),
     (
+        Language::Polish,
+        "('Jan Kowalski', 'Nowa Publikacja Książki', 'Ekscytująca nowa książka wydana przez znanego autora.'),
+            ('Anna Nowak', 'Najważniejsze Momenty Konferencji Technologicznej', 'Najważniejsze momenty z ostatniej konferencji technologicznej.'),
+            ('Piotr Wiśniewski', 'Lokalny Festiwal Kulturalny', 'W ten weekend odbędzie się lokalny festiwal kulturalny z planowanymi stojakami z jedzeniem i występami.')",
+        "kowalsk",
+        "technologiczn",
+        "odbędz",
+    ),
+    (
         Language::Portuguese,
         "('João Silva', 'Novo Lançamento de Livro', 'Novo livro emocionante lançado por um autor famoso.'),
             ('Maria Santos', 'Destaques da Conferência de Tecnologia', 'Os destaques da última conferência de tecnologia.'),

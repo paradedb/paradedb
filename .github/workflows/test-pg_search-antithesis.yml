@@ -1,0 +1,108 @@
+# workflows/test-pg_search-antithesis.yml
+#
+# Test pg_search (Antithesis)
+# Build the current commit as a Docker image, push it to Antithesis, and trigger an Antithesis test run.
+
+name: Test pg_search (Antithesis)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/test-pg_search.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
+      - "tests/**"
+      - "tokenizers/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-pg_search-antithesis-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pg_search-antithesis:
+    name: Test pg_search via Antithesis
+    # TODO: See https://github.com/paradedb/paradedb/issues/3613
+    runs-on: ubicloud-standard-8-ubuntu-2204
+    strategy:
+      matrix:
+        pg_version: [18]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch the entire history (required to checkout tags)
+
+      # Cross-compilation is incredibly slow, so we use an external service called Depot to
+      # speed up container builds for universal images. We could eventually replace this with
+      # Docker Build Cloud once they add support for multiple concurrent builders.
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Set up Docker Buildxe
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log Into Antithesis Registry
+        uses: docker/login-action@v3
+        with:
+          registry: us-central1-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.ANTITHESIS_REGISTRY_KEY }}
+
+      - name: Extract Config Metadata
+        id: extract-config-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb
+          tags: |
+            type=sha
+
+      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
+      # the `latest` and `latest-pg` tags on production releases, not for beta releases.
+      # TODO: Add tag here, make sure it works with CNPG
+      - name: Setup Docker Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb
+          tags: |
+            type=sha
+            type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
+
+      - name: Build and Push Docker Image to Antithesis Registry
+        id: build-push
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          build-args: |
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
+            COMMIT_SHA=${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile
+          push: true
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger Antithesis Test
+        uses: antithesishq/antithesis-trigger-action@main
+        with:
+          notebook_name: paradedb
+          tenant: paradedb
+          username: ${{ secrets.ANTITHESIS_USERNAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb@${{ steps.build-push.outputs.digest }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb/paradedb@${{ steps.build-push.outputs.digest }};docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+          description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
+          email_recipients: "developers@paradedb.com"
+          additional_parameters: |-
+            antithesis.duration=${{ github.event.inputs.duration || '30' }}

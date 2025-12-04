@@ -32,7 +32,11 @@ SELECT mutable, num_docs FROM paradedb.index_info('data_docstore_text_search_idx
 SELECT id
 FROM data_docstore
 WHERE doc_text ||| 'BigData_';
-ERROR:  unexpected chunk number 8 (expected 0) for toast value 96061 in pg_toast_96052
+ id 
+----
+  1
+(1 row)
+
 -- Now make sure merging mutable segments works
 DO $$
 BEGIN
@@ -40,4 +44,3 @@ BEGIN
     UPDATE data_docstore SET doc_text = repeat('BigData_ ', 200000) WHERE id = 1;
   END LOOP;
 END$$;
-ERROR:  missing chunk number 0 for toast value 96061 in pg_toast_96052

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764879740302,
+  "lastUpdate": 1764879744162,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18382,6 +18382,108 @@ window.BENCHMARK_DATA = {
             "value": 156.5,
             "unit": "median mem",
             "extra": "avg mem: 174.31970114497705, max mem: 216.078125, count: 56202"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "piotr.olszak@gmail.com",
+            "name": "Piotr Olszak",
+            "username": "ptr07"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b3117f76ca77aa276b23d13f52ac20444aa7545",
+          "message": "feat: Support stemming in Polish language #1625  (#3645)\n\n##  Ticket(s) Closed \n\n- Closes #1625\n\n## What\n\nThis update introduces support for Polish language stopwords and\nstemming while updating relevant documentation, tests, and dependencies,\nincluding an upgrade to tantivy.\n\n## Why\n\nUser feature request.\n\n## How\n\n- Added support for Polish language stopwords in `paradedb.tokenize`.\n- Included Polish stemmer in `pdb.simple` tokenizer.\n- Updated tests in `stopwords.sql`, `stopwords.out`,\n`tokenizer-typmod.sql`, and associated outputs.\n- Expanded documentation to list Polish in valid languages for stemming\nand stopwords.\n- Bumped `tantivy` and `tantivy-tokenizer-api` dependencies to new\nrevisions.\n- Updated dependencies and Cargo.lock with the latest versions.\n\n## Tests\nexisting tests pass\n\n---------\n\nCo-authored-by: Piotr Olszak <p.olszak@bosflow.com>",
+          "timestamp": "2025-12-04T11:36:58-08:00",
+          "tree_id": "b3dcf027ef639364220bcddbf50f58771434cf34",
+          "url": "https://github.com/paradedb/paradedb/commit/9b3117f76ca77aa276b23d13f52ac20444aa7545"
+        },
+        "date": 1764879741390,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07337292749319475, max background_merging: 2.0, count: 56574"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662492511370646, max cpu: 9.648242, count: 56574"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 23.806824427409232, max mem: 23.8203125, count: 56574"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.927873616509021, max cpu: 13.899614, count: 56574"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.14441580385866, max mem: 164.74609375, count: 56574"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51458,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51324.417205783575, max block_count: 51458.0, count: 56574"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.1343726800297, max segment_count: 56.0, count: 56574"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.562709858252213, max cpu: 9.4395275, count: 56574"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.375,
+            "unit": "median mem",
+            "extra": "avg mem: 112.70429306362021, max mem: 139.03515625, count: 56574"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.696880902223572, max cpu: 9.504951, count: 56574"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.19158114538038, max mem: 164.3671875, count: 56574"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.76980918516735, max cpu: 33.633633, count: 56574"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 179.19997653791935, max mem: 219.61328125, count: 56574"
           }
         ]
       }

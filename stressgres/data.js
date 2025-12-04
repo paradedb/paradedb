@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764806971558,
+  "lastUpdate": 1764806975382,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24084,6 +24084,114 @@ window.BENCHMARK_DATA = {
             "value": 159.79296875,
             "unit": "median mem",
             "extra": "avg mem: 157.37016020423764, max mem: 160.296875, count: 55597"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ac839a450027699255b553223c89e2f9f5267f2",
+          "message": "fix: Fail fast for unsupported query shapes (#3679)\n\n# Ticket(s) Closed\n\n- Closes #3622\n\n## What\n\nFail fast (with an error which points to\nhttps://github.com/orgs/paradedb/discussions/3678) for unsupported query\nshapes.\n\n## Why\n\nWe have long debated failing fast for projected functions which we have\nnot been able to capture with the custom scan, but had so far decided to\ncontinue to return an empty result. But #3622 helps to emphasize the\nrisks involved in failing silently, as it silently produces an empty\nresult.\n\nInstead, failing fast should allow us to more rapidly learn which query\nshapes matter, and avoid users being confused about whether an empty\nresult is intentional.",
+          "timestamp": "2025-12-03T15:13:26-08:00",
+          "tree_id": "9719df8cd8cffd1ba47af7fc43d35fbe15731068",
+          "url": "https://github.com/paradedb/paradedb/commit/3ac839a450027699255b553223c89e2f9f5267f2"
+        },
+        "date": 1764806972604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.719985349019282, max cpu: 47.244095, count: 55620"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 160.125,
+            "unit": "median mem",
+            "extra": "avg mem: 145.45309550296656, max mem: 165.75390625, count: 55620"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.751702934499227, max cpu: 28.015566, count: 55620"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.28470094221953, max mem: 113.31640625, count: 55620"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.811603540772568, max cpu: 9.411765, count: 55620"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 112.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 103.7058755983684, max mem: 146.5546875, count: 55620"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13957,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14109.570891765552, max block_count: 25443.0, count: 55620"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.567251628798012, max cpu: 4.669261, count: 55620"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 87.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 81.92876698186353, max mem: 125.41015625, count: 55620"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.802463142754405, max segment_count: 35.0, count: 55620"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.905730819798238, max cpu: 28.402367, count: 111240"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.88569351739483, max mem: 152.32421875, count: 111240"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.415870682700227, max cpu: 27.853, count: 55620"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 163.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.0073299425791, max mem: 164.53515625, count: 55620"
           }
         ]
       }

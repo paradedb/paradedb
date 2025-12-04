@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764806975382,
+  "lastUpdate": 1764807196989,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14016,6 +14016,54 @@ window.BENCHMARK_DATA = {
             "value": 5.419476115120586,
             "unit": "median tps",
             "extra": "avg tps: 5.430607570341776, max tps: 7.204321532443336, count: 56102"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b73ac643986aad95d1eac41a536f1432adae3bee",
+          "message": "fix: missing aggregate functions in upgrade script (#3699)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Added missing aggregate function definitions to the 0.20.0 → 0.20.1\nupgrade script\n- Removed redundant GUC checks from aggregate placeholder functions\n\n## Why\n\nThe upgrade script was missing the SQL definitions for `pdb.agg`\naggregate and its supporting functions, which would cause upgrades from\n0.19.x+ to fail.\n\n## How\n\n- Added the required `CREATE FUNCTION` and `CREATE AGGREGATE` statements\nto `pg_search--0.20.0--0.20.1.sql`\n- Removed the duplicate `enable_aggregate_custom_scan()` checks since\nthe subsequent error message already explains the issue clearly\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2025-12-03T15:30:07-08:00",
+          "tree_id": "05610879c11fdd91b956113dfea35480937ce6b2",
+          "url": "https://github.com/paradedb/paradedb/commit/b73ac643986aad95d1eac41a536f1432adae3bee"
+        },
+        "date": 1764807194179,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1085.4097482252741,
+            "unit": "median tps",
+            "extra": "avg tps: 1088.3204101457106, max tps: 1125.5195254945788, count: 56202"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1302.8157384641509,
+            "unit": "median tps",
+            "extra": "avg tps: 1290.6273976425932, max tps: 1316.3460658035428, count: 56202"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1821.0841955570088,
+            "unit": "median tps",
+            "extra": "avg tps: 1799.1289905158496, max tps: 1949.2187032847803, count: 56202"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.384419566722343,
+            "unit": "median tps",
+            "extra": "avg tps: 5.407148578228288, max tps: 7.5292329622530785, count: 56202"
           }
         ]
       }

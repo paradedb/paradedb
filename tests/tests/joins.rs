@@ -11,11 +11,11 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
     DROP TABLE IF EXISTS a;
     DROP TABLE IF EXISTS b;
     CREATE TABLE a (
-        id bigint,
+        id bigint PRIMARY KEY,
         value text
     );
     CREATE TABLE b (
-        id bigint,
+        id bigint PRIMARY KEY,
         value text
     );
     
@@ -84,11 +84,11 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
 fn snippet_from_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     r#"
     CREATE TABLE a (
-        id bigint,
+        id bigint PRIMARY KEY,
         value text
     );
     CREATE TABLE b (
-        id bigint,
+        id bigint PRIMARY KEY,
         value text
     );
 

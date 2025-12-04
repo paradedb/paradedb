@@ -25,7 +25,7 @@ use sqlx::PgConnection;
 #[rstest]
 fn test_subselect(mut conn: PgConnection) {
     r#"
-        CREATE TABLE test_subselect(id serial8, t text);
+        CREATE TABLE test_subselect(id serial8 PRIMARY KEY, t text);
         INSERT INTO test_subselect(t) VALUES ('this is a test');
 
         CREATE INDEX test_subselect_idx ON test_subselect
@@ -44,7 +44,7 @@ fn test_subselect(mut conn: PgConnection) {
 #[rstest]
 fn test_cte(mut conn: PgConnection) {
     r#"
-        CREATE TABLE test_cte(id serial8, t text);
+        CREATE TABLE test_cte(id serial8 PRIMARY KEY, t text);
         INSERT INTO test_cte(t) VALUES ('beer wine cheese');
         INSERT INTO test_cte(t) VALUES ('beer cheese');
 
@@ -65,7 +65,7 @@ fn test_cte(mut conn: PgConnection) {
 #[rstest]
 fn test_cte2(mut conn: PgConnection) {
     r#"
-        CREATE TABLE test_cte(id serial8, t text);
+        CREATE TABLE test_cte(id serial8 PRIMARY KEY, t text);
         INSERT INTO test_cte(t) VALUES ('beer wine cheese');
         INSERT INTO test_cte(t) VALUES ('beer cheese');
 
@@ -85,7 +85,7 @@ fn test_cte2(mut conn: PgConnection) {
 #[rstest]
 fn test_plain_relation(mut conn: PgConnection) {
     r#"
-        CREATE TABLE test_plain_relation(id serial8, t text);
+        CREATE TABLE test_plain_relation(id serial8 PRIMARY KEY, t text);
         INSERT INTO test_plain_relation(t) VALUES ('beer wine cheese');
 
         CREATE INDEX test_plain_relation_idx ON test_plain_relation

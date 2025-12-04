@@ -88,15 +88,7 @@ SELECT
 FROM products 
 WHERE category_name = 'Electronics'
 ORDER BY id;
- id |      name       | category_name | score 
-----+-----------------+---------------+-------
-  2 | MacBook Pro     | Electronics   |      
-  4 | Samsung Galaxy  | Electronics   |      
-  7 | Apple Watch     | Electronics   |      
-  8 | Sony Headphones | Electronics   |      
- 10 | Budget Phone    | Electronics   |      
-(5 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test Case 1.6: Simple test with just non-indexed predicate to isolate the issue
 SELECT 
     id,
@@ -263,21 +255,7 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
- id |       name        | category_name | score 
-----+-------------------+---------------+-------
-  1 | Apple iPhone 14   | Casual        |      
-  2 | MacBook Pro       | Electronics   |      
-  3 | Nike Air Max      | Footwear      |      
-  4 | Samsung Galaxy    | Electronics   |      
-  5 | Adidas Ultraboost | Footwear      |      
-  6 | Nike Normal       | Footwear      |      
-  7 | Apple Watch       | Electronics   |      
-  8 | Sony Headphones   | Electronics   |      
-  9 | Running Socks     | Footwear      |      
- 10 | Budget Phone      | Electronics   |      
- 11 | Budget Tablet     | Garbage       |      
-(11 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -798,13 +776,7 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
- id |       name        | price  | in_stock | score 
-----+-------------------+--------+----------+-------
-  3 | Nike Air Max      | 149.99 | t        |      
-  5 | Adidas Ultraboost | 179.99 | t        |      
-  8 | Sony Headphones   | 299.99 | t        |      
-(3 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test Case 14: Array operations (if supported)
 -- Tests heap filtering with array predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -1088,11 +1060,7 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
- id |    name     | category_name | score 
-----+-------------+---------------+-------
-  2 | MacBook Pro | Electronics   |      
-(1 row)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test edge case: Query with only indexed predicates should still work when GUC is disabled
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 

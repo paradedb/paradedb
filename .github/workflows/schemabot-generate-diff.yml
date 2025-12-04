@@ -1,7 +1,7 @@
 # workflows/schemabot-generate-diff.yml
 #
 # SchemaBot Generate Diff
-# Determine if a commit introduces an extension schema change for pg_search.
+# Determine if a commit introduces an extension schema change for pg_search and post a comment to the PR.
 
 name: SchemaBot Generate Diff
 
@@ -17,8 +17,10 @@ on:
       - "!pg_search/README.md"
   workflow_dispatch:
 
+# Required to post a comment to the PR
 permissions:
-  contents: read
+  pull-requests: write
+  issues: write
 
 concurrency:
   group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
@@ -26,7 +28,7 @@ concurrency:
 
 jobs:
   schemabot-generate-diff:
-    name: Generate Schema Diff
+    name: SchemaBot
     # TODO: See https://github.com/paradedb/paradedb/issues/3613
     runs-on: ubicloud-standard-8-ubuntu-2204
     defaults:
@@ -38,10 +40,11 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Fetch the entire history
-          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Extract pgrx Version
@@ -87,23 +90,21 @@ jobs:
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
-          # Add the PR target repo as 'upstream' (works for both same-repo & forks, and for pull_request & push events)
-          git remote add upstream "https://github.com/${{ github.event.pull_request.base.repo.full_name || github.repository }}.git" || true
+          # Switch to the base git rev
+          git checkout .
+          git checkout ${{ github.event.pull_request.base.ref }}
 
-          # Fetch exactly the base commit object
-          git fetch --no-tags --depth=1 upstream ${{ github.event.pull_request.base.sha }}
-
-          # Discard local changes and check out the fetched commit detached
-          git reset --hard
-          git checkout --detach FETCH_HEAD
-
-          # Recompute cargo-pgrx version and re-init if needed
+          # See if we need a different cargo-pgrx and install it if so
           THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+            # Install cargo-pgrx
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
+
+            # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
             cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
+          # Generate schema
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
@@ -147,11 +148,39 @@ jobs:
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload comment artifact (only if diff)
+      - name: Attach Schema Diff to PR
+        uses: actions/github-script@v8
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
-        uses: actions/upload-artifact@v5
         with:
-          name: schemabot-comment-${{ github.event.pull_request.head.sha }}
-          path: commit-message.md
-          if-no-files-found: error
-          retention-days: 7
+          script: |
+            const fs = require('fs');
+            const commit_message = fs.readFileSync('commit-message.md', 'utf8');
+
+            const comments = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('A schema difference was detected.')
+            );
+
+            const body = `${commit_message}`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body
+              });
+            }

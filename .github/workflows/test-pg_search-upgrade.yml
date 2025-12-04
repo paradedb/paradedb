@@ -35,11 +35,12 @@ jobs:
     runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
+        # TODO: Once we release our first PG18 version, we should use PRIOR_PG_SEARCH_VERSION to test upgrades on PG18 instead
         pg_version: [17]
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Fetch the entire history (required to checkout tags)
 

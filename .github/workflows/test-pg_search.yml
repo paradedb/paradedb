@@ -37,8 +37,8 @@ jobs:
         id: set-matrix
         run: |
           if [[ ${{ github.event_name }} == "push" ]]; then
-            echo "Push event detected; using only PostgreSQL version 17."
-            echo "matrix=[17]" >> $GITHUB_OUTPUT
+            echo "Push event detected; using only PostgreSQL version 18."
+            echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
             echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

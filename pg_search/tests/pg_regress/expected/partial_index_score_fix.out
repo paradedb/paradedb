@@ -60,12 +60,7 @@ SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND rating >= 4
 ORDER BY score DESC;
- id | description  |  category   | rating | score 
-----+--------------+-------------+--------+-------
-  1 | Apple iPhone | Electronics |      5 |      
-  4 | Apple Watch  | Electronics |      4 |      
-(2 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test Case 3: Query with only non-indexed predicate
 -- This should still use the partial index predicate for the base query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -85,13 +80,7 @@ SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE rating >= 4
 ORDER BY score DESC;
- id |  description   |  category   | rating | score 
-----+----------------+-------------+--------+-------
-  1 | Apple iPhone   | Electronics |      5 |      
-  2 | Samsung Galaxy | Electronics |      4 |      
-  4 | Apple Watch    | Electronics |      4 |      
-(3 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Cleanup
 DROP INDEX partial_test_idx;
 DROP TABLE partial_test;

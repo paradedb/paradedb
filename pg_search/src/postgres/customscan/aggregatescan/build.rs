@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, OrderByFeature};
+use crate::api::{FieldName, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
@@ -126,6 +126,23 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
+        // Validate that no custom aggregate has solve_mvcc=false in GROUP BY context.
+        // solve_mvcc=false is only allowed in TopN (window function) context.
+        for agg in self.aggregates() {
+            if let AggregateType::Custom {
+                mvcc_visibility, ..
+            } = agg
+            {
+                if *mvcc_visibility == MvccVisibility::Disabled {
+                    pgrx::error!(
+                        "pdb.agg() with solve_mvcc=false is only supported in window function context \
+                         (with OVER clause). GROUP BY aggregates always use MVCC filtering for correctness. \
+                         Remove the second argument or use solve_mvcc=true."
+                    );
+                }
+            }
+        }
+
         let agg = if !self.has_groupby() {
             let metrics =
                 <Self as CollectFlat<AggregateType, MetricsWithoutGroupBy>>::iter_leaves(self)?;

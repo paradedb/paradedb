@@ -43,8 +43,8 @@ jobs:
         run: |
           echo "Evaluating tag: $GITHUB_REF"
           if [[ "$GITHUB_REF" == *"-"* ]]; then
-            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 17."
-            echo "matrix=[17]" >> $GITHUB_OUTPUT
+            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 17 and 18."
+            echo "matrix=[17, 18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
             echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
@@ -58,11 +58,11 @@ jobs:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
     env:
-      default_pg_version: 17
+      default_pg_version: 18
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 

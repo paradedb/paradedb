@@ -41,16 +41,6 @@ jobs:
           - name: Debian 12 (Bookworm)
             runner: ubicloud-standard-8
             image: debian:12-slim
-            pg_version: 14
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
-            image: debian:12-slim
-            pg_version: 14
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
-            image: debian:12-slim
             pg_version: 15
             arch: amd64
           - name: Debian 12 (Bookworm)
@@ -77,21 +67,21 @@ jobs:
             runner: ubicloud-standard-4-arm
             image: debian:12-slim
             pg_version: 17
+            arch: arm64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 18
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 18
             arch: arm64
           # Debian 13 (Trixie)
           - name: Debian 13 (Trixie)
             runner: ubicloud-standard-8
             image: debian:13-slim
-            pg_version: 14
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4-arm
-            image: debian:13-slim
-            pg_version: 14
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8
-            image: debian:13-slim
             pg_version: 15
             arch: amd64
           - name: Debian 13 (Trixie)
@@ -118,6 +108,16 @@ jobs:
             runner: ubicloud-standard-4-arm
             image: debian:13-slim
             pg_version: 17
+            arch: arm64
+          - name: Debian 13 (Trixie)
+            runner: ubicloud-standard-8
+            image: debian:13-slim
+            pg_version: 18
+            arch: amd64
+          - name: Debian 13 (Trixie)
+            runner: ubicloud-standard-4-arm
+            image: debian:13-slim
+            pg_version: 18
             arch: arm64
 
     steps:
@@ -125,7 +125,7 @@ jobs:
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq libicu-dev
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI

@@ -519,15 +519,17 @@ impl DatumWrapper for pgrx::datum::Inet {
     }
 }
 
-// impl DatumWrapper for pgrx::Numeric {
-//     fn from_datum(datum: pg_sys::Datum) -> Self {
-//         unsafe { <pgrx::Numeric as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-//     }
+impl DatumWrapper for pgrx::datum::AnyNumeric {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::AnyNumeric as FromDatum>::from_datum(datum, datum.is_null()).unwrap()
+        }
+    }
 
-//     fn as_datum(&self) -> pg_sys::Datum {
-//         unreachable!("this is not supported")
-//     }
-// }
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
 
 impl DatumWrapper for pgrx::datum::Range<i32> {
     fn from_datum(datum: pg_sys::Datum) -> Self {
@@ -545,6 +547,67 @@ impl DatumWrapper for pgrx::datum::Range<i64> {
     fn from_datum(datum: pg_sys::Datum) -> Self {
         unsafe {
             <pgrx::datum::Range<i64> as FromDatum>::from_datum(datum, datum.is_null()).unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Range<pgrx::datum::AnyNumeric> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<pgrx::datum::AnyNumeric> as FromDatum>::from_datum(
+                datum,
+                datum.is_null(),
+            )
+            .unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Range<pgrx::datum::Date> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<pgrx::datum::Date> as FromDatum>::from_datum(datum, datum.is_null())
+                .unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Range<pgrx::datum::Timestamp> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<pgrx::datum::Timestamp> as FromDatum>::from_datum(
+                datum,
+                datum.is_null(),
+            )
+            .unwrap()
+        }
+    }
+
+    fn as_datum(&self) -> pg_sys::Datum {
+        unreachable!("this is not supported")
+    }
+}
+
+impl DatumWrapper for pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone> {
+    fn from_datum(datum: pg_sys::Datum) -> Self {
+        unsafe {
+            <pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone> as FromDatum>::from_datum(
+                datum,
+                datum.is_null(),
+            )
+            .unwrap()
         }
     }
 

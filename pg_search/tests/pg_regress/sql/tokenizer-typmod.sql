@@ -50,6 +50,7 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=greek')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=hungarian')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=italian')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=norwegian')::text[];
+SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=polish')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=portuguese')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=romanian')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=russian')::text[];

@@ -109,8 +109,8 @@ jobs:
 
       - name: Generate Schema Diffs
         run: |
-          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1) || true
-          (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
+          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1)
+          (diff ~/old.sql ~/this.sql > ~/diff.patch)
           cat ~/diff.sql
 
       - name: Generate Commit Message

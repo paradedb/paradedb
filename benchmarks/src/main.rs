@@ -48,6 +48,9 @@ struct Args {
     #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
     benchmark: String,
 
+    #[arg(long, default_value = "false")]
+    track_wal: bool,
+
     #[arg(long, default_value = "2")]
     warmups: usize,
 
@@ -102,6 +105,7 @@ struct QueryResult {
     query: String,
     runtimes_ms: Vec<f64>,
     num_results: usize,
+    wal_bytes: Option<Vec<u64>>,
 }
 
 #[derive(serde::Serialize)]
@@ -109,17 +113,24 @@ struct JSONBenchmarkResult {
     name: String,
     unit: &'static str,
     value: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wal_bytes: Option<f64>,
     extra: String,
 }
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let median = median(res.runtimes_ms.iter());
+        let median_runtime = median(res.runtimes_ms.iter());
+        let median_wal = res.wal_bytes.map(|wal_bytes_vec| {
+            let wal_bytes_f64: Vec<f64> = wal_bytes_vec.iter().map(|&x| x as f64).collect();
+            median(wal_bytes_f64.iter())
+        });
 
         Self {
             name: res.query_type,
             unit: "median ms",
-            value: median,
+            value: median_runtime,
+            wal_bytes: median_wal,
             extra: res.query,
         }
     }
@@ -193,14 +204,19 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
-            let (runtimes_ms, num_results) =
-                execute_query_multiple_times(&args.url, &query, args.runs);
-            println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+            let (runtimes_ms, num_results, wal_bytes) =
+                execute_query_multiple_times(&args.url, &query, args.runs, args.track_wal);
+            if let Some(wal_bytes) = &wal_bytes {
+                println!("Results: {runtimes_ms:?} | Rows Returned: {num_results} | WAL Bytes: {wal_bytes:?}\n");
+            } else {
+                println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+            }
             QueryResult {
                 query_type,
                 query,
                 runtimes_ms,
                 num_results,
+                wal_bytes,
             }
         })
 }
@@ -316,6 +332,9 @@ fn run_benchmarks_csv(args: &Args) {
     let mut header = String::from("Query Type");
     for i in 1..=args.runs {
         header.push_str(&format!(",Run {i} (ms)"));
+        if args.track_wal {
+            header.push_str(&format!(",WAL {i} (bytes)"));
+        }
     }
     header.push_str(",Rows Returned,Query");
     writeln!(file, "{header}").unwrap();
@@ -326,11 +345,19 @@ fn run_benchmarks_csv(args: &Args) {
             query,
             runtimes_ms,
             num_results,
+            wal_bytes,
         } = result;
 
         let mut result_line = query_type;
-        for &runtime_ms in &runtimes_ms {
+        for (idx, &runtime_ms) in runtimes_ms.iter().enumerate() {
             result_line.push_str(&format!(",{runtime_ms:.0}"));
+            if args.track_wal {
+                if let Some(wal_vec) = &wal_bytes {
+                    result_line.push_str(&format!(",{}", wal_vec[idx]));
+                } else {
+                    result_line.push_str(",0");
+                }
+            }
         }
         result_line.push_str(&format!(
             ",{},\"{}\"",
@@ -439,7 +466,7 @@ fn process_index_creation_md(file: &mut File, args: &Args) {
 fn run_benchmarks_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
-    write_benchmark_table_header(file, args.runs);
+    write_benchmark_table_header(file, args.runs, args.track_wal);
 
     for result in run_benchmarks(args) {
         let QueryResult {
@@ -447,19 +474,32 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
             query,
             runtimes_ms,
             num_results,
+            wal_bytes,
         } = result;
         let md_query = query.replace("|", "\\|");
-        write_benchmark_results_md(file, &query_type, &runtimes_ms, num_results, &md_query);
+        write_benchmark_results_md(
+            file,
+            &query_type,
+            &runtimes_ms,
+            &wal_bytes,
+            num_results,
+            &md_query,
+            args.track_wal,
+        );
     }
 }
 
-fn write_benchmark_table_header(file: &mut File, runs: usize) {
+fn write_benchmark_table_header(file: &mut File, runs: usize, track_wal: bool) {
     let mut header = String::from("| Query Type ");
     let mut separator = String::from("|------------");
 
     for i in 1..=runs {
         header.push_str(&format!("| Run {i} (ms) "));
         separator.push_str("|------------");
+        if track_wal {
+            header.push_str(&format!("| WAL {i} (bytes) "));
+            separator.push_str("|-----------------");
+        }
     }
 
     header.push_str("| Rows Returned | Query |");
@@ -473,13 +513,20 @@ fn write_benchmark_results_md(
     file: &mut File,
     query_type: &str,
     results: &[f64],
+    wal_bytes: &Option<Vec<u64>>,
     num_results: usize,
     md_query: &str,
+    track_wal: bool,
 ) {
     let mut result_line = format!("| {query_type} ");
 
-    for &result in results {
+    for (idx, &result) in results.iter().enumerate() {
         result_line.push_str(&format!("| {result:.0} "));
+        if track_wal {
+            if let Some(wal_vec) = wal_bytes {
+                result_line.push_str(&format!("| {} ", wal_vec[idx]));
+            }
+        }
     }
 
     result_line.push_str(&format!("| {num_results} | `{md_query}` |"));
@@ -614,11 +661,35 @@ fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
     }
 }
 
-fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f64>, usize) {
+fn get_lsn(url: &str) -> u64 {
+    let lsn_str = execute_psql_command(url, "SELECT pg_current_wal_lsn();")
+        .expect("Failed to get LSN")
+        .trim()
+        .to_string();
+
+    let parts: Vec<&str> = lsn_str.split('/').collect();
+    if parts.len() != 2 {
+        panic!("Invalid LSN format");
+    }
+    let high = u64::from_str_radix(parts[0], 16).expect("Failed to parse LSN");
+    let low = u64::from_str_radix(parts[1], 16).expect("Failed to parse LSN");
+
+    (high << 32) | low
+}
+
+fn execute_query_multiple_times(
+    url: &str,
+    query: &str,
+    times: usize,
+    track_wal: bool,
+) -> (Vec<f64>, usize, Option<Vec<u64>>) {
     let mut results = Vec::new();
     let mut num_results = 0;
+    let mut wal_bytes = if track_wal { Some(Vec::new()) } else { None };
 
     for i in 0..times {
+        let start_lsn = if track_wal { get_lsn(url) } else { 0 };
+
         let output = base_psql_command(url)
             .arg("-c")
             .arg("\\timing")
@@ -626,6 +697,11 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
             .arg(query)
             .output()
             .expect("Failed to execute query");
+
+        if let Some(wal_bytes_vec) = &mut wal_bytes {
+            let end_lsn = get_lsn(url);
+            wal_bytes_vec.push(end_lsn - start_lsn);
+        }
 
         let output_str = String::from_utf8_lossy(&output.stdout);
         let duration = output_str
@@ -647,7 +723,7 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
         }
     }
 
-    (results, num_results)
+    (results, num_results, wal_bytes)
 }
 
 fn base_psql_command(url: &str) -> Command {

@@ -1625,7 +1625,7 @@ ORDER BY category, brand, rating;
 -- Test 54: Using pdb.agg() with nested terms (equivalent to GROUP BY category, brand)
 -- This should produce the same nested structure as Test 52
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                             QUERY PLAN                                                                             
@@ -1634,11 +1634,11 @@ WHERE description @@@ 'laptop OR keyboard';
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"aggs":{"brand_breakdown":{"terms":{"field":"brand"}}},"field":"category"}})
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                                                                                                                                                                                 agg                                                                                                                                                                                                                                                                                 
@@ -1648,7 +1648,7 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Test 55: Using pdb.agg() with triple-nested terms
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                       QUERY PLAN                                                                                       
@@ -1657,11 +1657,11 @@ WHERE description @@@ 'laptop OR keyboard';
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"aggs":{"brand_breakdown":{"terms":{"aggs":{"rating_breakdown":{"terms":{"field":"rating"}}},"field":"brand"}}},"field":"category"}})
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"aggs":{"rating_breakdown":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"aggs":{"rating_breakdown":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
@@ -1803,7 +1803,7 @@ ORDER BY category;
 
 -- Test 60: pdb.agg() with terms and metric sub-aggregations
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                      QUERY PLAN                                                                                      
@@ -1812,11 +1812,11 @@ WHERE description @@@ 'laptop OR keyboard';
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"field":"category"}})
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"category"}}}
 (6 rows)
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                                       agg                                                                                                                                      
@@ -1860,7 +1860,7 @@ ORDER BY category, brand;
 
 -- pdb.agg() approach (returns JSON structure)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                  QUERY PLAN                                                                                                                 
@@ -1869,11 +1869,11 @@ WHERE description @@@ 'laptop OR keyboard';
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"aggs":{"brand_breakdown":{"terms":{"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"field":"brand"}}},"field":"category"}})
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                                                                                                                                                                                                                                                                                                                                                                           agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
@@ -1913,7 +1913,7 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Nested: Shows category -> brand -> rating hierarchy
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                              QUERY PLAN                                                                              
@@ -1922,11 +1922,11 @@ WHERE description @@@ 'laptop OR keyboard';
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"aggs":{"brands":{"terms":{"aggs":{"ratings":{"terms":{"field":"rating"}}},"field":"brand"}}},"field":"category"}})
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"brands":{"aggs":{"ratings":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brands":{"aggs":{"ratings":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        nested_breakdown                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       

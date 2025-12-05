@@ -63,6 +63,8 @@ impl PushdownField {
             field_name_from_node(VarContext::from_planner(root), &heaprel, indexrel, var)
         {
             let search_field = schema.search_field(field_name.root())?;
+            // an indexed expression could have more than one var, but we only need to check the first one
+            // since they all come from the same relation and we use `varno` to determine if the field is in the same rti
             let vars = find_vars(var);
             if vars.is_empty() {
                 return None;

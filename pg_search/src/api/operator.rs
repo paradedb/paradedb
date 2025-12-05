@@ -30,6 +30,7 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
+use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
@@ -335,6 +336,11 @@ pub unsafe fn field_name_from_node(
                 };
 
                 if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
+                    // this means we have a non-text/json field cast to `pdb.alias`
+                    // in which case it's likely an expression not a var
+                    if !type_can_be_tokenized((*var).vartype) {
+                        return None;
+                    }
                     let vars = find_vars(expression.cast());
                     if vars.len() == 1 {
                         let expr_var = vars[0];
@@ -717,19 +723,8 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
 #[track_caller]
 #[inline]
 unsafe fn validate_lhs_type_as_text_compatible(lhs: *mut pg_sys::Node, operator_name: &str) {
-    #[inline]
-    pub fn type_is_text_compatible(oid: pg_sys::Oid) -> bool {
-        oid == pg_sys::TEXTOID
-            || oid == pg_sys::VARCHAROID
-            || oid == pg_sys::TEXTARRAYOID
-            || oid == pg_sys::VARCHARARRAYOID
-            || oid == pg_sys::JSONOID
-            || oid == pg_sys::JSONBOID
-            || type_is_tokenizer(oid)
-    }
-
     let typoid = pg_sys::exprType(lhs);
-    if !type_is_text_compatible(typoid) {
+    if !type_can_be_tokenized(typoid) && !type_is_tokenizer(typoid) {
         let typname = lookup_type_name(typoid).unwrap_or_else(|| String::from("<unknown type>"));
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,

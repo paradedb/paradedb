@@ -141,14 +141,15 @@ jobs:
           echo "=================================================================="
 
           # Extract current pg_search version from Cargo.toml
-          EXT_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version\s*=\s*"(.*)"/\1/')
+          EXT_VERSION=$(grep -m1 '^version' ../Cargo.toml | sed -E 's/version\s*=\s*"(.*)"/\1/')
           echo "Detected pg_search version from Cargo.toml: ${EXT_VERSION}"
 
           # Find SQL upgrade script(s) for this version.
           # Common pgrx patterns:
           #   pg_search--PREVIOUS_VERSION--CURRENT_VERSION.sql (upgrade)
           #   pg_search--CURRENT_VERSION.sql (base)
-          SQL_FILES=$(find sql -maxdepth 1 -type f \( -name "pg_search--*--${EXT_VERSION}.sql" -o -name "pg_search--${EXT_VERSION}.sql" \) || true)
+          # Only check for upgrade scripts of the form pg_search--*--${EXT_VERSION}.sql (do not match pg_search--${EXT_VERSION}.sql)
+          SQL_FILES=$(find sql -maxdepth 1 -type f -name "pg_search--*--${EXT_VERSION}.sql" || true)
 
           if [ -z "${SQL_FILES}" ]; then
             echo "::error::No SQL upgrade script found for pg_search version ${EXT_VERSION} under pg_search/sql."

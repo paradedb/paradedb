@@ -331,6 +331,14 @@ impl PgGucs {
         writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
         gucs
     }
+
+    /// Convenience constructor enabling only the custom scan while keeping other defaults.
+    pub fn with_custom_scan() -> Self {
+        Self {
+            custom_scan: true,
+            ..Self::default()
+        }
+    }
 }
 
 /// Run the given pg and bm25 queries on the given connection, and compare their results when run

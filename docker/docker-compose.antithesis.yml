@@ -7,7 +7,7 @@
 
 services:
   paradedb-1:
-    image: paradedb/paradedb:latest
+    image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${COMMIT_SHA}
     container_name: paradedb-1
     environment:
       POSTGRES_USER: myuser

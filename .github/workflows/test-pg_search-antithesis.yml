@@ -64,6 +64,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          build-args: |
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
+            COMMIT_SHA=${{ github.sha }}
           platforms: linux/amd64
           file: docker/Dockerfile.config
           push: true
@@ -78,6 +81,7 @@ jobs:
           tags: |
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
+            type=raw,value=antithesis-latest
 
       - name: Build and Push Workload Docker Image to Antithesis Registry
         id: build-push-workload

@@ -58,7 +58,17 @@ pub fn search_field_config_from_type(
 ) -> Option<SearchFieldConfig> {
     let type_name = lookup_type_name(oid)?;
 
-    if type_name.as_str() == "alias" && oid != pg_sys::VARCHAROID && oid != pg_sys::TEXTOID {
+    if type_name.as_str() == "alias"
+        && ![
+            pg_sys::VARCHAROID,
+            pg_sys::TEXTOID,
+            pg_sys::JSONOID,
+            pg_sys::JSONBOID,
+            pg_sys::TEXTARRAYOID,
+            pg_sys::VARCHARARRAYOID,
+        ]
+        .contains(&oid)
+    {
         return None;
     }
 
@@ -373,6 +383,8 @@ macro_rules! datum_wrapper_for {
 }
 
 datum_wrapper_for!(
+    String,
+    pgrx::datum::Uuid,
     pgrx::Json,
     pgrx::JsonB,
     Vec<String>,

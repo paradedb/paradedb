@@ -327,9 +327,22 @@ pub unsafe fn extract_field_attributes(
                     }
 
                     if type_is_alias(typoid) {
-                        let alias_typmod =
-                            AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
-                        attname = alias_typmod.alias();
+                        if [
+                            pg_sys::VARCHAROID,
+                            pg_sys::TEXTOID,
+                            pg_sys::JSONOID,
+                            pg_sys::JSONBOID,
+                            pg_sys::TEXTARRAYOID,
+                            pg_sys::VARCHARARRAYOID,
+                        ]
+                        .contains(&inner_typoid)
+                        {
+                            panic!("To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`");
+                        } else {
+                            let alias_typmod =
+                                AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                            attname = alias_typmod.alias();
+                        }
                     }
                 }
 

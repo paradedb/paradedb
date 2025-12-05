@@ -124,11 +124,11 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
 
         if matches!(base_oid, PgOid::Custom(alias_oid) if type_is_alias(alias_oid)) {
-            base_oid = PgOid::BuiltIn(
-                inner_typoid
-                    .try_into()
-                    .expect("type cast to `pdb.alias` not allowed"),
-            );
+            base_oid = resolve_base_type(PgOid::from_untagged(inner_typoid))
+                .unwrap_or_else(|| {
+                    pgrx::error!("Failed to resolve base type for type {:?}", inner_typoid)
+                })
+                .0;
         }
 
         match &base_oid {

@@ -41,12 +41,14 @@ use pgrx::{
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::{smallvec, SmallVec};
+use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-    Query as TantivyQuery, QueryParser, TermSetQuery,
+    Query as TantivyQuery, QueryParser, TermQuery, TermSetQuery,
 };
+use tantivy::schema::IndexRecordOption;
 use tantivy::DateTime;
 use tantivy::{
     query_grammar::Occur,
@@ -155,6 +157,68 @@ pub(crate) fn expand_json_numeric_to_terms(
     Ok(terms)
 }
 
+/// Extracts all unique JSON paths from a field's term dictionary across all segments.
+///
+/// JSON terms in Tantivy are stored as: `<path>\0<type><value>`
+/// This function scans the term dictionaries to extract the path prefixes.
+///
+/// # Arguments
+/// * `searcher` - The Tantivy searcher
+/// * `field` - The JSON field to extract paths from
+/// * `max_paths` - Maximum number of paths to return (guardrail)
+///
+/// # Returns
+/// A set of unique path strings found in the term dictionary
+fn collect_json_paths_from_field(
+    searcher: &Searcher,
+    field: Field,
+    max_paths: usize,
+) -> anyhow::Result<HashSet<String>> {
+    let mut paths = HashSet::new();
+
+    // Always include empty path for root-level JSON values
+    paths.insert(String::new());
+
+    for segment_reader in searcher.segment_readers() {
+        // Get the term dictionary for this field in this segment
+        let inverted_index = segment_reader.inverted_index(field)?;
+        let term_dict = inverted_index.terms();
+
+        // Stream all terms using the correct iteration pattern
+        let mut term_stream = term_dict.stream()?;
+
+        // Use while advance() pattern
+        while term_stream.advance() {
+            let term_bytes = term_stream.key();
+
+            // JSON terms are formatted as: path_bytes \0 type_byte value_bytes
+            // Find the null separator that marks end of path
+            if let Some(null_pos) = term_bytes.iter().position(|&b| b == 0) {
+                // Extract path (everything before the null byte)
+                // null_pos == 0 means root-level value (empty path), which we already added
+                if null_pos > 0 {
+                    if let Ok(path) = std::str::from_utf8(&term_bytes[..null_pos]) {
+                        paths.insert(path.to_string());
+
+                        // Check guardrail
+                        if paths.len() >= max_paths {
+                            pgrx::warning!(
+                                "JSON path enumeration capped at {} paths for field {:?}. \
+                                 Some JSON leaves may not be searched.",
+                                max_paths,
+                                field
+                            );
+                            return Ok(paths);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(paths)
+}
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -208,6 +272,26 @@ pub enum SearchQueryInput {
         query_string: String,
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
+    },
+
+    /// Field-agnostic term search - searches all indexed fields including JSON
+    AnyFieldTerm {
+        value: OwnedValue,
+        #[serde(default)]
+        is_datetime: bool,
+    },
+
+    /// Field-agnostic match search - tokenizes and searches all text/JSON fields
+    AnyFieldMatch {
+        value: String,
+        #[serde(default)]
+        conjunction_mode: Option<bool>,
+        #[serde(default)]
+        distance: Option<u8>,
+        #[serde(default)]
+        transposition_cost_one: Option<bool>,
+        #[serde(default)]
+        prefix: Option<bool>,
     },
 
     TermSet {
@@ -507,6 +591,8 @@ impl SearchQueryInput {
             | SearchQueryInput::Empty
             | SearchQueryInput::MoreLikeThis { .. }
             | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::AnyFieldTerm { .. }
+            | SearchQueryInput::AnyFieldMatch { .. }
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. }
             | SearchQueryInput::FieldedQuery { .. } => {}
@@ -971,13 +1057,301 @@ impl SearchQueryInput {
                 match lenient {
                     Some(true) => {
                         let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-                        Ok(Box::new(parsed_query))
+
+                        // In lenient mode, also search JSON fields using AnyFieldMatch logic
+                        // We inline the JSON-specific search here to avoid recursion issues
+                        let max_json_paths = crate::gucs::max_json_path_enumeration();
+                        let mut json_subqueries: Vec<(Occur, Box<dyn TantivyQuery>)> = Vec::new();
+
+                        // Only process JSON fields for the AnyFieldMatch-style search
+                        for (field, field_entry) in schema.fields() {
+                            if field_entry.name() == "ctid" {
+                                continue;
+                            }
+
+                            if let FieldType::JsonObject(json_options) = field_entry.field_type() {
+                                let expand_dots = json_options.is_expand_dots_enabled();
+                                let paths =
+                                    collect_json_paths_from_field(searcher, field, max_json_paths)?;
+
+                                // Tokenize the query string using the JSON field's tokenizer
+                                if let Ok(mut tokenizer) =
+                                    searcher.index().tokenizer_for_field(field)
+                                {
+                                    let mut token_stream = tokenizer.token_stream(&query_string);
+                                    let mut tokens = Vec::new();
+                                    while token_stream.advance() {
+                                        tokens.push(token_stream.token().text.clone());
+                                    }
+
+                                    // For each path, create term queries for each token
+                                    for path in &paths {
+                                        let path_opt = if path.is_empty() {
+                                            None
+                                        } else {
+                                            Some(path.as_str())
+                                        };
+
+                                        for token in &tokens {
+                                            let token_value = OwnedValue::Str(token.clone());
+                                            if let Ok(term) = value_to_json_term(
+                                                field,
+                                                &token_value,
+                                                path_opt,
+                                                expand_dots,
+                                                false,
+                                            ) {
+                                                json_subqueries.push((
+                                                    Occur::Should,
+                                                    Box::new(TermQuery::new(
+                                                        term,
+                                                        IndexRecordOption::WithFreqs,
+                                                    )),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Combine parsed query with JSON subqueries via OR
+                        if json_subqueries.is_empty() {
+                            Ok(Box::new(parsed_query))
+                        } else {
+                            let combined = BooleanQuery::new(vec![
+                                (Occur::Should, Box::new(parsed_query)),
+                                (Occur::Should, Box::new(BooleanQuery::new(json_subqueries))),
+                            ]);
+                            Ok(Box::new(combined))
+                        }
                     }
                     _ => {
                         Ok(Box::new(parser.parse_query(&query_string).map_err(
                             |err| QueryError::ParseError(err, query_string),
                         )?))
                     }
+                }
+            }
+            SearchQueryInput::AnyFieldTerm { value, is_datetime } => {
+                let max_json_paths = crate::gucs::max_json_path_enumeration();
+                let mut subqueries: Vec<(Occur, Box<dyn TantivyQuery>)> = Vec::new();
+
+                // Use schema.fields() - the SearchIndexSchema iterator
+                for (field, field_entry) in schema.fields() {
+                    // Skip the ctid field
+                    if field_entry.name() == "ctid" {
+                        continue;
+                    }
+
+                    let field_type = field_entry.field_type();
+
+                    match field_type {
+                        // Text fields - direct term lookup
+                        FieldType::Str(_) => {
+                            if let OwnedValue::Str(text) = &value {
+                                let term = Term::from_field_text(field, text);
+                                subqueries.push((
+                                    Occur::Should,
+                                    Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs)),
+                                ));
+                            }
+                        }
+
+                        // Numeric/Bool/Date fields
+                        FieldType::I64(_)
+                        | FieldType::U64(_)
+                        | FieldType::F64(_)
+                        | FieldType::Bool(_)
+                        | FieldType::Date(_) => {
+                            if let Ok(term) =
+                                value_to_term(field, &value, field_type, None, is_datetime)
+                            {
+                                subqueries.push((
+                                    Occur::Should,
+                                    Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+                                ));
+                            }
+                        }
+
+                        // JSON fields - enumerate paths and search each
+                        FieldType::JsonObject(json_options) => {
+                            let expand_dots = json_options.is_expand_dots_enabled();
+                            let paths =
+                                collect_json_paths_from_field(searcher, field, max_json_paths)?;
+
+                            for path in paths {
+                                let path_opt = if path.is_empty() {
+                                    None
+                                } else {
+                                    Some(path.as_str())
+                                };
+
+                                // For numeric values, use expand_json_numeric_to_terms to handle type coercion
+                                match &value {
+                                    OwnedValue::I64(_)
+                                    | OwnedValue::U64(_)
+                                    | OwnedValue::F64(_) => {
+                                        // Pass path verbatim - expand_dots already respected during indexing
+                                        if let Ok(terms) =
+                                            expand_json_numeric_to_terms(field, &value, path_opt)
+                                        {
+                                            for term in terms {
+                                                subqueries.push((
+                                                    Occur::Should,
+                                                    Box::new(TermQuery::new(
+                                                        term,
+                                                        IndexRecordOption::Basic,
+                                                    )),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    OwnedValue::Str(_) | OwnedValue::Bool(_) => {
+                                        // For string/bool, use value_to_json_term directly
+                                        if let Ok(term) = value_to_json_term(
+                                            field,
+                                            &value,
+                                            path_opt,
+                                            expand_dots,
+                                            is_datetime,
+                                        ) {
+                                            subqueries.push((
+                                                Occur::Should,
+                                                Box::new(TermQuery::new(
+                                                    term,
+                                                    IndexRecordOption::WithFreqs,
+                                                )),
+                                            ));
+                                        }
+                                    }
+                                    OwnedValue::Date(_) => {
+                                        if let Ok(term) = value_to_json_term(
+                                            field,
+                                            &value,
+                                            path_opt,
+                                            expand_dots,
+                                            true, // is_datetime
+                                        ) {
+                                            subqueries.push((
+                                                Occur::Should,
+                                                Box::new(TermQuery::new(
+                                                    term,
+                                                    IndexRecordOption::Basic,
+                                                )),
+                                            ));
+                                        }
+                                    }
+                                    _ => {} // Skip unsupported types (objects, arrays, null)
+                                }
+                            }
+                        }
+
+                        // Skip other field types (Bytes, Facet, IpAddr)
+                        _ => {}
+                    }
+                }
+
+                // Return EmptyQuery if no subqueries were generated
+                if subqueries.is_empty() {
+                    Ok(Box::new(EmptyQuery))
+                } else {
+                    Ok(Box::new(BooleanQuery::new(subqueries)))
+                }
+            }
+            SearchQueryInput::AnyFieldMatch {
+                value,
+                conjunction_mode,
+                distance,
+                transposition_cost_one,
+                prefix,
+            } => {
+                let max_json_paths = crate::gucs::max_json_path_enumeration();
+                let mut subqueries: Vec<(Occur, Box<dyn TantivyQuery>)> = Vec::new();
+
+                // Use schema.fields() - the SearchIndexSchema iterator
+                for (field, field_entry) in schema.fields() {
+                    // Skip ctid
+                    if field_entry.name() == "ctid" {
+                        continue;
+                    }
+
+                    let field_type = field_entry.field_type();
+
+                    match field_type {
+                        // Text fields - tokenize and match
+                        FieldType::Str(_) => {
+                            // Build match query using the field's tokenizer
+                            // Use FieldName::from()
+                            let field_name = FieldName::from(field_entry.name());
+
+                            let match_query = pdb::Query::Match {
+                                value: value.clone(),
+                                tokenizer: None, // Use field's configured tokenizer
+                                distance,
+                                transposition_cost_one,
+                                prefix,
+                                conjunction_mode,
+                            };
+
+                            // Correct signature: (self, field, schema, parser, searcher)
+                            if let Ok(tantivy_query) =
+                                match_query.into_tantivy_query(field_name, schema, parser, searcher)
+                            {
+                                subqueries.push((Occur::Should, tantivy_query));
+                            }
+                        }
+
+                        // JSON fields - enumerate paths and delegate to pdb::Query::Match
+                        FieldType::JsonObject(json_options) => {
+                            let expand_dots = json_options.is_expand_dots_enabled();
+                            let paths =
+                                collect_json_paths_from_field(searcher, field, max_json_paths)?;
+                            let base_field_name = field_entry.name();
+
+                            // For each discovered path, create a Match query using pdb::Query
+                            for path in &paths {
+                                // Construct FieldName with path (e.g., "data.name" or just "data" for root)
+                                // Only escape dots when expand_dots=false (literal dot keys)
+                                // When expand_dots=true (default), dots are path separators
+                                let field_name = if path.is_empty() {
+                                    FieldName::from(base_field_name)
+                                } else if expand_dots {
+                                    // expand_dots=true: dots are path separators, pass as-is
+                                    FieldName::from(format!("{}.{}", base_field_name, path))
+                                } else {
+                                    // expand_dots=false: dots are literal, escape them
+                                    let escaped_path = path.replace('.', r"\.");
+                                    FieldName::from(format!("{}.{}", base_field_name, escaped_path))
+                                };
+
+                                // Use pdb::Query::Match which correctly handles fuzzy params
+                                let match_query = pdb::Query::Match {
+                                    value: value.clone(),
+                                    tokenizer: None,
+                                    distance,
+                                    transposition_cost_one,
+                                    prefix,
+                                    conjunction_mode,
+                                };
+
+                                if let Ok(tantivy_query) = match_query
+                                    .into_tantivy_query(field_name, schema, parser, searcher)
+                                {
+                                    subqueries.push((Occur::Should, tantivy_query));
+                                }
+                            }
+                        }
+
+                        // Skip other field types for match queries
+                        _ => {}
+                    }
+                }
+
+                if subqueries.is_empty() {
+                    Ok(Box::new(EmptyQuery))
+                } else {
+                    Ok(Box::new(BooleanQuery::new(subqueries)))
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {

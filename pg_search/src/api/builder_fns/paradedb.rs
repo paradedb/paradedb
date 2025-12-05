@@ -302,6 +302,67 @@ term_fn_unsupported!(
     "timestamp ranges with time zone"
 );
 
+// ============================================================================
+// Field-agnostic search functions (for Issue #2769)
+// These allow searching across all indexed fields including JSON without
+// specifying a field name.
+// ============================================================================
+
+/// Field-agnostic term search - searches all indexed fields including JSON
+/// Example: SELECT * FROM table WHERE table.id @@@ paradedb.term(value => 'search_text');
+#[pg_extern(immutable, parallel_safe, name = "term")]
+pub fn term_any_field_text(value: &str) -> SearchQueryInput {
+    SearchQueryInput::AnyFieldTerm {
+        value: tantivy::schema::OwnedValue::Str(value.to_string()),
+        is_datetime: false,
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+pub fn term_any_field_i64(value: i64) -> SearchQueryInput {
+    SearchQueryInput::AnyFieldTerm {
+        value: tantivy::schema::OwnedValue::I64(value),
+        is_datetime: false,
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+pub fn term_any_field_f64(value: f64) -> SearchQueryInput {
+    SearchQueryInput::AnyFieldTerm {
+        value: tantivy::schema::OwnedValue::F64(value),
+        is_datetime: false,
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+pub fn term_any_field_bool(value: bool) -> SearchQueryInput {
+    SearchQueryInput::AnyFieldTerm {
+        value: tantivy::schema::OwnedValue::Bool(value),
+        is_datetime: false,
+    }
+}
+
+/// Field-agnostic match search - tokenizes and searches all text/JSON fields
+/// Example: SELECT * FROM table WHERE table.id @@@ paradedb.match(value => 'hello world');
+#[pg_extern(immutable, parallel_safe, name = "match")]
+pub fn match_any_field(
+    value: &str,
+    conjunction_mode: default!(Option<bool>, "NULL"),
+    distance: default!(Option<i32>, "NULL"),
+    transposition_cost_one: default!(Option<bool>, "NULL"),
+    prefix: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::AnyFieldMatch {
+        value: value.to_string(),
+        conjunction_mode,
+        distance: distance.map(|d| d.clamp(0, 255) as u8),
+        transposition_cost_one,
+        prefix,
+    }
+}
+
+// ============================================================================
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
     let terms: Vec<_> = terms

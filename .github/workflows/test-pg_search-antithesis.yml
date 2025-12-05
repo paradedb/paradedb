@@ -43,13 +43,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # To pull the Stressgres image from Docker Hub
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Log Into Antithesis Registry
         uses: docker/login-action@v3
         with:
@@ -100,6 +93,7 @@ jobs:
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
 
+      # antithesis.duration is in minutes
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
         with:

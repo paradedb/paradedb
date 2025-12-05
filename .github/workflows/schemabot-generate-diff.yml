@@ -112,7 +112,7 @@ jobs:
         run: |
           # Run pg-schema-diff and capture both stdout and stderr in diff.sql,
           # ignoring empty lines. Don't fail the step yet on non-zero exit.
-          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1) || true
+          (pg-schema-diff diff ~/old.sql ~/this.sql 2>&1 | grep -v "^$" > ~/diff.sql) || true
 
           # Generate a traditional patch diff for informational purposes.
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true

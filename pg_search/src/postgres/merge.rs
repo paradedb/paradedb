@@ -314,7 +314,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         );
 
         let current_xid = pg_sys::GetCurrentFullTransactionId();
-        let next_xid = current_xid;
+        let next_xid = pg_sys::ReadNextFullTransactionId();
         let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
         let index = PgSearchRelation::try_open(
             args.index_oid(),

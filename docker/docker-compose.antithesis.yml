@@ -19,7 +19,7 @@ services:
       - paradedb_data:/var/lib/postgresql/
 
   stressgres:
-    image: paradedb/stressgres:latest
+    image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:latest
     container_name: stressgres
 
 volumes:

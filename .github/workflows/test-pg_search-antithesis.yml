@@ -54,15 +54,24 @@ jobs:
         id: extract-config-metadata
         uses: docker/metadata-action@v5
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
           tags: |
             type=sha
+            paradedb
 
-      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
-      # the `latest` and `latest-pg` tags on production releases, not for beta releases.
-      # TODO: Add tag here, make sure it works with CNPG
-      - name: Setup Docker Image tags
-        id: meta
+      - name: Build and Push Config Docker Image to Antithesis Registry
+        id: build-push-config
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          file: docker/Dockerfile.config
+          push: true
+          tags: ${{ steps.extract-config-metadata.outputs.tags }}
+          labels: ${{ steps.extract-config-metadata.outputs.labels }}
+
+      - name: Extract Workload Metadata
+        id: extract-workload-metadata
         uses: docker/metadata-action@v5
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
@@ -70,8 +79,8 @@ jobs:
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
 
-      - name: Build and Push Docker Image to Antithesis Registry
-        id: build-push
+      - name: Build and Push Workload Docker Image to Antithesis Registry
+        id: build-push-workload
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -81,8 +90,8 @@ jobs:
           platforms: linux/amd64
           file: docker/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.extract-workload-metadata.outputs.tags }}
+          labels: ${{ steps.extract-workload-metadata.outputs.labels }}
 
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
@@ -92,8 +101,8 @@ jobs:
           username: ${{ secrets.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push.outputs.digest }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push.outputs.digest }};docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config@${{ steps.build-push-config.outputs.digest }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: "developers@paradedb.com"
           additional_parameters: |-

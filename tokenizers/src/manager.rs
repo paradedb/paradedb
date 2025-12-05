@@ -562,6 +562,7 @@ pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
     map.insert(Language::Hungarian, "Hungarian");
     map.insert(Language::Italian, "Italian");
     map.insert(Language::Norwegian, "Norwegian");
+    map.insert(Language::Polish, "Polish");
     map.insert(Language::Portuguese, "Portuguese");
     map.insert(Language::Romanian, "Romanian");
     map.insert(Language::Russian, "Russian");

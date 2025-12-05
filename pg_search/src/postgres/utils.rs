@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
+use crate::api::tokenizers::{
+    type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
+};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
@@ -340,16 +342,7 @@ pub unsafe fn extract_field_attributes(
                     }
 
                     if type_is_alias(typoid) {
-                        if [
-                            pg_sys::VARCHAROID,
-                            pg_sys::TEXTOID,
-                            pg_sys::JSONOID,
-                            pg_sys::JSONBOID,
-                            pg_sys::TEXTARRAYOID,
-                            pg_sys::VARCHARARRAYOID,
-                        ]
-                        .contains(&inner_typoid)
-                        {
+                        if type_can_be_tokenized(inner_typoid) {
                             panic!("To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`");
                         } else {
                             let alias_typmod =

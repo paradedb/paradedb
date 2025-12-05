@@ -416,10 +416,8 @@ pub unsafe fn field_name_from_node(
                     continue;
                 }
 
+                // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
                 if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-                    // Check if it's a single-argument function (cast)
-                    // We don't blindly unwrap all functions, but if equality failed above,
-                    // and this is a function call, maybe the *arg* is what we want.
                     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
                     if args.len() == 1 {
                         if let Some(arg) = args.get_ptr(0) {

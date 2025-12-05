@@ -32,10 +32,8 @@ CREATE INDEX idx_dates ON dates USING bm25 (id, (get_day_of_week(d)::pdb.alias('
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
-
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 
--- make sure anything that's not this exact expression does not get pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE get_day_of_week_plus_one(d) = 3 AND id @@@ pdb.all();
 
@@ -43,6 +41,22 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
 
 DROP TABLE dates;
+
+-- Integer expressions
+DROP TABLE IF EXISTS ints;
+CREATE TABLE ints (id SERIAL PRIMARY KEY, i integer);
+INSERT INTO ints (i) VALUES (1), (2), (3);
+CREATE INDEX idx_ints ON ints USING bm25 (id, ((i * 2)::pdb.alias('i'))) with (key_field = 'id');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
+DROP TABLE ints;
 
 -- Verify that text/json types cannot be cast to pdb.alias
 DO $$

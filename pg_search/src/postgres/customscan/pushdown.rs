@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
+use crate::api::tokenizers::type_is_alias;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
@@ -49,12 +50,17 @@ impl PushdownField {
         indexrel: &PgSearchRelation,
     ) -> Option<Self> {
         let schema = indexrel.schema().ok()?;
+        let mut var = var;
 
-        let var = if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, var) {
-            (*expr).arg.cast()
-        } else {
-            var
-        };
+        if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, var) {
+            var = (*expr).arg.cast();
+        }
+
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var) {
+            if !type_is_alias((*relabel).resulttype) {
+                var = (*relabel).arg.cast();
+            }
+        }
 
         let heaprel = indexrel
             .heap_relation()

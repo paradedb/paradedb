@@ -4,6 +4,80 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+-- the original issue repro
+CREATE OR REPLACE FUNCTION get_day_of_week(d date)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+    SELECT CASE
+        WHEN d IS NULL THEN NULL
+        ELSE EXTRACT(ISODOW FROM d)::int
+    END;
+$$;
+CREATE OR REPLACE FUNCTION get_day_of_week_plus_one(d date)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+    SELECT CASE
+        WHEN d IS NULL THEN NULL
+        ELSE EXTRACT(ISODOW FROM d)::int
+    END;
+$$;
+DROP TABLE IF EXISTS dates;
+CREATE TABLE dates (id SERIAL PRIMARY KEY, d date);
+INSERT INTO dates (d) VALUES ('2025-01-01');
+CREATE INDEX idx_dates ON dates USING bm25 (id, (get_day_of_week(d)::pdb.alias('d'))) with (key_field = 'id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on dates
+   Table: dates
+   Index: idx_dates
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, d
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"d","value":3,"is_datetime":false}}]}}
+(7 rows)
+
+SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
+ id |     d      
+----+------------
+  1 | 01-01-2025
+(1 row)
+
+-- make sure anything that's not this exact expression does not get pushed down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM dates WHERE get_day_of_week_plus_one(d) = 3 AND id @@@ pdb.all();
+                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on dates
+   Table: dates
+   Index: idx_dates
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, d
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 416334 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 1082 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 3 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+(7 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
+                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on dates
+   Table: dates
+   Index: idx_dates
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, d
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1093 :opfuncid 1086 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 1082 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 1082 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ -84 35 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 1093"}]}}]}}
+(7 rows)
+
+DROP TABLE dates;
 -- Verify that text/json types cannot be cast to pdb.alias
 DO $$
 DECLARE

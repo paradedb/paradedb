@@ -303,7 +303,7 @@ pub unsafe fn extract_field_attributes(
                             .name()
                             .to_string();
 
-                        let mut inner_expression = var as *mut pg_sys::Node;
+                        inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if let Some(coerce) =
                             nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
                         {
@@ -317,13 +317,26 @@ pub unsafe fn extract_field_attributes(
                             nodecast!(RelabelType, T_RelabelType, expression.unwrap())
                         {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
-                                inner_expression = (*relabel).arg.cast();
+                                inner_typoid = pg_sys::exprType((*relabel).arg.cast());
+                            // if we have a UDF cast to `pdb.alias`, use the return type of the UDF as the inner_typoid
+                            } else if let Some(func) =
+                                nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                            {
+                                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                                if args.len() == 1 {
+                                    if let Some(arg) = args.get_ptr(0) {
+                                        if let Some(inner_func) =
+                                            nodecast!(FuncExpr, T_FuncExpr, arg)
+                                        {
+                                            inner_typoid = (*inner_func).funcresulttype;
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         attname = Some(heap_attname);
                         expression = None;
-                        inner_typoid = pg_sys::exprType(inner_expression.cast());
                     }
 
                     if type_is_alias(typoid) {

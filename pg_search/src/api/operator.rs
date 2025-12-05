@@ -310,12 +310,10 @@ unsafe fn field_name_from_node(
 
         if (*var).varattno == 0 {
             // the var references the whole row -- this means the fieldname is the name of the "key_field"
-            return Some(
-                indexrel
-                    .schema()
-                    .expect("index should have a valid schema")
-                    .key_field_name(),
-            );
+            // For composite keys, return the first key field name for backward compatibility
+            let options = indexrel.options();
+            let key_field_names = options.key_field_names();
+            return key_field_names.first().cloned();
         }
 
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
@@ -477,12 +475,12 @@ unsafe fn rewrite_to_search_query_input_opexpr(
         "rhs must represent a SearchQueryInput"
     );
 
-    let lhs_var = make_lhs_var(indexrel, lhs);
+    let lhs_node = make_lhs_var(indexrel, lhs);
 
     let rhs = wrap_with_index(indexrel, rhs);
 
     let mut args = PgList::<pg_sys::Node>::new();
-    args.push(lhs_var.cast());
+    args.push(lhs_node);
     args.push(rhs);
 
     let mut opexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
@@ -498,32 +496,91 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
 }
 
-unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *mut pg_sys::Var {
+unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *mut pg_sys::Node {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-    let heap_attno = index_info.ii_IndexAttrNumbers[0];
-
-    let vars = find_vars(lhs);
-    if vars.is_empty() {
-        panic!("provided lhs does not contain a Var")
-    }
-
     let tupdesc = indexrel.tuple_desc();
-    let att = tupdesc
-        .get(0)
-        .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
+    
+    // Check if we have multiple key fields
+    let key_field_names = indexrel.options().key_field_names();
+    let num_key_fields = key_field_names.len();
+    
+    
+    if num_key_fields > 1 {
+        
+        let vars = find_vars(lhs);
+        if vars.is_empty() {
+            panic!("provided lhs does not contain a Var")
+        }
 
-    let var = pg_sys::copyObjectImpl(vars[0].cast()).cast::<pg_sys::Var>();
+        // Create a RowExpr with both key field Vars
+        let mut row_expr = pg_sys::RowExpr {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_RowExpr,
+            },
+            args: std::ptr::null_mut(),
+            row_typeid: pg_sys::RECORDOID,
+            row_format: pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
+            colnames: std::ptr::null_mut(),
+            location: -1,
+        };
 
-    // the Var must look like the first attribute from the index definition
-    (*var).varattno = heap_attno;
-    (*var).varattnosyn = (*var).varattno;
+        // Create list of Var nodes for each key field  
+        let mut args = PgList::<pg_sys::Node>::new();
+        
+        // TODO: does this only support two?
+        // Add first key field
+        let heap_attno1 = index_info.ii_IndexAttrNumbers[0];
+        let att1 = tupdesc.get(0).expect("must have first attribute");
+        let var1 = pg_sys::copyObjectImpl(vars[0].cast()).cast::<pg_sys::Var>();
+        (*var1).varattno = heap_attno1;
+        (*var1).varattnosyn = (*var1).varattno;
+        (*var1).vartype = att1.atttypid;
+        (*var1).vartypmod = att1.atttypmod;
+        (*var1).varcollid = att1.attcollation;
+        args.push(var1.cast());
+        
+        // Add second key field if it exists
+        if num_key_fields > 1 {
+            let heap_attno2 = index_info.ii_IndexAttrNumbers[1];
+            let att2 = tupdesc.get(1).expect("must have second attribute");
+            let var2 = pg_sys::copyObjectImpl(vars[0].cast()).cast::<pg_sys::Var>();
+            (*var2).varattno = heap_attno2;
+            (*var2).varattnosyn = (*var2).varattno;
+            (*var2).vartype = att2.atttypid;
+            (*var2).vartypmod = att2.atttypmod;
+            (*var2).varcollid = att2.attcollation;
+            args.push(var2.cast());
+        }
+        
+        row_expr.args = args.into_pg();
+        
+        Box::into_raw(Box::new(row_expr)).cast()
+    } else {
+        // Single key field - use original logic
+        let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
-    // the Var must also assume the type of the first attribute from the index definition
-    (*var).vartype = att.atttypid;
-    (*var).vartypmod = att.atttypmod;
-    (*var).varcollid = att.attcollation;
+        let vars = find_vars(lhs);
+        if vars.is_empty() {
+            panic!("provided lhs does not contain a Var")
+        }
 
-    var
+        let att = tupdesc
+            .get(0)
+            .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
+
+        let var = pg_sys::copyObjectImpl(vars[0].cast()).cast::<pg_sys::Var>();
+
+        // the Var must look like the first attribute from the index definition
+        (*var).varattno = heap_attno;
+        (*var).varattnosyn = (*var).varattno;
+
+        // the Var must also assume the type of the first attribute from the index definition
+        (*var).vartype = att.atttypid;
+        (*var).vartypmod = att.atttypmod;
+        (*var).varcollid = att.attcollation;
+
+        var.cast()
+    }
 }
 
 unsafe fn wrap_with_index(

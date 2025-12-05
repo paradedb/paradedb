@@ -16,12 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{PgSqlErrorCode, PgLogLevel};
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, extract_bm25_columns};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
@@ -97,33 +99,127 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
     create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
 }
 
+
+// Find the smallest unique index that matches the first N columns of the BM25 index exactly
+pub unsafe fn find_smallest_matching_unique_index(
+    heap_relation: &PgRelation,
+    bm25_columns: &[String],
+) -> Option<Vec<String>> {
+    if bm25_columns.is_empty() {
+        return None;
+    }
+
+    let index_list = heap_relation.indices(pg_sys::AccessShareLock as _);
+    let mut best_match: Option<Vec<String>> = None;
+    let mut best_size = usize::MAX;
+
+    for index_relation in index_list {
+        // Check if this is a unique, valid index
+        let index_form = index_relation.rd_index;
+        if index_form.is_null() {
+            continue;
+        }
+        
+        let index_form = &*index_form;
+        if !index_form.indisunique || !index_form.indisvalid || index_form.indnatts == 0 {
+            continue;
+        }
+
+        let num_key_attrs = index_form.indnatts as usize;
+        
+        // Check if this unique index can fit within the BM25 columns and is smaller than current best
+        if num_key_attrs <= bm25_columns.len() && num_key_attrs < best_size {
+            let tupdesc = heap_relation.tuple_desc();
+            
+            // Extract column names for this index
+            let attno_ptr = index_form.indkey.values.as_ptr();
+            let index_columns: Vec<String> = (0..num_key_attrs)
+                .map(|i| {
+                    let attno = *attno_ptr.add(i);
+                    if attno > 0 && (attno as usize) <= tupdesc.len() {
+                        Some(tupdesc.get((attno - 1) as usize).unwrap().name().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Option<Vec<_>>>()?;
+            
+            // Check if ALL columns of this unique index match the first N BM25 columns exactly
+            let matches = index_columns.iter()
+                .zip(bm25_columns.iter())
+                .all(|(index_col, bm25_col)| index_col == bm25_col);
+            
+            if matches {
+                best_size = num_key_attrs;
+                best_match = Some(index_columns);
+            }
+        }
+    }
+
+    best_match
+}
+
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
-    // quick check to make sure we have "WITH" options
-    if index_relation.rd_options.is_null() {
-        panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
+    // Check if key_field was explicitly provided (show deprecation warning)
+    if !index_relation.rd_options.is_null() {
+        let options = index_relation.options();
+        if let Some(_) = options.options_data().key_field_name() {
+            // Use a static flag to ensure notice only shows once per session
+            // This prevents duplicate notices when creating indexes on partitioned tables
+            static mut WARNING_SHOWN: bool = false;
+            if !WARNING_SHOWN {
+                WARNING_SHOWN = true;
+                pgrx::notice!(
+                    "WITH (key_field='...') is deprecated. The first column in the index definition is automatically used as the key field."
+                );
+            }
+        }
+    }
+
+    // Check that BM25 columns can be matched by a unique constraint
+    if let Some(heap_relation) = index_relation.heap_relation() {
+        // Get all BM25 index columns using the shared function
+        let index_pg_relation = PgRelation::from_pg(index_relation.as_ptr());
+        let bm25_columns = extract_bm25_columns(&index_pg_relation);
+        
+        if bm25_columns.is_empty() {
+            panic!("BM25 index has no columns");
+        }
+        
+        if find_smallest_matching_unique_index(&PgRelation::from_pg(heap_relation.as_ptr()), &bm25_columns).is_none() {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_INVALID_OBJECT_DEFINITION,
+                "Key field requires a unique constraint",
+                "build_index",
+            )
+            .set_detail("The BM25 index columns must match the first N columns of a unique index")
+            .set_hint("Add a PRIMARY KEY or UNIQUE constraint that matches the first columns of your BM25 index")
+            .report(PgLogLevel::ERROR);
+        }
+    } else {
+        panic!("Could not access table information");
     }
 
     let options = index_relation.options();
-    let key_field_name = options.key_field_name();
-
-    let options = index_relation.options();
+    let key_field_names = options.key_field_names();
+    
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
         });
     }
 
     let inet_configs = options.inet_config();
     for (field_name, config) in inet_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Inet(_))
         });
     }
 
     let numeric_configs = options.numeric_config();
     for (field_name, config) in numeric_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(
                 t,
                 SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
@@ -133,28 +229,28 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
     let boolean_configs = options.boolean_config();
     for (field_name, config) in boolean_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Bool(_))
         });
     }
 
     let json_configs = options.json_config();
     for (field_name, config) in json_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Json(_))
         });
     }
 
     let range_configs = options.range_config();
     for (field_name, config) in range_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Range(_))
         });
     }
 
     let datetime_configs = options.datetime_config();
     for (field_name, config) in datetime_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, &key_field_names, config, options, |t| {
             matches!(t, SearchFieldType::Date(_))
         });
     }
@@ -162,7 +258,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
 fn validate_field_config(
     field_name: &FieldName,
-    key_field_name: &FieldName,
+    key_field_names: &[FieldName],
     config: &SearchFieldConfig,
     options: &BM25IndexOptions,
     matches: fn(&SearchFieldType) -> bool,
@@ -171,15 +267,23 @@ fn validate_field_config(
         panic!("the name `ctid` is reserved by pg_search");
     }
 
-    if field_name.root() == key_field_name.root() {
+    // Check if this field is any of the key fields
+    let is_key_field = key_field_names.iter().any(|key_name| field_name.root() == key_name.root());
+    
+    if is_key_field {
         match config {
             // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
+            SearchFieldConfig::Text {
+                tokenizer: SearchTokenizer::Keyword,
+                ..
+            } => {
                 // noop
             }
 
             // but not to anything else
-            _ => panic!("cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key")
+            _ => panic!(
+                "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
+            ),
         }
     }
 

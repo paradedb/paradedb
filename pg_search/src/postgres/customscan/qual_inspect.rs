@@ -842,7 +842,8 @@ unsafe fn opexpr(
     }
 
     match (*lhs).type_ {
-        pg_sys::NodeTag::T_Var => node_opexpr(
+    // LHS can be a var or a RowExpr when there is a composite key_field
+        pg_sys::NodeTag::T_Var | pg_sys::NodeTag::T_RowExpr => node_opexpr(
             context,
             rti,
             pdbopoid,
@@ -1130,6 +1131,13 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
             (*var).varno as pg_sys::Index == rti
+        }
+        // If this is a RowExpr we need to unpack and iterate
+        pg_sys::NodeTag::T_RowExpr => {
+            let rowexpr = node.cast::<pg_sys::RowExpr>();
+            PgList::<pg_sys::Node>::from_pg((*rowexpr).args)
+                .iter_ptr()
+                .all(|arg| is_node_range_table_entry(arg, rti))
         }
         pg_sys::NodeTag::T_FuncExpr => {
             let funcexpr = node.cast::<pg_sys::FuncExpr>();

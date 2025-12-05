@@ -123,8 +123,18 @@ impl MoreLikeThisQueryBuilder {
         let schema = index_relation
             .schema()
             .expect("more_like_this: should be able to open schema");
-        let (key_field_name, key_field_type) = (schema.key_field_name(), schema.key_field_type());
+        let key_field_names = schema.key_field_names();
+        let key_field_types = schema.key_field_types();
         let categorized_fields = schema.categorized_fields();
+
+        // For composite keys, we currently only support single key field for more_like_this
+        // TODO: Extend to support composite key matching
+        if key_field_names.len() > 1 {
+            panic!("more_like_this currently only supports single key fields, not composite keys");
+        }
+        
+        let key_field_name = &key_field_names[0];
+        let key_field_type = key_field_types[0];
 
         let maybe_doc_fields: Result<Vec<(Field, Vec<OwnedValue>)>, SpiError> = pgrx::Spi::connect(
             |client| {

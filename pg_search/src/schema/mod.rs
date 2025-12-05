@@ -213,12 +213,13 @@ impl SearchIndexSchema {
             .expect("ctid field should be present in the index")
     }
 
-    pub fn key_field_name(&self) -> FieldName {
-        self.bm25_options.key_field_name()
+
+    pub fn key_field_names(&self) -> Vec<FieldName> {
+        self.bm25_options.key_field_names()
     }
 
-    pub fn key_field_type(&self) -> SearchFieldType {
-        self.bm25_options.key_field_type()
+    pub fn key_field_types(&self) -> Vec<SearchFieldType> {
+        self.bm25_options.key_field_types()
     }
 
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
@@ -277,7 +278,7 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
-            let key_field_name = self.key_field_name();
+            let key_field_names = self.key_field_names();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
             for (
@@ -310,7 +311,7 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
-                    let is_key_field = key_field_name == *search_field.field_name();
+                    let is_key_field = key_field_names.iter().any(|kf| kf == search_field.field_name());
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)

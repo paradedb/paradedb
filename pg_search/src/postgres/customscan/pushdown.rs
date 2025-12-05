@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::searchqueryinput_typoid;
+use crate::api::operator::{searchqueryinput_typoid, tantivy_field_name_from_node};
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
@@ -25,7 +25,7 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::customscan::qual_inspect::{contains_exec_param, Qual};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
+use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
 use crate::schema::SearchField;
 use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
@@ -48,14 +48,45 @@ impl PushdownField {
         var: *mut pg_sys::Node,
         indexrel: &PgSearchRelation,
     ) -> Option<Self> {
-        let (var, field_name) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
         let schema = indexrel.schema().ok()?;
-        let search_field = schema.search_field(field_name.root())?;
-        Some(Self {
-            field_name,
-            varno: (*var).varno as pg_sys::Index,
-            search_field: Some(search_field),
-        })
+
+        // if the LHS is a single indexed var
+        if let Some((var, field_name)) =
+            find_one_var_and_fieldname(VarContext::from_planner(root), var)
+        {
+            let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+            let lhs_is_single_var = PgList::<i16>::from_pg(index_info.ii_Expressions)
+                .iter_ptr()
+                .any(|heap_attno| *heap_attno == (*var).varattno);
+
+            if !lhs_is_single_var {
+                return None;
+            }
+
+            let search_field = schema.search_field(field_name.root())?;
+            return Some(Self {
+                field_name,
+                varno: (*var).varno as pg_sys::Index,
+                search_field: Some(search_field),
+            });
+        }
+
+        // if the LHS is an indexed expression
+        if let Some((_, Some(field_name))) = tantivy_field_name_from_node(root, var) {
+            let search_field = schema.search_field(field_name.root())?;
+            let vars = find_vars(var);
+            if vars.is_empty() {
+                return None;
+            }
+            let varno = (*vars[0]).varno as pg_sys::Index;
+            return Some(Self {
+                field_name,
+                varno,
+                search_field: Some(search_field),
+            });
+        }
+
+        None
     }
 
     /// Create a new [`PushdownField`] from an attribute name.
@@ -113,14 +144,14 @@ pub unsafe fn try_pushdown_inner(
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
-    
+
     // If the RHS contains PARAM_EXEC nodes (correlated subquery parameters),
     // we can't push it down because the parameters need runtime evaluation with planstate.
     // Return None to let the caller create a HeapExpr instead.
     if contains_exec_param(rhs) {
         return None;
     }
-    
+
     let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
     let search_field = pushdown.search_field();
 

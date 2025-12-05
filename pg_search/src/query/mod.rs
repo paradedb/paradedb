@@ -810,11 +810,24 @@ impl SearchQueryInput {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
                 Ok(builder.build_leaf(query, || "All Query".to_string(), || SearchQueryInput::All))
             }
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-            } => {
+            boolean @ SearchQueryInput::Boolean { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                // This allows Tantivy to estimate the Boolean with proper AND/OR/NOT logic
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(boolean.clone())
+                } else {
+                    None
+                };
+
+                let SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
+                } = boolean
+                else {
+                    unreachable!("matched Boolean pattern but destructure failed")
+                };
+
                 // Boolean query optimization pattern:
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
@@ -903,11 +916,7 @@ impl SearchQueryInput {
                         }
                         children
                     },
-                    || SearchQueryInput::Boolean {
-                        must: Vec::new(),
-                        should: Vec::new(),
-                        must_not: Vec::new(),
-                    },
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
             boost @ SearchQueryInput::Boost { .. } => {
@@ -922,7 +931,7 @@ impl SearchQueryInput {
                     factor,
                 } = boost
                 else {
-                    unreachable!()
+                    unreachable!("matched Boost pattern but destructure failed")
                 };
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
@@ -947,7 +956,7 @@ impl SearchQueryInput {
                     score,
                 } = const_score
                 else {
-                    unreachable!()
+                    unreachable!("matched ConstScore pattern but destructure failed")
                 };
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
@@ -972,7 +981,7 @@ impl SearchQueryInput {
                     query: inner_query,
                 } = score_filter
                 else {
-                    unreachable!()
+                    unreachable!("matched ScoreFilter pattern but destructure failed")
                 };
                 let inner_output =
                     recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
@@ -986,10 +995,22 @@ impl SearchQueryInput {
                     || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
-            SearchQueryInput::DisjunctionMax {
-                disjuncts,
-                tie_breaker,
-            } => {
+            dismax @ SearchQueryInput::DisjunctionMax { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(dismax.clone())
+                } else {
+                    None
+                };
+
+                let SearchQueryInput::DisjunctionMax {
+                    disjuncts,
+                    tie_breaker,
+                } = dismax
+                else {
+                    unreachable!("matched DisjunctionMax pattern but destructure failed")
+                };
+
                 let mut tantivy_disjuncts = vec![];
                 let mut disjunct_outputs = vec![];
 
@@ -1037,10 +1058,7 @@ impl SearchQueryInput {
                             })
                             .collect()
                     },
-                    || SearchQueryInput::DisjunctionMax {
-                        disjuncts: Vec::new(),
-                        tie_breaker,
-                    },
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
             SearchQueryInput::Empty => {
@@ -1242,7 +1260,7 @@ impl SearchQueryInput {
                     query: inner_query,
                 } = with_index
                 else {
-                    unreachable!()
+                    unreachable!("matched WithIndex pattern but destructure failed")
                 };
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
@@ -1266,7 +1284,7 @@ impl SearchQueryInput {
                     field_filters,
                 } = heap_filter
                 else {
-                    unreachable!()
+                    unreachable!("matched HeapFilter pattern but destructure failed")
                 };
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;

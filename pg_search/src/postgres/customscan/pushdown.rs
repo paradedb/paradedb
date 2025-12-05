@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{searchqueryinput_typoid, tantivy_field_name_from_node};
+use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
@@ -25,7 +25,7 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::customscan::qual_inspect::{contains_exec_param, Qual};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::var::{find_vars, VarContext};
 use crate::schema::SearchField;
 use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
@@ -50,29 +50,18 @@ impl PushdownField {
     ) -> Option<Self> {
         let schema = indexrel.schema().ok()?;
 
-        // if the LHS is a single indexed var
-        if let Some((var, field_name)) =
-            find_one_var_and_fieldname(VarContext::from_planner(root), var)
+        let var = if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, var) {
+            (*expr).arg.cast()
+        } else {
+            var
+        };
+
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should have a heap relation");
+        if let Some(field_name) =
+            field_name_from_node(VarContext::from_planner(root), &heaprel, indexrel, var)
         {
-            let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-            let lhs_is_single_var = PgList::<i16>::from_pg(index_info.ii_Expressions)
-                .iter_ptr()
-                .any(|heap_attno| *heap_attno == (*var).varattno);
-
-            if !lhs_is_single_var {
-                return None;
-            }
-
-            let search_field = schema.search_field(field_name.root())?;
-            return Some(Self {
-                field_name,
-                varno: (*var).varno as pg_sys::Index,
-                search_field: Some(search_field),
-            });
-        }
-
-        // if the LHS is an indexed expression
-        if let Some((_, Some(field_name))) = tantivy_field_name_from_node(root, var) {
             let search_field = schema.search_field(field_name.root())?;
             let vars = find_vars(var);
             if vars.is_empty() {

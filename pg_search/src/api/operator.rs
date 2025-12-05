@@ -287,7 +287,7 @@ unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var
         && (*a).varcollid == (*b).varcollid
 }
 
-unsafe fn field_name_from_node(
+pub unsafe fn field_name_from_node(
     context: VarContext,
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,

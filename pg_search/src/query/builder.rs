@@ -17,12 +17,63 @@
 
 //! Generic query builder trait for different output types.
 //!
+//! # Overview
+//!
 //! This module provides a builder pattern for constructing query outputs that can
 //! either return just the Tantivy query (`QueryOnlyBuilder`) or both the query and
 //! a tree structure for estimates (`QueryTreeBuilder`).
 //!
-//! The trait methods use closures for labels and children to enable lazy evaluation,
-//! avoiding unnecessary allocations when the builder doesn't need them.
+//! # Two Builders, Two Use Cases
+//!
+//! - **`QueryOnlyBuilder`**: Used for normal query execution.
+//!   Returns only `Box<dyn TantivyQuery>`. Ignores all closures for zero overhead.
+//!
+//! - **`QueryTreeBuilder`**: Used for `EXPLAIN VERBOSE` output.
+//!   Returns `(Box<dyn TantivyQuery>, QueryWithEstimates)`. Calls all closures
+//!   to build the estimate tree structure.
+//!
+//! # Performance Optimizations
+//!
+//! The trait is designed for zero-cost abstraction on the hot path:
+//!
+//! 1. **Lazy Labels**: `label_fn` closure only called by `QueryTreeBuilder`
+//! 2. **Lazy Children**: `children_fn` closure only called by `QueryTreeBuilder`
+//! 3. **Lazy Placeholders**: `query_input_fn` closure only called by `QueryTreeBuilder`
+//! 4. **Zero-Clone Splitting**: `split_for_parent()` avoids cloning for `QueryOnlyBuilder`
+//!
+//! # Key Method: `split_for_parent`
+//!
+//! When building composite queries (Boolean, Boost, etc.), we need the child's
+//! Tantivy query for the parent, and optionally the full output for the children
+//! closure. `split_for_parent` handles this differently per builder:
+//!
+//! ```text
+//! QueryOnlyBuilder:
+//!   output ──────────────────> (query, None)
+//!                              No clone! Output consumed.
+//!
+//! QueryTreeBuilder:
+//!   output ──┬── clone ──────> (cloned_query, Some(output))
+//!            └── keep ───────> Must keep output for children closure.
+//! ```
+//!
+//! # Usage Pattern in `into_tantivy_query_generic`
+//!
+//! ```ignore
+//! // Process child query
+//! let output = recurse(child_input)?;
+//!
+//! // Split: zero-cost for QueryOnlyBuilder, clone for QueryTreeBuilder
+//! let (child_query, opt_output) = B::split_for_parent(output);
+//!
+//! // Use child_query for parent construction
+//! parent_subqueries.push(child_query);
+//!
+//! // Store output for children closure (only Some for QueryTreeBuilder)
+//! if let Some(out) = opt_output {
+//!     child_outputs.push(out);
+//! }
+//! ```
 
 use super::estimate_tree::QueryWithEstimates;
 use super::SearchQueryInput;
@@ -30,85 +81,120 @@ use tantivy::query::Query as TantivyQuery;
 
 /// Build different output types from Tantivy queries.
 ///
-/// The trait uses closures for `label` and `children` parameters to enable lazy
-/// evaluation - `QueryOnlyBuilder` doesn't need labels or children, so it never
-/// calls these closures, avoiding unnecessary allocations.
+/// The trait uses closures for all parameters to enable lazy evaluation:
+/// - `QueryOnlyBuilder` never calls any closures, achieving zero allocation overhead
+/// - `QueryTreeBuilder` calls all closures to build the estimate tree
 pub trait QueryBuilder {
     type Output;
 
+    /// Whether this builder needs the actual `SearchQueryInput` for estimation.
+    ///
+    /// - `QueryOnlyBuilder`: `false` - closures are never called, no clone needed
+    /// - `QueryTreeBuilder`: `true` - closures are called, need real query for estimation
+    ///
+    /// Use this to conditionally clone before destructuring:
+    /// ```ignore
+    /// let cloned = if B::NEEDS_QUERY_INPUT { Some(self.clone()) } else { None };
+    /// let SearchQueryInput::Boost { query, factor } = self else { ... };
+    /// // `self` is consumed, but `cloned` has the full query for estimation
+    /// ```
+    const NEEDS_QUERY_INPUT: bool;
+
     /// Build a leaf node with no children.
     ///
-    /// `label_fn` is a closure that generates the label lazily.
-    /// Takes a reference to avoid cloning for `QueryOnlyBuilder` which ignores the input.
-    fn build_leaf<F>(
+    /// All closures are lazy - only called by builders that need them.
+    /// `QueryOnlyBuilder` ignores all closures for zero-cost execution.
+    fn build_leaf<F, Q>(
         &self,
-        query_input: &SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
         label_fn: F,
-    ) -> Self::Output
-    where
-        F: FnOnce() -> String;
-
-    /// Build a node with children.
-    ///
-    /// `label_fn` generates the label lazily.
-    /// `children_fn` generates the children lazily.
-    /// Takes a reference to avoid cloning for `QueryOnlyBuilder` which ignores the input.
-    fn build_with_children<F, C>(
-        &self,
-        query_input: &SearchQueryInput,
-        tantivy_query: Box<dyn TantivyQuery>,
-        label_fn: F,
-        children_fn: C,
+        query_input_fn: Q,
     ) -> Self::Output
     where
         F: FnOnce() -> String,
-        C: FnOnce() -> Vec<Self::Output>;
+        Q: FnOnce() -> SearchQueryInput;
 
-    /// Extract the query from output.
+    /// Build a node with children.
+    ///
+    /// All closures are lazy - only called by builders that need them.
+    /// `QueryOnlyBuilder` ignores all closures for zero-cost execution.
+    fn build_with_children<F, C, Q>(
+        &self,
+        tantivy_query: Box<dyn TantivyQuery>,
+        label_fn: F,
+        children_fn: C,
+        query_input_fn: Q,
+    ) -> Self::Output
+    where
+        F: FnOnce() -> String,
+        C: FnOnce(&Self) -> Vec<Self::Output>,
+        Q: FnOnce() -> SearchQueryInput;
+
+    /// Extract the query from output (by reference).
     fn extract_query(output: &Self::Output) -> &dyn TantivyQuery;
 
     /// Clone the query from output.
     fn clone_query(output: &Self::Output) -> Box<dyn TantivyQuery>;
+
+    /// Take the query from output, consuming the output.
+    ///
+    /// For `QueryOnlyBuilder`: Returns the query directly (zero-cost, no clone).
+    /// For `QueryTreeBuilder`: Clones the query (output is still needed for children).
+    ///
+    /// Use this when you need the query for a parent node and either:
+    /// - Don't need the output for children (`QueryOnlyBuilder` case), or
+    /// - Will store the output separately for lazy children processing
+    fn take_query(output: Self::Output) -> Box<dyn TantivyQuery>;
+
+    /// Split output into query (for parent) and optional output (for children closure).
+    ///
+    /// For `QueryOnlyBuilder`: Returns (query, None) - no clone, output consumed.
+    /// For `QueryTreeBuilder`: Returns (cloned_query, Some(output)) - needs both.
+    ///
+    /// This is the key optimization: `QueryOnlyBuilder` avoids cloning entirely.
+    fn split_for_parent(output: Self::Output) -> (Box<dyn TantivyQuery>, Option<Self::Output>);
 }
 
 /// Builder that returns only the Tantivy Query.
 ///
-/// This builder ignores labels, children, and query_input since it only
-/// needs to return the Tantivy query. The lazy closures are never called,
-/// avoiding unnecessary allocations for large queries.
+/// This builder ignores all closures (label, children, query_input) since it only
+/// needs to return the Tantivy query. By never calling any closures, we achieve
+/// zero allocation overhead for the fast path.
 pub struct QueryOnlyBuilder;
 
 impl QueryBuilder for QueryOnlyBuilder {
     type Output = Box<dyn TantivyQuery>;
 
-    fn build_leaf<F>(
+    /// No estimation needed - closures are never called, so no clone required.
+    const NEEDS_QUERY_INPUT: bool = false;
+
+    fn build_leaf<F, Q>(
         &self,
-        _query_input: &SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
         _label_fn: F,
+        _query_input_fn: Q,
     ) -> Self::Output
     where
         F: FnOnce() -> String,
+        Q: FnOnce() -> SearchQueryInput,
     {
-        // Don't call label_fn - we don't need it
-        // query_input is ignored - no clone needed on this path
+        // Don't call any closures - zero cost for fast path
         tantivy_query
     }
 
-    fn build_with_children<F, C>(
+    fn build_with_children<F, C, Q>(
         &self,
-        _query_input: &SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
         _label_fn: F,
         _children_fn: C,
+        _query_input_fn: Q,
     ) -> Self::Output
     where
         F: FnOnce() -> String,
-        C: FnOnce() -> Vec<Self::Output>,
+        C: FnOnce(&Self) -> Vec<Self::Output>,
+        Q: FnOnce() -> SearchQueryInput,
     {
-        // Don't call label_fn or children_fn - we don't need them
-        // query_input is ignored - no clone needed on this path
+        // Don't call any closures - zero cost for fast path
         tantivy_query
     }
 
@@ -118,6 +204,16 @@ impl QueryBuilder for QueryOnlyBuilder {
 
     fn clone_query(output: &Self::Output) -> Box<dyn TantivyQuery> {
         output.box_clone()
+    }
+
+    fn take_query(output: Self::Output) -> Box<dyn TantivyQuery> {
+        // Zero-cost: just return the query, no clone needed
+        output
+    }
+
+    fn split_for_parent(output: Self::Output) -> (Box<dyn TantivyQuery>, Option<Self::Output>) {
+        // Zero-cost: take the query, no output needed for children (closure never called)
+        (output, None)
     }
 }
 
@@ -130,35 +226,40 @@ pub struct QueryTreeBuilder;
 impl QueryBuilder for QueryTreeBuilder {
     type Output = (Box<dyn TantivyQuery>, QueryWithEstimates);
 
-    fn build_leaf<F>(
+    /// Estimation needed - closures are called, so clone the query before destructuring.
+    const NEEDS_QUERY_INPUT: bool = true;
+
+    fn build_leaf<F, Q>(
         &self,
-        query_input: &SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
         label_fn: F,
+        query_input_fn: Q,
     ) -> Self::Output
     where
         F: FnOnce() -> String,
+        Q: FnOnce() -> SearchQueryInput,
     {
-        // Clone the query_input for the estimate tree (needed for cost estimation)
-        let tree = QueryWithEstimates::new(query_input.clone(), label_fn());
+        // Call the closure to get the query_input - no clone needed, we get owned value
+        let tree = QueryWithEstimates::new(query_input_fn(), label_fn());
         (tantivy_query, tree)
     }
 
-    fn build_with_children<F, C>(
+    fn build_with_children<F, C, Q>(
         &self,
-        query_input: &SearchQueryInput,
         tantivy_query: Box<dyn TantivyQuery>,
         label_fn: F,
         children_fn: C,
+        query_input_fn: Q,
     ) -> Self::Output
     where
         F: FnOnce() -> String,
-        C: FnOnce() -> Vec<Self::Output>,
+        C: FnOnce(&Self) -> Vec<Self::Output>,
+        Q: FnOnce() -> SearchQueryInput,
     {
-        let children = children_fn();
+        let children = children_fn(self);
         let child_trees: Vec<_> = children.into_iter().map(|(_, tree)| tree).collect();
-        // Clone the query_input for the estimate tree (needed for cost estimation)
-        let tree = QueryWithEstimates::with_children(query_input.clone(), label_fn(), child_trees);
+        // Call the closure to get the query_input - no clone needed, we get owned value
+        let tree = QueryWithEstimates::with_children(query_input_fn(), label_fn(), child_trees);
         (tantivy_query, tree)
     }
 
@@ -168,6 +269,17 @@ impl QueryBuilder for QueryTreeBuilder {
 
     fn clone_query(output: &Self::Output) -> Box<dyn TantivyQuery> {
         output.0.box_clone()
+    }
+
+    fn take_query(output: Self::Output) -> Box<dyn TantivyQuery> {
+        // Take the query from the tuple, discard the tree
+        output.0
+    }
+
+    fn split_for_parent(output: Self::Output) -> (Box<dyn TantivyQuery>, Option<Self::Output>) {
+        // Must clone: we need query for parent AND output for children closure
+        let query = output.0.box_clone();
+        (query, Some(output))
     }
 }
 
@@ -182,9 +294,11 @@ mod tests {
         let builder = QueryOnlyBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);
 
-        let output = builder.build_leaf(&SearchQueryInput::All, query.box_clone(), || {
-            "Test Query".to_string()
-        });
+        let output = builder.build_leaf(
+            query.box_clone(),
+            || "Test Query".to_string(),
+            || SearchQueryInput::All,
+        );
 
         let _extracted = QueryOnlyBuilder::extract_query(&output);
     }
@@ -194,9 +308,11 @@ mod tests {
         let builder = QueryTreeBuilder;
         let query: Box<dyn TantivyQuery> = Box::new(AllQuery);
 
-        let output = builder.build_leaf(&SearchQueryInput::All, query.box_clone(), || {
-            "Test Query".to_string()
-        });
+        let output = builder.build_leaf(
+            query.box_clone(),
+            || "Test Query".to_string(),
+            || SearchQueryInput::All,
+        );
 
         let _extracted = QueryTreeBuilder::extract_query(&output);
         let tree = &output.1;

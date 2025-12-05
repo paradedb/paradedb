@@ -94,21 +94,21 @@ fn inject_estimates_into_json(
     use crate::query::SearchQueryInput;
     use serde_json::Value;
 
+    // Try to get the JSON value as an object
+    // Some unit variants like `All` and `Empty` serialize as strings ("all", "empty")
+    // rather than objects, so we can't inject estimates into them directly
+    let obj = match json_value.as_object_mut() {
+        Some(obj) => obj,
+        None => return, // Primitive value (string like "all"), can't inject estimate
+    };
+
     // Inject estimate at this node if available
     if let Some(estimated_docs) = estimate_tree.estimated_docs {
-        let obj = json_value
-            .as_object_mut()
-            .expect("JSON value should be an object when injecting estimate");
         obj.insert(
             "estimated_docs".to_string(),
             Value::Number(estimated_docs.into()),
         );
     }
-
-    let obj = match json_value.as_object_mut() {
-        Some(obj) => obj,
-        None => return, // Primitive value, no children to process
-    };
 
     // Match on the query type first for type safety
     match &estimate_tree.query {
@@ -228,6 +228,20 @@ fn inject_estimates_into_json(
     }
 }
 
+/// Unwrap the Empty wrapper that Boolean clause children are wrapped in.
+/// The estimate tree wraps each clause in an Empty wrapper for labeling purposes,
+/// but the JSON doesn't have this wrapper, so we need to skip it.
+fn unwrap_boolean_clause_child(child: &QueryWithEstimates) -> &QueryWithEstimates {
+    use crate::query::SearchQueryInput;
+    match &child.query {
+        SearchQueryInput::Empty => {
+            // This is the wrapper - use the first (and only) child
+            child.children().first().unwrap_or(child)
+        }
+        _ => child,
+    }
+}
+
 /// Helper to inject estimates into boolean query clauses
 fn inject_into_boolean_query(
     boolean: &mut serde_json::Map<String, serde_json::Value>,
@@ -242,7 +256,8 @@ fn inject_into_boolean_query(
     if let Some(Value::Array(must)) = boolean.get_mut("must") {
         for must_item in must.iter_mut() {
             if child_idx < children.len() {
-                inject_estimates_into_json(must_item, &children[child_idx]);
+                let actual_child = unwrap_boolean_clause_child(&children[child_idx]);
+                inject_estimates_into_json(must_item, actual_child);
                 child_idx += 1;
             }
         }
@@ -252,7 +267,8 @@ fn inject_into_boolean_query(
     if let Some(Value::Array(should)) = boolean.get_mut("should") {
         for should_item in should.iter_mut() {
             if child_idx < children.len() {
-                inject_estimates_into_json(should_item, &children[child_idx]);
+                let actual_child = unwrap_boolean_clause_child(&children[child_idx]);
+                inject_estimates_into_json(should_item, actual_child);
                 child_idx += 1;
             }
         }
@@ -262,7 +278,8 @@ fn inject_into_boolean_query(
     if let Some(Value::Array(must_not)) = boolean.get_mut("must_not") {
         for must_not_item in must_not.iter_mut() {
             if child_idx < children.len() {
-                inject_estimates_into_json(must_not_item, &children[child_idx]);
+                let actual_child = unwrap_boolean_clause_child(&children[child_idx]);
+                inject_estimates_into_json(must_not_item, actual_child);
                 child_idx += 1;
             }
         }

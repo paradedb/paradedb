@@ -808,135 +808,182 @@ impl SearchQueryInput {
             }
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
-                Ok(builder.build_leaf(&SearchQueryInput::All, query, || "All Query".to_string()))
+                Ok(builder.build_leaf(query, || "All Query".to_string(), || SearchQueryInput::All))
             }
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
             } => {
+                // Boolean query optimization pattern:
+                // ---------------------------------
+                // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
+                //
+                // For QueryOnlyBuilder (normal queries):
+                //   - split_for_parent returns (query, None)
+                //   - No clone happens, query ownership is transferred
+                //   - *_outputs vectors stay empty (opt_output is None)
+                //
+                // For QueryTreeBuilder (EXPLAIN VERBOSE):
+                //   - split_for_parent returns (cloned_query, Some(output))
+                //   - Clone is necessary because we need both:
+                //     * The query for BooleanQuery::new()
+                //     * The output for the children closure (to build estimate tree)
+                //   - *_outputs vectors are populated for use in children closure
                 let mut subqueries = vec![];
-                let mut must_children = vec![];
+                let mut must_outputs = vec![];
 
                 for input in must {
                     let output = recurse(input)?;
-                    let query = B::clone_query(&output);
+                    let (query, opt_output) = B::split_for_parent(output);
                     subqueries.push((Occur::Must, query));
-                    must_children.push(output);
+                    if let Some(out) = opt_output {
+                        must_outputs.push(out);
+                    }
                 }
 
-                let mut should_children = vec![];
+                let mut should_outputs = vec![];
                 for input in should {
                     let output = recurse(input)?;
-                    let query = B::clone_query(&output);
+                    let (query, opt_output) = B::split_for_parent(output);
                     subqueries.push((Occur::Should, query));
-                    should_children.push(output);
+                    if let Some(out) = opt_output {
+                        should_outputs.push(out);
+                    }
                 }
 
-                let mut must_not_children = vec![];
+                let mut must_not_outputs = vec![];
                 for input in must_not {
                     let output = recurse(input)?;
-                    let query = B::clone_query(&output);
+                    let (query, opt_output) = B::split_for_parent(output);
                     subqueries.push((Occur::MustNot, query));
-                    must_not_children.push(output);
+                    if let Some(out) = opt_output {
+                        must_not_outputs.push(out);
+                    }
                 }
 
                 let query = Box::new(BooleanQuery::new(subqueries));
 
-                // Create children in order: must, should, must_not
-                let mut children = Vec::new();
-                for (idx, child) in must_children.into_iter().enumerate() {
-                    let child_query = B::extract_query(&child);
-                    let wrapped = builder.build_with_children(
-                        &SearchQueryInput::Empty,
-                        child_query.box_clone(),
-                        || format!("Must Clause [{}]", idx),
-                        || vec![child],
-                    );
-                    children.push(wrapped);
-                }
-                for (idx, child) in should_children.into_iter().enumerate() {
-                    let child_query = B::extract_query(&child);
-                    let wrapped = builder.build_with_children(
-                        &SearchQueryInput::Empty,
-                        child_query.box_clone(),
-                        || format!("Should Clause [{}]", idx),
-                        || vec![child],
-                    );
-                    children.push(wrapped);
-                }
-                for (idx, child) in must_not_children.into_iter().enumerate() {
-                    let child_query = B::extract_query(&child);
-                    let wrapped = builder.build_with_children(
-                        &SearchQueryInput::Empty,
-                        child_query.box_clone(),
-                        || format!("MustNot Clause [{}]", idx),
-                        || vec![child],
-                    );
-                    children.push(wrapped);
-                }
-
+                // Children are built lazily inside the closure - QueryOnlyBuilder
+                // never calls this closure, so wrapping work is skipped entirely
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::Boolean {
+                    query,
+                    || "Boolean Query".to_string(),
+                    |b| {
+                        let mut children = Vec::new();
+                        for (idx, child) in must_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("Must Clause [{}]", idx),
+                                |_| vec![child],
+                                || SearchQueryInput::Empty,
+                            );
+                            children.push(wrapped);
+                        }
+                        for (idx, child) in should_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("Should Clause [{}]", idx),
+                                |_| vec![child],
+                                || SearchQueryInput::Empty,
+                            );
+                            children.push(wrapped);
+                        }
+                        for (idx, child) in must_not_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("MustNot Clause [{}]", idx),
+                                |_| vec![child],
+                                || SearchQueryInput::Empty,
+                            );
+                            children.push(wrapped);
+                        }
+                        children
+                    },
+                    || SearchQueryInput::Boolean {
                         must: Vec::new(),
                         should: Vec::new(),
                         must_not: Vec::new(),
                     },
-                    query,
-                    || "Boolean Query".to_string(),
-                    || children,
                 ))
             }
-            SearchQueryInput::Boost {
-                query: inner_query,
-                factor,
-            } => {
+            boost @ SearchQueryInput::Boost { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(boost.clone())
+                } else {
+                    None
+                };
+                let SearchQueryInput::Boost {
+                    query: inner_query,
+                    factor,
+                } = boost
+                else {
+                    unreachable!()
+                };
                 let inner_output = recurse(*inner_query)?;
-                let inner_tantivy = B::clone_query(&inner_output);
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
                 let query = Box::new(BoostQuery::new(inner_tantivy, factor));
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::Boost {
-                        query: Box::new(SearchQueryInput::Uninitialized),
-                        factor,
-                    },
                     query,
                     || format!("Boost Query (factor: {})", factor),
-                    || vec![inner_output],
+                    |_| opt_output.into_iter().collect(),
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
-            SearchQueryInput::ConstScore {
-                query: inner_query,
-                score,
-            } => {
+            const_score @ SearchQueryInput::ConstScore { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(const_score.clone())
+                } else {
+                    None
+                };
+                let SearchQueryInput::ConstScore {
+                    query: inner_query,
+                    score,
+                } = const_score
+                else {
+                    unreachable!()
+                };
                 let inner_output = recurse(*inner_query)?;
-                let inner_tantivy = B::clone_query(&inner_output);
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
                 let query = Box::new(ConstScoreQuery::new(inner_tantivy, score));
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::ConstScore {
-                        query: Box::new(SearchQueryInput::Uninitialized),
-                        score,
-                    },
                     query,
                     || format!("ConstScore Query (score: {})", score),
-                    || vec![inner_output],
+                    |_| opt_output.into_iter().collect(),
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
-            SearchQueryInput::ScoreFilter {
-                bounds,
-                query: inner_query,
-            } => {
+            score_filter @ SearchQueryInput::ScoreFilter { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(score_filter.clone())
+                } else {
+                    None
+                };
+                let SearchQueryInput::ScoreFilter {
+                    bounds,
+                    query: inner_query,
+                } = score_filter
+                else {
+                    unreachable!()
+                };
                 let inner_output =
                     recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
-                let inner_tantivy = B::clone_query(&inner_output);
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
                 let query = Box::new(ScoreFilter::new(bounds.clone(), inner_tantivy));
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::ScoreFilter {
-                        bounds: bounds.clone(),
-                        query: Some(Box::new(SearchQueryInput::Uninitialized)),
-                    },
                     query,
                     || "ScoreFilter Query".to_string(),
-                    || vec![inner_output],
+                    |_| opt_output.into_iter().collect(),
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
             SearchQueryInput::DisjunctionMax {
@@ -944,21 +991,16 @@ impl SearchQueryInput {
                 tie_breaker,
             } => {
                 let mut tantivy_disjuncts = vec![];
-                let mut children = vec![];
+                let mut disjunct_outputs = vec![];
 
-                for (idx, disjunct) in disjuncts.into_iter().enumerate() {
+                for disjunct in disjuncts {
                     let output = recurse(disjunct)?;
-                    let query = B::clone_query(&output);
+                    // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                    let (query, opt_output) = B::split_for_parent(output);
                     tantivy_disjuncts.push(query);
-
-                    let child_query = B::extract_query(&output);
-                    let wrapped = builder.build_with_children(
-                        &SearchQueryInput::All, // Placeholder
-                        child_query.box_clone(),
-                        || format!("Disjunct [{}]", idx),
-                        || vec![output],
-                    );
-                    children.push(wrapped);
+                    if let Some(out) = opt_output {
+                        disjunct_outputs.push(out);
+                    }
                 }
 
                 let query = if let Some(tie_breaker) = tie_breaker {
@@ -970,11 +1012,8 @@ impl SearchQueryInput {
                     Box::new(DisjunctionMaxQuery::new(tantivy_disjuncts))
                 };
 
+                // Children are built lazily inside the closure
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::DisjunctionMax {
-                        disjuncts: Vec::new(),
-                        tie_breaker,
-                    },
                     query,
                     || {
                         if let Some(tb) = tie_breaker {
@@ -983,14 +1022,34 @@ impl SearchQueryInput {
                             "DisjunctionMax Query".to_string()
                         }
                     },
-                    || children,
+                    |b| {
+                        disjunct_outputs
+                            .into_iter()
+                            .enumerate()
+                            .map(|(idx, output)| {
+                                let child_query = B::extract_query(&output);
+                                b.build_with_children(
+                                    child_query.box_clone(),
+                                    || format!("Disjunct [{}]", idx),
+                                    |_| vec![output],
+                                    || SearchQueryInput::All, // Placeholder
+                                )
+                            })
+                            .collect()
+                    },
+                    || SearchQueryInput::DisjunctionMax {
+                        disjuncts: Vec::new(),
+                        tie_breaker,
+                    },
                 ))
             }
             SearchQueryInput::Empty => {
                 let query = Box::new(EmptyQuery);
-                Ok(builder.build_leaf(&SearchQueryInput::Empty, query, || {
-                    "Empty Query".to_string()
-                }))
+                Ok(builder.build_leaf(
+                    query,
+                    || "Empty Query".to_string(),
+                    || SearchQueryInput::Empty,
+                ))
             }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
@@ -1073,7 +1132,9 @@ impl SearchQueryInput {
                 };
 
                 Ok(builder.build_leaf(
-                    &SearchQueryInput::MoreLikeThis {
+                    query,
+                    || "MoreLikeThis Query".to_string(),
+                    || SearchQueryInput::MoreLikeThis {
                         min_doc_frequency,
                         max_doc_frequency,
                         min_term_frequency,
@@ -1086,8 +1147,6 @@ impl SearchQueryInput {
                         key_value,
                         fields,
                     },
-                    query,
-                    || "MoreLikeThis Query".to_string(),
                 ))
             }
             SearchQueryInput::Parse {
@@ -1113,13 +1172,13 @@ impl SearchQueryInput {
                 };
 
                 Ok(builder.build_leaf(
-                    &SearchQueryInput::Parse {
+                    query,
+                    || "Parse Query".to_string(),
+                    || SearchQueryInput::Parse {
                         query_string,
                         lenient,
                         conjunction_mode,
                     },
-                    query,
-                    || "Parse Query".to_string(),
                 ))
             }
             SearchQueryInput::TermSet { terms } => {
@@ -1165,39 +1224,54 @@ impl SearchQueryInput {
                     },
                 )));
 
-                Ok(
-                    builder.build_leaf(&SearchQueryInput::TermSet { terms }, query, || {
-                        "TermSet Query".to_string()
-                    }),
-                )
-            }
-            SearchQueryInput::WithIndex {
-                oid,
-                query: inner_query,
-            } => {
-                // Store the inner query before consuming it
-                let inner_query_copy = inner_query.clone();
-                let inner_output = recurse(*inner_query)?;
-                let inner_tantivy = B::clone_query(&inner_output);
-                Ok(builder.build_with_children(
-                    &SearchQueryInput::WithIndex {
-                        oid,
-                        query: inner_query_copy,
-                    },
-                    inner_tantivy,
-                    || "WithIndex Query".to_string(),
-                    || vec![inner_output],
+                Ok(builder.build_leaf(
+                    query,
+                    || "TermSet Query".to_string(),
+                    || SearchQueryInput::TermSet { terms },
                 ))
             }
-            SearchQueryInput::HeapFilter {
-                indexed_query,
-                field_filters,
-            } => {
-                // Store the indexed query before consuming it
-                let indexed_query_copy = indexed_query.clone();
+            with_index @ SearchQueryInput::WithIndex { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(with_index.clone())
+                } else {
+                    None
+                };
+                let SearchQueryInput::WithIndex {
+                    oid: _,
+                    query: inner_query,
+                } = with_index
+                else {
+                    unreachable!()
+                };
+                let inner_output = recurse(*inner_query)?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
+                Ok(builder.build_with_children(
+                    inner_tantivy,
+                    || "WithIndex Query".to_string(),
+                    |_| opt_output.into_iter().collect(),
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                ))
+            }
+            heap_filter @ SearchQueryInput::HeapFilter { .. } => {
+                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
+                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+                    Some(heap_filter.clone())
+                } else {
+                    None
+                };
+                let SearchQueryInput::HeapFilter {
+                    indexed_query,
+                    field_filters,
+                } = heap_filter
+                else {
+                    unreachable!()
+                };
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;
-                let indexed_tantivy_query = B::clone_query(&inner_output);
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
                 // Is initialized in `begin_custom_scan` if `has_heap_filters`.
                 let expr_context = expr_context
@@ -1213,13 +1287,10 @@ impl SearchQueryInput {
                 ));
 
                 Ok(builder.build_with_children(
-                    &SearchQueryInput::HeapFilter {
-                        indexed_query: indexed_query_copy,
-                        field_filters: field_filters.clone(),
-                    },
                     query,
                     || "HeapFilter Query".to_string(),
-                    || vec![inner_output],
+                    |_| opt_output.into_iter().collect(),
+                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
                 ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
@@ -1236,13 +1307,14 @@ impl SearchQueryInput {
                     searcher,
                 )?;
                 let field_clone = field.clone();
+                let field_for_closure = field.clone();
                 Ok(builder.build_leaf(
-                    &SearchQueryInput::FieldedQuery {
-                        field: field.clone(),
-                        query: pdb_query,
-                    },
                     Box::new(query),
                     || format!("FieldedQuery (field: {})", field_clone),
+                    || SearchQueryInput::FieldedQuery {
+                        field: field_for_closure,
+                        query: pdb_query,
+                    },
                 ))
             }
         }

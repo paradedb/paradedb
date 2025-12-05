@@ -976,8 +976,29 @@ impl SearchIndexReader {
         segment_doc_proportion: f64,
         parser: &QueryParserCtor,
     ) {
+        use crate::query::SearchQueryInput;
+
+        // First, recursively estimate all children
         for child in node.children_mut() {
             self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
+        }
+
+        // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
+        // estimate from child. These are placeholders created in into_tantivy_query_generic
+        // to wrap children for better tree structure display.
+        //
+        // - Empty: used for Boolean clause labels ("Must Clause [0]", etc.)
+        // - All: used for DisjunctionMax disjunct labels ("Disjunct [0]", etc.)
+        //
+        // Note: We check for exactly 1 child to distinguish structural wrappers from
+        // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
+        if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
+            && node.children().len() == 1
+        {
+            if let Some(child_estimate) = node.children()[0].estimated_docs {
+                node.set_estimate(child_estimate);
+                return;
+            }
         }
 
         let tantivy_query = node

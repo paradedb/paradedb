@@ -70,9 +70,9 @@ jobs:
         id: build-push-config
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: docker/
           platforms: linux/amd64
-          file: docker/Dockerfile.config
+          file: Dockerfile.config
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
           labels: ${{ steps.extract-config-metadata.outputs.labels }}

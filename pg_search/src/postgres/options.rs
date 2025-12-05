@@ -315,6 +315,7 @@ struct LazyInfo {
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
+    computed_key_field_name: Rc<RefCell<Option<FieldName>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -324,8 +325,7 @@ pub struct BM25IndexOptions {
 }
 
 impl BM25IndexOptions {
-    pub const MISSING_KEY_FIELD_CONFIG: &'static str =
-        "index should have a `WITH (key_field='...')` option";
+    pub const MISSING_KEY_FIELD_CONFIG: &'static str = "index key field is corrupt";
 
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
@@ -368,9 +368,13 @@ impl BM25IndexOptions {
     }
 
     pub fn key_field_name(&self) -> FieldName {
-        self.options_data()
-            .key_field_name()
-            .expect(Self::MISSING_KEY_FIELD_CONFIG)
+        if self.lazy.computed_key_field_name.borrow().is_none() {
+            let computed_name = unsafe { 
+                get_first_index_field_from_relation(self.indexrel)
+            }.expect(Self::MISSING_KEY_FIELD_CONFIG);
+            *self.lazy.computed_key_field_name.borrow_mut() = Some(computed_name);
+        }
+        self.lazy.computed_key_field_name.borrow().as_ref().unwrap().clone()
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {
@@ -444,16 +448,18 @@ impl BM25IndexOptions {
     }
 
     /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
+    /// (except for key_field which is deprecated)
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
-        let data = self.options_data();
         if field_name.is_ctid() {
             return Some(SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
             });
         }
-
-        if field_name.root() == data.key_field_name()?.root() {
+        // use key_field from self, not Options
+        notice!("{} = {}", field_name.root(), self.key_field_name().root());
+        if field_name.root() == self.key_field_name().root() {
+            notice!("hi");
             return match self.text_config().as_ref().unwrap().get(field_name) {
                 // if the key_field is TEXT then we'll use the config for it
                 config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
@@ -462,10 +468,11 @@ impl BM25IndexOptions {
                 _ => self.get_field_type(field_name).map(key_field_config),
             };
         }
+        notice!("after {} = {}", field_name.root(), self.key_field_name().root());
 
         let field_type = self.get_field_type(field_name);
 
-        if field_name.root() == data.key_field_name()?.root() {
+        if field_name.root() == self.key_field_name().root() {
             return field_type.map(key_field_config);
         } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
             field_type
@@ -617,10 +624,31 @@ impl BM25IndexOptions {
     }
 
     #[inline(always)]
-    fn options_data(&self) -> &BM25IndexOptionsData {
+    pub fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {
-            assert!(!(*self.indexrel).rd_options.is_null());
-            &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            // Needed to set defaults when there is no rd_options (no WITH clause)
+            // We might want to think about putting these on the struct as defaults
+            // in the future
+            if (*self.indexrel).rd_options.is_null() {
+                static EMPTY_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
+                    vl_len_: std::mem::size_of::<BM25IndexOptionsData>() as i32,
+                    text_fields_offset: 0,
+                    numeric_fields_offset: 0,
+                    boolean_fields_offset: 0,
+                    json_fields_offset: 0,
+                    range_fields_offset: 0,
+                    datetime_fields_offset: 0,
+                    key_field_offset: 0,
+                    layer_sizes_offset: 0,
+                    inet_fields_offset: 0,
+                    target_segment_count: 0,
+                    background_layer_sizes_offset: 0,
+                    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+                };
+                &EMPTY_OPTIONS
+            } else {
+                &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            }
         }
     }
 }
@@ -628,7 +656,7 @@ impl BM25IndexOptions {
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-struct BM25IndexOptionsData {
+pub struct BM25IndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -682,6 +710,8 @@ impl BM25IndexOptionsData {
         }
     }
 
+    // Always returns the first field in the index.
+    // Previously used WITH key_field (deprecated option)
     pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {
@@ -909,8 +939,10 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
-        SearchFieldType::Tokenized(..) => {
-            panic!("the key_field cannot use a custom tokenizer configuration")
+        SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid) => {
+            // Allow tokenized key fields, but use the tokenizer configuration
+            search_field_config_from_type(tokenizer_oid, typmod, inner_typoid)
+                .unwrap_or_else(|| panic!("invalid tokenizer configuration for key field"))
         }
         SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
             indexed: true,
@@ -937,4 +969,30 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             fast: true,
         },
     }
+}
+
+pub unsafe fn get_first_index_field_from_relation(
+    indexrel: pg_sys::Relation,
+) -> Result<FieldName, &'static str> {
+    let tupdesc = (*indexrel).rd_att;
+    if (*tupdesc).natts == 0 {
+        return Err("index has no fields");
+    }
+
+    let first_attr = (*tupdesc).attrs.as_ptr();
+    let attr_name = pgrx::name_data_to_str(&(*first_attr).attname);
+    let attnum = (*first_attr).attnum;
+    let typmod = (*first_attr).atttypmod;
+    
+    // Try to extract alias from typmod for both expressions and aliased columns
+    if typmod != -1 {
+        use crate::api::tokenizers::AliasTypmod;
+        if let Ok(alias_typmod) = AliasTypmod::try_from(typmod) {
+            if let Some(alias) = alias_typmod.alias() {
+                return Ok(alias.into());
+            }
+        }
+    }
+    
+    Ok(attr_name.into())
 }

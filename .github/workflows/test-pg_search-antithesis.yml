@@ -59,14 +59,18 @@ jobs:
             type=sha
             paradedb
 
+      - name: Render Antithesis Docker Compose File
+        working-directory: docker/
+        run: |
+          export COMMIT_SHA=${{ github.sha }}
+          envsubst < docker-compose.antithesis.yml.tpl > docker-compose.antithesis.yml
+          cat docker-compose.antithesis.yml
+
       - name: Build and Push Config Docker Image to Antithesis Registry
         id: build-push-config
         uses: docker/build-push-action@v5
         with:
           context: .
-          build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            COMMIT_SHA=${{ github.sha }}
           platforms: linux/amd64
           file: docker/Dockerfile.config
           push: true

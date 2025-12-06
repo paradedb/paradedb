@@ -33,6 +33,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use crate::api::agg_funcoid;
+use crate::gucs;
 use crate::nodecast;
 
 use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
@@ -149,6 +150,14 @@ impl CustomScan for AggregateScan {
             .custom_state()
             .aggregate_clause
             .add_to_explainer(explainer);
+
+        // Add note about recursive cost estimation if GUC is enabled
+        if gucs::explain_recursive_estimates() && explainer.is_verbose() {
+            explainer.add_text(
+                "Recursive Query Estimates",
+                "(not yet implemented for aggregate scans)",
+            );
+        }
     }
 
     fn begin_custom_scan(

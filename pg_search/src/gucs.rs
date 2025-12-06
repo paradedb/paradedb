@@ -93,6 +93,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
+static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -251,6 +252,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.explain_recursive_estimates",
+        c"Enable recursive estimates in EXPLAIN VERBOSE",
+        c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
+        &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.global_mutable_segment_rows",
         c"a global mutable segment rows override",
@@ -400,6 +410,10 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
     } else {
         None
     }
+}
+
+pub fn explain_recursive_estimates() -> bool {
+    EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

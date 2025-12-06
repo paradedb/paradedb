@@ -18,7 +18,7 @@
 use crate::api::{FieldName, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
+use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
@@ -26,6 +26,7 @@ use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetL
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
@@ -81,7 +82,7 @@ trait CollectNested<Key: AggregationKey> {
         let groupings: Vec<_> = self.iter_leaves()?.collect();
 
         let nested = groupings.into_iter().rfold(children, |sub, leaf| {
-            Aggregations::from([(
+            Aggregations::from_iter([(
                 GroupedKey::NAME.to_string(),
                 Aggregation {
                     agg: leaf,
@@ -163,14 +164,14 @@ impl CollectAggregations for AggregateCSClause {
                     } else {
                         Aggregation {
                             agg: metric.into(),
-                            sub_aggregation: Aggregations::new(),
+                            sub_aggregation: Default::default(),
                         }
                     };
 
                     let agg = match filter {
                         Some(filter) => Aggregation {
                             agg: filter.into(),
-                            sub_aggregation: Aggregations::from([(0.to_string(), metric_agg)]),
+                            sub_aggregation: Aggregations::from_iter([(0.to_string(), metric_agg)]),
                         },
                         None => metric_agg,
                     };
@@ -187,7 +188,7 @@ impl CollectAggregations for AggregateCSClause {
                             field: "ctid".to_string(),
                             missing: None,
                         }),
-                        sub_aggregation: Aggregations::new(),
+                        sub_aggregation: Default::default(),
                     },
                 );
             }
@@ -196,11 +197,11 @@ impl CollectAggregations for AggregateCSClause {
         } else {
             let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,
-                Aggregations::new(),
-                Aggregations::new(),
+                Default::default(),
+                Default::default(),
             )?;
             let term_aggs =
-                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+                <Self as CollectNested<GroupedKey>>::collect(self, Default::default(), metrics)?;
 
             if self.has_filter() {
                 let metrics =
@@ -212,16 +213,16 @@ impl CollectAggregations for AggregateCSClause {
                     .zip(metrics)
                     .enumerate()
                     .map(|(idx, (filter, metric))| {
-                        let metric_agg = Aggregations::from([(
+                        let metric_agg = Aggregations::from_iter([(
                             0.to_string(),
                             Aggregation {
                                 agg: metric.into(),
-                                sub_aggregation: Aggregations::new(),
+                                sub_aggregation: Default::default(),
                             },
                         )]);
                         let sub_agg = <Self as CollectNested<GroupedKey>>::collect(
                             self,
-                            Aggregations::new(),
+                            Default::default(),
                             metric_agg,
                         )
                         .expect("should be able to collect nested aggregations");
@@ -236,12 +237,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: FilterQuery::new(
-                            self.quals.query().clone(),
-                            self.indexrelid,
-                            self.is_execution_time,
-                        )?
-                        .into(),
+                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid)?.into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -344,6 +340,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let aggregate_json = {
             let mut aggregate_json =
                 serde_json::to_value(&aggregate).expect("should be able to serialize aggregations");
+            cleanup_json_for_explain(&mut aggregate_json);
             sort_json_keys(&mut aggregate_json);
             std::iter::once((
                 String::from("Aggregate Definition"),
@@ -458,14 +455,9 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
 impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            agg.filter_expr().as_ref().map(|filter_expr| {
-                FilterQuery::new(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            })
+            agg.filter_expr()
+                .as_ref()
+                .map(|q| new_filter_query(q.clone(), agg.indexrelid()).expect("filter query"))
         }))
     }
 }
@@ -473,21 +465,11 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
 impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterQuery>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            if let Some(filter_expr) = agg.filter_expr() {
-                FilterQuery::new(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            } else {
-                FilterQuery::new(
-                    SearchQueryInput::All,
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            }
+            let query = match agg.filter_expr() {
+                Some(q) => q.clone(),
+                None => SearchQueryInput::All,
+            };
+            new_filter_query(query, agg.indexrelid()).expect("filter query")
         }))
     }
 }

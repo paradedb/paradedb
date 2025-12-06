@@ -1300,14 +1300,14 @@ LIMIT 10;
 -- Verify that nested "aggs" work correctly in TopN/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
-       pdb.agg('{"terms": {"field": "brand", "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}}'::jsonb) OVER () AS brand_with_avg_rating
+       pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
 SELECT id, name, brand,
-       pdb.agg('{"terms": {"field": "brand", "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}}'::jsonb) OVER () AS brand_with_avg_rating
+       pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC

@@ -84,7 +84,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
-         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3862944
+         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3862944
 (1 row)
 
 -- Show another working case with books

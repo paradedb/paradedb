@@ -36,7 +36,9 @@ use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
+use tantivy::aggregation::{
+    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
+};
 use tantivy::index::SegmentId;
 
 struct PreparedAggregations {
@@ -227,7 +229,7 @@ impl TopNScanExecState {
         let mvcc_enabled = !custom_mvcc_settings.contains(&MvccVisibility::Disabled);
 
         // Convert aggregates to Tantivy Aggregations
-        let mut aggregations = tantivy::aggregation::agg_req::Aggregations::new();
+        let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
             let agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
                 // For Custom aggregates, Tantivy's deserializer handles nested "aggs" automatically
@@ -238,7 +240,7 @@ impl TopNScanExecState {
                 let agg_variant = agg_type.clone().into();
                 tantivy::aggregation::agg_req::Aggregation {
                     agg: agg_variant,
-                    sub_aggregation: tantivy::aggregation::agg_req::Aggregations::new(),
+                    sub_aggregation: Default::default(),
                 }
             };
             aggregations.insert(idx.to_string(), agg);
@@ -324,13 +326,23 @@ impl ExecMethod for TopNScanExecState {
             Some(tantivy::aggregation::DEFAULT_BUCKET_LIMIT),
         );
 
+        // Get the tokenizer manager from the index (has all custom tokenizers registered)
+        let tokenizer_manager = self
+            .search_reader
+            .as_ref()
+            .unwrap()
+            .searcher()
+            .index()
+            .tokenizers()
+            .clone();
+
         // Run the TopN (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Create the aggregation collector
                 let aggregation_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
-                    agg_limits.clone(),
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager),
                 );
 
                 // Optionally wrap with MVCC filtering to respect transaction visibility.

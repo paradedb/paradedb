@@ -52,6 +52,7 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
 
             // Remove any field named "postgres_expression" (contains pointers)
             obj.remove("postgres_expression");
+            obj.remove("indexrelid");
 
             // Recursively process all values in the object
             for (_, value) in obj.iter_mut() {

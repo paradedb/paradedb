@@ -222,11 +222,19 @@ impl CustomScan for AggregateScan {
                 let datum = match (entry, row.is_empty()) {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
-                        match &key.0 {
-                            OwnedValue::Str(s) if s == NULL_GROUP_KEY_SENTINEL => None,
-                            _ => key
-                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                .expect("should be able to convert to datum"),
+                        // Check if this is a NULL sentinel (type-specific max values)
+                        let is_null_sentinel = match &key.0 {
+                            OwnedValue::Str(s) => s == NULL_GROUP_KEY_SENTINEL,
+                            OwnedValue::I64(v) => *v == i64::MAX,
+                            OwnedValue::U64(v) => *v == u64::MAX || *v == 2, // 2 is bool NULL sentinel
+                            OwnedValue::F64(v) => *v == f64::MAX,
+                            _ => false,
+                        };
+                        if is_null_sentinel {
+                            None
+                        } else {
+                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum")
                         }
                     }
                     (TargetListEntry::GroupingColumn(_), true) => None,

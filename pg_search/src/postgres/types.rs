@@ -775,17 +775,33 @@ impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
     }
 }
 
+/// Helper function to convert Tantivy OwnedValue to serde_json::Value
+/// Handles both Object types and String types (which may be JSON strings)
+fn tantivy_to_json_value(
+    owned_value: tantivy::schema::OwnedValue,
+    is_jsonb: bool,
+) -> Result<serde_json::Value, TantivyValueError> {
+    match owned_value {
+        tantivy::schema::OwnedValue::Object(val) => Ok(serde_json::to_value(val)?),
+        tantivy::schema::OwnedValue::Str(s) => {
+            // When grouping by JSON fields, the values come back as strings
+            // Try to parse as JSON first, fall back to treating as plain string
+            let json_value: serde_json::Value =
+                serde_json::from_str(&s).unwrap_or_else(|_| serde_json::Value::String(s));
+            Ok(json_value)
+        }
+        _ => Err(TantivyValueError::UnsupportedIntoConversion(
+            if is_jsonb { "jsonb" } else { "json" }.to_string(),
+        )),
+    }
+}
+
 impl TryFrom<TantivyValue> for pgrx::datum::JsonString {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::datum::JsonString(serde_json::to_string(&val)?))
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "json".to_string(),
-            ))
-        }
+        let json_value = tantivy_to_json_value(value.0, false)?;
+        Ok(pgrx::datum::JsonString(serde_json::to_string(&json_value)?))
     }
 }
 
@@ -803,13 +819,8 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::JsonB(serde_json::to_value(val)?))
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "jsonb".to_string(),
-            ))
-        }
+        let json_value = tantivy_to_json_value(value.0, true)?;
+        Ok(pgrx::datum::JsonB(json_value))
     }
 }
 

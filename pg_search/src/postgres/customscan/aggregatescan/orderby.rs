@@ -35,6 +35,16 @@ pub struct OrderByClause {
 }
 
 impl OrderByClause {
+    /// Creates an OrderByClause that indicates there is an ORDER BY clause,
+    /// but we couldn't extract it for pushdown (e.g., ORDER BY on aggregates)
+    pub fn unpushable() -> Self {
+        Self {
+            pathkeys: None,
+            orderby_info: Vec::new(),
+            has_orderby: true,
+        }
+    }
+
     pub fn has_orderby(&self) -> bool {
         self.has_orderby
     }

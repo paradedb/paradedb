@@ -1,0 +1,179 @@
+-- =====================================================================
+-- Test JSON projection aggregation
+-- =====================================================================
+-- This test verifies that aggregate scan works with JSON projection operators
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Create test table with JSON data
+CREATE TABLE json_test (
+    id SERIAL PRIMARY KEY,
+    metadata_json JSONB
+);
+-- Insert sample data
+INSERT INTO json_test (metadata_json) VALUES
+    ('{"value": "apple", "count": 5}'::JSONB),
+    ('{"value": "banana", "count": 3}'::JSONB),
+    ('{"value": "apple", "count": 2}'::JSONB),
+    ('{"value": "orange", "count": 7}'::JSONB),
+    ('{"value": "banana", "count": 1}'::JSONB),
+    ('{"value": "apple", "count": 4}'::JSONB),
+    ('{"value": "cherry", "count": 6}'::JSONB),
+    ('{"value": "banana", "count": 8}'::JSONB);
+-- Create BM25 index with JSON field as fast field
+CREATE INDEX json_test_idx ON json_test
+USING bm25 (id, metadata_json)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test 1: Basic JSON projection aggregation with ->> operator
+-- This should use the aggregate scan for fast aggregation
+SELECT 'Test 1: JSON projection with ->>';
+             ?column?             
+----------------------------------
+ Test 1: JSON projection with ->>
+(1 row)
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT
+    metadata_json->>'value' AS value,
+    COUNT(*) AS count
+FROM json_test
+WHERE id @@@ paradedb.exists('metadata_json.value')
+GROUP BY metadata_json->>'value'
+ORDER BY count DESC, value;
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC, ((metadata_json ->> 'value'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on json_test
+         Index: json_test_idx
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata_json.value
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","segment_size":65000,"size":65000}}}
+(8 rows)
+
+-- Verify the results
+SELECT
+    metadata_json->>'value' AS value,
+    COUNT(*) AS count
+FROM json_test
+WHERE id @@@ paradedb.exists('metadata_json.value')
+GROUP BY metadata_json->>'value'
+ORDER BY count DESC, value;
+ value  | count 
+--------+-------
+ apple  |     3
+ banana |     3
+ cherry |     1
+ orange |     1
+(4 rows)
+
+-- Test 2: JSON projection with -> operator (returns JSON)
+SELECT 'Test 2: JSON projection with ->';
+            ?column?             
+---------------------------------
+ Test 2: JSON projection with ->
+(1 row)
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT
+    metadata_json->'value' AS value,
+    COUNT(*) AS count
+FROM json_test
+WHERE id @@@ paradedb.exists('metadata_json.value')
+GROUP BY metadata_json->'value'
+ORDER BY count DESC;
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on json_test
+         Index: json_test_idx
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata_json.value
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","segment_size":65000,"size":65000}}}
+(8 rows)
+
+SELECT
+    metadata_json->'value' AS value,
+    COUNT(*) AS count
+FROM json_test
+WHERE id @@@ paradedb.exists('metadata_json.value')
+GROUP BY metadata_json->'value'
+ORDER BY count DESC;
+  value   | count 
+----------+-------
+ "apple"  |     3
+ "banana" |     3
+ "cherry" |     1
+ "orange" |     1
+(4 rows)
+
+-- Test 3: Multiple aggregates with JSON projection
+SELECT 'Test 3: Multiple aggregates';
+          ?column?           
+-----------------------------
+ Test 3: Multiple aggregates
+(1 row)
+
+SELECT
+    metadata_json->>'value' AS value,
+    COUNT(*) AS count,
+    MIN((metadata_json->>'count')::INT) AS min_count,
+    MAX((metadata_json->>'count')::INT) AS max_count
+FROM json_test
+WHERE id @@@ paradedb.exists('metadata_json.value')
+GROUP BY metadata_json->>'value'
+ORDER BY value;
+ value  | count | min_count | max_count 
+--------+-------+-----------+-----------
+ apple  |     3 |         2 |         5
+ banana |     3 |         1 |         8
+ cherry |     1 |         6 |         6
+ orange |     1 |         7 |         7
+(4 rows)
+
+-- Test 4: Verify with paradedb.aggregate directly
+SELECT 'Test 4: Direct paradedb.aggregate call';
+                ?column?                
+----------------------------------------
+ Test 4: Direct paradedb.aggregate call
+(1 row)
+
+SELECT * FROM paradedb.aggregate(
+    index=>'json_test_idx',
+    query=>paradedb.exists('metadata_json.value'),
+    agg=>'{"buckets": { "terms": { "field": "metadata_json.value" }}}',
+    solve_mvcc=>true
+) ORDER BY 1;
+                                                                                                             aggregate                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": {"buckets": [{"key": "apple", "doc_count": 3}, {"key": "banana", "doc_count": 3}, {"key": "cherry", "doc_count": 1}, {"key": "orange", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
+(1 row)
+
+-- Test 5: JSON projection without filter (should still work)
+SELECT 'Test 5: Without WHERE clause';
+           ?column?           
+------------------------------
+ Test 5: Without WHERE clause
+(1 row)
+
+SELECT
+    metadata_json->>'value' AS value,
+    COUNT(*) AS count
+FROM json_test
+GROUP BY metadata_json->>'value'
+ORDER BY value;
+ value  | count 
+--------+-------
+ apple  |     3
+ banana |     3
+ cherry |     1
+ orange |     1
+(4 rows)
+
+-- Cleanup
+DROP TABLE json_test;

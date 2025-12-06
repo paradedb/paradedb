@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764987995889,
+  "lastUpdate": 1764988800145,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10192,6 +10192,42 @@ window.BENCHMARK_DATA = {
             "value": 5.402246213145516,
             "unit": "median tps",
             "extra": "avg tps: 4.864215169093991, max tps: 6.019606360194362, count: 57313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5265fc6d89806e24a7677a97778bcd7e27fe119",
+          "message": "revert: fixed nested aggregations in pdb.agg() (#3553)\" (#3712)\n\n# Ticket(s) Closed\n\n- Reverts #3553\n\n## What\n\nReverts the nested aggregation syntax change that required `\"aggs\"` to\nbe nested inside the parent aggregation type. Returns to the original\nsyntax where `\"aggs\"` is a sibling key to the aggregation type.\n\n## Why\n\nThe previous PR (#3553) changed the nested aggregation syntax from:\n```json\n{\"terms\": {\"field\": \"category\"}, \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}\n```\n\nto:\n```json\n{\"terms\": {\"field\": \"category\", \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}}\n```\n\nThis change broke the expected Tantivy aggregation format and added\nunnecessary validation logic that rejected valid aggregation types.\n\n## How\n\n- Reverted Tantivy dependency to previous commit (`9b9fe46` →\n`1304f3b5`)\n- Removed validation logic that checked for \"known\" aggregation types in\n`window_agg.rs`\n- Removed comment in `aggregate_type.rs` explaining the nested\nextraction logic\n- Updated all test cases to use the original syntax with `\"aggs\"` as a\nsibling key\n- Error messages now come from Tantivy's deserializer instead of custom\nvalidation\n\n## Tests\n\nAll existing regression tests updated to use the reverted syntax:\n- `custom-agg.sql` - nested aggregation tests\n- `topn-agg-facet.sql` - window function aggregation tests",
+          "timestamp": "2025-12-05T18:08:08-08:00",
+          "tree_id": "fb68a4af2c9a0c45125589efe6777964b8c7e84e",
+          "url": "https://github.com/paradedb/paradedb/commit/a5265fc6d89806e24a7677a97778bcd7e27fe119"
+        },
+        "date": 1764988797271,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.10880232736302,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9362238835814365, max tps: 10.56684160018315, count: 57782"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.154097690653258,
+            "unit": "median tps",
+            "extra": "avg tps: 4.6386781572204105, max tps: 5.761980906184379, count: 57782"
           }
         ]
       }

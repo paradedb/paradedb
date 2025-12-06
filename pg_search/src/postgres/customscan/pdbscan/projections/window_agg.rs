@@ -376,37 +376,6 @@ unsafe fn convert_window_func_to_aggregate_type(
             );
         }
 
-        // Validate that all top-level keys are recognized Tantivy aggregation types
-        // See: https://docs.rs/tantivy/latest/tantivy/aggregation/agg_req/enum.Aggregation.html
-        const VALID_AGG_TYPES: &[&str] = &[
-            "terms",          // Bucket aggregation
-            "range",          // Bucket aggregation
-            "histogram",      // Bucket aggregation
-            "date_histogram", // Bucket aggregation
-            "filter",         // Bucket aggregation
-            "avg",            // Metric aggregation
-            "sum",            // Metric aggregation
-            "min",            // Metric aggregation
-            "max",            // Metric aggregation
-            "value_count",    // Metric aggregation
-            "stats",          // Metric aggregation
-            "percentiles",    // Metric aggregation
-        ];
-
-        if let Some(obj) = json_value.as_object() {
-            for key in obj.keys() {
-                if !VALID_AGG_TYPES.contains(&key.as_str()) {
-                    pgrx::error!(
-                        "pdb.agg() received unknown aggregation type '{}'. \
-                         Valid types: {}. \
-                         Example: {{\"terms\": {{\"field\": \"country\"}}}}",
-                        key,
-                        VALID_AGG_TYPES.join(", ")
-                    );
-                }
-            }
-        }
-
         return Some(AggregateType::Custom {
             agg_json: json_value,
             filter,

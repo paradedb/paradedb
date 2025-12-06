@@ -66,6 +66,10 @@ pub(crate) const F64_EXACT_INTEGER_MAX: u64 = 1u64 << 53;
 // Values > this threshold are stored/queried as I64/U64 only, not F64.
 pub(crate) const F64_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 2;
 
+/// Name of the internal ctid field used for PostgreSQL tuple identification.
+/// This field should be skipped when iterating over searchable fields.
+const CTID_FIELD_NAME: &str = "ctid";
+
 /// Expands a numeric value into multiple Tantivy term variants to handle
 /// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
 /// This enables cross-type matching for equality and IN clause queries.
@@ -198,6 +202,10 @@ fn collect_json_paths_from_field(
                 // null_pos == 0 means root-level value (empty path), which we already added
                 if null_pos > 0 {
                     if let Ok(path) = std::str::from_utf8(&term_bytes[..null_pos]) {
+                        // Preserve the internal \x01 separator - caller will handle conversion
+                        // This allows distinguishing between:
+                        // - Nested paths (contain \x01): user\x01name -> "user.name"
+                        // - Literal dot keys (no \x01): user.name -> "user\.name"
                         paths.insert(path.to_string());
 
                         // Check guardrail
@@ -1140,7 +1148,7 @@ impl SearchQueryInput {
                 // Use schema.fields() - the SearchIndexSchema iterator
                 for (field, field_entry) in schema.fields() {
                     // Skip the ctid field
-                    if field_entry.name() == "ctid" {
+                    if field_entry.name() == CTID_FIELD_NAME {
                         continue;
                     }
 
@@ -1181,11 +1189,21 @@ impl SearchQueryInput {
                                 collect_json_paths_from_field(searcher, field, max_json_paths)?;
 
                             for path in paths {
-                                let path_opt = if path.is_empty() {
+                                // Process path: convert \x01 to . for nested paths,
+                                // escape dots for literal dot keys when expand_dots=false
+                                let processed_path: Option<String> = if path.is_empty() {
                                     None
+                                } else if path.contains('\x01') {
+                                    // Nested structure: convert \x01 separator to .
+                                    Some(path.replace('\x01', "."))
+                                } else if expand_dots {
+                                    // expand_dots=true: dots are separators, pass as-is
+                                    Some(path.clone())
                                 } else {
-                                    Some(path.as_str())
+                                    // expand_dots=false with literal dots: escape them
+                                    Some(path.replace('.', r"\."))
                                 };
+                                let path_opt = processed_path.as_deref();
 
                                 // For numeric values, use expand_json_numeric_to_terms to handle type coercion
                                 match &value {
@@ -1272,7 +1290,7 @@ impl SearchQueryInput {
                 // Use schema.fields() - the SearchIndexSchema iterator
                 for (field, field_entry) in schema.fields() {
                     // Skip ctid
-                    if field_entry.name() == "ctid" {
+                    if field_entry.name() == CTID_FIELD_NAME {
                         continue;
                     }
 
@@ -1312,15 +1330,25 @@ impl SearchQueryInput {
                             // For each discovered path, create a Match query using pdb::Query
                             for path in &paths {
                                 // Construct FieldName with path (e.g., "data.name" or just "data" for root)
-                                // Only escape dots when expand_dots=false (literal dot keys)
-                                // When expand_dots=true (default), dots are path separators
+                                // Paths from term dictionary may contain:
+                                // - \x01 separator for nested structures
+                                // - Literal dots for keys with dots in their names
                                 let field_name = if path.is_empty() {
                                     FieldName::from(base_field_name)
+                                } else if path.contains('\x01') {
+                                    // Nested structure path: convert \x01 to . (path separator)
+                                    // These are always multi-segment paths regardless of expand_dots
+                                    let external_path = path.replace('\x01', ".");
+                                    FieldName::from(format!(
+                                        "{}.{}",
+                                        base_field_name, external_path
+                                    ))
                                 } else if expand_dots {
-                                    // expand_dots=true: dots are path separators, pass as-is
+                                    // expand_dots=true: dots in path are separators, pass as-is
                                     FieldName::from(format!("{}.{}", base_field_name, path))
                                 } else {
-                                    // expand_dots=false: dots are literal, escape them
+                                    // expand_dots=false with literal dots: escape them so they're
+                                    // treated as single segment when parsed by split_json_path
                                     let escaped_path = path.replace('.', r"\.");
                                     FieldName::from(format!("{}.{}", base_field_name, escaped_path))
                                 };

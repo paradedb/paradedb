@@ -319,6 +319,15 @@ pub fn term_any_field_text(value: &str) -> SearchQueryInput {
 }
 
 #[pg_extern(immutable, parallel_safe, name = "term")]
+pub fn term_any_field_i32(value: i32) -> SearchQueryInput {
+    // PostgreSQL INTEGER is i32, convert to i64 for Tantivy
+    SearchQueryInput::AnyFieldTerm {
+        value: tantivy::schema::OwnedValue::I64(value as i64),
+        is_datetime: false,
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
 pub fn term_any_field_i64(value: i64) -> SearchQueryInput {
     SearchQueryInput::AnyFieldTerm {
         value: tantivy::schema::OwnedValue::I64(value),

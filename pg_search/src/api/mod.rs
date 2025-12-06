@@ -233,7 +233,17 @@ impl FieldName {
         if json_path.len() == 1 {
             None
         } else {
-            Some(json_path[1..].join("."))
+            // Escape dots within each segment before joining to preserve
+            // the original path structure when later parsed by split_json_path.
+            // This is critical for expand_dots=false where literal dots in keys
+            // (e.g., "user.name") must remain as single segments.
+            Some(
+                json_path[1..]
+                    .iter()
+                    .map(|segment| segment.replace('.', r"\."))
+                    .collect::<Vec<_>>()
+                    .join("."),
+            )
         }
     }
 

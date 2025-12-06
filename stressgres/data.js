@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764991171112,
+  "lastUpdate": 1765007798578,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3092,6 +3092,72 @@ window.BENCHMARK_DATA = {
             "value": 188.95449668092786,
             "unit": "median tps",
             "extra": "avg tps: 224.12554615184396, max tps: 768.0998898544758, count: 54635"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14d078fcaeb193818ba3cf07f7d57314a128ff67",
+          "message": "chore: upgrade Tantivy to a7329cc (#3390)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nUpgrades Tantivy to commit `a7329cc` (via\nhttps://github.com/paradedb/tantivy/pull/72) and fixes compatibility\nissues with the new API.\n\n## Why\n\nTo incorporate the latest Tantivy improvements and bug fixes.\n\n## How\n\n- Updated Tantivy dependency to new commit `a7329cc`\n- Upgraded `tantivy-jieba` from `0.11.0` to `0.17.0` for tokenizer API\ncompatibility\n- Fixed `Aggregations` HashMap type: Tantivy now uses `FxHashMap`\ninstead of standard `HashMap`\n  - Updated imports to use `rustc_hash::FxHashMap`\n  - Replaced `HashMap::new()` with `FxHashMap::default()`\n  - Replaced `HashMap::from([...])` with `FxHashMap::from_iter([...])`\n- Fixed `Intersection::with_two_sets` API: now requires `num_docs: u32`\nas third parameter\n- Updated `ProximityScorer::new` to accept and pass `num_docs` parameter\n  - Pass `segment_reader.max_doc()` to intersection constructor\n\n## Tests\n\n- existing tests pass",
+          "timestamp": "2025-12-05T23:38:11-08:00",
+          "tree_id": "3e15e4aaaea19e795d85531cf6e186174da341cb",
+          "url": "https://github.com/paradedb/paradedb/commit/14d078fcaeb193818ba3cf07f7d57314a128ff67"
+        },
+        "date": 1765007795643,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 484.13206601206434,
+            "unit": "median tps",
+            "extra": "avg tps: 486.18667050953826, max tps: 595.60371201278, count: 54477"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3079.984095382259,
+            "unit": "median tps",
+            "extra": "avg tps: 3034.337637636294, max tps: 3101.395801525007, count: 54477"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 483.2247233843056,
+            "unit": "median tps",
+            "extra": "avg tps: 484.007833400948, max tps: 620.3648920122561, count: 54477"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 438.0757133760034,
+            "unit": "median tps",
+            "extra": "avg tps: 437.1260916318298, max tps: 445.86477421442623, count: 54477"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3039.4529525360767,
+            "unit": "median tps",
+            "extra": "avg tps: 3132.168483232775, max tps: 3422.844590447782, count: 108954"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2080.642461068017,
+            "unit": "median tps",
+            "extra": "avg tps: 2051.196665223297, max tps: 2087.7861580989093, count: 54477"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 118.40431711612551,
+            "unit": "median tps",
+            "extra": "avg tps: 128.71615689853476, max tps: 427.57547091879644, count: 54477"
           }
         ]
       }

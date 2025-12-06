@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764989623933,
+  "lastUpdate": 1764989627770,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18814,6 +18814,108 @@ window.BENCHMARK_DATA = {
             "value": 159.015625,
             "unit": "median mem",
             "extra": "avg mem: 179.19997653791935, max mem: 219.61328125, count: 56574"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5265fc6d89806e24a7677a97778bcd7e27fe119",
+          "message": "revert: fixed nested aggregations in pdb.agg() (#3553)\" (#3712)\n\n# Ticket(s) Closed\n\n- Reverts #3553\n\n## What\n\nReverts the nested aggregation syntax change that required `\"aggs\"` to\nbe nested inside the parent aggregation type. Returns to the original\nsyntax where `\"aggs\"` is a sibling key to the aggregation type.\n\n## Why\n\nThe previous PR (#3553) changed the nested aggregation syntax from:\n```json\n{\"terms\": {\"field\": \"category\"}, \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}\n```\n\nto:\n```json\n{\"terms\": {\"field\": \"category\", \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}}\n```\n\nThis change broke the expected Tantivy aggregation format and added\nunnecessary validation logic that rejected valid aggregation types.\n\n## How\n\n- Reverted Tantivy dependency to previous commit (`9b9fe46` →\n`1304f3b5`)\n- Removed validation logic that checked for \"known\" aggregation types in\n`window_agg.rs`\n- Removed comment in `aggregate_type.rs` explaining the nested\nextraction logic\n- Updated all test cases to use the original syntax with `\"aggs\"` as a\nsibling key\n- Error messages now come from Tantivy's deserializer instead of custom\nvalidation\n\n## Tests\n\nAll existing regression tests updated to use the reverted syntax:\n- `custom-agg.sql` - nested aggregation tests\n- `topn-agg-facet.sql` - window function aggregation tests",
+          "timestamp": "2025-12-05T18:08:08-08:00",
+          "tree_id": "fb68a4af2c9a0c45125589efe6777964b8c7e84e",
+          "url": "https://github.com/paradedb/paradedb/commit/a5265fc6d89806e24a7677a97778bcd7e27fe119"
+        },
+        "date": 1764989624906,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07693546078992558, max background_merging: 2.0, count: 55904"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7980783562561085, max cpu: 9.687184, count: 55904"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 21.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.952659218258084, max mem: 22.02734375, count: 55904"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928705115720192, max cpu: 11.4832535, count: 55904"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.42687862507603, max mem: 165.11328125, count: 55904"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51044,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50890.628416571264, max block_count: 51044.0, count: 55904"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.97298941041786, max segment_count: 54.0, count: 55904"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.54535250337055, max cpu: 9.421001, count: 55904"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.38988405346666, max mem: 137.2578125, count: 55904"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668263231642124, max cpu: 9.552238, count: 55904"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.20691938132782, max mem: 164.53515625, count: 55904"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.761832888560676, max cpu: 33.973713, count: 55904"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 158.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.51642736599797, max mem: 219.46484375, count: 55904"
           }
         ]
       }

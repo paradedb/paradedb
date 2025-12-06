@@ -1959,7 +1959,10 @@ fn base_query_has_search_predicates(
             // For ParseWithField, check if it's a text search or a range query
             !is_range_query_string(query_string)
         }
-        SearchQueryInput::Parse { .. }
+        // Field-agnostic search predicates (Issue #2769)
+        SearchQueryInput::AnyFieldTerm { .. }
+        | SearchQueryInput::AnyFieldMatch { .. }
+        | SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::UnclassifiedString { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::UnclassifiedArray { .. }, .. }

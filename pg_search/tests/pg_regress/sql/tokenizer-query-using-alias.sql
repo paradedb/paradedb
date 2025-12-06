@@ -1,3 +1,5 @@
+\i common/common_setup.sql
+
 DROP TABLE IF EXISTS use_alias;
 
 SET paradedb.enable_aggregate_custom_scan TO on;

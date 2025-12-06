@@ -42,6 +42,25 @@ pub(crate) mod pdb {
         fn make_search_tokenizer() -> SearchTokenizer;
     }
 
+    macro_rules! cast_alias {
+        ($sql_name:literal, $marker:ident, $rust_ty:ty, $fn_prefix:ident) => {
+            paste::paste! {
+                struct [<$marker Marker>];
+
+                impl SqlNameMarker for [<$marker Marker>] {
+                    const SQL_NAME: &'static str = $sql_name;
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+                unsafe fn [<$fn_prefix _to_alias>](
+                    arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
+                ) -> GenericTypeWrapper<Alias, AliasMarker> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
+            }
+        };
+    }
+
     macro_rules! define_tokenizer_type {
         ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
@@ -395,6 +414,181 @@ pub(crate) mod pdb {
         "unicode_words",
         preferred = false,
         custom_typmod = false
+    );
+
+    struct AliasMarker;
+    impl SqlNameMarker for AliasMarker {
+        const SQL_NAME: &'static str = "pdb.alias";
+    }
+
+    // allow the following types to be cast to `pdb.alias` at CREATE INDEX time
+    cast_alias!("text", Text, String, text);
+    cast_alias!("varchar", Varchar, String, varchar);
+    cast_alias!("uuid", Uuid, pgrx::datum::Uuid, uuid);
+    cast_alias!("smallint", SmallInt, i16, smallint);
+    cast_alias!("integer", Integer, i32, integer);
+    cast_alias!("bigint", BigInt, i64, bigint);
+    cast_alias!("oid", Oid, u32, oid);
+    cast_alias!("float4", Float4, f32, float4);
+    cast_alias!("float8", Float8, f64, float8);
+    cast_alias!("numeric", Numeric, pgrx::datum::AnyNumeric, numeric);
+    cast_alias!("boolean", Boolean, bool, boolean);
+    cast_alias!("date", Date, pgrx::datum::Date, date);
+    cast_alias!("time", Time, pgrx::datum::Time, time);
+    cast_alias!("timestamp", Timestamp, pgrx::datum::Timestamp, timestamp);
+    cast_alias!(
+        "timestamp with time zone",
+        TimestampWithTimeZone,
+        pgrx::datum::TimestampWithTimeZone,
+        timestamp_with_time_zone
+    );
+    cast_alias!(
+        "time with time zone",
+        TimeWithTimeZone,
+        pgrx::datum::TimeWithTimeZone,
+        time_with_time_zone
+    );
+
+    cast_alias!("inet", Inet, pgrx::datum::Inet, inet);
+    cast_alias!("int4range", Int4Range, pgrx::datum::Range<i32>, int4range);
+    cast_alias!("int8range", Int8Range, pgrx::datum::Range<i64>, int8range);
+    cast_alias!(
+        "numrange",
+        NumRange,
+        pgrx::datum::Range<pgrx::datum::AnyNumeric>,
+        numrange
+    );
+    cast_alias!(
+        "daterange",
+        DateRange,
+        pgrx::datum::Range<pgrx::datum::Date>,
+        daterange
+    );
+    cast_alias!(
+        "tsrange",
+        TsRange,
+        pgrx::datum::Range<pgrx::datum::Timestamp>,
+        tsrange
+    );
+    cast_alias!(
+        "tstzrange",
+        TstzRange,
+        pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone>,
+        tstzrange
+    );
+    cast_alias!("smallint[]", SmallIntArray, Vec<i16>, smallint_array);
+    cast_alias!("integer[]", IntegerArray, Vec<i32>, integer_array);
+    cast_alias!("bigint[]", BigIntArray, Vec<i64>, bigint_array);
+    cast_alias!("float4[]", Float4Array, Vec<f32>, float4_array);
+    cast_alias!("float8[]", Float8Array, Vec<f64>, float8_array);
+    cast_alias!(
+        "numeric[]",
+        NumericArray,
+        Vec<pgrx::datum::AnyNumeric>,
+        numeric_array
+    );
+    cast_alias!("boolean[]", BooleanArray, Vec<bool>, boolean_array);
+    cast_alias!("date[]", DateArray, Vec<pgrx::datum::Date>, date_array);
+    cast_alias!("time[]", TimeArray, Vec<pgrx::datum::Time>, time_array);
+    cast_alias!(
+        "timestamp[]",
+        TimestampArray,
+        Vec<pgrx::datum::Timestamp>,
+        timestamp_array
+    );
+    cast_alias!(
+        "timestamp with time zone[]",
+        TimestampWithTimeZoneArray,
+        Vec<pgrx::datum::TimestampWithTimeZone>,
+        timestamp_with_time_zone_array
+    );
+    cast_alias!(
+        "time with time zone[]",
+        TimeWithTimeZoneArray,
+        Vec<pgrx::datum::TimeWithTimeZone>,
+        time_with_time_zone_array
+    );
+
+    extension_sql!(
+        r#"
+        CREATE CAST (text AS pdb.alias) WITH FUNCTION pdb.text_to_alias AS ASSIGNMENT;
+        CREATE CAST (varchar AS pdb.alias) WITH FUNCTION pdb.varchar_to_alias AS ASSIGNMENT;
+        CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;
+        CREATE CAST (smallint AS pdb.alias) WITH FUNCTION pdb.smallint_to_alias AS ASSIGNMENT;
+        CREATE CAST (integer AS pdb.alias) WITH FUNCTION pdb.integer_to_alias AS ASSIGNMENT;
+        CREATE CAST (bigint AS pdb.alias) WITH FUNCTION pdb.bigint_to_alias AS ASSIGNMENT;
+        CREATE CAST (oid AS pdb.alias) WITH FUNCTION pdb.oid_to_alias AS ASSIGNMENT;
+        CREATE CAST (float4 AS pdb.alias) WITH FUNCTION pdb.float4_to_alias AS ASSIGNMENT;
+        CREATE CAST (float8 AS pdb.alias) WITH FUNCTION pdb.float8_to_alias AS ASSIGNMENT;
+        CREATE CAST (numeric AS pdb.alias) WITH FUNCTION pdb.numeric_to_alias AS ASSIGNMENT;
+        CREATE CAST (boolean AS pdb.alias) WITH FUNCTION pdb.boolean_to_alias AS ASSIGNMENT;
+        CREATE CAST (date AS pdb.alias) WITH FUNCTION pdb.date_to_alias AS ASSIGNMENT;
+        CREATE CAST (time AS pdb.alias) WITH FUNCTION pdb.time_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp AS pdb.alias) WITH FUNCTION pdb.timestamp_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp with time zone AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_to_alias AS ASSIGNMENT;
+        CREATE CAST (time with time zone AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_to_alias AS ASSIGNMENT;
+        CREATE CAST (inet AS pdb.alias) WITH FUNCTION pdb.inet_to_alias AS ASSIGNMENT;
+        CREATE CAST (int4range AS pdb.alias) WITH FUNCTION pdb.int4range_to_alias AS ASSIGNMENT;
+        CREATE CAST (int8range AS pdb.alias) WITH FUNCTION pdb.int8range_to_alias AS ASSIGNMENT;
+        CREATE CAST (numrange AS pdb.alias) WITH FUNCTION pdb.numrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (daterange AS pdb.alias) WITH FUNCTION pdb.daterange_to_alias AS ASSIGNMENT;
+        CREATE CAST (tsrange AS pdb.alias) WITH FUNCTION pdb.tsrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (tstzrange AS pdb.alias) WITH FUNCTION pdb.tstzrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (smallint[] AS pdb.alias) WITH FUNCTION pdb.smallint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (integer[] AS pdb.alias) WITH FUNCTION pdb.integer_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (bigint[] AS pdb.alias) WITH FUNCTION pdb.bigint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float4[] AS pdb.alias) WITH FUNCTION pdb.float4_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float8[] AS pdb.alias) WITH FUNCTION pdb.float8_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (numeric[] AS pdb.alias) WITH FUNCTION pdb.numeric_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (boolean[] AS pdb.alias) WITH FUNCTION pdb.boolean_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (date[] AS pdb.alias) WITH FUNCTION pdb.date_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time[] AS pdb.alias) WITH FUNCTION pdb.time_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp[] AS pdb.alias) WITH FUNCTION pdb.timestamp_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp with time zone[] AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time with time zone[] AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_array_to_alias AS ASSIGNMENT;
+        "#,
+        name = "alias_casts",
+        requires = [
+            tokenize_alias,
+            "alias_definition",
+            text_to_alias,
+            varchar_to_alias,
+            uuid_to_alias,
+            smallint_to_alias,
+            integer_to_alias,
+            bigint_to_alias,
+            oid_to_alias,
+            float4_to_alias,
+            float8_to_alias,
+            numeric_to_alias,
+            boolean_to_alias,
+            date_to_alias,
+            time_to_alias,
+            timestamp_to_alias,
+            timestamp_with_time_zone_to_alias,
+            time_with_time_zone_to_alias,
+            inet_to_alias,
+            int4range_to_alias,
+            int8range_to_alias,
+            numrange_to_alias,
+            daterange_to_alias,
+            tsrange_to_alias,
+            tstzrange_to_alias,
+            text_array_to_alias,
+            varchar_array_to_alias,
+            smallint_array_to_alias,
+            integer_array_to_alias,
+            bigint_array_to_alias,
+            float4_array_to_alias,
+            float8_array_to_alias,
+            numeric_array_to_alias,
+            boolean_array_to_alias,
+            date_array_to_alias,
+            time_array_to_alias,
+            timestamp_array_to_alias,
+            timestamp_with_time_zone_array_to_alias,
+            time_with_time_zone_array_to_alias
+        ]
     );
 }
 

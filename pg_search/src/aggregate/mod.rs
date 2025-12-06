@@ -46,7 +46,6 @@ use tantivy::aggregation::{
 };
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
-use tantivy::tokenizer::TokenizerManager;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -266,6 +265,8 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
 
         let nworkers = self.state.launched_workers();
+        // Get the tokenizer manager from the index (has all custom tokenizers registered)
+        let tokenizer_manager = reader.searcher().index().tokenizers().clone();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
             AggContextParams::new(
@@ -273,7 +274,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                     Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
                     Some(self.config.bucket_limit),
                 ),
-                TokenizerManager::default(),
+                tokenizer_manager,
             ),
         );
 
@@ -463,11 +464,13 @@ pub fn execute_aggregate(
             if agg_from_sql {
                 set_missing_on_terms(&mut aggregations);
             }
+            // Get the tokenizer manager from the index (has all custom tokenizers registered)
+            let tokenizer_manager = reader.searcher().index().tokenizers().clone();
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
                 AggContextParams::new(
                     AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                    TokenizerManager::default(),
+                    tokenizer_manager,
                 ),
             );
             Ok(collector.merge_fruits(agg_results)?.into_final_result(

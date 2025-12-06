@@ -40,7 +40,6 @@ use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
 use tantivy::index::SegmentId;
-use tantivy::tokenizer::TokenizerManager;
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -327,13 +326,23 @@ impl ExecMethod for TopNScanExecState {
             Some(tantivy::aggregation::DEFAULT_BUCKET_LIMIT),
         );
 
+        // Get the tokenizer manager from the index (has all custom tokenizers registered)
+        let tokenizer_manager = self
+            .search_reader
+            .as_ref()
+            .unwrap()
+            .searcher()
+            .index()
+            .tokenizers()
+            .clone();
+
         // Run the TopN (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Create the aggregation collector
                 let aggregation_collector = DistributedAggregationCollector::from_aggs(
                     aggregations.aggregations.clone(),
-                    AggContextParams::new(agg_limits.clone(), TokenizerManager::default()),
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager),
                 );
 
                 // Optionally wrap with MVCC filtering to respect transaction visibility.

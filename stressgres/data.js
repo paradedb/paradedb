@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765009423671,
+  "lastUpdate": 1765009427645,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19246,6 +19246,108 @@ window.BENCHMARK_DATA = {
             "value": 158.96875,
             "unit": "median mem",
             "extra": "avg mem: 177.51642736599797, max mem: 219.46484375, count: 55904"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14d078fcaeb193818ba3cf07f7d57314a128ff67",
+          "message": "chore: upgrade Tantivy to a7329cc (#3390)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nUpgrades Tantivy to commit `a7329cc` (via\nhttps://github.com/paradedb/tantivy/pull/72) and fixes compatibility\nissues with the new API.\n\n## Why\n\nTo incorporate the latest Tantivy improvements and bug fixes.\n\n## How\n\n- Updated Tantivy dependency to new commit `a7329cc`\n- Upgraded `tantivy-jieba` from `0.11.0` to `0.17.0` for tokenizer API\ncompatibility\n- Fixed `Aggregations` HashMap type: Tantivy now uses `FxHashMap`\ninstead of standard `HashMap`\n  - Updated imports to use `rustc_hash::FxHashMap`\n  - Replaced `HashMap::new()` with `FxHashMap::default()`\n  - Replaced `HashMap::from([...])` with `FxHashMap::from_iter([...])`\n- Fixed `Intersection::with_two_sets` API: now requires `num_docs: u32`\nas third parameter\n- Updated `ProximityScorer::new` to accept and pass `num_docs` parameter\n  - Pass `segment_reader.max_doc()` to intersection constructor\n\n## Tests\n\n- existing tests pass",
+          "timestamp": "2025-12-05T23:38:11-08:00",
+          "tree_id": "3e15e4aaaea19e795d85531cf6e186174da341cb",
+          "url": "https://github.com/paradedb/paradedb/commit/14d078fcaeb193818ba3cf07f7d57314a128ff67"
+        },
+        "date": 1765009424674,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07902252686444611, max background_merging: 2.0, count: 56022"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.702964545811915, max cpu: 9.514371, count: 56022"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.895611461791795, max mem: 22.91015625, count: 56022"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.972620490673424, max cpu: 9.687184, count: 56022"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.35487858006675, max mem: 165.0625, count: 56022"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65219,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65131.53623576452, max block_count: 65219.0, count: 56022"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.77408875084788, max segment_count: 57.0, count: 56022"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599905190385588, max cpu: 9.628887, count: 56022"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 120.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 109.33310114218521, max mem: 136.0546875, count: 56022"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.837042630798648, max cpu: 9.590409, count: 56022"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.25962840212327, max mem: 164.69921875, count: 56022"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.98068544021076, max cpu: 33.267326, count: 56022"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.4029754075408, max mem: 219.6640625, count: 56022"
           }
         ]
       }

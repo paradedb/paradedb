@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764881297703,
+  "lastUpdate": 1764987991554,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3026,6 +3026,72 @@ window.BENCHMARK_DATA = {
             "value": 143.756795038496,
             "unit": "median tps",
             "extra": "avg tps: 169.7926372479982, max tps: 808.4963261926937, count: 55208"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5265fc6d89806e24a7677a97778bcd7e27fe119",
+          "message": "revert: fixed nested aggregations in pdb.agg() (#3553)\" (#3712)\n\n# Ticket(s) Closed\n\n- Reverts #3553\n\n## What\n\nReverts the nested aggregation syntax change that required `\"aggs\"` to\nbe nested inside the parent aggregation type. Returns to the original\nsyntax where `\"aggs\"` is a sibling key to the aggregation type.\n\n## Why\n\nThe previous PR (#3553) changed the nested aggregation syntax from:\n```json\n{\"terms\": {\"field\": \"category\"}, \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}\n```\n\nto:\n```json\n{\"terms\": {\"field\": \"category\", \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}}\n```\n\nThis change broke the expected Tantivy aggregation format and added\nunnecessary validation logic that rejected valid aggregation types.\n\n## How\n\n- Reverted Tantivy dependency to previous commit (`9b9fe46` →\n`1304f3b5`)\n- Removed validation logic that checked for \"known\" aggregation types in\n`window_agg.rs`\n- Removed comment in `aggregate_type.rs` explaining the nested\nextraction logic\n- Updated all test cases to use the original syntax with `\"aggs\"` as a\nsibling key\n- Error messages now come from Tantivy's deserializer instead of custom\nvalidation\n\n## Tests\n\nAll existing regression tests updated to use the reverted syntax:\n- `custom-agg.sql` - nested aggregation tests\n- `topn-agg-facet.sql` - window function aggregation tests",
+          "timestamp": "2025-12-05T18:08:08-08:00",
+          "tree_id": "fb68a4af2c9a0c45125589efe6777964b8c7e84e",
+          "url": "https://github.com/paradedb/paradedb/commit/a5265fc6d89806e24a7677a97778bcd7e27fe119"
+        },
+        "date": 1764987988751,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 435.7289032355031,
+            "unit": "median tps",
+            "extra": "avg tps: 445.39146699236437, max tps: 583.9413514518038, count: 54635"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3094.0290576964067,
+            "unit": "median tps",
+            "extra": "avg tps: 3048.0955563808598, max tps: 3136.4681088796933, count: 54635"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 435.38771294978204,
+            "unit": "median tps",
+            "extra": "avg tps: 443.614540542887, max tps: 582.9698269441224, count: 54635"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 364.4042813320414,
+            "unit": "median tps",
+            "extra": "avg tps: 372.8205159293646, max tps: 448.4546636679713, count: 54635"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3209.2551046182416,
+            "unit": "median tps",
+            "extra": "avg tps: 3208.288317295618, max tps: 3342.6705263369013, count: 109270"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2142.8226935741245,
+            "unit": "median tps",
+            "extra": "avg tps: 2116.808490858901, max tps: 2150.277040354157, count: 54635"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 188.95449668092786,
+            "unit": "median tps",
+            "extra": "avg tps: 224.12554615184396, max tps: 768.0998898544758, count: 54635"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764989627770,
+  "lastUpdate": 1764990390977,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21122,6 +21122,60 @@ window.BENCHMARK_DATA = {
             "value": 15.66598701320758,
             "unit": "median tps",
             "extra": "avg tps: 15.814883243097505, max tps: 21.040201913560075, count: 55572"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a5265fc6d89806e24a7677a97778bcd7e27fe119",
+          "message": "revert: fixed nested aggregations in pdb.agg() (#3553)\" (#3712)\n\n# Ticket(s) Closed\n\n- Reverts #3553\n\n## What\n\nReverts the nested aggregation syntax change that required `\"aggs\"` to\nbe nested inside the parent aggregation type. Returns to the original\nsyntax where `\"aggs\"` is a sibling key to the aggregation type.\n\n## Why\n\nThe previous PR (#3553) changed the nested aggregation syntax from:\n```json\n{\"terms\": {\"field\": \"category\"}, \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}\n```\n\nto:\n```json\n{\"terms\": {\"field\": \"category\", \"aggs\": {\"brand\": {\"terms\": {\"field\": \"brand\"}}}}}\n```\n\nThis change broke the expected Tantivy aggregation format and added\nunnecessary validation logic that rejected valid aggregation types.\n\n## How\n\n- Reverted Tantivy dependency to previous commit (`9b9fe46` →\n`1304f3b5`)\n- Removed validation logic that checked for \"known\" aggregation types in\n`window_agg.rs`\n- Removed comment in `aggregate_type.rs` explaining the nested\nextraction logic\n- Updated all test cases to use the original syntax with `\"aggs\"` as a\nsibling key\n- Error messages now come from Tantivy's deserializer instead of custom\nvalidation\n\n## Tests\n\nAll existing regression tests updated to use the reverted syntax:\n- `custom-agg.sql` - nested aggregation tests\n- `topn-agg-facet.sql` - window function aggregation tests",
+          "timestamp": "2025-12-05T18:08:08-08:00",
+          "tree_id": "fb68a4af2c9a0c45125589efe6777964b8c7e84e",
+          "url": "https://github.com/paradedb/paradedb/commit/a5265fc6d89806e24a7677a97778bcd7e27fe119"
+        },
+        "date": 1764990388061,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.56942573166654,
+            "unit": "median tps",
+            "extra": "avg tps: 31.429980855738986, max tps: 33.75844140165771, count: 55550"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 236.45090398127363,
+            "unit": "median tps",
+            "extra": "avg tps: 260.55276089102273, max tps: 2793.711575354486, count: 55550"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1958.7407987236488,
+            "unit": "median tps",
+            "extra": "avg tps: 1944.6978660285404, max tps: 2323.965068635984, count: 55550"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.98640958739455,
+            "unit": "median tps",
+            "extra": "avg tps: 196.15778349732213, max tps: 1720.0517443914114, count: 111100"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.613922120148843,
+            "unit": "median tps",
+            "extra": "avg tps: 14.731384476941376, max tps: 20.590129162086136, count: 55550"
           }
         ]
       }

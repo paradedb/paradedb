@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765008603488,
+  "lastUpdate": 1765008607695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12962,6 +12962,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.47786507909038, max segment_count: 133.0, count: 57782"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14d078fcaeb193818ba3cf07f7d57314a128ff67",
+          "message": "chore: upgrade Tantivy to a7329cc (#3390)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nUpgrades Tantivy to commit `a7329cc` (via\nhttps://github.com/paradedb/tantivy/pull/72) and fixes compatibility\nissues with the new API.\n\n## Why\n\nTo incorporate the latest Tantivy improvements and bug fixes.\n\n## How\n\n- Updated Tantivy dependency to new commit `a7329cc`\n- Upgraded `tantivy-jieba` from `0.11.0` to `0.17.0` for tokenizer API\ncompatibility\n- Fixed `Aggregations` HashMap type: Tantivy now uses `FxHashMap`\ninstead of standard `HashMap`\n  - Updated imports to use `rustc_hash::FxHashMap`\n  - Replaced `HashMap::new()` with `FxHashMap::default()`\n  - Replaced `HashMap::from([...])` with `FxHashMap::from_iter([...])`\n- Fixed `Intersection::with_two_sets` API: now requires `num_docs: u32`\nas third parameter\n- Updated `ProximityScorer::new` to accept and pass `num_docs` parameter\n  - Pass `segment_reader.max_doc()` to intersection constructor\n\n## Tests\n\n- existing tests pass",
+          "timestamp": "2025-12-05T23:38:11-08:00",
+          "tree_id": "3e15e4aaaea19e795d85531cf6e186174da341cb",
+          "url": "https://github.com/paradedb/paradedb/commit/14d078fcaeb193818ba3cf07f7d57314a128ff67"
+        },
+        "date": 1765008604715,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.535502198569972, max cpu: 42.857143, count: 57341"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 231.17838798263895, max mem: 232.74609375, count: 57341"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.49918995147704, max cpu: 33.333336, count: 57341"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.8292016865114, max mem: 171.3203125, count: 57341"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49845,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49182.86323921801, max block_count: 52014.0, count: 57341"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 90,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 95.88725344866675, max segment_count: 161.0, count: 57341"
           }
         ]
       }

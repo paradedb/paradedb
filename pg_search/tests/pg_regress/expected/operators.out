@@ -369,38 +369,38 @@ SELECT * FROM mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `&&&` operator
 SELECT * FROM mock_items WHERE in_stock &&& 'true';
 ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `true`
-SELECT * FROM mock_items WHERE last_updated_date &&& now()::date::text;
-ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-05-2025`
-SELECT * FROM mock_items WHERE latest_available_time &&& now()::date::text;
-ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-05-2025`
+SELECT * FROM mock_items WHERE last_updated_date &&& '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time &&& '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-06-2025`
 SELECT * FROM mock_items WHERE id ||| '42';
 ERROR:  type `int4` is not compatible with the `|||` operator
 SELECT * FROM mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `|||` operator
 SELECT * FROM mock_items WHERE in_stock ||| 'true';
 ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `true`
-SELECT * FROM mock_items WHERE last_updated_date ||| now()::date::text;
-ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-05-2025`
-SELECT * FROM mock_items WHERE latest_available_time ||| now()::date::text;
-ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-05-2025`
+SELECT * FROM mock_items WHERE last_updated_date ||| '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time ||| '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-06-2025`
 SELECT * FROM mock_items WHERE id ### '42';
 ERROR:  type `int4` is not compatible with the `###` operator
 SELECT * FROM mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `###` operator
 SELECT * FROM mock_items WHERE in_stock ### 'true';
 ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `true`
-SELECT * FROM mock_items WHERE last_updated_date ### now()::date::text;
-ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-05-2025`
-SELECT * FROM mock_items WHERE latest_available_time ### now()::date::text;
-ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-05-2025`
+SELECT * FROM mock_items WHERE last_updated_date ### '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time ### '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-06-2025`
 SELECT * FROM mock_items WHERE id === '42';
 ERROR:  type `int4` is not compatible with the `===` operator
 SELECT * FROM mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `===` operator
 SELECT * FROM mock_items WHERE in_stock === 'true';
 ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `true`
-SELECT * FROM mock_items WHERE last_updated_date === now()::date::text;
-ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-05-2025`
-SELECT * FROM mock_items WHERE latest_available_time === now()::date::text;
-ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-05-2025`
+SELECT * FROM mock_items WHERE last_updated_date === '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time === '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-06-2025`
 DROP TABLE mock_items;

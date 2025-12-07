@@ -879,21 +879,21 @@ ORDER BY category, brand, rating;
 -- Test 54: Using pdb.agg() with nested terms (equivalent to GROUP BY category, brand)
 -- This should produce the same nested structure as Test 52
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
 -- Test 55: Using pdb.agg() with triple-nested terms
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
@@ -975,11 +975,11 @@ ORDER BY category;
 
 -- Test 60: pdb.agg() with terms and metric sub-aggregations
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
@@ -1000,11 +1000,11 @@ ORDER BY category, brand;
 
 -- pdb.agg() approach (returns JSON structure)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brand_breakdown": {"terms": {"field": "brand", "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}}}'::jsonb)
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
@@ -1027,11 +1027,11 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Nested: Shows category -> brand -> rating hierarchy
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT pdb.agg('{"terms": {"field": "category", "aggs": {"brands": {"terms": {"field": "brand", "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}}}'::jsonb) AS nested_breakdown
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 

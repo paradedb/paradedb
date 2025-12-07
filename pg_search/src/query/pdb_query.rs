@@ -1507,12 +1507,18 @@ fn tokenized_phrase(
 
     let mut tokens_with_offsets = Vec::new();
     while let Some(token) = stream.next() {
-        tokens_with_offsets.push((token.position as usize, Term::from_field_text(tantivy_field, &token.text)));
+        tokens_with_offsets.push((
+            token.position as usize,
+            Term::from_field_text(tantivy_field, &token.text),
+        ));
     }
     if tokens_with_offsets.is_empty() {
         Box::new(EmptyQuery)
     } else if tokens_with_offsets.len() == 1 {
-        let query = TermQuery::new(tokens_with_offsets.remove(0).1, IndexRecordOption::WithFreqs.into());
+        let query = TermQuery::new(
+            tokens_with_offsets.remove(0).1,
+            IndexRecordOption::WithFreqs.into(),
+        );
         Box::new(query)
     } else {
         let mut query = PhraseQuery::new_with_offset(tokens_with_offsets);
@@ -1569,7 +1575,7 @@ fn phrase(
         let mut stream = analyzer.token_stream(&phrase);
         let len_before = terms_with_offsets.len();
         let mut max_position_in_phrase = 0;
-        // Different tokenizers have different implementations. Here, we record the 
+        // Different tokenizers have different implementations. Here, we record the
         // offsets ourselves
         let mut cur_position_in_phrase = 0;
         let mut has_tokens = false;

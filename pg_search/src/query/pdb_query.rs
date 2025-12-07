@@ -1505,17 +1505,17 @@ fn tokenized_phrase(
         .unwrap_or_else(|e| core::panic!("{e}"));
     let mut stream = tokenizer.token_stream(phrase);
 
-    let mut tokens = Vec::new();
+    let mut tokens_with_offsets = Vec::new();
     while let Some(token) = stream.next() {
-        tokens.push(Term::from_field_text(tantivy_field, &token.text));
+        tokens_with_offsets.push((token.position as usize, Term::from_field_text(tantivy_field, &token.text)));
     }
-    if tokens.is_empty() {
+    if tokens_with_offsets.is_empty() {
         Box::new(EmptyQuery)
-    } else if tokens.len() == 1 {
-        let query = TermQuery::new(tokens.remove(0), IndexRecordOption::WithFreqs.into());
+    } else if tokens_with_offsets.len() == 1 {
+        let query = TermQuery::new(tokens_with_offsets.remove(0).1, IndexRecordOption::WithFreqs.into());
         Box::new(query)
     } else {
-        let mut query = PhraseQuery::new(tokens);
+        let mut query = PhraseQuery::new_with_offset(tokens_with_offsets);
         query.set_slop(slop.unwrap_or(0));
         Box::new(query)
     }
@@ -1560,15 +1560,22 @@ fn phrase(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
 
-    let mut terms = Vec::new();
+    let mut terms_with_offsets = Vec::new();
     let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
     let mut should_warn = false;
+    let mut position_offset = 0;
 
     for phrase in phrases.into_iter() {
         let mut stream = analyzer.token_stream(&phrase);
-        let len_before = terms.len();
+        let len_before = terms_with_offsets.len();
+        let mut max_position_in_phrase = 0;
+        // Different tokenizers have different implementations. Here, we record the 
+        // offsets ourselves
+        let mut cur_position_in_phrase = 0;
+        let mut has_tokens = false;
 
         while stream.advance() {
+            has_tokens = true;
             let token = stream.token().text.clone();
             let term = value_to_term(
                 search_field.field(),
@@ -1578,10 +1585,18 @@ fn phrase(
                 false,
             )?;
 
-            terms.push(term);
+            let token_position_length = stream.token().position_length as usize;
+            let adjusted_position = position_offset + cur_position_in_phrase;
+            terms_with_offsets.push((adjusted_position, term));
+            cur_position_in_phrase += token_position_length;
+            max_position_in_phrase = max_position_in_phrase.max(cur_position_in_phrase);
         }
 
-        if len_before + 1 < terms.len() {
+        if has_tokens {
+            position_offset += max_position_in_phrase;
+        }
+
+        if len_before + 1 < terms_with_offsets.len() {
             should_warn = true;
         }
     }
@@ -1594,7 +1609,7 @@ fn phrase(
         pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
     }
 
-    let mut query = PhraseQuery::new(terms);
+    let mut query: PhraseQuery = PhraseQuery::new_with_offset(terms_with_offsets);
     if let Some(slop) = slop {
         query.set_slop(slop)
     }

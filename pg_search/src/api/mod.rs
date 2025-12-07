@@ -148,11 +148,32 @@ impl AsCStr for *mut pgrx::pg_sys::Node {
 }
 
 /// A type used whenever our builder functions require a fieldname.
+///
+/// NOTE: We set this type to category 'S' (String) with typispreferred=true
+/// to resolve function overload ambiguity. When both field-specific functions
+/// (e.g., match(field, value)) and field-agnostic functions (e.g., match(value))
+/// exist, PostgreSQL's STRING priority heuristic ensures that string literals
+/// passed as the first argument resolve to FieldName rather than text/varchar,
+/// selecting the field-specific function. This maintains backward compatibility
+/// with existing code like `paradedb.match('description', 'search term')`.
 #[derive(
     Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize, PostgresType,
 )]
 #[inoutfuncs]
 pub struct FieldName(String);
+
+// Set FieldName type category to String (S) with preferred=true for function resolution.
+// This must run after the type is created by PostgresType derive.
+pgrx::extension_sql!(
+    r#"
+    UPDATE pg_catalog.pg_type
+    SET typcategory = 'S', typispreferred = true
+    WHERE typname = 'fieldname'
+      AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '@extschema@');
+    "#,
+    name = "fieldname_type_category",
+    requires = [FieldName]
+);
 
 impl Display for FieldName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

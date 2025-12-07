@@ -444,3 +444,177 @@ fn field_agnostic_match_with_expand_dots_true(mut conn: PgConnection) {
     assert_eq!(rows2.len(), 1);
     assert_eq!(rows2[0].0, 2);
 }
+
+// ============================================================================
+// Field-agnostic search tests for TEXT fields
+// These tests verify that field-agnostic search works on plain text columns
+// ============================================================================
+
+#[rstest]
+fn field_agnostic_term_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        description TEXT
+    );
+
+    INSERT INTO test_text (title, description) VALUES ('hello', 'world');
+    INSERT INTO test_text (title, description) VALUES ('goodbye', 'universe');
+    INSERT INTO test_text (title, description) VALUES ('hello', 'there');
+
+    CREATE INDEX test_text_idx ON test_text
+    USING bm25 (id, title, description) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic term should find "hello" in title field
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text WHERE test_text.id @@@ paradedb.term(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+
+    // Field-agnostic term should find "world" in description field
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_text WHERE test_text.id @@@ paradedb.term(value => 'world')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_match_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text_match (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    INSERT INTO test_text_match (title, content) VALUES ('quick brown fox', 'jumps over lazy dog');
+    INSERT INTO test_text_match (title, content) VALUES ('slow white cat', 'sleeps on warm bed');
+    INSERT INTO test_text_match (title, content) VALUES ('fast red bird', 'flies through blue sky');
+
+    CREATE INDEX test_text_match_idx ON test_text_match
+    USING bm25 (id, title, content) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic match should find "quick" in title
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_match WHERE test_text_match.id @@@ paradedb.match(value => 'quick')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+
+    // Field-agnostic match should find "lazy" in content
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_match WHERE test_text_match.id @@@ paradedb.match(value => 'lazy')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_fuzzy_match_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text_fuzzy (
+        id SERIAL PRIMARY KEY,
+        name TEXT
+    );
+
+    INSERT INTO test_text_fuzzy (name) VALUES ('restaurant');
+    INSERT INTO test_text_fuzzy (name) VALUES ('pharmacy');
+    INSERT INTO test_text_fuzzy (name) VALUES ('hospital');
+
+    CREATE INDEX test_text_fuzzy_idx ON test_text_fuzzy
+    USING bm25 (id, name) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Fuzzy match with distance=2 should find "restaurant" even with typo "restarant"
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_fuzzy WHERE test_text_fuzzy.id @@@ paradedb.match(value => 'restarant', distance => 2)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_search_mixed_text_and_json(mut conn: PgConnection) {
+    // Test that field-agnostic search works when both text and JSON fields are indexed
+    r#"
+    CREATE TABLE test_mixed (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        metadata JSONB
+    );
+
+    INSERT INTO test_mixed (title, metadata) VALUES ('hello world', '{"tag": "greeting"}');
+    INSERT INTO test_mixed (title, metadata) VALUES ('goodbye world', '{"tag": "farewell"}');
+    INSERT INTO test_mixed (title, metadata) VALUES ('test document', '{"tag": "hello"}');
+
+    CREATE INDEX test_mixed_idx ON test_mixed
+    USING bm25 (id, title, metadata) WITH (key_field='id', json_fields='{"metadata": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Should find "hello" in both text title (row 1) and JSON metadata (row 3)
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_mixed WHERE test_mixed.id @@@ paradedb.match(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_match_single_positional_arg(mut conn: PgConnection) {
+    // Test the exact syntax requested in issue #2769: paradedb.match('search term')
+    r#"
+    CREATE TABLE test_single_arg (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    INSERT INTO test_single_arg (title, content) VALUES ('running shoes', 'for athletes');
+    INSERT INTO test_single_arg (title, content) VALUES ('walking boots', 'for hikers');
+    INSERT INTO test_single_arg (title, content) VALUES ('athletic gear', 'running equipment');
+
+    CREATE INDEX test_single_arg_idx ON test_single_arg
+    USING bm25 (id, title, content) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Use the exact syntax: paradedb.match('running') - single positional argument
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_single_arg WHERE test_single_arg.id @@@ paradedb.match('running')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}

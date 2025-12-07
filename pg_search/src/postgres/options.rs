@@ -457,9 +457,7 @@ impl BM25IndexOptions {
             });
         }
         // use key_field from self, not Options
-        notice!("{} = {}", field_name.root(), self.key_field_name().root());
         if field_name.root() == self.key_field_name().root() {
-            notice!("hi");
             return match self.text_config().as_ref().unwrap().get(field_name) {
                 // if the key_field is TEXT then we'll use the config for it
                 config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
@@ -468,7 +466,6 @@ impl BM25IndexOptions {
                 _ => self.get_field_type(field_name).map(key_field_config),
             };
         }
-        notice!("after {} = {}", field_name.root(), self.key_field_name().root());
 
         let field_type = self.get_field_type(field_name);
 

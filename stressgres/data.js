@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765226113953,
+  "lastUpdate": 1765226117881,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20110,6 +20110,108 @@ window.BENCHMARK_DATA = {
             "value": 159.21875,
             "unit": "median mem",
             "extra": "avg mem: 179.0205849145314, max mem: 219.61328125, count: 56629"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2082d64df97e8b512bf52403e2d0a5baebb064a7",
+          "message": "fix: Filter dead tuples in mutable segment (#3709)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).",
+          "timestamp": "2025-12-08T11:51:02-08:00",
+          "tree_id": "5505c928a37893d2c649960467567a4ce0ebb88e",
+          "url": "https://github.com/paradedb/paradedb/commit/2082d64df97e8b512bf52403e2d0a5baebb064a7"
+        },
+        "date": 1765226115042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08016184317467048, max background_merging: 2.0, count: 56598"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655814367916312, max cpu: 9.476802, count: 56598"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.666991945938904, max mem: 22.68359375, count: 56598"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963435538879511, max cpu: 9.667674, count: 56598"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.44596464594596, max mem: 165.04296875, count: 56598"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65266,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65182.70347008728, max block_count: 65266.0, count: 56598"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.764108272377115, max segment_count: 59.0, count: 56598"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594414295746181, max cpu: 9.476802, count: 56598"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 126.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 113.52716623710202, max mem: 140.203125, count: 56598"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7674220384944395, max cpu: 9.514371, count: 56598"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.3204858718506, max mem: 164.7265625, count: 56598"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.992785255277578, max cpu: 33.300297, count: 56598"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 179.92128338236333, max mem: 219.94140625, count: 56598"
           }
         ]
       }

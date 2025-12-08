@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765234064062,
+  "lastUpdate": 1765234526372,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16938,6 +16938,54 @@ window.BENCHMARK_DATA = {
             "value": 5.564667069047223,
             "unit": "median tps",
             "extra": "avg tps: 5.549822866586048, max tps: 6.474324541327935, count: 56025"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a01e88b0dd5fb8e022509e3e6584b2454040679",
+          "message": "fix: upgrade script and relocate `agg_funcoid` (#3726)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Removed erroneous `agg_fn` function definition from the `0.20.1 ->\n0.20.2` upgrade script\n- Moved `agg_funcoid()` from `api/mod.rs` to `api/aggregate.rs`\nalongside related functions\n\n## Why\n\nThe upgrade script incorrectly included a duplicate `agg_fn` function\ncreation that shouldn't be part of the migration. Additionally,\n`agg_funcoid` belongs with the other aggregate-related OID lookup\nfunctions in `aggregate.rs` for better code organization.\n\n## How\n\n- Deleted the spurious SQL block from `pg_search--0.20.1--0.20.2.sql`\n- Relocated `agg_funcoid()` to `aggregate.rs` and re-exported it from\n`mod.rs`\n\n## Tests\n\nExisting tests should cover this change.",
+          "timestamp": "2025-12-08T17:10:59-05:00",
+          "tree_id": "38a8efd6eacefb1bb0dae05731053b6a6c22cb31",
+          "url": "https://github.com/paradedb/paradedb/commit/0a01e88b0dd5fb8e022509e3e6584b2454040679"
+        },
+        "date": 1765234523337,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1097.0098229103069,
+            "unit": "median tps",
+            "extra": "avg tps: 1096.8671760509887, max tps: 1151.9281483696132, count: 55920"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1212.3807200951055,
+            "unit": "median tps",
+            "extra": "avg tps: 1199.9700007634935, max tps: 1225.8611640311376, count: 55920"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1897.6271006988277,
+            "unit": "median tps",
+            "extra": "avg tps: 1861.6347729478437, max tps: 2066.2504195688884, count: 55920"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.315324144523854,
+            "unit": "median tps",
+            "extra": "avg tps: 5.328843873374011, max tps: 6.671865206118869, count: 55920"
           }
         ]
       }

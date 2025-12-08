@@ -6,6 +6,8 @@ noindex: true
 ## Stability Improvements 💪
 
 - Added a missing upgrade script for the `pdb.agg` function
+- Fixed a bug where updating large text or JSON values that have been "toasted" (i.e. compressed) by Postgres
+  could cause corrupt reads
 
 ## New Features 🚀
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765233248010,
+  "lastUpdate": 1765233252089,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9906,6 +9906,126 @@ window.BENCHMARK_DATA = {
             "value": 49.09375,
             "unit": "median mem",
             "extra": "avg mem: 49.20099293344827, max mem: 63.203125, count: 55393"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b41bf1414dd54ed351e05a264d722f9d1bad3557",
+          "message": "fix: `NULL` ordering in aggregate custom scan (#3654)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes incorrect NULL positioning when using `NULLS FIRST`/`NULLS LAST`\nwith `ORDER BY` in aggregate custom scans.\n\n## Why\n\nPreviously, `ORDER BY col DESC` with the default `NULLS FIRST` would\nincorrectly place NULLs last, and `ORDER BY col DESC NULLS LAST` would\nplace them first. This happened because the sentinel values used to\nrepresent NULLs in Tantivy's terms aggregation didn't account for the\nsort direction reversal.\n\n## How\n\nThe fix tracks both the `nulls_first` preference AND the sort direction\nto choose the correct sentinel:\n\n- For ASC: MIN sentinel → appears first, MAX sentinel → appears last\n- For DESC: MAX sentinel → appears first (reversed), MIN sentinel →\nappears last (reversed)\n\nSo we use MIN sentinel when: `nulls_first == (direction == ASC)`\n\nChanges:\n- Added `nulls_first` field to `OrderByInfo` extracted from PostgreSQL's\n`pk_nulls_first`\n- Renamed `nulls_first_fields` → `use_min_sentinel_fields` with\ndirection-aware logic\n- Updated sentinel detection to recognize both MIN and MAX sentinels\n\n## Tests\n\nAdded `nulls_ordering.sql` regression test covering:\n- Text, integer, float, and JSON columns\n- All 4 combinations: ASC/DESC × NULLS FIRST/LAST\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T14:17:07-08:00",
+          "tree_id": "16a58d8d4332bf774328e197c90c0bc050ea72b6",
+          "url": "https://github.com/paradedb/paradedb/commit/b41bf1414dd54ed351e05a264d722f9d1bad3557"
+        },
+        "date": 1765233249111,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.49704778438043, max cpu: 18.934912, count: 54737"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.005454634205385, max mem: 68.2734375, count: 54737"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579463857143293, max cpu: 9.467456, count: 54737"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.33476820123956, max mem: 34.25, count: 54737"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.538705004407032, max cpu: 19.315895, count: 54737"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.15826624643751, max mem: 68.4453125, count: 54737"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5532337623437265, max cpu: 4.819277, count: 54737"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.2810106452217, max mem: 68.0390625, count: 54737"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.466898965493982, max cpu: 9.421001, count: 109474"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.210088482767596, max mem: 56.20703125, count: 109474"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1784.7240257960793, max block_count: 3150.0, count: 54737"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.931271352101868, max segment_count: 22.0, count: 54737"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.406681857838165, max cpu: 4.843592, count: 54737"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.56847994443886, max mem: 58.61328125, count: 54737"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.7887993291560569, max cpu: 4.843592, count: 54737"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.25,
+            "unit": "median mem",
+            "extra": "avg mem: 49.47813571886932, max mem: 62.328125, count: 54737"
           }
         ]
       }

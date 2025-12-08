@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765236127723,
+  "lastUpdate": 1765236497922,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31670,6 +31670,54 @@ window.BENCHMARK_DATA = {
             "value": 112.03123257530605,
             "unit": "median tps",
             "extra": "avg tps: 108.83417652030982, max tps: 218.83690253931778, count: 107388"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b41bf1414dd54ed351e05a264d722f9d1bad3557",
+          "message": "fix: `NULL` ordering in aggregate custom scan (#3654)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes incorrect NULL positioning when using `NULLS FIRST`/`NULLS LAST`\nwith `ORDER BY` in aggregate custom scans.\n\n## Why\n\nPreviously, `ORDER BY col DESC` with the default `NULLS FIRST` would\nincorrectly place NULLs last, and `ORDER BY col DESC NULLS LAST` would\nplace them first. This happened because the sentinel values used to\nrepresent NULLs in Tantivy's terms aggregation didn't account for the\nsort direction reversal.\n\n## How\n\nThe fix tracks both the `nulls_first` preference AND the sort direction\nto choose the correct sentinel:\n\n- For ASC: MIN sentinel → appears first, MAX sentinel → appears last\n- For DESC: MAX sentinel → appears first (reversed), MIN sentinel →\nappears last (reversed)\n\nSo we use MIN sentinel when: `nulls_first == (direction == ASC)`\n\nChanges:\n- Added `nulls_first` field to `OrderByInfo` extracted from PostgreSQL's\n`pk_nulls_first`\n- Renamed `nulls_first_fields` → `use_min_sentinel_fields` with\ndirection-aware logic\n- Updated sentinel detection to recognize both MIN and MAX sentinels\n\n## Tests\n\nAdded `nulls_ordering.sql` regression test covering:\n- Text, integer, float, and JSON columns\n- All 4 combinations: ASC/DESC × NULLS FIRST/LAST\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T14:17:07-08:00",
+          "tree_id": "16a58d8d4332bf774328e197c90c0bc050ea72b6",
+          "url": "https://github.com/paradedb/paradedb/commit/b41bf1414dd54ed351e05a264d722f9d1bad3557"
+        },
+        "date": 1765236494892,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 560.8957773439872,
+            "unit": "median tps",
+            "extra": "avg tps: 558.1293719353955, max tps: 661.8065623667228, count: 53730"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 644.8092758081923,
+            "unit": "median tps",
+            "extra": "avg tps: 640.3176245082382, max tps: 885.1683623418987, count: 53730"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.27980639563717,
+            "unit": "median tps",
+            "extra": "avg tps: 86.33508430391599, max tps: 96.91030118706601, count: 53730"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.8118169560088,
+            "unit": "median tps",
+            "extra": "avg tps: 106.10539891252316, max tps: 159.36258608140835, count: 107460"
           }
         ]
       }

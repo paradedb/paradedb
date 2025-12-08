@@ -367,14 +367,15 @@ macro_rules! datum_wrapper_for {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl DatumWrapper for $ty {
-                fn from_datum(datum: pg_sys::Datum) -> Self {
-                    unsafe {
-                        <$ty as pgrx::datum::FromDatum>::from_datum(
-                            datum,
-                            datum.is_null()
-                        ).unwrap()
-                    }
-                }
+fn from_datum(datum: pg_sys::Datum) -> Self {
+    unsafe {
+        if datum.is_null() {
+            panic!("null datum not allowed in alias cast");
+        }
+        <$ty as pgrx::datum::FromDatum>::from_datum(datum, false)
+            .expect("failed to convert datum")
+    }
+}
 
                 fn as_datum(&self) -> pg_sys::Datum {
                     unreachable!("this is not supported")

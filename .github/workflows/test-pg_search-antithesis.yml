@@ -95,6 +95,7 @@ jobs:
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             COMMIT_SHA=${{ github.sha }}
+            ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
           file: docker/Dockerfile
           push: true

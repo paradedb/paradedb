@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gnupg \
     curl \
+    wget \
     git \
     make \
     gcc \
@@ -58,6 +59,7 @@ FROM builder AS builder-pg_search
 
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 
 # Declare compile-time environment variables
 ENV COMMIT_SHA=${COMMIT_SHA} \
@@ -78,6 +80,15 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make "-j$(nproc)" && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
+
+# Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
+RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+      wget -O /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+      echo 'export LD_LIBRARY_PATH=/usr/lib/libvoidstar.so' >> /etc/profile.d/antithesis.sh && \
+      echo 'export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar"' >> /etc/profile.d/antithesis.sh ; \
+    fi
+ENV LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
+ENV RUSTFLAGS=${RUSTFLAGS}
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 WORKDIR /tmp/pg_search

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765225324868,
+  "lastUpdate": 1765225328853,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27054,6 +27054,114 @@ window.BENCHMARK_DATA = {
             "value": 170.421875,
             "unit": "median mem",
             "extra": "avg mem: 166.7604934268329, max mem: 171.56640625, count: 55486"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "239f0645241e3bb34e24c1aba01b7ba203dc70db",
+          "message": "feat: support JSON field aggregation in aggregate custom scan (#3653)\n\n# Ticket(s) Closed\n\n- Closes #2965\n\n## What\n\nEnables the aggregate custom scan for queries that GROUP BY JSON field\nprojections:\n\n```sql\nSELECT metadata_json->>'value' AS value, COUNT(*) AS count\nFROM json_test\nWHERE id @@@ paradedb.exists('metadata_json.value')\nGROUP BY metadata_json->>'value';\n```\n\n## Why\n\nPreviously, the aggregate scan only worked with direct column references\nin GROUP BY. JSON projection operators (`->` and `->>`) weren't\nrecognized, forcing PostgreSQL to fall back to slower row-by-row\naggregation.\n\n## How\n\n1. **Target list extraction** – Updated `targetlist.rs` to use\n`find_one_var_and_fieldname` for extracting field names from\nexpressions, which correctly handles JSON operators and produces paths\nlike `metadata_json.value`\n\n2. **ORDER BY handling** – Made ORDER BY optional in aggregate clause\nconstruction. Added `OrderByClause::unpushable()` for cases where ORDER\nBY references aggregate results (e.g., `ORDER BY COUNT(*) DESC`) that\ncan't be pushed to Tantivy\n\n3. **Type conversion** – Fixed `TantivyValue` to `JsonB`/`JsonString`\nconversion in `types.rs`. Tantivy returns JSON field values as strings\nin terms aggregations, so we now parse them back to JSON\n\n4. **NULL sentinels** – Changed sentinel from `\\u{0000}` to `\\u{FFFF}`\nso NULLs sort last (matching PostgreSQL's default). Added type-specific\nsentinels (`i64::MAX`, `f64::MAX`, etc.) for numeric fields\n\n## Tests\n\n- Added `json_agg.sql` covering `->>` and `->` operators, multiple\naggregates, and direct `paradedb.aggregate` calls\n- Updated existing tests for new aggregate scan behavior\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T11:24:41-08:00",
+          "tree_id": "afcbb6c516040e1d44ce063d00a8ccf9ed69ac03",
+          "url": "https://github.com/paradedb/paradedb/commit/239f0645241e3bb34e24c1aba01b7ba203dc70db"
+        },
+        "date": 1765225325956,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.491374968145468, max cpu: 42.105263, count: 55462"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 171.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.66954950574268, max mem: 172.1796875, count: 55462"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.722234120520225, max cpu: 37.869823, count: 55462"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 115.12314104138869, max mem: 116.48046875, count: 55462"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759601498742836, max cpu: 9.329447, count: 55462"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 124.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 114.89920139577549, max mem: 157.16796875, count: 55462"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14196,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14240.44172586636, max block_count: 24360.0, count: 55462"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.554152262503396, max cpu: 4.729064, count: 55462"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 97.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.24990498843803, max mem: 134.45703125, count: 55462"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.92861779236234, max segment_count: 36.0, count: 55462"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.790658501945368, max cpu: 37.869823, count: 110924"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 157.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.7074883478778, max mem: 160.9453125, count: 110924"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.594248082159206, max cpu: 27.853, count: 55462"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 166.85141480597076, max mem: 171.55859375, count: 55462"
           }
         ]
       }

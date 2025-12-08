@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765235699465,
+  "lastUpdate": 1765236123508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31622,6 +31622,54 @@ window.BENCHMARK_DATA = {
             "value": 112.95301118123476,
             "unit": "median tps",
             "extra": "avg tps: 110.62946172753792, max tps: 216.87461472224697, count: 107058"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a01e88b0dd5fb8e022509e3e6584b2454040679",
+          "message": "fix: upgrade script and relocate `agg_funcoid` (#3726)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Removed erroneous `agg_fn` function definition from the `0.20.1 ->\n0.20.2` upgrade script\n- Moved `agg_funcoid()` from `api/mod.rs` to `api/aggregate.rs`\nalongside related functions\n\n## Why\n\nThe upgrade script incorrectly included a duplicate `agg_fn` function\ncreation that shouldn't be part of the migration. Additionally,\n`agg_funcoid` belongs with the other aggregate-related OID lookup\nfunctions in `aggregate.rs` for better code organization.\n\n## How\n\n- Deleted the spurious SQL block from `pg_search--0.20.1--0.20.2.sql`\n- Relocated `agg_funcoid()` to `aggregate.rs` and re-exported it from\n`mod.rs`\n\n## Tests\n\nExisting tests should cover this change.",
+          "timestamp": "2025-12-08T17:10:59-05:00",
+          "tree_id": "38a8efd6eacefb1bb0dae05731053b6a6c22cb31",
+          "url": "https://github.com/paradedb/paradedb/commit/0a01e88b0dd5fb8e022509e3e6584b2454040679"
+        },
+        "date": 1765236120400,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 569.2254573594221,
+            "unit": "median tps",
+            "extra": "avg tps: 574.2109917995232, max tps: 676.1856233748301, count: 53694"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 625.864938893252,
+            "unit": "median tps",
+            "extra": "avg tps: 632.1792894051745, max tps: 904.357807548232, count: 53694"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.3236484002414,
+            "unit": "median tps",
+            "extra": "avg tps: 87.48482142338577, max tps: 92.94391837287804, count: 53694"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 112.03123257530605,
+            "unit": "median tps",
+            "extra": "avg tps: 108.83417652030982, max tps: 218.83690253931778, count: 107388"
           }
         ]
       }

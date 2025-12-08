@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765010991684,
+  "lastUpdate": 1765222891443,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3158,6 +3158,72 @@ window.BENCHMARK_DATA = {
             "value": 118.40431711612551,
             "unit": "median tps",
             "extra": "avg tps: 128.71615689853476, max tps: 427.57547091879644, count: 54477"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "239f0645241e3bb34e24c1aba01b7ba203dc70db",
+          "message": "feat: support JSON field aggregation in aggregate custom scan (#3653)\n\n# Ticket(s) Closed\n\n- Closes #2965\n\n## What\n\nEnables the aggregate custom scan for queries that GROUP BY JSON field\nprojections:\n\n```sql\nSELECT metadata_json->>'value' AS value, COUNT(*) AS count\nFROM json_test\nWHERE id @@@ paradedb.exists('metadata_json.value')\nGROUP BY metadata_json->>'value';\n```\n\n## Why\n\nPreviously, the aggregate scan only worked with direct column references\nin GROUP BY. JSON projection operators (`->` and `->>`) weren't\nrecognized, forcing PostgreSQL to fall back to slower row-by-row\naggregation.\n\n## How\n\n1. **Target list extraction** – Updated `targetlist.rs` to use\n`find_one_var_and_fieldname` for extracting field names from\nexpressions, which correctly handles JSON operators and produces paths\nlike `metadata_json.value`\n\n2. **ORDER BY handling** – Made ORDER BY optional in aggregate clause\nconstruction. Added `OrderByClause::unpushable()` for cases where ORDER\nBY references aggregate results (e.g., `ORDER BY COUNT(*) DESC`) that\ncan't be pushed to Tantivy\n\n3. **Type conversion** – Fixed `TantivyValue` to `JsonB`/`JsonString`\nconversion in `types.rs`. Tantivy returns JSON field values as strings\nin terms aggregations, so we now parse them back to JSON\n\n4. **NULL sentinels** – Changed sentinel from `\\u{0000}` to `\\u{FFFF}`\nso NULLs sort last (matching PostgreSQL's default). Added type-specific\nsentinels (`i64::MAX`, `f64::MAX`, etc.) for numeric fields\n\n## Tests\n\n- Added `json_agg.sql` covering `->>` and `->` operators, multiple\naggregates, and direct `paradedb.aggregate` calls\n- Updated existing tests for new aggregate scan behavior\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T11:24:41-08:00",
+          "tree_id": "afcbb6c516040e1d44ce063d00a8ccf9ed69ac03",
+          "url": "https://github.com/paradedb/paradedb/commit/239f0645241e3bb34e24c1aba01b7ba203dc70db"
+        },
+        "date": 1765222888595,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 485.40617488118147,
+            "unit": "median tps",
+            "extra": "avg tps: 488.9524581739959, max tps: 629.1336107690789, count: 55335"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3140.351507428708,
+            "unit": "median tps",
+            "extra": "avg tps: 3122.3654305721043, max tps: 3162.4397454701602, count: 55335"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 475.45099441416295,
+            "unit": "median tps",
+            "extra": "avg tps: 476.7488222572458, max tps: 624.7292982061455, count: 55335"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 397.78577957950785,
+            "unit": "median tps",
+            "extra": "avg tps: 397.2966752419527, max tps: 447.9844173100282, count: 55335"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3395.077772031732,
+            "unit": "median tps",
+            "extra": "avg tps: 3356.9313546622075, max tps: 3446.46892026774, count: 110670"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2134.468107693307,
+            "unit": "median tps",
+            "extra": "avg tps: 2127.9493912679523, max tps: 2169.833238142672, count: 55335"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 207.8685654997145,
+            "unit": "median tps",
+            "extra": "avg tps: 299.31670423393535, max tps: 552.9920043595054, count: 55335"
           }
         ]
       }

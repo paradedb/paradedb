@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765226316519,
+  "lastUpdate": 1765226320827,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9348,6 +9348,126 @@ window.BENCHMARK_DATA = {
             "value": 49.33203125,
             "unit": "median mem",
             "extra": "avg mem: 49.030339850891224, max mem: 60.890625, count: 54700"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46",
+          "message": "feat: Allow non-text types ie `int`, `int[]` to be aliased and pushed down (#3706)\n\n# Ticket(s) Closed\n\n- Closes #3642 \n- Opens #3711 \n\n## What\n\nIt is now possible to index expressions/UDFs that return non-text/JSON\nvalues by casting them to `pdb.alias`:\n\n```sql\nCREATE INDEX search_idx ON mock_items USING bm25 (id, ((rating + 1)::pdb.alias('rating'))) WITH (key_field = id);\nSELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating + 1 > 2;\n```\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-08T15:21:41-05:00",
+          "tree_id": "2688824d21244689f03603e75014138de7eb4f9f",
+          "url": "https://github.com/paradedb/paradedb/commit/919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46"
+        },
+        "date": 1765226317779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.594868958094732, max cpu: 19.315895, count: 55298"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.92003489897917, max mem: 66.38671875, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5060801356106674, max cpu: 9.448819, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 32.3603640304577, max mem: 34.7890625, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.608405632129911, max cpu: 19.732784, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.24986246394535, max mem: 66.7734375, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.651047830069607, max cpu: 9.311348, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 55.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.42627636566874, max mem: 66.28125, count: 55298"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.539745386430096, max cpu: 9.467456, count: 110596"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.84859438434708, max mem: 55.56640625, count: 110596"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1683,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1687.841965351369, max block_count: 2974.0, count: 55298"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.8865239249159105, max segment_count: 17.0, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.489131030094939, max cpu: 9.284333, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.45474760050092, max mem: 57.99609375, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.180688496155305, max cpu: 4.6647234, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.36256361837227, max mem: 61.64453125, count: 55298"
           }
         ]
       }

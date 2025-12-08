@@ -1,0 +1,394 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- the original issue repro
+CREATE OR REPLACE FUNCTION get_day_of_week(d date)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+    SELECT CASE
+        WHEN d IS NULL THEN NULL
+        ELSE EXTRACT(ISODOW FROM d)::int
+    END;
+$$;
+DROP TABLE IF EXISTS dates;
+CREATE TABLE dates (id SERIAL PRIMARY KEY, d date);
+INSERT INTO dates (d) VALUES ('2025-01-01');
+CREATE INDEX idx_dates ON dates USING bm25 (id, (get_day_of_week(d)::pdb.alias('d'))) with (key_field = 'id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on dates
+   Table: dates
+   Index: idx_dates
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, d
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"d","value":3,"is_datetime":false}}]}}
+(7 rows)
+
+SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
+ id |     d      
+----+------------
+  1 | 01-01-2025
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
+                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on dates
+   Table: dates
+   Index: idx_dates
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, d
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1093 :opfuncid 1086 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 1082 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 1082 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ -84 35 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 1093"}]}}]}}
+(7 rows)
+
+DROP TABLE dates;
+-- Integer expressions
+DROP TABLE IF EXISTS ints;
+CREATE TABLE ints (id SERIAL PRIMARY KEY, i integer);
+INSERT INTO ints (i) VALUES (1), (2), (3);
+CREATE INDEX idx_ints ON ints USING bm25 (id, ((i * 2)::pdb.alias('i'))) with (key_field = 'id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
+                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on ints
+   Table: ints
+   Index: idx_ints
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, i
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+(7 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
+                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on ints
+   Table: ints
+   Index: idx_ints
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, i
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({OPEXPR :opno 514 :opfuncid 141 :opresulttype 23 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 3 0 0 0 0 0 0 0 ]}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+(7 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on ints
+   Table: ints
+   Index: idx_ints
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, i
+   Scores: false
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"i","value":1,"is_datetime":false}}]}}
+(7 rows)
+
+DROP TABLE ints;
+-- Verify that text/json types cannot be cast to pdb.alias
+DO $$
+DECLARE
+    t text;
+    typelist text[] := ARRAY['text', 'varchar', 'json', 'jsonb', 'text[]', 'varchar[]'];
+BEGIN
+    FOREACH t IN ARRAY typelist LOOP
+        EXECUTE format('
+            CREATE TABLE alias_test (
+                id SERIAL PRIMARY KEY,
+                col %s
+            );', t);
+
+        BEGIN
+            EXECUTE '
+                CREATE INDEX idx_alias_test ON alias_test
+                USING bm25 (id, (col::pdb.alias(''mycol'')))
+                WITH (key_field = ''id'')';
+        EXCEPTION
+            WHEN OTHERS THEN
+                RAISE WARNING '%', SQLERRM;
+        END;
+
+        EXECUTE 'DROP TABLE alias_test';
+    END LOOP;
+END $$;
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+WARNING:  To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`
+-- Verify that other types can
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col smallint
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col integer
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col bigint
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col oid
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col float4
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col float8
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col numeric
+);
+INSERT INTO alias_test (col) VALUES (1);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id | col 
+----+-----
+  1 |   1
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col boolean
+);
+INSERT INTO alias_test (col) VALUES (true);
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
+ id | col 
+----+-----
+  1 | t
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col date
+);
+INSERT INTO alias_test (col) VALUES ('2025-01-01');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col time
+);
+INSERT INTO alias_test (col) VALUES ('00:00:00');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col timestamp
+);
+INSERT INTO alias_test (col) VALUES ('2025-01-01 00:00:00');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col timestamp with time zone
+);
+INSERT INTO alias_test (col) VALUES ('2025-01-01 00:00:00+00');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col time with time zone
+);
+INSERT INTO alias_test (col) VALUES ('00:00:00+00');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col smallint[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col integer[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col bigint[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col oid[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+ERROR:  cannot cast type oid[] to pdb.alias at character 63
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ERROR:  cannot cast type oid[] to pdb.alias at character 35
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col float4[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col float8[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col numeric[]
+);
+INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+ id |   col   
+----+---------
+  1 | {1,2,3}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col boolean[]
+);
+INSERT INTO alias_test (col) VALUES ('{true, false, true}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
+ id |   col   
+----+---------
+  1 | {t,f,t}
+(1 row)
+
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col date[]
+);
+INSERT INTO alias_test (col) VALUES ('{2025-01-01, 2025-01-02, 2025-01-03}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col timestamp[]
+);
+INSERT INTO alias_test (col) VALUES ('{2025-01-01 00:00:00, 2025-01-02 00:00:00, 2025-01-03 00:00:00}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;
+CREATE TABLE alias_test (
+    id SERIAL PRIMARY KEY,
+    col timestamp with time zone[]
+);
+INSERT INTO alias_test (col) VALUES ('{2025-01-01 00:00:00+00, 2025-01-02 00:00:00+00, 2025-01-03 00:00:00+00}');
+CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+DROP TABLE alias_test;

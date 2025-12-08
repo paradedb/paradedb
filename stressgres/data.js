@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765232870421,
+  "lastUpdate": 1765232875145,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9720,6 +9720,126 @@ window.BENCHMARK_DATA = {
             "value": 49.10546875,
             "unit": "median mem",
             "extra": "avg mem: 47.58695157771824, max mem: 60.85546875, count: 55238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a01e88b0dd5fb8e022509e3e6584b2454040679",
+          "message": "fix: upgrade script and relocate `agg_funcoid` (#3726)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Removed erroneous `agg_fn` function definition from the `0.20.1 ->\n0.20.2` upgrade script\n- Moved `agg_funcoid()` from `api/mod.rs` to `api/aggregate.rs`\nalongside related functions\n\n## Why\n\nThe upgrade script incorrectly included a duplicate `agg_fn` function\ncreation that shouldn't be part of the migration. Additionally,\n`agg_funcoid` belongs with the other aggregate-related OID lookup\nfunctions in `aggregate.rs` for better code organization.\n\n## How\n\n- Deleted the spurious SQL block from `pg_search--0.20.1--0.20.2.sql`\n- Relocated `agg_funcoid()` to `aggregate.rs` and re-exported it from\n`mod.rs`\n\n## Tests\n\nExisting tests should cover this change.",
+          "timestamp": "2025-12-08T17:10:59-05:00",
+          "tree_id": "38a8efd6eacefb1bb0dae05731053b6a6c22cb31",
+          "url": "https://github.com/paradedb/paradedb/commit/0a01e88b0dd5fb8e022509e3e6584b2454040679"
+        },
+        "date": 1765232872102,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.726947895214713, max cpu: 19.296484, count: 55393"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.74682199804127, max mem: 68.09375, count: 55393"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.54953837795014, max cpu: 9.320388, count: 55393"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.4450512982236, max mem: 34.8203125, count: 55393"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.726754582852079, max cpu: 23.233301, count: 55393"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.97368906890311, max mem: 68.4453125, count: 55393"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588142889093854, max cpu: 9.467456, count: 55393"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.11101533869352, max mem: 68.0078125, count: 55393"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.536357379372087, max cpu: 9.667674, count: 110786"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.137685457492374, max mem: 56.30859375, count: 110786"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1753,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1756.8605780513783, max block_count: 3141.0, count: 55393"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 16,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 17.032007654396764, max segment_count: 30.0, count: 55393"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581993605447742, max cpu: 9.886715, count: 55393"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.81175165408987, max mem: 58.796875, count: 55393"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.443009301534785, max cpu: 4.843592, count: 55393"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.20099293344827, max mem: 63.203125, count: 55393"
           }
         ]
       }

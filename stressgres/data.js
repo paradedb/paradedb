@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765224471666,
+  "lastUpdate": 1765224476179,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9162,6 +9162,126 @@ window.BENCHMARK_DATA = {
             "value": 49.3984375,
             "unit": "median mem",
             "extra": "avg mem: 48.21771313364055, max mem: 62.4296875, count: 55335"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2082d64df97e8b512bf52403e2d0a5baebb064a7",
+          "message": "fix: Filter dead tuples in mutable segment (#3709)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).",
+          "timestamp": "2025-12-08T11:51:02-08:00",
+          "tree_id": "5505c928a37893d2c649960467567a4ce0ebb88e",
+          "url": "https://github.com/paradedb/paradedb/commit/2082d64df97e8b512bf52403e2d0a5baebb064a7"
+        },
+        "date": 1765224473323,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.588712061523304, max cpu: 19.21922, count: 54700"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.27717593121572, max mem: 67.109375, count: 54700"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.571896645727652, max cpu: 9.257474, count: 54700"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.744864459552105, max mem: 35.0546875, count: 54700"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.618243390254422, max cpu: 19.21922, count: 54700"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.55731839865174, max mem: 67.4140625, count: 54700"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630247121990763, max cpu: 9.302325, count: 54700"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 55.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.63783949382998, max mem: 67.07421875, count: 54700"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.524016442014955, max cpu: 9.421001, count: 109400"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 44.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.793486631627054, max mem: 55.66796875, count: 109400"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1670,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1694.3108043875686, max block_count: 3019.0, count: 54700"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.985740402193784, max segment_count: 30.0, count: 54700"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.360689226607107, max cpu: 9.275363, count: 54700"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.30538041304845, max mem: 58.33203125, count: 54700"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.239973940193181, max cpu: 4.673807, count: 54700"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.030339850891224, max mem: 60.890625, count: 54700"
           }
         ]
       }

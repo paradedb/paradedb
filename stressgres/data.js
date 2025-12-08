@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765231972645,
+  "lastUpdate": 1765231976578,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36910,6 +36910,186 @@ window.BENCHMARK_DATA = {
             "value": 29.703125,
             "unit": "median mem",
             "extra": "avg mem: 29.04469386035107, max mem: 29.79296875, count: 53579"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "adria@prealfa.com",
+            "name": "Adria Lopez",
+            "username": "adlpz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384e98944239f72eb0565bd709f410d6a803dc4c",
+          "message": "fix: Wrap the Jieba tokenizer to fix the token indices to be sequential (#3665)\n\n# Ticket(s) Closed\n\n- Closes #3664\n\n## What\n\nWrapped the upstream `tantivy-jieba` JiebaTokenizer in order to set the\ntoken positions to be sequential instead of set to the token start\noffset in the original text.\n\nThis makes it behave like the other tokenizers.\n\n## Why\n\nThe phrase search would return no matches for very obvious tests of\nverbatim token-aligned pieces of text when using the Jieba tokenizer.\nAfter some digging around, turns out the upstream `tantivy-jieba` sets\ntoken positions to character offsets instead of sequential ordinals,\nlike the rest of the tokenizers do in ParadeDB.\n\nAs far as I can tell, then doing a phrase query, tokens are assumed to\nbe consecutively indexed and that's what results in a match with no\nslop. For all other tokenizers this works fine as I see that they have\nthe `position` set with something like this:\n\n```rust\nself.token.position = self.token.position.wrapping_add(1);\n```\n\nBut in\nhttps://github.com/jiegec/tantivy-jieba/blob/master/src/lib.rs#L163 the\ntoken stream generated has `position` set to `token.start`. I guess this\nfits fine their use upstream, but fails here.\n\nThe fix was to just wrap `tantivy_jieba::JiebaTokenizer` to set the\npositions to be sequential during tokenization.\n\n## How\n\nWrapping JiebaTokenizer, intercepting the token stream and re-setting\nthe position to a simple incrementing integer.\n\n## Tests\n\nBuilt with the new code, tokenization returns the correct indices,\nsequential.\n\n---------\n\nCo-authored-by: Lei Li <1715734693@qq.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-12-08T13:02:22-08:00",
+          "tree_id": "2b345628b296d50b5ee2179687e12f2302657080",
+          "url": "https://github.com/paradedb/paradedb/commit/384e98944239f72eb0565bd709f410d6a803dc4c"
+        },
+        "date": 1765231973733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.988650968705353, max cpu: 9.257474, count: 53529"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 46.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.78610185308431, max mem: 53.0390625, count: 53529"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.103533296443694, max cpu: 4.5933013, count: 53529"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.437043836635283, max mem: 29.47265625, count: 53529"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.124480446611997, max cpu: 18.443804, count: 53529"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 48.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.600204080381666, max mem: 55.12890625, count: 53529"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.912378390491596, max cpu: 9.257474, count: 53529"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 46.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.160349559351005, max mem: 52.33984375, count: 53529"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652638469146853, max cpu: 9.213051, count: 53529"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.08414641479385, max mem: 35.48828125, count: 53529"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1130,
+            "unit": "median pages",
+            "extra": "avg pages: 1138.6619963010705, max pages: 1914.0, count: 53529"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.828125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.895796992051038, max relation_size:MB: 14.953125, count: 53529"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.376711688991014, max segment_count: 14.0, count: 53529"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9982110613961144, max cpu: 4.597701, count: 53529"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 26.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.974071516724578, max mem: 27.03515625, count: 53529"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.499180262491625, max cpu: 4.619827, count: 53529"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 26.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.02692079001569, max mem: 27.1640625, count: 53529"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.653976810592041, max cpu: 13.88621, count: 53529"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 44.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.17458709589662, max mem: 50.3515625, count: 53529"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000027408039361184474, max replication_lag:MB: 0.2129058837890625, count: 53529"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.1482723136480475, max cpu: 13.72736, count: 107058"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 44.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.623657233403854, max mem: 51.00390625, count: 107058"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.719467111480234, max cpu: 4.597701, count: 53529"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 29.75,
+            "unit": "median mem",
+            "extra": "avg mem: 29.03274181693568, max mem: 30.046875, count: 53529"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.459064684904456, max cpu: 9.099526, count: 53529"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 29.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.06432903192662, max mem: 29.88671875, count: 53529"
           }
         ]
       }

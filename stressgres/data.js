@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765234907859,
+  "lastUpdate": 1765235318999,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24470,6 +24470,60 @@ window.BENCHMARK_DATA = {
             "value": 15.473541682761855,
             "unit": "median tps",
             "extra": "avg tps: 15.456866411398952, max tps: 18.868264157056714, count: 55504"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a01e88b0dd5fb8e022509e3e6584b2454040679",
+          "message": "fix: upgrade script and relocate `agg_funcoid` (#3726)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Removed erroneous `agg_fn` function definition from the `0.20.1 ->\n0.20.2` upgrade script\n- Moved `agg_funcoid()` from `api/mod.rs` to `api/aggregate.rs`\nalongside related functions\n\n## Why\n\nThe upgrade script incorrectly included a duplicate `agg_fn` function\ncreation that shouldn't be part of the migration. Additionally,\n`agg_funcoid` belongs with the other aggregate-related OID lookup\nfunctions in `aggregate.rs` for better code organization.\n\n## How\n\n- Deleted the spurious SQL block from `pg_search--0.20.1--0.20.2.sql`\n- Relocated `agg_funcoid()` to `aggregate.rs` and re-exported it from\n`mod.rs`\n\n## Tests\n\nExisting tests should cover this change.",
+          "timestamp": "2025-12-08T17:10:59-05:00",
+          "tree_id": "38a8efd6eacefb1bb0dae05731053b6a6c22cb31",
+          "url": "https://github.com/paradedb/paradedb/commit/0a01e88b0dd5fb8e022509e3e6584b2454040679"
+        },
+        "date": 1765235315986,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.58567840941605,
+            "unit": "median tps",
+            "extra": "avg tps: 31.530913983944334, max tps: 37.88569053679856, count: 55389"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 128.57484813176038,
+            "unit": "median tps",
+            "extra": "avg tps: 166.4922078813708, max tps: 2781.761657866365, count: 55389"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1902.9833534261918,
+            "unit": "median tps",
+            "extra": "avg tps: 1894.889742184848, max tps: 2300.3525370507887, count: 55389"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.1434330347484,
+            "unit": "median tps",
+            "extra": "avg tps: 152.43540100931185, max tps: 1759.9578282582718, count: 110778"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.556527724011723,
+            "unit": "median tps",
+            "extra": "avg tps: 15.601711924934543, max tps: 20.33578902220829, count: 55389"
           }
         ]
       }

@@ -353,6 +353,33 @@ impl PinnedBuffer {
     }
 }
 
+/// Borrows a pinned Buffer owned by another struct (rather than acquiring one from the
+/// BufferManager), and locks it as BUFFER_LOCK_SHARE for the lifetime of the guard.
+#[derive(Debug)]
+pub struct BorrowedBuffer {
+    pg_buffer: pg_sys::Buffer,
+}
+
+impl BorrowedBuffer {
+    /// # Safety
+    /// The caller must ensure the underlying `pg_buffer` is valid and pinned for the lifetime of this struct.
+    /// This will acquire a share lock on the buffer, and release it on Drop.
+    pub unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
+        assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+        Self { pg_buffer }
+    }
+}
+
+impl Drop for BorrowedBuffer {
+    fn drop(&mut self) {
+        unsafe {
+            // Only unlock, don't release
+            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+        }
+    }
+}
+
 pub struct Page<'a> {
     pg_page: pg_sys::Page,
 

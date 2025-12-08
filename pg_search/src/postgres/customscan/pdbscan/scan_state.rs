@@ -370,7 +370,7 @@ impl PdbScanState {
             state.scan,
             &mut ipd,
             pg_sys::GetActiveSnapshot(),
-            state.slot,
+            state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {
@@ -379,7 +379,7 @@ impl PdbScanState {
 
         let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
         let mut should_free = false;
-        let htup = pg_sys::ExecFetchSlotHeapTuple(state.slot, true, &mut should_free);
+        let htup = pg_sys::ExecFetchSlotHeapTuple(state.slot(), true, &mut should_free);
 
         let result = (|| {
             let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut *htup);

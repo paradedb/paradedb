@@ -24,7 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gnupg \
     curl \
-    wget \
     git \
     make \
     gcc \
@@ -83,7 +82,7 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
-      wget -O /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+      curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
       echo 'export LD_LIBRARY_PATH=/usr/lib/libvoidstar.so' >> /etc/profile.d/antithesis.sh && \
       echo 'export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar"' >> /etc/profile.d/antithesis.sh ; \
     fi

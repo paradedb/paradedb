@@ -25,43 +25,43 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 (6 rows)
 
 SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
 SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
 SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2)::pdb.boost(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
 SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2)::pdb.boost(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(0);
- id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range 
-----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------
+ id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range | sku 
+----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------+-----
 (0 rows)
 
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(1);
- id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range 
-----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------
+ id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range | sku 
+----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------+-----
 (0 rows)
 
 --

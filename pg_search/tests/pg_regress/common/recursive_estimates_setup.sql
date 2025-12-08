@@ -1,19 +1,20 @@
 -- Setup for recursive estimates tests
--- Ensures the GUC is enabled and creates test data if needed
+-- Uses a dedicated table (recursive_test.estimate_items) for test isolation
 
 -- First, run common setup for extension and GUCs
 \i common/common_setup.sql
 
--- Create regress.mock_items table (drop first for idempotency)
-CREATE SCHEMA IF NOT EXISTS regress;
-DROP TABLE IF EXISTS regress.mock_items CASCADE;
+-- Create dedicated schema and table for recursive estimates tests (isolated from other tests)
+CREATE SCHEMA IF NOT EXISTS recursive_test;
+DROP TABLE IF EXISTS recursive_test.estimate_items CASCADE;
 CALL paradedb.create_bm25_test_table(
-        schema_name => 'regress',
-        table_name => 'mock_items'
+        schema_name => 'recursive_test',
+        table_name => 'estimate_items'
      );
--- Create index without sku column to match original test setup
-CREATE INDEX idxregress_mock_items
-    ON regress.mock_items
+
+-- Create index for recursive estimates testing
+CREATE INDEX idx_recursive_estimates
+    ON recursive_test.estimate_items
         USING bm25 (id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
     WITH (key_field='id');
 

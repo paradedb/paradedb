@@ -1,5 +1,5 @@
 -- Cleanup for recursive estimates tests
--- Resets the GUC to default value
+-- Drop the dedicated test table and reset the GUC
 
--- Reset the GUC to default (OFF)
+DROP TABLE IF EXISTS recursive_test.estimate_items CASCADE;
 SET paradedb.explain_recursive_estimates = OFF;

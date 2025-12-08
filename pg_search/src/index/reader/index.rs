@@ -1015,10 +1015,13 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
+        // Use EnableScoring::Enabled because some queries (e.g., MoreLikeThisQuery)
+        // require access to the searcher to build their internal query structure.
+        // We're not using the actual scores, just counting documents.
         let weight = tantivy_query
-            .weight(EnableScoring::Disabled {
-                schema: self.schema.tantivy_schema(),
-                searcher_opt: Some(&self.searcher),
+            .weight(EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
             })
             .expect("creating weight for estimation should not fail");
 

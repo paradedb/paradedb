@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765229368636,
+  "lastUpdate": 1765229741536,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -24536,6 +24536,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 28945.194499999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79a8057319874a183e764508507a403ff7a3cecd",
+          "message": "fix: Filter dead tuples in mutable segment (#3720)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-12-08T12:38:45-08:00",
+          "tree_id": "23242b755ec5fd510a0b0ac32f03ebb7c958c0d5",
+          "url": "https://github.com/paradedb/paradedb/commit/79a8057319874a183e764508507a403ff7a3cecd"
+        },
+        "date": 1765229738487,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1223.4415,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 518.0815,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1481.3345,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 541.446,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 540.2745,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1291.1970000000001,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 25139.7325,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 25215.0795,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 25310.5445,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

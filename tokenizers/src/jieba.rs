@@ -48,7 +48,7 @@ impl Default for JiebaTokenizer {
 }
 
 impl Tokenizer for JiebaTokenizer {
-    type TokenStream<'a> = JiebaTokenStream;
+    type TokenStream<'a> = JiebaTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
         let inner = self.inner.token_stream(text);
@@ -60,12 +60,12 @@ impl Tokenizer for JiebaTokenizer {
 }
 
 /// Token stream wrapper that fixes positions to be sequential.
-pub struct JiebaTokenStream {
-    inner: tantivy_jieba::JiebaTokenStream,
+pub struct JiebaTokenStream<'a> {
+    inner: tantivy_jieba::JiebaTokenStream<'a>,
     position: usize,
 }
 
-impl TokenStream for JiebaTokenStream {
+impl TokenStream for JiebaTokenStream<'_> {
     fn advance(&mut self) -> bool {
         if self.inner.advance() {
             // Increment position sequentially instead of using character offsets

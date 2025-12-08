@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765230399020,
+  "lastUpdate": 1765231181383,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23552,6 +23552,60 @@ window.BENCHMARK_DATA = {
             "value": 15.28040048589811,
             "unit": "median tps",
             "extra": "avg tps: 15.338827836975003, max tps: 19.58563571457908, count: 55494"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "adria@prealfa.com",
+            "name": "Adria Lopez",
+            "username": "adlpz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384e98944239f72eb0565bd709f410d6a803dc4c",
+          "message": "fix: Wrap the Jieba tokenizer to fix the token indices to be sequential (#3665)\n\n# Ticket(s) Closed\n\n- Closes #3664\n\n## What\n\nWrapped the upstream `tantivy-jieba` JiebaTokenizer in order to set the\ntoken positions to be sequential instead of set to the token start\noffset in the original text.\n\nThis makes it behave like the other tokenizers.\n\n## Why\n\nThe phrase search would return no matches for very obvious tests of\nverbatim token-aligned pieces of text when using the Jieba tokenizer.\nAfter some digging around, turns out the upstream `tantivy-jieba` sets\ntoken positions to character offsets instead of sequential ordinals,\nlike the rest of the tokenizers do in ParadeDB.\n\nAs far as I can tell, then doing a phrase query, tokens are assumed to\nbe consecutively indexed and that's what results in a match with no\nslop. For all other tokenizers this works fine as I see that they have\nthe `position` set with something like this:\n\n```rust\nself.token.position = self.token.position.wrapping_add(1);\n```\n\nBut in\nhttps://github.com/jiegec/tantivy-jieba/blob/master/src/lib.rs#L163 the\ntoken stream generated has `position` set to `token.start`. I guess this\nfits fine their use upstream, but fails here.\n\nThe fix was to just wrap `tantivy_jieba::JiebaTokenizer` to set the\npositions to be sequential during tokenization.\n\n## How\n\nWrapping JiebaTokenizer, intercepting the token stream and re-setting\nthe position to a simple incrementing integer.\n\n## Tests\n\nBuilt with the new code, tokenization returns the correct indices,\nsequential.\n\n---------\n\nCo-authored-by: Lei Li <1715734693@qq.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-12-08T13:02:22-08:00",
+          "tree_id": "2b345628b296d50b5ee2179687e12f2302657080",
+          "url": "https://github.com/paradedb/paradedb/commit/384e98944239f72eb0565bd709f410d6a803dc4c"
+        },
+        "date": 1765231178673,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.25774520633942,
+            "unit": "median tps",
+            "extra": "avg tps: 33.10478205704751, max tps: 36.62500049829277, count: 55504"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 128.47941218707544,
+            "unit": "median tps",
+            "extra": "avg tps: 167.54039248835466, max tps: 2825.504297385292, count: 55504"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2021.7787441309843,
+            "unit": "median tps",
+            "extra": "avg tps: 2006.3098140774675, max tps: 2357.1283565943063, count: 55504"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.91895458873563,
+            "unit": "median tps",
+            "extra": "avg tps: 153.46097639500107, max tps: 1758.3891155798487, count: 111008"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.473541682761855,
+            "unit": "median tps",
+            "extra": "avg tps: 15.456866411398952, max tps: 18.868264157056714, count: 55504"
           }
         ]
       }

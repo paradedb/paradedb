@@ -30,18 +30,6 @@ CREATE AGGREGATE pdb.agg (
 	STYPE = internal, /* pgrx::datum::internal::Internal */
 	FINALFUNC = pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize" /* pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC::final */
 );
-/* pg_search::api::aggregate::pdb */
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/aggregate.rs:150
--- pg_search::api::aggregate::pdb::agg_fn
-CREATE  FUNCTION pdb."agg_fn"(
-	"_agg_name" TEXT, /* &str */
-	"_solve_mvcc" bool /* bool */
-) RETURNS jsonb /* pgrx::datum::json::JsonB */
-STRICT VOLATILE PARALLEL SAFE
-LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'agg_fn_placeholder_with_mvcc_wrapper';
 
 /* </end connected objects> */
 /* <begin connected objects> */

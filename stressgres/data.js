@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765226141278,
+  "lastUpdate": 1765226316519,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3290,6 +3290,72 @@ window.BENCHMARK_DATA = {
             "value": 97.40902947081243,
             "unit": "median tps",
             "extra": "avg tps: 94.79563925639627, max tps: 322.2444367988968, count: 54700"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46",
+          "message": "feat: Allow non-text types ie `int`, `int[]` to be aliased and pushed down (#3706)\n\n# Ticket(s) Closed\n\n- Closes #3642 \n- Opens #3711 \n\n## What\n\nIt is now possible to index expressions/UDFs that return non-text/JSON\nvalues by casting them to `pdb.alias`:\n\n```sql\nCREATE INDEX search_idx ON mock_items USING bm25 (id, ((rating + 1)::pdb.alias('rating'))) WITH (key_field = id);\nSELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating + 1 > 2;\n```\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-08T15:21:41-05:00",
+          "tree_id": "2688824d21244689f03603e75014138de7eb4f9f",
+          "url": "https://github.com/paradedb/paradedb/commit/919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46"
+        },
+        "date": 1765226312802,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 565.7232269095166,
+            "unit": "median tps",
+            "extra": "avg tps: 565.9770145934364, max tps: 695.6760350371221, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3185.0123733029295,
+            "unit": "median tps",
+            "extra": "avg tps: 3153.859720713973, max tps: 3199.148740413395, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 562.4900721354535,
+            "unit": "median tps",
+            "extra": "avg tps: 561.5842822238043, max tps: 708.9887122938372, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 463.24892981438984,
+            "unit": "median tps",
+            "extra": "avg tps: 462.8353071437928, max tps: 508.60964090468565, count: 55298"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3171.7317890765507,
+            "unit": "median tps",
+            "extra": "avg tps: 3159.139991985801, max tps: 3437.1371672077867, count: 110596"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2164.101481775168,
+            "unit": "median tps",
+            "extra": "avg tps: 2143.6505968302677, max tps: 2172.460671704198, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 145.71366280027223,
+            "unit": "median tps",
+            "extra": "avg tps: 169.70356627098633, max tps: 656.7976255452242, count: 55298"
           }
         ]
       }

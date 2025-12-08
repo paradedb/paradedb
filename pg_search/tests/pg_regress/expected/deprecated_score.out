@@ -75,7 +75,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id | author_name  | author_score 
 -----------+--------------+--------------
-         1 | J.K. Rowling |     2.540445
+         1 | J.K. Rowling |    1.5404451
 (1 row)
 
 -- Show another working case with books

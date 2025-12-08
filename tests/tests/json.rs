@@ -618,3 +618,76 @@ fn field_agnostic_match_single_positional_arg(mut conn: PgConnection) {
     assert_eq!(rows[0].0, 1);
     assert_eq!(rows[1].0, 3);
 }
+
+#[rstest]
+fn field_agnostic_json_path_enumeration_guardrail(mut conn: PgConnection) {
+    // Test that the JSON path enumeration guardrail works correctly.
+    // When there are more paths than the limit, only first N paths are searched.
+    //
+    // We use alphabetically sorted keys (aaa, bbb, ccc, ...) so the term dictionary
+    // order is predictable. The value "hidden" is placed in "zzz" which should be
+    // outside the guardrail limit when set low.
+    r#"
+    CREATE TABLE test_guardrail (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    -- Insert document with alphabetically ordered keys
+    -- "hidden" is in "zzz" which will be last in term dictionary order
+    INSERT INTO test_guardrail (data) VALUES ('{
+        "aaa": "first",
+        "bbb": "second",
+        "ccc": "third",
+        "ddd": "fourth",
+        "eee": "fifth",
+        "zzz": "hidden"
+    }');
+
+    CREATE INDEX test_guardrail_idx ON test_guardrail
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Set guardrail to 3 paths: will search "", "aaa", "bbb" only
+    // "zzz" path won't be searched, so "hidden" won't be found
+    r#"SET paradedb.max_json_path_enumeration = 3"#.execute(&mut conn);
+
+    let rows_limited: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'hidden')
+    "#
+    .fetch(&mut conn);
+
+    // "hidden" is in "zzz" which is outside the first 3 paths - should NOT be found
+    assert_eq!(
+        rows_limited.len(),
+        0,
+        "Guardrail should prevent finding 'hidden' in 'zzz' path"
+    );
+
+    // Value in early path should still be found
+    let rows_early: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'first')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(
+        rows_early.len(),
+        1,
+        "Value in 'aaa' path should be found within guardrail limit"
+    );
+
+    // Reset to default and verify "hidden" CAN be found
+    r#"SET paradedb.max_json_path_enumeration = 1000"#.execute(&mut conn);
+
+    let rows_full: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'hidden')
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        rows_full.len(),
+        1,
+        "With high guardrail, 'hidden' in 'zzz' should be found"
+    );
+    assert_eq!(rows_full[0].0, 1);
+}

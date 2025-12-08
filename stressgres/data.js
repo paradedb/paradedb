@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765227165591,
+  "lastUpdate": 1765227751168,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29384,6 +29384,54 @@ window.BENCHMARK_DATA = {
             "value": 110.71389728551458,
             "unit": "median tps",
             "extra": "avg tps: 111.97255663768416, max tps: 568.9700089883873, count: 107376"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2082d64df97e8b512bf52403e2d0a5baebb064a7",
+          "message": "fix: Filter dead tuples in mutable segment (#3709)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).",
+          "timestamp": "2025-12-08T11:51:02-08:00",
+          "tree_id": "5505c928a37893d2c649960467567a4ce0ebb88e",
+          "url": "https://github.com/paradedb/paradedb/commit/2082d64df97e8b512bf52403e2d0a5baebb064a7"
+        },
+        "date": 1765227748245,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 531.2700572440992,
+            "unit": "median tps",
+            "extra": "avg tps: 533.1401306867605, max tps: 668.8722980954707, count: 53703"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 603.9039494321223,
+            "unit": "median tps",
+            "extra": "avg tps: 606.9391142581702, max tps: 870.037999282492, count: 53703"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.86911277147549,
+            "unit": "median tps",
+            "extra": "avg tps: 87.9204579713028, max tps: 95.79637870093796, count: 53703"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 112.02863475935446,
+            "unit": "median tps",
+            "extra": "avg tps: 108.43363567655291, max tps: 177.61411623711618, count: 107406"
           }
         ]
       }

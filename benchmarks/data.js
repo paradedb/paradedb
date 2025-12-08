@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765229741536,
+  "lastUpdate": 1765231371558,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -24614,6 +24614,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 25310.5445,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "adria@prealfa.com",
+            "name": "Adria Lopez",
+            "username": "adlpz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384e98944239f72eb0565bd709f410d6a803dc4c",
+          "message": "fix: Wrap the Jieba tokenizer to fix the token indices to be sequential (#3665)\n\n# Ticket(s) Closed\n\n- Closes #3664\n\n## What\n\nWrapped the upstream `tantivy-jieba` JiebaTokenizer in order to set the\ntoken positions to be sequential instead of set to the token start\noffset in the original text.\n\nThis makes it behave like the other tokenizers.\n\n## Why\n\nThe phrase search would return no matches for very obvious tests of\nverbatim token-aligned pieces of text when using the Jieba tokenizer.\nAfter some digging around, turns out the upstream `tantivy-jieba` sets\ntoken positions to character offsets instead of sequential ordinals,\nlike the rest of the tokenizers do in ParadeDB.\n\nAs far as I can tell, then doing a phrase query, tokens are assumed to\nbe consecutively indexed and that's what results in a match with no\nslop. For all other tokenizers this works fine as I see that they have\nthe `position` set with something like this:\n\n```rust\nself.token.position = self.token.position.wrapping_add(1);\n```\n\nBut in\nhttps://github.com/jiegec/tantivy-jieba/blob/master/src/lib.rs#L163 the\ntoken stream generated has `position` set to `token.start`. I guess this\nfits fine their use upstream, but fails here.\n\nThe fix was to just wrap `tantivy_jieba::JiebaTokenizer` to set the\npositions to be sequential during tokenization.\n\n## How\n\nWrapping JiebaTokenizer, intercepting the token stream and re-setting\nthe position to a simple incrementing integer.\n\n## Tests\n\nBuilt with the new code, tokenization returns the correct indices,\nsequential.\n\n---------\n\nCo-authored-by: Lei Li <1715734693@qq.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-12-08T13:02:22-08:00",
+          "tree_id": "2b345628b296d50b5ee2179687e12f2302657080",
+          "url": "https://github.com/paradedb/paradedb/commit/384e98944239f72eb0565bd709f410d6a803dc4c"
+        },
+        "date": 1765231368671,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1215.0394999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 490.6405,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1467.3400000000001,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 526.5319999999999,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 511.38699999999994,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1269.824,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 30161.504,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 30452.247,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 30538.122,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

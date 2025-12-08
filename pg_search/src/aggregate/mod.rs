@@ -258,12 +258,16 @@ impl<'a> ParallelAggregationWorker<'a> {
             planstate.and_then(NonNull::new),
         )?;
 
+        let use_min_sentinel_fields = match self.aggregation.as_ref() {
+            Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
             let schema = indexrel.schema()?;
-            set_missing_on_terms(&mut aggregations, &schema);
+            set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
 
         let nworkers = self.state.launched_workers();
@@ -377,6 +381,11 @@ pub fn execute_aggregate(
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
+        // Extract fields needing min sentinel before agg_req is moved
+        let use_min_sentinel_fields = match &agg_req {
+            AggregateRequest::Sql(clause) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),
@@ -465,7 +474,7 @@ pub fn execute_aggregate(
             // normalize missing on terms here too before merge, but only for SQL-originated requests
             if agg_from_sql {
                 let schema = index.schema()?;
-                set_missing_on_terms(&mut aggregations, &schema);
+                set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
             }
             // Get the tokenizer manager from the index (has all custom tokenizers registered)
             let tokenizer_manager = reader.searcher().index().tokenizers().clone();
@@ -513,7 +522,11 @@ pub fn execute_aggregate(
                         let mut aggregations: Aggregations = agg_req.try_into()?;
                         if agg_from_sql {
                             let schema = index.schema()?;
-                            set_missing_on_terms(&mut aggregations, &schema);
+                            set_missing_on_terms(
+                                &mut aggregations,
+                                &schema,
+                                &use_min_sentinel_fields,
+                            );
                         }
                         aggregations
                     },
@@ -526,9 +539,17 @@ pub fn execute_aggregate(
     }
 }
 
+// Sentinel strings for NULL values in terms aggregations (used for text/json columns).
+// Using longer prefixes and extreme Unicode codepoints to minimize collision risk.
+pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
+pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
+
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
-fn set_missing_on_terms(aggs: &mut Aggregations, schema: &SearchIndexSchema) {
-    use crate::postgres::customscan::aggregatescan::build::NULL_GROUP_KEY_SENTINEL;
+fn set_missing_on_terms(
+    aggs: &mut Aggregations,
+    schema: &SearchIndexSchema,
+    use_min_sentinel_fields: &HashSet<String>,
+) {
     use crate::schema::SearchFieldType;
 
     for (
@@ -541,19 +562,59 @@ fn set_missing_on_terms(aggs: &mut Aggregations, schema: &SearchIndexSchema) {
     {
         if let AggregationVariants::Terms(terms) = agg {
             if terms.missing.is_none() {
-                // Use type-appropriate sentinel that sorts AFTER all other values (for NULLS LAST)
+                // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
+                let use_min = use_min_sentinel_fields.contains(&terms.field);
+                // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
+                // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
+                // for numeric column) would break the sort order.
+                //
+                // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
+                // theoretically collide with valid data values, though this is unlikely in practice.
+                // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
                 let sentinel = match schema.get_field_type(&terms.field) {
-                    Some(SearchFieldType::I64(_)) => Key::I64(i64::MAX),
-                    Some(SearchFieldType::U64(_)) => Key::U64(u64::MAX),
-                    Some(SearchFieldType::F64(_)) => Key::F64(f64::MAX),
-                    Some(SearchFieldType::Date(_)) => Key::I64(i64::MAX), // Dates stored as i64
-                    Some(SearchFieldType::Bool(_)) => Key::U64(2), // 0=false, 1=true, 2=null (sorts last)
-                    _ => Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()), // Default for text/json/etc
+                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
+                        if use_min {
+                            Key::I64(i64::MIN)
+                        } else {
+                            Key::I64(i64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::U64(_)) => {
+                        // For U64, 0 is a common value so we use string for MIN
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(u64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::F64(_)) => {
+                        if use_min {
+                            Key::F64(f64::MIN)
+                        } else {
+                            Key::F64(f64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::Bool(_)) => {
+                        // For bool: 0=false, 1=true. Use string for MIN to avoid conflicts
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(2) // sorts after true (1)
+                        }
+                    }
+                    _ => {
+                        // Default for text/json/etc - string sentinels are safe here
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::Str(NULL_SENTINEL_MAX.to_string())
+                        }
+                    }
                 };
                 terms.missing = Some(sentinel);
             }
         }
-        set_missing_on_terms(sub_aggregation, schema);
+        set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }
 }
 

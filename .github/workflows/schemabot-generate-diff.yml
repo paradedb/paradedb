@@ -118,11 +118,6 @@ jobs:
         run: |
           if test -s ~/diff.sql; then
             echo "Generating GitHub comment message"
-
-            # GitHub has a 65,536 character limit for comments
-            MAX_COMMENT_SIZE=60000
-
-            # Generate the full message first
             {
               echo 'A schema difference was detected.'
               echo
@@ -144,40 +139,7 @@ jobs:
               cat ~/diff.patch
               echo '```'
               echo '</details>'
-            } > commit-message-full.md
-
-            # Check if the message exceeds the limit
-            MESSAGE_SIZE=$(wc -c < commit-message-full.md)
-            if [ "$MESSAGE_SIZE" -gt "$MAX_COMMENT_SIZE" ]; then
-              echo "Message size ($MESSAGE_SIZE) exceeds limit ($MAX_COMMENT_SIZE), truncating..."
-              # Create a truncated version with just the upgrade script
-              {
-                echo 'A schema difference was detected.'
-                echo
-                echo '> **Note:** The full diff is too large to display in this comment. Download the artifacts below for the complete diff.'
-                echo
-                echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-                echo
-                echo '```sql'
-                cat ~/diff.sql
-                echo '```'
-              } > commit-message.md
-
-              # Check if even this is too large (unlikely but possible)
-              TRUNCATED_SIZE=$(wc -c < commit-message.md)
-              if [ "$TRUNCATED_SIZE" -gt "$MAX_COMMENT_SIZE" ]; then
-                echo "Even truncated message is too large, truncating upgrade script..."
-                {
-                  echo 'A schema difference was detected.'
-                  echo
-                  echo '> **Note:** The schema diff is too large to display in this comment. Download the artifacts below for the complete diff and upgrade script.'
-                  echo
-                  echo 'The upgrade script and full diff have been uploaded as artifacts.'
-                } > commit-message.md
-              fi
-            else
-              mv commit-message-full.md commit-message.md
-            fi
+            } >> commit-message.md
 
             # Set a flag to indicate a schema difference was detected
             echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
@@ -185,16 +147,6 @@ jobs:
             echo "No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Upload Schema Diff Artifacts
-        uses: actions/upload-artifact@v4
-        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
-        with:
-          name: schema-diff-pg${{ matrix.pg_version }}
-          path: |
-            ~/diff.sql
-            ~/diff.patch
-          retention-days: 30
 
       - name: Attach Schema Diff to PR
         uses: actions/github-script@v8

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765226117881,
+  "lastUpdate": 1765226137294,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28892,6 +28892,54 @@ window.BENCHMARK_DATA = {
             "value": 106.65838253796208,
             "unit": "median tps",
             "extra": "avg tps: 107.33388667136973, max tps: 546.1111600458029, count: 107316"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "239f0645241e3bb34e24c1aba01b7ba203dc70db",
+          "message": "feat: support JSON field aggregation in aggregate custom scan (#3653)\n\n# Ticket(s) Closed\n\n- Closes #2965\n\n## What\n\nEnables the aggregate custom scan for queries that GROUP BY JSON field\nprojections:\n\n```sql\nSELECT metadata_json->>'value' AS value, COUNT(*) AS count\nFROM json_test\nWHERE id @@@ paradedb.exists('metadata_json.value')\nGROUP BY metadata_json->>'value';\n```\n\n## Why\n\nPreviously, the aggregate scan only worked with direct column references\nin GROUP BY. JSON projection operators (`->` and `->>`) weren't\nrecognized, forcing PostgreSQL to fall back to slower row-by-row\naggregation.\n\n## How\n\n1. **Target list extraction** – Updated `targetlist.rs` to use\n`find_one_var_and_fieldname` for extracting field names from\nexpressions, which correctly handles JSON operators and produces paths\nlike `metadata_json.value`\n\n2. **ORDER BY handling** – Made ORDER BY optional in aggregate clause\nconstruction. Added `OrderByClause::unpushable()` for cases where ORDER\nBY references aggregate results (e.g., `ORDER BY COUNT(*) DESC`) that\ncan't be pushed to Tantivy\n\n3. **Type conversion** – Fixed `TantivyValue` to `JsonB`/`JsonString`\nconversion in `types.rs`. Tantivy returns JSON field values as strings\nin terms aggregations, so we now parse them back to JSON\n\n4. **NULL sentinels** – Changed sentinel from `\\u{0000}` to `\\u{FFFF}`\nso NULLs sort last (matching PostgreSQL's default). Added type-specific\nsentinels (`i64::MAX`, `f64::MAX`, etc.) for numeric fields\n\n## Tests\n\n- Added `json_agg.sql` covering `->>` and `->` operators, multiple\naggregates, and direct `paradedb.aggregate` calls\n- Updated existing tests for new aggregate scan behavior\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T11:24:41-08:00",
+          "tree_id": "afcbb6c516040e1d44ce063d00a8ccf9ed69ac03",
+          "url": "https://github.com/paradedb/paradedb/commit/239f0645241e3bb34e24c1aba01b7ba203dc70db"
+        },
+        "date": 1765226134394,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 497.7914711899781,
+            "unit": "median tps",
+            "extra": "avg tps: 508.7766546039259, max tps: 693.8101664779128, count: 53688"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 600.6545350052544,
+            "unit": "median tps",
+            "extra": "avg tps: 606.7400821354914, max tps: 722.646989719554, count: 53688"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.5931122652501,
+            "unit": "median tps",
+            "extra": "avg tps: 86.69263663342342, max tps: 93.17240784664084, count: 53688"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.71389728551458,
+            "unit": "median tps",
+            "extra": "avg tps: 111.97255663768416, max tps: 568.9700089883873, count: 107376"
           }
         ]
       }

@@ -22,6 +22,8 @@
 //! fail because PhraseQuery expects tokens at consecutive positions (0, 1, 2, ...).
 //!
 //! This wrapper intercepts the token stream and fixes positions to be sequential.
+//!
+//! TODO: See https://github.com/jiegec/tantivy-jieba/issues/24 about fixing this upstream.
 
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 

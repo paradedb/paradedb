@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765232875145,
+  "lastUpdate": 1765233248010,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3488,6 +3488,72 @@ window.BENCHMARK_DATA = {
             "value": 163.81340045413927,
             "unit": "median tps",
             "extra": "avg tps: 167.82852891273703, max tps: 366.3324036122207, count: 55393"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b41bf1414dd54ed351e05a264d722f9d1bad3557",
+          "message": "fix: `NULL` ordering in aggregate custom scan (#3654)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes incorrect NULL positioning when using `NULLS FIRST`/`NULLS LAST`\nwith `ORDER BY` in aggregate custom scans.\n\n## Why\n\nPreviously, `ORDER BY col DESC` with the default `NULLS FIRST` would\nincorrectly place NULLs last, and `ORDER BY col DESC NULLS LAST` would\nplace them first. This happened because the sentinel values used to\nrepresent NULLs in Tantivy's terms aggregation didn't account for the\nsort direction reversal.\n\n## How\n\nThe fix tracks both the `nulls_first` preference AND the sort direction\nto choose the correct sentinel:\n\n- For ASC: MIN sentinel → appears first, MAX sentinel → appears last\n- For DESC: MAX sentinel → appears first (reversed), MIN sentinel →\nappears last (reversed)\n\nSo we use MIN sentinel when: `nulls_first == (direction == ASC)`\n\nChanges:\n- Added `nulls_first` field to `OrderByInfo` extracted from PostgreSQL's\n`pk_nulls_first`\n- Renamed `nulls_first_fields` → `use_min_sentinel_fields` with\ndirection-aware logic\n- Updated sentinel detection to recognize both MIN and MAX sentinels\n\n## Tests\n\nAdded `nulls_ordering.sql` regression test covering:\n- Text, integer, float, and JSON columns\n- All 4 combinations: ASC/DESC × NULLS FIRST/LAST\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T14:17:07-08:00",
+          "tree_id": "16a58d8d4332bf774328e197c90c0bc050ea72b6",
+          "url": "https://github.com/paradedb/paradedb/commit/b41bf1414dd54ed351e05a264d722f9d1bad3557"
+        },
+        "date": 1765233245048,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 603.1348145924735,
+            "unit": "median tps",
+            "extra": "avg tps: 602.1682692280624, max tps: 702.6993215265256, count: 54737"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2995.1562301137005,
+            "unit": "median tps",
+            "extra": "avg tps: 2985.7086720498064, max tps: 3292.7369986771064, count: 54737"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 588.8496365548001,
+            "unit": "median tps",
+            "extra": "avg tps: 589.8262622514742, max tps: 637.6778006373091, count: 54737"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 487.6863997861968,
+            "unit": "median tps",
+            "extra": "avg tps: 487.69311233191263, max tps: 523.4956092519632, count: 54737"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3186.9480098821023,
+            "unit": "median tps",
+            "extra": "avg tps: 3282.014647425926, max tps: 3426.347667087782, count: 109474"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2154.3944845106075,
+            "unit": "median tps",
+            "extra": "avg tps: 2144.1968837128597, max tps: 2164.328762511227, count: 54737"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 152.63510370453898,
+            "unit": "median tps",
+            "extra": "avg tps: 163.61110705786967, max tps: 295.1879203199247, count: 54737"
           }
         ]
       }

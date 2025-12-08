@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765231181383,
+  "lastUpdate": 1765231185337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28554,6 +28554,114 @@ window.BENCHMARK_DATA = {
             "value": 171.8359375,
             "unit": "median mem",
             "extra": "avg mem: 168.0296472788725, max mem: 172.86328125, count: 55494"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "adria@prealfa.com",
+            "name": "Adria Lopez",
+            "username": "adlpz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "384e98944239f72eb0565bd709f410d6a803dc4c",
+          "message": "fix: Wrap the Jieba tokenizer to fix the token indices to be sequential (#3665)\n\n# Ticket(s) Closed\n\n- Closes #3664\n\n## What\n\nWrapped the upstream `tantivy-jieba` JiebaTokenizer in order to set the\ntoken positions to be sequential instead of set to the token start\noffset in the original text.\n\nThis makes it behave like the other tokenizers.\n\n## Why\n\nThe phrase search would return no matches for very obvious tests of\nverbatim token-aligned pieces of text when using the Jieba tokenizer.\nAfter some digging around, turns out the upstream `tantivy-jieba` sets\ntoken positions to character offsets instead of sequential ordinals,\nlike the rest of the tokenizers do in ParadeDB.\n\nAs far as I can tell, then doing a phrase query, tokens are assumed to\nbe consecutively indexed and that's what results in a match with no\nslop. For all other tokenizers this works fine as I see that they have\nthe `position` set with something like this:\n\n```rust\nself.token.position = self.token.position.wrapping_add(1);\n```\n\nBut in\nhttps://github.com/jiegec/tantivy-jieba/blob/master/src/lib.rs#L163 the\ntoken stream generated has `position` set to `token.start`. I guess this\nfits fine their use upstream, but fails here.\n\nThe fix was to just wrap `tantivy_jieba::JiebaTokenizer` to set the\npositions to be sequential during tokenization.\n\n## How\n\nWrapping JiebaTokenizer, intercepting the token stream and re-setting\nthe position to a simple incrementing integer.\n\n## Tests\n\nBuilt with the new code, tokenization returns the correct indices,\nsequential.\n\n---------\n\nCo-authored-by: Lei Li <1715734693@qq.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-12-08T13:02:22-08:00",
+          "tree_id": "2b345628b296d50b5ee2179687e12f2302657080",
+          "url": "https://github.com/paradedb/paradedb/commit/384e98944239f72eb0565bd709f410d6a803dc4c"
+        },
+        "date": 1765231182508,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.370445442331103, max cpu: 42.64561, count: 55504"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 148.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 147.14509750986414, max mem: 169.0390625, count: 55504"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.347366735876662, max cpu: 28.042841, count: 55504"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 115.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 114.8159630809266, max mem: 116.0546875, count: 55504"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.771765990243568, max cpu: 9.365853, count: 55504"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 95.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.79709802728182, max mem: 146.24609375, count: 55504"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14002,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14178.9241135774, max block_count: 24563.0, count: 55504"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.476795762988004, max cpu: 4.669261, count: 55504"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 76.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.87346632675123, max mem: 122.17578125, count: 55504"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.002414240415106, max segment_count: 38.0, count: 55504"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.720474362724051, max cpu: 28.374382, count: 111008"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 147.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 130.23940155917816, max mem: 160.5, count: 111008"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.903831612527652, max cpu: 28.20764, count: 55504"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 172.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.4951668742343, max mem: 173.15625, count: 55504"
           }
         ]
       }

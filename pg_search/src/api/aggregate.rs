@@ -206,6 +206,12 @@ pub fn agg_fn_oid() -> pgrx::pg_sys::Oid {
     lookup_pdb_function("agg_fn", &[pgrx::pg_sys::TEXTOID])
 }
 
+/// Get the OID of the pdb.agg() aggregate function
+/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
+pub fn agg_funcoid() -> pgrx::pg_sys::Oid {
+    lookup_pdb_function("agg", &[pgrx::pg_sys::JSONBOID])
+}
+
 /// Get the OID of the pdb.agg(jsonb, bool) aggregate function with solve_mvcc parameter
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
 pub fn agg_with_solve_mvcc_funcoid() -> pgrx::pg_sys::Oid {

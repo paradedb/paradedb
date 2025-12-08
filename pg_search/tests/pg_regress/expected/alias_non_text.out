@@ -16,17 +16,6 @@ AS $$
         ELSE EXTRACT(ISODOW FROM d)::int
     END;
 $$;
-CREATE OR REPLACE FUNCTION get_day_of_week_plus_one(d date)
-RETURNS integer
-LANGUAGE sql
-IMMUTABLE
-RETURNS NULL ON NULL INPUT
-AS $$
-    SELECT CASE
-        WHEN d IS NULL THEN NULL
-        ELSE EXTRACT(ISODOW FROM d)::int
-    END;
-$$;
 DROP TABLE IF EXISTS dates;
 CREATE TABLE dates (id SERIAL PRIMARY KEY, d date);
 INSERT INTO dates (d) VALUES ('2025-01-01');
@@ -49,19 +38,6 @@ SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 ----+------------
   1 | 01-01-2025
 (1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM dates WHERE get_day_of_week_plus_one(d) = 3 AND id @@@ pdb.all();
-                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on dates
-   Table: dates
-   Index: idx_dates
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, d
-   Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 457208 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 1082 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 3 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
-(7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();

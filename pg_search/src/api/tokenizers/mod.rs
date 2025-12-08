@@ -38,6 +38,7 @@ pub use crate::api::tokenizers::typmod::{
     UnicodeWordsTypmod,
 };
 
+// if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
 #[inline]
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
@@ -45,12 +46,14 @@ pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
         .map(|c| c == b't')
         .unwrap_or(false)
 }
+// if a ::pdb.alias cast is used
 #[inline]
 pub fn type_is_alias(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
     Some(oid) == lookup_typoid(c"pdb", c"alias")
 }
-
+// only fields that could contain text can be tokenized
+#[inline]
 pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
     [
         pg_sys::VARCHAROID,

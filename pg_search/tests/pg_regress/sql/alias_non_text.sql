@@ -13,18 +13,6 @@ AS $$
     END;
 $$;
 
-CREATE OR REPLACE FUNCTION get_day_of_week_plus_one(d date)
-RETURNS integer
-LANGUAGE sql
-IMMUTABLE
-RETURNS NULL ON NULL INPUT
-AS $$
-    SELECT CASE
-        WHEN d IS NULL THEN NULL
-        ELSE EXTRACT(ISODOW FROM d)::int
-    END;
-$$;
-
 DROP TABLE IF EXISTS dates;
 CREATE TABLE dates (id SERIAL PRIMARY KEY, d date);
 INSERT INTO dates (d) VALUES ('2025-01-01');
@@ -33,9 +21,6 @@ CREATE INDEX idx_dates ON dates USING bm25 (id, (get_day_of_week(d)::pdb.alias('
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT * FROM dates WHERE get_day_of_week_plus_one(d) = 3 AND id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();

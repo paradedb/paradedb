@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765229564113,
+  "lastUpdate": 1765229575133,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30026,6 +30026,54 @@ window.BENCHMARK_DATA = {
             "value": 112.02863475935446,
             "unit": "median tps",
             "extra": "avg tps: 108.43363567655291, max tps: 177.61411623711618, count: 107406"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46",
+          "message": "feat: Allow non-text types ie `int`, `int[]` to be aliased and pushed down (#3706)\n\n# Ticket(s) Closed\n\n- Closes #3642 \n- Opens #3711 \n\n## What\n\nIt is now possible to index expressions/UDFs that return non-text/JSON\nvalues by casting them to `pdb.alias`:\n\n```sql\nCREATE INDEX search_idx ON mock_items USING bm25 (id, ((rating + 1)::pdb.alias('rating'))) WITH (key_field = id);\nSELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating + 1 > 2;\n```\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-08T15:21:41-05:00",
+          "tree_id": "2688824d21244689f03603e75014138de7eb4f9f",
+          "url": "https://github.com/paradedb/paradedb/commit/919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46"
+        },
+        "date": 1765229572288,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 548.353001232807,
+            "unit": "median tps",
+            "extra": "avg tps: 552.1499199414667, max tps: 735.4090621817945, count: 53579"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 608.8084631428314,
+            "unit": "median tps",
+            "extra": "avg tps: 614.300523596171, max tps: 847.0161411630941, count: 53579"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.82653789909207,
+            "unit": "median tps",
+            "extra": "avg tps: 87.04700013628918, max tps: 97.63063911886708, count: 53579"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.9578726670828,
+            "unit": "median tps",
+            "extra": "avg tps: 108.03421413938891, max tps: 179.45660897714936, count: 107158"
           }
         ]
       }

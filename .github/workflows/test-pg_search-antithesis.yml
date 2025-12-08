@@ -80,6 +80,8 @@ jobs:
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
             type=raw,value=antithesis-latest
 
+      # Antithesis only supports x86_64 instruction set
+      # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
       - name: Build and Push Workload Docker Image to Antithesis Registry
         id: build-push-workload
         uses: docker/build-push-action@v5

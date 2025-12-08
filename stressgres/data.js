@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765234903594,
+  "lastUpdate": 1765234907859,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21838,6 +21838,108 @@ window.BENCHMARK_DATA = {
             "value": 159.4296875,
             "unit": "median mem",
             "extra": "avg mem: 178.653518349316, max mem: 219.73046875, count: 55920"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b41bf1414dd54ed351e05a264d722f9d1bad3557",
+          "message": "fix: `NULL` ordering in aggregate custom scan (#3654)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes incorrect NULL positioning when using `NULLS FIRST`/`NULLS LAST`\nwith `ORDER BY` in aggregate custom scans.\n\n## Why\n\nPreviously, `ORDER BY col DESC` with the default `NULLS FIRST` would\nincorrectly place NULLs last, and `ORDER BY col DESC NULLS LAST` would\nplace them first. This happened because the sentinel values used to\nrepresent NULLs in Tantivy's terms aggregation didn't account for the\nsort direction reversal.\n\n## How\n\nThe fix tracks both the `nulls_first` preference AND the sort direction\nto choose the correct sentinel:\n\n- For ASC: MIN sentinel → appears first, MAX sentinel → appears last\n- For DESC: MAX sentinel → appears first (reversed), MIN sentinel →\nappears last (reversed)\n\nSo we use MIN sentinel when: `nulls_first == (direction == ASC)`\n\nChanges:\n- Added `nulls_first` field to `OrderByInfo` extracted from PostgreSQL's\n`pk_nulls_first`\n- Renamed `nulls_first_fields` → `use_min_sentinel_fields` with\ndirection-aware logic\n- Updated sentinel detection to recognize both MIN and MAX sentinels\n\n## Tests\n\nAdded `nulls_ordering.sql` regression test covering:\n- Text, integer, float, and JSON columns\n- All 4 combinations: ASC/DESC × NULLS FIRST/LAST\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T14:17:07-08:00",
+          "tree_id": "16a58d8d4332bf774328e197c90c0bc050ea72b6",
+          "url": "https://github.com/paradedb/paradedb/commit/b41bf1414dd54ed351e05a264d722f9d1bad3557"
+        },
+        "date": 1765234904789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0767963143439355, max background_merging: 2.0, count: 56435"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7264456203465866, max cpu: 9.486166, count: 56435"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.968735464472402, max mem: 22.98046875, count: 56435"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.038833235359273, max cpu: 14.159292, count: 56435"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.92853330989192, max mem: 165.44140625, count: 56435"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64599,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64513.565588730395, max block_count: 64599.0, count: 56435"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.59840524497209, max segment_count: 59.0, count: 56435"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609675584848234, max cpu: 9.467456, count: 56435"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 108.78001489545495, max mem: 134.94921875, count: 56435"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.72688781754926, max cpu: 9.657948, count: 56435"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.80170654015683, max mem: 165.1953125, count: 56435"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.003370726500133, max cpu: 33.566433, count: 56435"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 178.45693226997875, max mem: 219.77734375, count: 56435"
           }
         ]
       }

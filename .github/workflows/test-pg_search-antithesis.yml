@@ -99,7 +99,7 @@ jobs:
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
         with:
-          notebook_name: basic_test
+          notebook_name: basic_k8s_test
           tenant: paradedb
           username: ${{ secrets.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}

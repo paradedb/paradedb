@@ -80,14 +80,17 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
 
+# Build the extension in release mode, but with debug symbols (which will be split out later)
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
-      curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
-      echo 'export LD_LIBRARY_PATH=/usr/lib/libvoidstar.so' >> /etc/profile.d/antithesis.sh && \
-      echo 'export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar"' >> /etc/profile.d/antithesis.sh ; \
-    fi
-ENV LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
-ENV RUSTFLAGS=${RUSTFLAGS}
+    curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+    export LD_LIBRARY_PATH=/usr/lib && \
+    export RUSTFLAGS='-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar' && \
+    echo 'export LD_LIBRARY_PATH=/usr/lib' >> /etc/profile.d/antithesis.sh && \
+    echo 'export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar"' >> /etc/profile.d/antithesis.sh ; \
+  fi && \
+  cd /tmp/pg_search && \
+  cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 WORKDIR /tmp/pg_search

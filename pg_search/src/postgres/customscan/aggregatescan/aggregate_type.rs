@@ -17,7 +17,8 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, HashSet,
+    MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
@@ -26,6 +27,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -316,6 +318,66 @@ impl AggregateType {
             | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
             AggregateType::Custom { .. } => pg_sys::JSONBOID,
         }
+    }
+
+    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
+    /// Returns an error if any field is invalid.
+    pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
+        if let AggregateType::Custom { agg_json, .. } = self {
+            let fields = extract_fields_from_agg_json(agg_json);
+            let indexed_fields: HashSet<String> = schema
+                .fields()
+                .map(|(_, entry)| entry.name().to_string())
+                .collect();
+
+            for field in &fields {
+                if !indexed_fields.contains(field) {
+                    // Build a sorted list of available fields for the error message
+                    let mut available: Vec<_> = indexed_fields
+                        .iter()
+                        .filter(|f| *f != "ctid") // Don't show internal ctid field
+                        .cloned()
+                        .collect();
+                    available.sort();
+                    return Err(format!(
+                        "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
+                        field,
+                        available.join(", ")
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Recursively extract all "field" values from an aggregation JSON structure.
+/// Handles nested aggregations via the "aggs" key.
+fn extract_fields_from_agg_json(json: &serde_json::Value) -> HashSet<String> {
+    let mut fields = HashSet::default();
+    extract_fields_recursive(json, &mut fields);
+    fields
+}
+
+fn extract_fields_recursive(json: &serde_json::Value, fields: &mut HashSet<String>) {
+    match json {
+        serde_json::Value::Object(map) => {
+            // Check for a "field" key at this level
+            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
+                fields.insert(field_name.clone());
+            }
+
+            // Recurse into all values
+            for (key, value) in map {
+                extract_fields_recursive(value, fields);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                extract_fields_recursive(item, fields);
+            }
+        }
+        _ => {}
     }
 }
 

@@ -158,50 +158,28 @@ ORDER BY id DESC LIMIT 3;
 SELECT pdb.agg('{"avg": {"field": "not_valid"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-       agg       
------------------
- {"value": null}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 6: Invalid field in date_histogram - should error
 SELECT pdb.agg('{"date_histogram": {"field": "not_valid", "fixed_interval": "30d"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-       agg       
------------------
- {"buckets": []}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 7: Invalid field in terms aggregation - should error
 SELECT pdb.agg('{"terms": {"field": "nonexistent_column"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                                        agg                                                         
---------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "__PDB_NULL__", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'nonexistent_column'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 8: Invalid field in window function context - should error
 SELECT *, pdb.agg('{"avg": {"field": "no_such_field"}}'::jsonb) OVER ()
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY id DESC LIMIT 3;
- id |  description  | rating |        created_at        |       agg       
-----+---------------+--------+--------------------------+-----------------
-  5 | Laptop bag    |      4 | Fri Jan 05 14:00:00 2024 | {"value": null}
-  4 | Monitor stand |      5 | Thu Jan 04 13:00:00 2024 | {"value": null}
-  3 | USB hub       |      3 | Wed Jan 03 12:00:00 2024 | {"value": null}
-(3 rows)
-
+ERROR:  pdb.agg() references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 9: Invalid field in range aggregation - should error
 SELECT pdb.agg('{"range": {"field": "invalid_field", "ranges": [{"to": 3}, {"from": 3}]}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                                  agg                                                  
--------------------------------------------------------------------------------------------------------
- {"buckets": [{"to": 3.0, "key": "*-3", "doc_count": 0}, {"key": "3-*", "from": 3.0, "doc_count": 0}]}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'invalid_field'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 3: Nested aggregations with invalid fields
 -- =====================================================================
@@ -209,20 +187,12 @@ WHERE id @@@ pdb.all();
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"avg_invalid": {"avg": {"field": "bad_field"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                                                                                                              agg                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 5, "doc_count": 2, "avg_invalid": {"value": null}}, {"key": 4, "doc_count": 2, "avg_invalid": {"value": null}}, {"key": 3, "doc_count": 1, "avg_invalid": {"value": null}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'bad_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 11: Multiple levels of nesting with invalid field - should error
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"nested": {"terms": {"field": "also_invalid"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                                                                                                                                                                                                                                                           agg                                                                                                                                                                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 5, "nested": {"buckets": [{"key": "__PDB_NULL__", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 2}, {"key": 4, "nested": {"buckets": [{"key": "__PDB_NULL__", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 2}, {"key": 3, "nested": {"buckets": [{"key": "__PDB_NULL__", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
-
+ERROR:  pdb.agg() references invalid field 'also_invalid'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 4: Valid nested aggregations (should succeed)
 -- =====================================================================

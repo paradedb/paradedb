@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
-use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{HashMap, OrderByFeature, OrderByFieldSemantic, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
@@ -581,12 +581,11 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Field(sort_field),
                 direction,
+                semantic,
             } => {
-                let field = self
-                    .schema
-                    .search_field(sort_field)
-                    .expect("sort field should exist in index schema");
-                match field.field_entry().field_type().value_type() {
+                let resolved_type = self.resolve_orderby_value_type(sort_field, *semantic);
+
+                match resolved_type {
                     tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
@@ -669,6 +668,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                ..
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let (top_docs, aggregation_results) = self.top_in_segments(
@@ -689,6 +689,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                ..
             } => {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
@@ -965,6 +966,42 @@ impl SearchIndexReader {
         }
     }
 
+    /// Resolve the effective Tantivy value type to use for ORDER BY on a field
+    fn resolve_orderby_value_type(
+        &self,
+        sort_field: &str,
+        semantic: Option<OrderByFieldSemantic>,
+    ) -> tantivy::schema::Type {
+        let field = self
+            .schema
+            .search_field(sort_field)
+            .expect("sort field should exist in index schema");
+
+        let original_value_type = field.field_entry().field_type().value_type();
+        let mut resolved_type = original_value_type;
+
+        if field.is_json() {
+            let underlying = self.normalize_json_underlying_type(original_value_type, sort_field);
+            match semantic.unwrap_or(OrderByFieldSemantic::Natural) {
+                OrderByFieldSemantic::Lexical => {
+                    // Only use string fast field if it's actually available; otherwise fall back to underlying.
+                    resolved_type = if underlying == tantivy::schema::Type::Str {
+                        tantivy::schema::Type::Str
+                    } else {
+                        underlying
+                    };
+                }
+                OrderByFieldSemantic::Natural => {
+                    resolved_type = underlying;
+                }
+            }
+        } else if matches!(resolved_type, tantivy::schema::Type::Json) {
+            resolved_type = self.normalize_json_underlying_type(original_value_type, sort_field);
+        }
+
+        resolved_type
+    }
+
     /// Create erased Features for the given OrderByInfo, which must contain at least one item.
     ///
     /// See `top_in_segments` and `sort_features!`.
@@ -985,13 +1022,11 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
+                    semantic,
                 } => {
-                    let field = self
-                        .schema
-                        .search_field(sort_field)
-                        .expect("sort field should exist in index schema");
+                    let resolved_type = self.resolve_orderby_value_type(sort_field, *semantic);
 
-                    match field.field_entry().field_type().value_type() {
+                    match resolved_type {
                         tantivy::schema::Type::Str => erased_features
                             .push_string_feature(FieldFeature::string(sort_field), *direction),
                         tantivy::schema::Type::U64 => erased_features
@@ -1014,6 +1049,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
+                    ..
                 } => {
                     erased_features.push_score_feature(*direction);
                 }
@@ -1030,6 +1066,48 @@ impl SearchIndexReader {
         }
 
         (first_orderby_info, erased_features)
+    }
+
+    /// Detect fast-field type for a JSON path by probing segment fast fields.
+    fn detect_json_fastfield_type(&self, name: &str) -> Option<tantivy::schema::Type> {
+        for reader in self.searcher.segment_readers().iter() {
+            let ffr = reader.fast_fields();
+            if ffr.i64(name).is_ok() {
+                return Some(tantivy::schema::Type::I64);
+            }
+            if ffr.u64(name).is_ok() {
+                return Some(tantivy::schema::Type::U64);
+            }
+            if ffr.f64(name).is_ok() {
+                return Some(tantivy::schema::Type::F64);
+            }
+            if ffr.bool(name).is_ok() {
+                return Some(tantivy::schema::Type::Bool);
+            }
+            if ffr.date(name).is_ok() {
+                return Some(tantivy::schema::Type::Date);
+            }
+            if let Ok(Some(_)) = ffr.str(name) {
+                return Some(tantivy::schema::Type::Str);
+            }
+        }
+        None
+    }
+
+    /// If the given tantivy value type is `Json`, probe segment fast fields to map it to the
+    /// actual underlying fast-field type (I64/U64/F64/Bool/Date/Str). Otherwise, return the
+    /// provided `value_type` unchanged.
+    fn normalize_json_underlying_type(
+        &self,
+        value_type: tantivy::schema::Type,
+        name: &str,
+    ) -> tantivy::schema::Type {
+        match value_type {
+            tantivy::schema::Type::Json => self
+                .detect_json_fastfield_type(name)
+                .unwrap_or(tantivy::schema::Type::Str),
+            other => other,
+        }
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because

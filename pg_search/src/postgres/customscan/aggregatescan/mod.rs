@@ -35,7 +35,8 @@ pub use targetlist::TargetListEntry;
 use crate::api::agg_funcoid;
 use crate::nodecast;
 
-use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
+use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
+use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -222,11 +223,22 @@ impl CustomScan for AggregateScan {
                 let datum = match (entry, row.is_empty()) {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
-                        match &key.0 {
-                            OwnedValue::Str(s) if s == NULL_GROUP_KEY_SENTINEL => None,
-                            _ => key
-                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                .expect("should be able to convert to datum"),
+                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
+                        // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
+                        // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
+                        let is_bool_type = expected_typoid == pg_sys::BOOLOID;
+                        let is_null_sentinel = match &key.0 {
+                            OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+                            OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+                            OwnedValue::U64(v) => *v == u64::MAX || (is_bool_type && *v == 2),
+                            OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+                            _ => false,
+                        };
+                        if is_null_sentinel {
+                            None
+                        } else {
+                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum")
                         }
                     }
                     (TargetListEntry::GroupingColumn(_), true) => None,

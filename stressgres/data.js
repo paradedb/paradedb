@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765227987961,
+  "lastUpdate": 1765227991901,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20542,6 +20542,108 @@ window.BENCHMARK_DATA = {
             "value": 159.421875,
             "unit": "median mem",
             "extra": "avg mem: 179.92128338236333, max mem: 219.94140625, count: 56598"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46",
+          "message": "feat: Allow non-text types ie `int`, `int[]` to be aliased and pushed down (#3706)\n\n# Ticket(s) Closed\n\n- Closes #3642 \n- Opens #3711 \n\n## What\n\nIt is now possible to index expressions/UDFs that return non-text/JSON\nvalues by casting them to `pdb.alias`:\n\n```sql\nCREATE INDEX search_idx ON mock_items USING bm25 (id, ((rating + 1)::pdb.alias('rating'))) WITH (key_field = id);\nSELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating + 1 > 2;\n```\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-08T15:21:41-05:00",
+          "tree_id": "2688824d21244689f03603e75014138de7eb4f9f",
+          "url": "https://github.com/paradedb/paradedb/commit/919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46"
+        },
+        "date": 1765227989041,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07975883164185438, max background_merging: 2.0, count: 56558"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.688319360730509, max cpu: 9.657948, count: 56558"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.748349108989885, max mem: 22.76171875, count: 56558"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.899065534918222, max cpu: 14.4723625, count: 56558"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.89452634629495, max mem: 165.37109375, count: 56558"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64560,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64474.150712542876, max block_count: 64560.0, count: 56558"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.60817214187206, max segment_count: 60.0, count: 56558"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.556803729360968, max cpu: 9.448819, count: 56558"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.15690419569292, max mem: 137.515625, count: 56558"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7187288474875535, max cpu: 9.542743, count: 56558"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.63772034902223, max mem: 164.7890625, count: 56558"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.904005707880465, max cpu: 33.73494, count: 56558"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 179.63247013850827, max mem: 219.8203125, count: 56558"
           }
         ]
       }

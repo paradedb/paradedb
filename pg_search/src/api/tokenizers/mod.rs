@@ -38,6 +38,7 @@ pub use crate::api::tokenizers::typmod::{
     UnicodeWordsTypmod,
 };
 
+// if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
 #[inline]
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
@@ -45,10 +46,24 @@ pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
         .map(|c| c == b't')
         .unwrap_or(false)
 }
+// if a ::pdb.alias cast is used
 #[inline]
 pub fn type_is_alias(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
     Some(oid) == lookup_typoid(c"pdb", c"alias")
+}
+// only fields that could contain text can be tokenized
+#[inline]
+pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
+    [
+        pg_sys::VARCHAROID,
+        pg_sys::TEXTOID,
+        pg_sys::JSONOID,
+        pg_sys::JSONBOID,
+        pg_sys::TEXTARRAYOID,
+        pg_sys::VARCHARARRAYOID,
+    ]
+    .contains(&oid)
 }
 
 pub fn search_field_config_from_type(
@@ -57,6 +72,10 @@ pub fn search_field_config_from_type(
     inner_typoid: pg_sys::Oid,
 ) -> Option<SearchFieldConfig> {
     let type_name = lookup_type_name(oid)?;
+
+    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
+        return None;
+    }
 
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
@@ -347,35 +366,67 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> GenericTypeWrapper<Type, SqlNam
     }
 }
 
-impl DatumWrapper for pgrx::Json {
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <pgrx::Json as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
-
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
-    }
-}
-
-impl DatumWrapper for pgrx::JsonB {
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <pgrx::JsonB as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
-
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
+macro_rules! datum_wrapper_for {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl DatumWrapper for $ty {
+fn from_datum(datum: pg_sys::Datum) -> Self {
+    unsafe {
+        if datum.is_null() {
+            panic!("null datum not allowed in alias cast");
+        }
+        <$ty as pgrx::datum::FromDatum>::from_datum(datum, false)
+            .expect("failed to convert datum")
     }
 }
 
-impl DatumWrapper for Vec<String> {
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
-
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
-    }
+                fn as_datum(&self) -> pg_sys::Datum {
+                    unreachable!("this is not supported")
+                }
+            }
+        )+
+    };
 }
+
+datum_wrapper_for!(
+    String,
+    pgrx::datum::Uuid,
+    pgrx::Json,
+    pgrx::JsonB,
+    Vec<String>,
+    i16,
+    i32,
+    i64,
+    u32,
+    f32,
+    f64,
+    bool,
+    pgrx::datum::Date,
+    pgrx::datum::Time,
+    pgrx::datum::Timestamp,
+    pgrx::datum::TimestampWithTimeZone,
+    pgrx::datum::TimeWithTimeZone,
+    pgrx::datum::Inet,
+    pgrx::datum::AnyNumeric,
+    pgrx::datum::Range<i32>,
+    pgrx::datum::Range<i64>,
+    pgrx::datum::Range<pgrx::datum::AnyNumeric>,
+    pgrx::datum::Range<pgrx::datum::Date>,
+    pgrx::datum::Range<pgrx::datum::Timestamp>,
+    pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone>,
+    Vec<i16>,
+    Vec<i32>,
+    Vec<i64>,
+    Vec<f32>,
+    Vec<f64>,
+    Vec<bool>,
+    Vec<pgrx::datum::Date>,
+    Vec<pgrx::datum::Time>,
+    Vec<pgrx::datum::Timestamp>,
+    Vec<pgrx::datum::TimestampWithTimeZone>,
+    Vec<pgrx::datum::TimeWithTimeZone>,
+    Vec<pgrx::datum::AnyNumeric>
+);
 
 pub trait SqlNameMarker {
     const SQL_NAME: &'static str;

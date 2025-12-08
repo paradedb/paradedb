@@ -1,0 +1,320 @@
+---
+# Source: paradedb/templates/monitoring-logical-replication.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paradedb-monitoring-logical-replication
+  namespace: default
+  labels:
+    cnpg.io/reload: ""
+    helm.sh/chart: paradedb-0.11.2
+    app.kubernetes.io/name: paradedb
+    app.kubernetes.io/instance: paradedb
+    app.kubernetes.io/part-of: cloudnative-pg
+    app.kubernetes.io/version: "0.19.5"
+    app.kubernetes.io/managed-by: Helm
+data:
+  custom-queries: |
+    pg_stat_subscription:
+      query: |
+        SELECT current_database() AS datname
+             , s.oid AS subid
+             , s.subname AS subname
+             , subenabled AS enabled
+             , worker_type
+             , relid
+             , pg_wal_lsn_diff(received_lsn, '0/0') AS received_lsn
+             , last_msg_send_time
+             , last_msg_receipt_time
+             , pg_wal_lsn_diff(latest_end_lsn, '0/0') AS latest_end_lsn
+             , latest_end_time
+             , apply_error_count
+             , sync_error_count
+             , stats_reset
+             , ss.pid
+             , CASE
+                 WHEN received_lsn IS NOT NULL AND latest_end_lsn IS NOT NULL
+                 THEN GREATEST(0, pg_wal_lsn_diff(received_lsn, latest_end_lsn))
+                 ELSE NULL
+               END AS buffered_lag_bytes
+             , CASE
+                 WHEN last_msg_receipt_time IS NOT NULL
+                 THEN EXTRACT(EPOCH FROM (NOW() - last_msg_receipt_time))
+                 ELSE NULL
+               END AS receipt_lag_seconds
+             , CASE
+                 WHEN latest_end_time IS NOT NULL
+                 THEN EXTRACT(EPOCH FROM (NOW() - latest_end_time))
+                 ELSE NULL
+               END AS apply_lag_seconds
+        FROM pg_subscription s
+        LEFT JOIN pg_stat_subscription ss ON s.oid = ss.subid
+        LEFT JOIN pg_stat_subscription_stats sss ON s.oid = sss.subid;
+      target_databases: ["*"]
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - subid:
+            description: ID of the subscription
+            usage: LABEL
+        - subname:
+            description: Name of the subscription
+            usage: LABEL
+        - worker_type:
+            description: Type of the worker
+            usage: LABEL
+        - relid:
+            description: OID of the relation
+            usage: LABEL
+        - received_lsn:
+            description: Last written LSN received from the publisher
+            usage: GAUGE
+        - last_msg_send_time:
+            description: Timestamp of the last message sent
+            usage: GAUGE
+        - last_msg_receipt_time:
+            description: Timestamp of the last message receipt
+            usage: GAUGE
+        - latest_end_lsn:
+            description: Latest end LSN received
+            usage: GAUGE
+        - latest_end_time:
+            description: Timestamp of the latest end LSN processed
+            usage: GAUGE
+        - enabled:
+            description: Subscription status (enabled/disabled)
+            usage: GAUGE
+        - apply_error_count:
+            description: Number of times an error occurred while applying changes
+            usage: GAUGE
+        - sync_error_count:
+            description: Number of times an error occurred during the initial table synchronization
+            usage: GAUGE
+        - stats_reset:
+            description: Time at which these statistics were last reset
+            usage: GAUGE
+        - pid:
+            description: Process ID of the subscription worker process
+            usage: GAUGE
+        - buffered_lag_bytes:
+            description: Bytes buffered but not yet applied (received_lsn - latest_end_lsn)
+            usage: GAUGE
+        - receipt_lag_seconds:
+            description: Seconds since last message receipt
+            usage: GAUGE
+        - apply_lag_seconds:
+            description: Seconds since last apply operation
+            usage: GAUGE
+---
+# Source: paradedb/templates/monitoring-paradedb-index.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paradedb-monitoring-paradedb-index
+  namespace: default
+  labels:
+    cnpg.io/reload: ""
+    helm.sh/chart: paradedb-0.11.2
+    app.kubernetes.io/name: paradedb
+    app.kubernetes.io/instance: paradedb
+    app.kubernetes.io/part-of: cloudnative-pg
+    app.kubernetes.io/version: "0.19.5"
+    app.kubernetes.io/managed-by: Helm
+data:
+  custom-queries: |
+    paradedb_index:
+      query: |
+        SELECT current_database() as datname
+             , n.nspname AS schema
+             , c.relname AS relname
+             , pg_relation_size(c.oid) AS relation_size
+             , COUNT(info.byte_size) AS segments_count
+             , MIN(info.byte_size) AS segments_min_size
+             , MAX(info.byte_size) AS segments_max_size
+             , AVG(info.byte_size) AS segments_avg_size
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_index i ON i.indexrelid = c.oid
+        JOIN pg_am am ON am.oid = c.relam
+        JOIN LATERAL paradedb.index_info(c.oid) AS info ON true
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND am.amname = 'bm25'
+        GROUP BY n.nspname, c.relname, c.oid;
+      target_databases: ["*"]
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.19.5';"
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - schema:
+            description: Schema within the database
+            usage: LABEL
+        - relname:
+            description: Index name
+            usage: LABEL
+        - relation_size:
+            description: Full Relation size
+            usage: GAUGE
+        - segments_count:
+            description: Segment count
+            usage: GAUGE
+        - segments_min_size:
+            description: Minimum segment size in bytes
+            usage: GAUGE
+        - segments_max_size:
+            description: Maximum segment size in bytes
+            usage: GAUGE
+        - segments_avg_size:
+            description: Average segment size in bytes
+            usage: GAUGE
+    paradedb_index_layer:
+      query: |
+        WITH index_layer_histogram AS (
+          SELECT t.relname
+               , t.high
+               , SUM(i.count) AS count
+          FROM paradedb.index_layer_info t
+          LEFT JOIN paradedb.index_layer_info i
+          ON i.relname = t.relname AND i.high <= t.high
+          GROUP BY t.relname, t.high, t.relname
+        )
+        SELECT current_database() as datname
+             , t.relname
+             , SUM(t.byte_size)   AS segments_sum
+             , SUM(t.count)       AS segments_count
+             , ARRAY_AGG(t.high)  AS segments
+             , ARRAY_AGG(i.count) AS segments_bucket
+        FROM paradedb.index_layer_info t
+        LEFT JOIN index_layer_histogram i ON i.relname = t.relname AND i.high = t.high
+        GROUP BY datname, t.relname;
+      target_databases: ["*"]
+      predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.19.5';"
+      metrics:
+        - datname:
+            description: Name of the database
+            usage: LABEL
+        - relname:
+            description: Index name
+            usage: LABEL
+        - segments:
+            description: Layer segments size distribution
+            usage: HISTOGRAM
+---
+# Source: paradedb/templates/cluster.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: paradedb
+  namespace: default
+  labels:
+    helm.sh/chart: paradedb-0.11.2
+    app.kubernetes.io/name: paradedb
+    app.kubernetes.io/instance: paradedb
+    app.kubernetes.io/part-of: cloudnative-pg
+    app.kubernetes.io/version: "0.19.5"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  instances: 1
+
+  imageName: paradedb/paradedb:17-v0.19.5
+  imagePullPolicy: IfNotPresent
+  postgresUID: 999
+  postgresGID: 999
+  storage:
+    size: 256Mi
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+
+  primaryUpdateMethod: switchover
+  primaryUpdateStrategy: unsupervised
+  logLevel: info
+  enableSuperuserAccess: true
+  enablePDB: true
+  postgresql:
+    shared_preload_libraries:
+      - pg_search
+      - pg_cron
+    parameters:
+      cron.database_name: postgres
+
+  monitoring:
+    enablePodMonitor: false
+    disableDefaultQueries: false
+    customQueriesConfigMap:
+      - name: paradedb-monitoring-paradedb-index
+        key: custom-queries
+      - name: paradedb-monitoring-logical-replication
+        key: custom-queries
+
+  bootstrap:
+    initdb:
+      database: paradedb
+      postInitSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_cron;
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_search;
+        - CREATE EXTENSION IF NOT EXISTS pg_ivm;
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS postgis_topology;
+        - CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+        - CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
+        - ALTER DATABASE "paradedb" SET search_path TO public,paradedb;
+      postInitTemplateSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_search;
+        - CREATE EXTENSION IF NOT EXISTS pg_ivm;
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS postgis_topology;
+        - CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+        - CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
+        - ALTER DATABASE template1 SET search_path TO public,paradedb;
+
+  externalClusters:
+---
+# Source: paradedb/templates/tests/ping.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paradedb-ping-test
+  namespace: default
+  labels:
+    app.kubernetes.io/component: database-ping-test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      name: paradedb-ping-test
+      labels:
+        app.kubernetes.io/component: database-ping-test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: alpine
+          image: alpine:3.17
+          command: ["sh"]
+          env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: paradedb-app
+                  key: username
+            - name: PGPASS
+              valueFrom:
+                secretKeyRef:
+                  name: paradedb-app
+                  key: password
+            - name: PGDBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: paradedb-app
+                  key: dbname
+                  optional: true
+          args:
+            - "-c"
+            - >-
+              apk add postgresql-client &&
+              psql "postgresql://$PGUSER:$PGPASS@paradedb-rw.default.svc.cluster.local:5432/${PGDBNAME:-$PGUSER}" -c 'SELECT 1'

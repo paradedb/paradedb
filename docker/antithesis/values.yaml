@@ -1,0 +1,7 @@
+type: paradedb
+mode: standalone
+
+cluster:
+  instances: 1
+  storage:
+    size: 256Mi

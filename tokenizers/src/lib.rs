@@ -19,6 +19,7 @@ pub mod cjk;
 pub mod code;
 #[cfg(feature = "icu")]
 pub mod icu;
+pub mod jieba;
 pub mod lindera;
 pub mod manager;
 pub mod token_length;

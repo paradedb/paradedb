@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765227751168,
+  "lastUpdate": 1765227755273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35548,6 +35548,186 @@ window.BENCHMARK_DATA = {
             "value": 29.62890625,
             "unit": "median mem",
             "extra": "avg mem: 28.92281845745325, max mem: 29.70703125, count: 53688"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2082d64df97e8b512bf52403e2d0a5baebb064a7",
+          "message": "fix: Filter dead tuples in mutable segment (#3709)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).",
+          "timestamp": "2025-12-08T11:51:02-08:00",
+          "tree_id": "5505c928a37893d2c649960467567a4ce0ebb88e",
+          "url": "https://github.com/paradedb/paradedb/commit/2082d64df97e8b512bf52403e2d0a5baebb064a7"
+        },
+        "date": 1765227752342,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.026052171859512, max cpu: 9.375, count: 53703"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 46.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.261661796128706, max mem: 52.125, count: 53703"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.390556033665172, max cpu: 4.619827, count: 53703"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.453122381431204, max mem: 29.4296875, count: 53703"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.27061170122892, max cpu: 18.75, count: 53703"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 48.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.51623076224792, max mem: 54.66015625, count: 53703"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.941839364051503, max cpu: 13.649289, count: 53703"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 46.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.1376986038955, max mem: 52.0, count: 53703"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.620143654782403, max cpu: 9.248554, count: 53703"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.65049664066719, max mem: 35.75390625, count: 53703"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1103,
+            "unit": "median pages",
+            "extra": "avg pages: 1105.616390145802, max pages: 1832.0, count: 53703"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6171875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.637628048014077, max relation_size:MB: 14.3125, count: 53703"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.469452358341247, max segment_count: 22.0, count: 53703"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3245733029996565, max cpu: 4.58891, count: 53703"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 26.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.13778123428859, max mem: 27.21875, count: 53703"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5112786,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2837413177474817, max cpu: 4.6021094, count: 53703"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 26.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.110306992276968, max mem: 27.14453125, count: 53703"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.6871432547174425, max cpu: 22.51407, count: 53703"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 44.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.10981302836899, max mem: 49.9921875, count: 53703"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000013671196490637744, max replication_lag:MB: 0.06118011474609375, count: 53703"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.109008064927033, max cpu: 9.375, count: 107406"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 44.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.79732623032, max mem: 50.76953125, count: 107406"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.50316047628322, max cpu: 4.5757866, count: 53703"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 29.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.047985855073275, max mem: 30.0859375, count: 53703"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.0086808881534335, max cpu: 4.5845275, count: 53703"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 29.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.19735352889969, max mem: 29.9453125, count: 53703"
           }
         ]
       }

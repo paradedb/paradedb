@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765233683638,
+  "lastUpdate": 1765233687812,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14558,6 +14558,66 @@ window.BENCHMARK_DATA = {
             "value": 90,
             "unit": "median segment_count",
             "extra": "avg segment_count: 95.56559549588566, max segment_count: 161.0, count: 57725"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a01e88b0dd5fb8e022509e3e6584b2454040679",
+          "message": "fix: upgrade script and relocate `agg_funcoid` (#3726)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\n- Removed erroneous `agg_fn` function definition from the `0.20.1 ->\n0.20.2` upgrade script\n- Moved `agg_funcoid()` from `api/mod.rs` to `api/aggregate.rs`\nalongside related functions\n\n## Why\n\nThe upgrade script incorrectly included a duplicate `agg_fn` function\ncreation that shouldn't be part of the migration. Additionally,\n`agg_funcoid` belongs with the other aggregate-related OID lookup\nfunctions in `aggregate.rs` for better code organization.\n\n## How\n\n- Deleted the spurious SQL block from `pg_search--0.20.1--0.20.2.sql`\n- Relocated `agg_funcoid()` to `aggregate.rs` and re-exported it from\n`mod.rs`\n\n## Tests\n\nExisting tests should cover this change.",
+          "timestamp": "2025-12-08T17:10:59-05:00",
+          "tree_id": "38a8efd6eacefb1bb0dae05731053b6a6c22cb31",
+          "url": "https://github.com/paradedb/paradedb/commit/0a01e88b0dd5fb8e022509e3e6584b2454040679"
+        },
+        "date": 1765233684865,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.31120175651335, max cpu: 42.772278, count: 57307"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.625,
+            "unit": "median mem",
+            "extra": "avg mem: 231.55471360664927, max mem: 233.10546875, count: 57307"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.385547607086398, max cpu: 33.267326, count: 57307"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.90091435982953, max mem: 171.359375, count: 57307"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50274,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49425.84603975082, max block_count: 52075.0, count: 57307"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.53096480360165, max segment_count: 164.0, count: 57307"
           }
         ]
       }

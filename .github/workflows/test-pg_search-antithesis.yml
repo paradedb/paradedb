@@ -54,7 +54,7 @@ jobs:
         id: extract-config-metadata
         uses: docker/metadata-action@v5
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:k8s
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
           tags: |
             type=sha
             paradedb
@@ -104,7 +104,7 @@ jobs:
           username: ${{ secrets.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:k8s@${{ steps.build-push-config.outputs.digest }}
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config@${{ steps.build-push-config.outputs.digest }}
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: "developers@paradedb.com"

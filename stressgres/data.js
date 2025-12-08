@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765228770883,
+  "lastUpdate": 1765228775348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28146,6 +28146,114 @@ window.BENCHMARK_DATA = {
             "value": 171.46484375,
             "unit": "median mem",
             "extra": "avg mem: 167.7164543421112, max mem: 172.33984375, count: 55395"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46",
+          "message": "feat: Allow non-text types ie `int`, `int[]` to be aliased and pushed down (#3706)\n\n# Ticket(s) Closed\n\n- Closes #3642 \n- Opens #3711 \n\n## What\n\nIt is now possible to index expressions/UDFs that return non-text/JSON\nvalues by casting them to `pdb.alias`:\n\n```sql\nCREATE INDEX search_idx ON mock_items USING bm25 (id, ((rating + 1)::pdb.alias('rating'))) WITH (key_field = id);\nSELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating + 1 > 2;\n```\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-12-08T15:21:41-05:00",
+          "tree_id": "2688824d21244689f03603e75014138de7eb4f9f",
+          "url": "https://github.com/paradedb/paradedb/commit/919a153b3bbed9868bcdfd8b8ba7011b7fb9ef46"
+        },
+        "date": 1765228772401,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.56698909871256, max cpu: 42.64561, count: 55494"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 172.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.96998162245018, max mem: 172.484375, count: 55494"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.34433841528798, max cpu: 28.015566, count: 55494"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 114.93401468514614, max mem: 116.30859375, count: 55494"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.821837356273884, max cpu: 9.495549, count: 55494"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 97.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 103.62569038995207, max mem: 149.8359375, count: 55494"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14157,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14365.729430208672, max block_count: 24951.0, count: 55494"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.357789582501586, max cpu: 4.7524753, count: 55494"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 79.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 82.41124962552257, max mem: 124.765625, count: 55494"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.15848560204707, max segment_count: 38.0, count: 55494"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.553436454583991, max cpu: 28.290766, count: 110988"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 131.2018758151219, max mem: 160.96484375, count: 110988"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.671126821414344, max cpu: 28.180038, count: 55494"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.0296472788725, max mem: 172.86328125, count: 55494"
           }
         ]
       }

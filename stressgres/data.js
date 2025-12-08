@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765222896094,
+  "lastUpdate": 1765223702861,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10636,6 +10636,42 @@ window.BENCHMARK_DATA = {
             "value": 5.277440912161343,
             "unit": "median tps",
             "extra": "avg tps: 4.740900976813033, max tps: 5.892940979735171, count: 57341"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "239f0645241e3bb34e24c1aba01b7ba203dc70db",
+          "message": "feat: support JSON field aggregation in aggregate custom scan (#3653)\n\n# Ticket(s) Closed\n\n- Closes #2965\n\n## What\n\nEnables the aggregate custom scan for queries that GROUP BY JSON field\nprojections:\n\n```sql\nSELECT metadata_json->>'value' AS value, COUNT(*) AS count\nFROM json_test\nWHERE id @@@ paradedb.exists('metadata_json.value')\nGROUP BY metadata_json->>'value';\n```\n\n## Why\n\nPreviously, the aggregate scan only worked with direct column references\nin GROUP BY. JSON projection operators (`->` and `->>`) weren't\nrecognized, forcing PostgreSQL to fall back to slower row-by-row\naggregation.\n\n## How\n\n1. **Target list extraction** – Updated `targetlist.rs` to use\n`find_one_var_and_fieldname` for extracting field names from\nexpressions, which correctly handles JSON operators and produces paths\nlike `metadata_json.value`\n\n2. **ORDER BY handling** – Made ORDER BY optional in aggregate clause\nconstruction. Added `OrderByClause::unpushable()` for cases where ORDER\nBY references aggregate results (e.g., `ORDER BY COUNT(*) DESC`) that\ncan't be pushed to Tantivy\n\n3. **Type conversion** – Fixed `TantivyValue` to `JsonB`/`JsonString`\nconversion in `types.rs`. Tantivy returns JSON field values as strings\nin terms aggregations, so we now parse them back to JSON\n\n4. **NULL sentinels** – Changed sentinel from `\\u{0000}` to `\\u{FFFF}`\nso NULLs sort last (matching PostgreSQL's default). Added type-specific\nsentinels (`i64::MAX`, `f64::MAX`, etc.) for numeric fields\n\n## Tests\n\n- Added `json_agg.sql` covering `->>` and `->` operators, multiple\naggregates, and direct `paradedb.aggregate` calls\n- Updated existing tests for new aggregate scan behavior\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-08T11:24:41-08:00",
+          "tree_id": "afcbb6c516040e1d44ce063d00a8ccf9ed69ac03",
+          "url": "https://github.com/paradedb/paradedb/commit/239f0645241e3bb34e24c1aba01b7ba203dc70db"
+        },
+        "date": 1765223700043,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.801290206605325,
+            "unit": "median tps",
+            "extra": "avg tps: 6.724063401713102, max tps: 10.302412280385793, count: 57751"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.402989477325905,
+            "unit": "median tps",
+            "extra": "avg tps: 4.844806351095278, max tps: 6.021858755225723, count: 57751"
           }
         ]
       }

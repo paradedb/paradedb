@@ -142,16 +142,17 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 let node_tag = (*expr).type_;
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
+                // Try to extract field name from the expression (handles both Var and JSON operators)
                 if let Some((var, field_name)) =
                     find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                 {
-                    // This is a Var - it should be a grouping column
+                    // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                     // Find which grouping column this is
                     let mut found = false;
                     for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno
-                            && gc.field_name == field_name.clone().into_inner()
-                        {
+                        // For JSON projections, the field_name will be like "metadata_json.value"
+                        // and gc.field_name should match
+                        if gc.field_name == field_name.clone().into_inner() {
                             entries.push(TargetListEntry::GroupingColumn(i));
                             found = true;
                             break;

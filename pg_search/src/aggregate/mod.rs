@@ -34,6 +34,7 @@ use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::agg_req::Aggregations;
@@ -261,7 +262,8 @@ impl<'a> ParallelAggregationWorker<'a> {
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
-            set_missing_on_terms(&mut aggregations);
+            let schema = indexrel.schema()?;
+            set_missing_on_terms(&mut aggregations, &schema);
         }
 
         let nworkers = self.state.launched_workers();
@@ -462,7 +464,8 @@ pub fn execute_aggregate(
             let mut aggregations: Aggregations = agg_req.try_into()?;
             // normalize missing on terms here too before merge, but only for SQL-originated requests
             if agg_from_sql {
-                set_missing_on_terms(&mut aggregations);
+                let schema = index.schema()?;
+                set_missing_on_terms(&mut aggregations, &schema);
             }
             // Get the tokenizer manager from the index (has all custom tokenizers registered)
             let tokenizer_manager = reader.searcher().index().tokenizers().clone();
@@ -509,7 +512,8 @@ pub fn execute_aggregate(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
                         if agg_from_sql {
-                            set_missing_on_terms(&mut aggregations);
+                            let schema = index.schema()?;
+                            set_missing_on_terms(&mut aggregations, &schema);
                         }
                         aggregations
                     },
@@ -523,8 +527,10 @@ pub fn execute_aggregate(
 }
 
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
-fn set_missing_on_terms(aggs: &mut Aggregations) {
+fn set_missing_on_terms(aggs: &mut Aggregations, schema: &SearchIndexSchema) {
     use crate::postgres::customscan::aggregatescan::build::NULL_GROUP_KEY_SENTINEL;
+    use crate::schema::SearchFieldType;
+
     for (
         _name,
         Aggregation {
@@ -535,10 +541,19 @@ fn set_missing_on_terms(aggs: &mut Aggregations) {
     {
         if let AggregationVariants::Terms(terms) = agg {
             if terms.missing.is_none() {
-                terms.missing = Some(Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()));
+                // Use type-appropriate sentinel that sorts AFTER all other values (for NULLS LAST)
+                let sentinel = match schema.get_field_type(&terms.field) {
+                    Some(SearchFieldType::I64(_)) => Key::I64(i64::MAX),
+                    Some(SearchFieldType::U64(_)) => Key::U64(u64::MAX),
+                    Some(SearchFieldType::F64(_)) => Key::F64(f64::MAX),
+                    Some(SearchFieldType::Date(_)) => Key::I64(i64::MAX), // Dates stored as i64
+                    Some(SearchFieldType::Bool(_)) => Key::U64(2), // 0=false, 1=true, 2=null (sorts last)
+                    _ => Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()), // Default for text/json/etc
+                };
+                terms.missing = Some(sentinel);
             }
         }
-        set_missing_on_terms(sub_aggregation);
+        set_missing_on_terms(sub_aggregation, schema);
     }
 }
 

@@ -59,7 +59,8 @@ impl AggregationKey for FilterSentinelKey {
 }
 
 // Sentinel used to represent SQL NULL in term aggregations
-pub const NULL_GROUP_KEY_SENTINEL: &str = "\u{0000}__PDB_NULL__";
+// Uses high Unicode character to sort AFTER other values (matching PostgreSQL's NULLS LAST default)
+pub const NULL_GROUP_KEY_SENTINEL: &str = "\u{FFFF}__PDB_NULL__";
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
@@ -363,8 +364,21 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         index: &PgSearchRelation,
     ) -> Option<Self> {
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
-        let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
-        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
+        // OrderBy is optional - if we can't extract it but there IS a sort clause,
+        // use unpushable() to remember that ordering exists
+        let orderby = OrderByClause::from_pg(args, heap_rti, index).unwrap_or_else(|| {
+            let has_sort_clause = unsafe {
+                !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
+            };
+            if has_sort_clause {
+                OrderByClause::unpushable()
+            } else {
+                OrderByClause::default()
+            }
+        });
+        // LimitOffset is optional
+        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)
+            .unwrap_or_else(LimitOffsetClause::default);
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()
@@ -388,18 +402,28 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 impl CollectNested<GroupedKey> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
         let orderby_info = self.orderby.orderby_info();
+        let grouping_columns = self.targetlist.grouping_columns();
 
         let size = {
             let limit = self.limit_offset.limit();
             let offset = self.limit_offset.offset();
-            if let Some(limit) = limit {
-                (limit + offset.unwrap_or(0)).min(gucs::max_term_agg_buckets() as u32)
+            let max_buckets = gucs::max_term_agg_buckets() as u32;
+
+            // We can only use LIMIT-based size optimization when:
+            // 1. There's exactly one grouping column (multiple columns need all combinations)
+            // 2. There's no ORDER BY (we can't ask Tantivy to sort grouping columns reliably)
+            let can_limit_buckets = grouping_columns.len() == 1 && !self.orderby.has_orderby();
+
+            if can_limit_buckets {
+                if let Some(limit) = limit {
+                    (limit + offset.unwrap_or(0)).min(max_buckets)
+                } else {
+                    max_buckets
+                }
             } else {
-                gucs::max_term_agg_buckets() as u32
+                max_buckets
             }
         };
-
-        let grouping_columns = self.targetlist.grouping_columns();
 
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {

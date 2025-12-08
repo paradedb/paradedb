@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765223706795,
+  "lastUpdate": 1765224471666,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3224,6 +3224,72 @@ window.BENCHMARK_DATA = {
             "value": 207.8685654997145,
             "unit": "median tps",
             "extra": "avg tps: 299.31670423393535, max tps: 552.9920043595054, count: 55335"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2082d64df97e8b512bf52403e2d0a5baebb064a7",
+          "message": "fix: Filter dead tuples in mutable segment (#3709)\n\n# Ticket(s) Closed\n\n- Closes #3680\n\n## What\n\nAs reported on #3680, our usage of `SnapshotAny` meant that all tuples\n(even tuples which were completely dead, and not intended for\nconsumption by anyone but VACUUM) were visible. This caused TOAST'd\nvalues to appear corrupt, because the only signal that a tuple's TOAST\npointer is valid is whether its MVCC visibility is valid.\n\nThis change continues to use `SnapshotAny`, but does two additional\nthings:\n1. it filters tuples using `HeapTupleSatisfiesVacuum`\n* Similar to `HeapTupleSatisfiesMVCC`, when it gives a return type of\n`HEAPTUPLE_DEAD`, `HeapTupleSatisfiesVacuum` filters out tuples which\nare not valid in _any_ transaction. All other return types indicate a\ntuple that might still be in use.\n2. because `HeapTupleSatisfiesVacuum` might filter tuples at the\nbeginning of HOT chains, we additionally have to begin consuming the\n`call_again` out-parameter.\n* We were able to ignore `call_again` before, because every tuple in a\nHOT chain has valid non-toast content. So indexing any of the tuples in\nthe HOT chain was fine.\n* With filtering in place, many of those tuples are considered to be\ninvalid: we must walk the HOT chain to find the first\nnon-`HEAPTUPLE_DEAD` entry, if any.\n\n## Tests\n\nFixes the repro from the issue.\n\nAdditionally, our existing tests provide good coverage for other areas:\n* Item 2 above was exposed by our `mvcc` tests: implementing only\n`HeapTupleSatisfiesVacuum` but not HOT chain walking broke them.\n* `stressgres` helped refine the return values of\n`HeapTupleSatisfiesVacuum`: attempting to filter to anything other than\n`HEAPTUPLE_DEAD` broke them (in particular: `HEAPTUPLE_RECENTLY_DEAD` is\n_not_ actually dead, and must be indexed).",
+          "timestamp": "2025-12-08T11:51:02-08:00",
+          "tree_id": "5505c928a37893d2c649960467567a4ce0ebb88e",
+          "url": "https://github.com/paradedb/paradedb/commit/2082d64df97e8b512bf52403e2d0a5baebb064a7"
+        },
+        "date": 1765224468848,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 554.1960773438789,
+            "unit": "median tps",
+            "extra": "avg tps: 558.809072414981, max tps: 675.1637905158054, count: 54700"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2925.5826599879892,
+            "unit": "median tps",
+            "extra": "avg tps: 2903.3322596212392, max tps: 3192.8617709155833, count: 54700"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 549.5899213626924,
+            "unit": "median tps",
+            "extra": "avg tps: 554.7697542774475, max tps: 678.9665070574833, count: 54700"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 462.58407033554306,
+            "unit": "median tps",
+            "extra": "avg tps: 468.110542977203, max tps: 547.0703004630969, count: 54700"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3134.993250450924,
+            "unit": "median tps",
+            "extra": "avg tps: 3211.302126810087, max tps: 3378.2536689347244, count: 109400"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2119.4900848668044,
+            "unit": "median tps",
+            "extra": "avg tps: 2095.037946078757, max tps: 2132.766450671637, count: 54700"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 97.40902947081243,
+            "unit": "median tps",
+            "extra": "avg tps: 94.79563925639627, max tps: 322.2444367988968, count: 54700"
           }
         ]
       }

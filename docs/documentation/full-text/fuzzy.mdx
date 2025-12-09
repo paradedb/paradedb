@@ -7,6 +7,11 @@ canonical: https://docs.paradedb.com/documentation/full-text/fuzzy
 Fuzziness allows for tokens to be considered a match even if they are not identical, allowing for typos
 in the query string.
 
+<Warning>
+While fuzzy matching will work for non-latin characters (Chinese, Japanese, Korean, etc..), it may not 
+give expected results (with large result sets returned) as Levenshtein distance relies on individual character difference. 
+</Warning>
+
 ## Overview
 
 To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).

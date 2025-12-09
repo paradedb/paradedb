@@ -802,32 +802,32 @@ impl SearchQueryInput {
             )
         };
 
+        // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder).
+        // Used by all query types (including leaf nodes like All, Empty, Parse, TermSet, etc.)
+        // to provide the original SearchQueryInput for cost estimation in EXPLAIN VERBOSE.
+        let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+            Some(self.clone())
+        } else {
+            None
+        };
+
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")
             }
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
-                Ok(builder.build_leaf(query, || "All Query".to_string(), || SearchQueryInput::All))
+                Ok(builder.build_leaf(
+                    query,
+                    || "All Query".to_string(),
+                    || cloned_for_estimate.unwrap(),
+                ))
             }
-            boolean @ SearchQueryInput::Boolean { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                // This allows Tantivy to estimate the Boolean with proper AND/OR/NOT logic
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(boolean.clone())
-                } else {
-                    None
-                };
-
-                let SearchQueryInput::Boolean {
-                    must,
-                    should,
-                    must_not,
-                } = boolean
-                else {
-                    unreachable!("matched Boolean pattern but destructure failed")
-                };
-
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
                 // Boolean query optimization pattern:
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
@@ -916,23 +916,13 @@ impl SearchQueryInput {
                         }
                         children
                     },
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            boost @ SearchQueryInput::Boost { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(boost.clone())
-                } else {
-                    None
-                };
-                let SearchQueryInput::Boost {
-                    query: inner_query,
-                    factor,
-                } = boost
-                else {
-                    unreachable!("matched Boost pattern but destructure failed")
-                };
+            SearchQueryInput::Boost {
+                query: inner_query,
+                factor,
+            } => {
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
@@ -941,23 +931,13 @@ impl SearchQueryInput {
                     query,
                     || format!("Boost Query (factor: {})", factor),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            const_score @ SearchQueryInput::ConstScore { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(const_score.clone())
-                } else {
-                    None
-                };
-                let SearchQueryInput::ConstScore {
-                    query: inner_query,
-                    score,
-                } = const_score
-                else {
-                    unreachable!("matched ConstScore pattern but destructure failed")
-                };
+            SearchQueryInput::ConstScore {
+                query: inner_query,
+                score,
+            } => {
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
@@ -966,23 +946,13 @@ impl SearchQueryInput {
                     query,
                     || format!("ConstScore Query (score: {})", score),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            score_filter @ SearchQueryInput::ScoreFilter { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(score_filter.clone())
-                } else {
-                    None
-                };
-                let SearchQueryInput::ScoreFilter {
-                    bounds,
-                    query: inner_query,
-                } = score_filter
-                else {
-                    unreachable!("matched ScoreFilter pattern but destructure failed")
-                };
+            SearchQueryInput::ScoreFilter {
+                bounds,
+                query: inner_query,
+            } => {
                 let inner_output =
                     recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
@@ -992,25 +962,13 @@ impl SearchQueryInput {
                     query,
                     || "ScoreFilter Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            dismax @ SearchQueryInput::DisjunctionMax { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(dismax.clone())
-                } else {
-                    None
-                };
-
-                let SearchQueryInput::DisjunctionMax {
-                    disjuncts,
-                    tie_breaker,
-                } = dismax
-                else {
-                    unreachable!("matched DisjunctionMax pattern but destructure failed")
-                };
-
+            SearchQueryInput::DisjunctionMax {
+                disjuncts,
+                tie_breaker,
+            } => {
                 let mut tantivy_disjuncts = vec![];
                 let mut disjunct_outputs = vec![];
 
@@ -1058,7 +1016,7 @@ impl SearchQueryInput {
                             })
                             .collect()
                     },
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
             SearchQueryInput::Empty => {
@@ -1066,7 +1024,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     query,
                     || "Empty Query".to_string(),
-                    || SearchQueryInput::Empty,
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
             SearchQueryInput::MoreLikeThis {
@@ -1152,19 +1110,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     query,
                     || "MoreLikeThis Query".to_string(),
-                    || SearchQueryInput::MoreLikeThis {
-                        min_doc_frequency,
-                        max_doc_frequency,
-                        min_term_frequency,
-                        max_query_terms,
-                        min_word_length,
-                        max_word_length,
-                        boost_factor,
-                        stopwords,
-                        document,
-                        key_value,
-                        fields,
-                    },
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
             SearchQueryInput::Parse {
@@ -1192,11 +1138,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     query,
                     || "Parse Query".to_string(),
-                    || SearchQueryInput::Parse {
-                        query_string,
-                        lenient,
-                        conjunction_mode,
-                    },
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
             SearchQueryInput::TermSet { terms } => {
@@ -1245,23 +1187,13 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     query,
                     || "TermSet Query".to_string(),
-                    || SearchQueryInput::TermSet { terms },
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            with_index @ SearchQueryInput::WithIndex { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(with_index.clone())
-                } else {
-                    None
-                };
-                let SearchQueryInput::WithIndex {
-                    oid: _,
-                    query: inner_query,
-                } = with_index
-                else {
-                    unreachable!("matched WithIndex pattern but destructure failed")
-                };
+            SearchQueryInput::WithIndex {
+                oid: _,
+                query: inner_query,
+            } => {
                 let inner_output = recurse(*inner_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
@@ -1269,23 +1201,13 @@ impl SearchQueryInput {
                     inner_tantivy,
                     || "WithIndex Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
-            heap_filter @ SearchQueryInput::HeapFilter { .. } => {
-                // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder)
-                let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
-                    Some(heap_filter.clone())
-                } else {
-                    None
-                };
-                let SearchQueryInput::HeapFilter {
-                    indexed_query,
-                    field_filters,
-                } = heap_filter
-                else {
-                    unreachable!("matched HeapFilter pattern but destructure failed")
-                };
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => {
                 // Convert indexed query first
                 let inner_output = recurse(*indexed_query)?;
                 // Use split_for_parent: zero-cost for QueryOnlyBuilder
@@ -1308,7 +1230,7 @@ impl SearchQueryInput {
                     query,
                     || "HeapFilter Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap_or(SearchQueryInput::Empty),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
@@ -1324,15 +1246,10 @@ impl SearchQueryInput {
                     parser,
                     searcher,
                 )?;
-                let field_clone = field.clone();
-                let field_for_closure = field.clone();
                 Ok(builder.build_leaf(
                     Box::new(query),
-                    || format!("FieldedQuery (field: {})", field_clone),
-                    || SearchQueryInput::FieldedQuery {
-                        field: field_for_closure,
-                        query: pdb_query,
-                    },
+                    || format!("FieldedQuery (field: {})", field),
+                    || cloned_for_estimate.unwrap(),
                 ))
             }
         }

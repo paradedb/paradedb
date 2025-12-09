@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765314677858,
+  "lastUpdate": 1765315477346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25496,6 +25496,60 @@ window.BENCHMARK_DATA = {
             "value": 14.954765934832496,
             "unit": "median tps",
             "extra": "avg tps: 15.03115989504355, max tps: 20.087538277808566, count: 55450"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7b82e334edd84456d9f4ec877424b33faa2fdf4",
+          "message": "fix: score aggregates with parallel execution (#3732)\n\n## Ticket(s) Closed\n\n- Closes #2687\n\n## What\n\nFixes `paradedb.score()` returning errors when used with aggregate\nfunctions (`max`, `min`, `avg`, `sum`) in parallel query plans.\n\n## Why\n\nWhen PostgreSQL uses a parallel plan, the `Gather` node wasn't passing\nthrough the computed score value—only the `id` column. This caused the\n`Aggregate` node to try re-evaluating `paradedb.score(id)` directly,\nwhich panics because scores can only be computed within the Custom Scan\nexecution context.\n\nBefore fix:\n```\nGather\n    Output: id           <-- Score NOT passed through\n    ->  Parallel Custom Scan\n          Output: id, paradedb.score(id)\n```\n\n## How\n\nExtended `placeholder_support` to wrap `paradedb.score()` in a\n`PlaceHolderVar` when the query has **aggregates** (not just joins).\nThis tells PostgreSQL to preserve the computed score and pass it through\nthe Gather node.\n\nAfter fix:\n```\nGather\n    Output: (paradedb.score(id))    <-- Score IS passed through\n    ->  Parallel Custom Scan\n          Output: paradedb.score(id), paradedb.score(id)\n```\n\nAlso added handling in `qual_inspect.rs` to unwrap `PlaceHolderVar` when\ndetecting score expressions in WHERE clauses, so `paradedb.score(id) >\n0` conditions still become proper Tantivy `score_filter` queries.\n\n## Tests\n\nAdded `agg-score.sql` regression test covering:\n- `max/min/avg/sum(paradedb.score(id))` with parallel execution\n- `count(*)` with score condition in WHERE clause  \n- Multiple score aggregates in one query\n- Non-parallel execution (baseline)",
+          "timestamp": "2025-12-09T12:26:12-08:00",
+          "tree_id": "26df91a95baeb3cb868a5d774ebbcbd9bdb714f3",
+          "url": "https://github.com/paradedb/paradedb/commit/a7b82e334edd84456d9f4ec877424b33faa2fdf4"
+        },
+        "date": 1765315474762,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.576090025027494,
+            "unit": "median tps",
+            "extra": "avg tps: 31.53358404448954, max tps: 36.56989388971014, count: 55438"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 240.98859247368603,
+            "unit": "median tps",
+            "extra": "avg tps: 265.1153593438839, max tps: 2775.7539333204277, count: 55438"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1885.774970790767,
+            "unit": "median tps",
+            "extra": "avg tps: 1880.5890299142918, max tps: 2329.778432388693, count: 55438"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.2565079796782,
+            "unit": "median tps",
+            "extra": "avg tps: 194.21177404144692, max tps: 1666.4867715561986, count: 110876"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.897393845768887,
+            "unit": "median tps",
+            "extra": "avg tps: 14.712153861112542, max tps: 20.042887369535585, count: 55438"
           }
         ]
       }

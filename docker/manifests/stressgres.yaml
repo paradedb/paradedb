@@ -6,8 +6,6 @@ metadata:
     app: stressgres-runner
 spec:
   restartPolicy: Never
-  imagePullSecrets:
-    - name: dockerhub-secret
   containers:
     - name: stressgres
       image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres

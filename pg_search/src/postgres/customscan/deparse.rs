@@ -37,7 +37,6 @@ pub unsafe fn deparse_expr_for_index(
     planner_context: &PlannerContext,
     indexrel: &PgSearchRelation,
     expr: *mut pg_sys::Node,
-    _rti: pg_sys::Index,
 ) -> String {
     if expr.is_null() {
         return "<null>".to_string();
@@ -297,16 +296,9 @@ unsafe fn remap_varnos(
 /// Convert a PostgreSQL node to its string representation using nodeToString.
 /// This provides a fallback representation when proper deparsing isn't possible.
 pub unsafe fn node_to_string_fallback(expr: *mut pg_sys::Node) -> String {
-    if expr.is_null() {
-        return "<null>".to_string();
-    }
-    let node_str = pg_sys::nodeToString(expr.cast());
-    if node_str.is_null() {
-        return "<unknown>".to_string();
-    }
-    std::ffi::CStr::from_ptr(node_str)
-        .to_string_lossy()
-        .into_owned()
+    pgrx::node_to_string(expr)
+        .unwrap_or("<unknown>")
+        .to_string()
 }
 
 /// Collect all unique varnos (range table indices) referenced in an expression.

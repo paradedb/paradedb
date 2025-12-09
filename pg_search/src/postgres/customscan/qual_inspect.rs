@@ -701,7 +701,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: deparse_expr_for_index(context, indexrel, node, rti),
+                    expr_desc: deparse_expr_for_index(context, indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -749,7 +749,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: deparse_expr_for_index(context, indexrel, node, rti),
+                    expr_desc: deparse_expr_for_index(context, indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -1100,7 +1100,7 @@ unsafe fn try_pushdown(
             // This is slower but necessary for non-indexed fields
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node, rti),
+                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if contains_param(opexpr_node) {
@@ -1115,7 +1115,7 @@ unsafe fn try_pushdown(
             state.uses_tantivy_to_query = true;
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node, rti),
+                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if convert_external_to_special_qual {
@@ -1634,7 +1634,7 @@ unsafe fn create_heap_expr_for_field_ref(
         let context = PlannerContext::from_planner(root);
         Some(Qual::HeapExpr {
             expr_node,
-            expr_desc: deparse_expr_for_index(&context, indexrel, expr_node, rti),
+            expr_desc: deparse_expr_for_index(&context, indexrel, expr_node),
             search_query_input: Box::new(SearchQueryInput::All),
         })
     } else {

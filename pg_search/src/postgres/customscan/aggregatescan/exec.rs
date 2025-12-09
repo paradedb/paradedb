@@ -25,7 +25,7 @@ use crate::customscan::aggregatescan::build::{
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{is_datetime_type, TantivyValue};
 use pgrx::{pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
@@ -188,6 +188,17 @@ pub fn aggregate_result_to_datum(
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
                 JsonB(json_value).into_datum()
+            } else if is_datetime_type(expected_typoid) {
+                // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
+                // since UNIX epoch. The f64 value from MIN/MAX aggregates represents this nanosecond
+                // timestamp. We need to convert it back to a DateTime before converting to the
+                // expected PostgreSQL type.
+                metric.value.and_then(|value| unsafe {
+                    let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
+                    TantivyValue(OwnedValue::Date(datetime))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
             } else {
                 metric.value.and_then(|value| unsafe {
                     TantivyValue(OwnedValue::F64(value))

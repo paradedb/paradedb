@@ -22,6 +22,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_final
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:94
 -- pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC
+DROP AGGREGATE IF EXISTS pdb.agg(jsonb);
 CREATE AGGREGATE pdb.agg (
 	jsonb /* pgrx::datum::json::JsonB */
 )

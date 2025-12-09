@@ -5,8 +5,6 @@ noindex: true
 
 ## Stability Improvements 💪
 
-- Fixed a bug where updating large text or JSON values that have been "toasted" (i.e. compressed) by Postgres
-  could cause corrupt reads
 - Correctly support correlated subqueries with the aggregate custom scan enabled
 - Fixed an issue where TopN queries with an `UNNEST` would not receive a TopN query plan
 - Fixed a race condition that caused prepared statements to return incorrect results

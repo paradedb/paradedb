@@ -19,10 +19,10 @@ use crate::api::operator::{anyelement_query_input_opoid, searchqueryinput_typoid
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::deparse::deparse_expr;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;

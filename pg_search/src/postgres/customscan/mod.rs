@@ -28,7 +28,6 @@ use std::ptr::NonNull;
 
 pub mod aggregatescan;
 mod builders;
-pub mod deparse;
 mod dsm;
 mod exec;
 pub mod explain;

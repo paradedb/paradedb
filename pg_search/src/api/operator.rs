@@ -37,7 +37,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
-use crate::postgres::customscan::deparse::deparse_expr;
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{

@@ -217,7 +217,7 @@ metadata:
 spec:
   instances: 1
 
-  imageName: paradedb/paradedb:17-v0.19.5
+  imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
   imagePullPolicy: IfNotPresent
   postgresUID: 999
   postgresGID: 999

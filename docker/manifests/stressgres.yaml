@@ -10,14 +10,7 @@ spec:
     - name: dockerhub-secret
   containers:
     - name: stressgres
-      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres      
+      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
       command:
         - sleep
         - infinity
-      resources:
-        requests:
-          cpu: "1000m"
-          memory: "2Gi"
-        limits:
-          cpu: "2000m"
-          memory: "4Gi"

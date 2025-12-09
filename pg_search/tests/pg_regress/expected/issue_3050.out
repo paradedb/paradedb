@@ -56,8 +56,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
          Index: mock_items_id_description_rating_category_metadata_idx
@@ -65,7 +65,7 @@ LIMIT 5;
            Applies to Aggregates: COUNT(*)
            Group By: id, metadata.color
            Limit: 5
-           Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.color","order":{"_key":"asc"},"segment_size":5,"size":5}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":5,"size":5}}}
+           Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"metadata.color","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (8 rows)
 
 SELECT id, metadata->>'color' AS color, COUNT(*)

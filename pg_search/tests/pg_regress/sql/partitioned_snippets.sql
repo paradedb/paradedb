@@ -48,8 +48,7 @@ ORDER BY id
 LIMIT 3;
 
 
--- TODO: Currently fails because a Result node is inserted below the ProjectSet node which
--- re-evaluates the `pdb.snippets` function. See https://github.com/paradedb/paradedb/issues/3622
+-- Not currently supported: should result in an error asking the user to report the query shape.
 \echo 'Test 2: UNNEST(pdb.snippets(...)) on parent table'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet

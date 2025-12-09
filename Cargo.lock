@@ -404,7 +404,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
 name = "benchmarks"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1745,15 +1745,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2259,6 +2250,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "io-lifetimes"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2352,26 +2352,25 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jieba-macros"
-version = "0.7.1"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c676b32a471d3cfae8dac2ad2f8334cd52e53377733cca8c1fb0a5062fec192"
+checksum = "348294e44ee7e3c42685da656490f8febc7359632544019621588902216da95c"
 dependencies = [
  "phf_codegen",
 ]
 
 [[package]]
 name = "jieba-rs"
-version = "0.7.4"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5dd552bbb95d578520ee68403bf8aaf0dbbb2ce55b0854d019f9350ad61040a"
+checksum = "766bd7012aa5ba49411ebdf4e93bddd59b182d2918e085d58dec5bb9b54b7105"
 dependencies = [
  "cedarwood",
- "fxhash",
  "include-flate",
  "jieba-macros",
- "lazy_static",
- "phf 0.11.3",
+ "phf 0.13.1",
  "regex",
+ "rustc-hash 2.1.1",
 ]
 
 [[package]]
@@ -2777,7 +2776,7 @@ checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
 
 [[package]]
 name = "macros"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3059,8 +3058,8 @@ dependencies = [
 
 [[package]]
 name = "ownedbytes"
-version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.9.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -3198,7 +3197,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -3239,6 +3238,7 @@ dependencies = [
  "thiserror 2.0.17",
  "time",
  "tokenizers",
+ "typetag",
  "uuid",
  "vergen",
  "vergen-git2",
@@ -3403,13 +3403,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "phf_codegen"
-version = "0.11.3"
+name = "phf"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aef8048c789fa5e851558d709946d6d79a8ff88c0440c587967f8e94bfb1216a"
+checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
- "phf_generator 0.11.3",
- "phf_shared 0.11.3",
+ "phf_shared 0.13.1",
+ "serde",
+]
+
+[[package]]
+name = "phf_codegen"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49aa7f9d80421bca176ca8dbfebe668cc7a2684708594ec9f3c0db0805d5d6e1"
+dependencies = [
+ "phf_generator 0.13.1",
+ "phf_shared 0.13.1",
 ]
 
 [[package]]
@@ -3424,12 +3434,12 @@ dependencies = [
 
 [[package]]
 name = "phf_generator"
-version = "0.11.3"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
+checksum = "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
 dependencies = [
- "phf_shared 0.11.3",
- "rand 0.8.5",
+ "fastrand 2.3.0",
+ "phf_shared 0.13.1",
 ]
 
 [[package]]
@@ -3460,6 +3470,15 @@ name = "phf_shared"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
+dependencies = [
+ "siphasher 1.0.1",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher 1.0.1",
 ]
@@ -3645,6 +3664,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "precis-core"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c2e7b31f132e0c6f8682cfb7bf4a5340dbe925b7986618d0826a56dfe0c8e56"
+dependencies = [
+ "precis-tools",
+ "ucd-parse",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "precis-profiles"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31e2768890a47af73a032af9f0cedbddce3c9d06cf8de201d5b8f2436ded7674"
+dependencies = [
+ "lazy_static",
+ "precis-core",
+ "precis-tools",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "precis-tools"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cc1eb2d5887ac7bfd2c0b745764db89edb84b856e4214e204ef48ef96d10c4a"
+dependencies = [
+ "lazy_static",
+ "regex",
+ "ucd-parse",
 ]
 
 [[package]]
@@ -4030,6 +4083,12 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d942b98df5e658f56f20d592c7f868833fe38115e65c33003d8cd224b0155da"
 
 [[package]]
 name = "regex-syntax"
@@ -4984,8 +5043,8 @@ dependencies = [
 
 [[package]]
 name = "tantivy"
-version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.25.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4998,7 +5057,6 @@ dependencies = [
  "crossbeam-channel",
  "deranged 0.4.0",
  "downcast-rs",
- "erased-serde",
  "fastdivide",
  "fnv",
  "futures-channel",
@@ -5030,25 +5088,27 @@ dependencies = [
  "tantivy-query-grammar",
  "tantivy-sstable",
  "tantivy-stacker",
- "tantivy-tokenizer-api",
+ "tantivy-stemmers",
+ "tantivy-tokenizer-api 0.6.0",
  "thiserror 2.0.17",
  "time",
+ "typetag",
  "uuid",
  "winapi",
 ]
 
 [[package]]
 name = "tantivy-bitpacker"
-version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.9.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "bitpacking",
 ]
 
 [[package]]
 name = "tantivy-columnar"
-version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.6.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -5062,8 +5122,8 @@ dependencies = [
 
 [[package]]
 name = "tantivy-common"
-version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.10.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -5084,40 +5144,43 @@ dependencies = [
 
 [[package]]
 name = "tantivy-jieba"
-version = "0.11.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f2fe65c125f0d76d06f0f2ce9fbb9287b53f0dafb51a6270d984a840e2f16c1"
+checksum = "ac375a74d46bcd3c114aaec34325730e71494f5427f84296ed6cee24c8377075"
 dependencies = [
  "jieba-rs",
  "lazy_static",
- "tantivy-tokenizer-api",
+ "tantivy-tokenizer-api 0.6.0",
 ]
 
 [[package]]
 name = "tantivy-query-grammar"
-version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.25.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
+ "fnv",
  "nom",
+ "ordered-float",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "tantivy-sstable"
-version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.6.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
  "tantivy-bitpacker",
  "tantivy-common",
  "tantivy-fst",
- "zstd",
 ]
 
 [[package]]
 name = "tantivy-stacker"
-version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+version = "0.6.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -5128,9 +5191,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "tantivy-stemmers"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "119476aebb1f0944a867d7d7657cd96fe5841ead48a3f2ffdce71e7dc75e1c52"
+dependencies = [
+ "aho-corasick",
+ "precis-core",
+ "precis-profiles",
+ "serde",
+ "serde_derive",
+ "tantivy-tokenizer-api 0.3.0",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=6d9eeb123a10f7432a47b8faad88683d8761a00a#6d9eeb123a10f7432a47b8faad88683d8761a00a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0dcade25819a89cfe6f17d932c9cedff11989936bf6dd4f336d50392053b04"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "tantivy-tokenizer-api"
+version = "0.6.0"
+source = "git+https://github.com/paradedb/tantivy.git?rev=a7329cccff6c147376fbfdaa2c1db5380f569156#a7329cccff6c147376fbfdaa2c1db5380f569156"
 dependencies = [
  "serde",
 ]
@@ -5176,7 +5263,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -5331,7 +5418,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.20.1"
+version = "0.20.2"
 dependencies = [
  "anyhow",
  "emoji",
@@ -5575,6 +5662,39 @@ name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
+
+[[package]]
+name = "typetag"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be2212c8a9b9bcfca32024de14998494cf9a5dfa59ea1b829de98bac374b86bf"
+dependencies = [
+ "erased-serde",
+ "inventory",
+ "once_cell",
+ "serde",
+ "typetag-impl",
+]
+
+[[package]]
+name = "typetag-impl"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27a7a9b72ba121f6f1f6c3632b85604cac41aedb5ddc70accbebb6cac83de846"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "ucd-parse"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06ff81122fcbf4df4c1660b15f7e3336058e7aec14437c9f85c6b31a0f279b9"
+dependencies = [
+ "regex-lite",
+]
 
 [[package]]
 name = "ucd-trie"

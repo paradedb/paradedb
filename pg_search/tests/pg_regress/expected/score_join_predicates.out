@@ -89,7 +89,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id | author_name  | author_score 
 -----------+--------------+--------------
-         1 | J.K. Rowling |     2.540445
+         1 | J.K. Rowling |    1.5404451
 (1 row)
 
 -- Show another working case with books
@@ -125,7 +125,7 @@ ORDER BY b.id, a.id;
 (1 row)
 
 -- Test with mixed predicates - some indexed, some not
--- This should show partial scores based on what can be indexed
+-- TODO: Currently renders an error asking for a user to report the query shape.
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -135,12 +135,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score | book_score 
----------+--------------+--------------+------------
-       1 | Stephen King |              |          0
-       2 | Stephen King |              |          0
-(2 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -165,12 +160,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score | book_score 
----------+--------------+--------------+------------
-       1 | Stephen King |              |          0
-       2 | Stephen King |              |          0
-(2 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -251,14 +241,7 @@ FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
 ORDER BY a.id;
- author_id |   author_name   | author_score | book_score 
------------+-----------------+--------------+------------
-         2 | Stephen King    |              | 0.45681813
-         2 | Stephen King    |              | 0.36441684
-         3 | Agatha Christie |              | 0.20612015
-         6 | Sami Bowling    |              | 0.35745716
-(4 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
 SELECT

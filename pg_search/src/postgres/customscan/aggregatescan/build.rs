@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, MvccVisibility, OrderByFeature};
+use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
+use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
 use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
@@ -26,6 +26,7 @@ use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetL
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
@@ -57,9 +58,6 @@ impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
 
-// Sentinel used to represent SQL NULL in term aggregations
-pub const NULL_GROUP_KEY_SENTINEL: &str = "\u{0000}__PDB_NULL__";
-
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,
@@ -81,7 +79,7 @@ trait CollectNested<Key: AggregationKey> {
         let groupings: Vec<_> = self.iter_leaves()?.collect();
 
         let nested = groupings.into_iter().rfold(children, |sub, leaf| {
-            Aggregations::from([(
+            Aggregations::from_iter([(
                 GroupedKey::NAME.to_string(),
                 Aggregation {
                     agg: leaf,
@@ -163,14 +161,14 @@ impl CollectAggregations for AggregateCSClause {
                     } else {
                         Aggregation {
                             agg: metric.into(),
-                            sub_aggregation: Aggregations::new(),
+                            sub_aggregation: Default::default(),
                         }
                     };
 
                     let agg = match filter {
                         Some(filter) => Aggregation {
                             agg: filter.into(),
-                            sub_aggregation: Aggregations::from([(0.to_string(), metric_agg)]),
+                            sub_aggregation: Aggregations::from_iter([(0.to_string(), metric_agg)]),
                         },
                         None => metric_agg,
                     };
@@ -187,7 +185,7 @@ impl CollectAggregations for AggregateCSClause {
                             field: "ctid".to_string(),
                             missing: None,
                         }),
-                        sub_aggregation: Aggregations::new(),
+                        sub_aggregation: Default::default(),
                     },
                 );
             }
@@ -196,11 +194,11 @@ impl CollectAggregations for AggregateCSClause {
         } else {
             let metrics = <Self as CollectFlat<AggregateType, MetricsWithGroupBy>>::collect(
                 self,
-                Aggregations::new(),
-                Aggregations::new(),
+                Default::default(),
+                Default::default(),
             )?;
             let term_aggs =
-                <Self as CollectNested<GroupedKey>>::collect(self, Aggregations::new(), metrics)?;
+                <Self as CollectNested<GroupedKey>>::collect(self, Default::default(), metrics)?;
 
             if self.has_filter() {
                 let metrics =
@@ -212,16 +210,16 @@ impl CollectAggregations for AggregateCSClause {
                     .zip(metrics)
                     .enumerate()
                     .map(|(idx, (filter, metric))| {
-                        let metric_agg = Aggregations::from([(
+                        let metric_agg = Aggregations::from_iter([(
                             0.to_string(),
                             Aggregation {
                                 agg: metric.into(),
-                                sub_aggregation: Aggregations::new(),
+                                sub_aggregation: Default::default(),
                             },
                         )]);
                         let sub_agg = <Self as CollectNested<GroupedKey>>::collect(
                             self,
-                            Aggregations::new(),
+                            Default::default(),
                             metric_agg,
                         )
                         .expect("should be able to collect nested aggregations");
@@ -236,12 +234,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: FilterQuery::new(
-                            self.quals.query().clone(),
-                            self.indexrelid,
-                            self.is_execution_time,
-                        )?
-                        .into(),
+                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid)?.into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -312,6 +305,33 @@ impl AggregateCSClause {
     pub fn set_is_execution_time(&mut self) {
         self.is_execution_time = true;
     }
+
+    /// Returns set of field names where the sentinel should use MIN values
+    /// (i.e., NULLs should sort FIRST in the final output)
+    ///
+    /// The logic accounts for both the NULLS FIRST/LAST setting and the sort direction:
+    /// - For ASC: MIN sentinel → appears first, MAX sentinel → appears last
+    /// - For DESC: MAX sentinel → appears first (reversed), MIN sentinel → appears last (reversed)
+    ///
+    /// So we need MIN sentinel when: (nulls_first && ASC) || (!nulls_first && DESC)
+    /// Which simplifies to: nulls_first == (direction == ASC)
+    pub fn use_min_sentinel_fields(&self) -> HashSet<String> {
+        use crate::api::{OrderByFeature, SortDirection};
+        self.orderby
+            .orderby_info()
+            .iter()
+            .filter(|info| {
+                let is_asc = matches!(info.direction, SortDirection::Asc);
+                // Use MIN sentinel when nulls should appear first in final output
+                // accounting for direction reversal
+                info.nulls_first == is_asc
+            })
+            .filter_map(|info| match &info.feature {
+                OrderByFeature::Field(name) => Some(name.to_string()),
+                OrderByFeature::Score => None,
+            })
+            .collect()
+    }
 }
 
 impl CustomScanClause<AggregateScan> for AggregateCSClause {
@@ -344,6 +364,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let aggregate_json = {
             let mut aggregate_json =
                 serde_json::to_value(&aggregate).expect("should be able to serialize aggregations");
+            cleanup_json_for_explain(&mut aggregate_json);
             sort_json_keys(&mut aggregate_json);
             std::iter::once((
                 String::from("Aggregate Definition"),
@@ -366,8 +387,21 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         index: &PgSearchRelation,
     ) -> Option<Self> {
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
-        let orderby = OrderByClause::from_pg(args, heap_rti, index)?;
-        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)?;
+        // OrderBy is optional - if we can't extract it but there IS a sort clause,
+        // use unpushable() to remember that ordering exists
+        let orderby = OrderByClause::from_pg(args, heap_rti, index).unwrap_or_else(|| {
+            let has_sort_clause = unsafe {
+                !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
+            };
+            if has_sort_clause {
+                OrderByClause::unpushable()
+            } else {
+                OrderByClause::default()
+            }
+        });
+        // LimitOffset is optional
+        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)
+            .unwrap_or_else(LimitOffsetClause::default);
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()
@@ -391,18 +425,28 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 impl CollectNested<GroupedKey> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = AggregationVariants>> {
         let orderby_info = self.orderby.orderby_info();
+        let grouping_columns = self.targetlist.grouping_columns();
 
         let size = {
             let limit = self.limit_offset.limit();
             let offset = self.limit_offset.offset();
-            if let Some(limit) = limit {
-                (limit + offset.unwrap_or(0)).min(gucs::max_term_agg_buckets() as u32)
+            let max_buckets = gucs::max_term_agg_buckets() as u32;
+
+            // We can only use LIMIT-based size optimization when:
+            // 1. There's exactly one grouping column (multiple columns need all combinations)
+            // 2. There's no ORDER BY (we can't ask Tantivy to sort grouping columns reliably)
+            let can_limit_buckets = grouping_columns.len() == 1 && !self.orderby.has_orderby();
+
+            if can_limit_buckets {
+                if let Some(limit) = limit {
+                    (limit + offset.unwrap_or(0)).min(max_buckets)
+                } else {
+                    max_buckets
+                }
             } else {
-                gucs::max_term_agg_buckets() as u32
+                max_buckets
             }
         };
-
-        let grouping_columns = self.targetlist.grouping_columns();
 
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
@@ -458,14 +502,9 @@ impl CollectFlat<AggregateType, MetricsWithGroupBy> for AggregateCSClause {
 impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = Option<FilterQuery>>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            agg.filter_expr().as_ref().map(|filter_expr| {
-                FilterQuery::new(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            })
+            agg.filter_expr()
+                .as_ref()
+                .map(|q| new_filter_query(q.clone(), agg.indexrelid()).expect("filter query"))
         }))
     }
 }
@@ -473,21 +512,11 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
 impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
     fn iter_leaves(&self) -> Result<impl Iterator<Item = FilterQuery>> {
         Ok(self.targetlist.aggregates().map(|agg| {
-            if let Some(filter_expr) = agg.filter_expr() {
-                FilterQuery::new(
-                    filter_expr.clone(),
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            } else {
-                FilterQuery::new(
-                    SearchQueryInput::All,
-                    agg.indexrelid(),
-                    self.is_execution_time,
-                )
-                .expect("should be able to create filter query")
-            }
+            let query = match agg.filter_expr() {
+                Some(q) => q.clone(),
+                None => SearchQueryInput::All,
+            };
+            new_filter_query(query, agg.indexrelid()).expect("filter query")
         }))
     }
 }

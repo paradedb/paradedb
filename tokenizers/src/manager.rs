@@ -23,6 +23,7 @@ use crate::icu::ICUTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
+    jieba::JiebaTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
     token_trim::TokenTrimFilter,
@@ -39,7 +40,6 @@ use tantivy::tokenizer::{
     AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
     RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
-use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
@@ -503,7 +503,7 @@ impl SearchTokenizer {
                 add_filters!(ICUTokenizer, filters)
             }
             SearchTokenizer::Jieba(filters) => {
-                add_filters!(tantivy_jieba::JiebaTokenizer {}, filters)
+                add_filters!(JiebaTokenizer::new(), filters)
             }
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
                 panic!("LinderaStyle::Unspecified is not supported")
@@ -562,6 +562,7 @@ pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
     map.insert(Language::Hungarian, "Hungarian");
     map.insert(Language::Italian, "Italian");
     map.insert(Language::Norwegian, "Norwegian");
+    map.insert(Language::Polish, "Polish");
     map.insert(Language::Portuguese, "Portuguese");
     map.insert(Language::Romanian, "Romanian");
     map.insert(Language::Russian, "Russian");

@@ -582,6 +582,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Field(sort_field),
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
             } => {
                 let field = self
                     .schema
@@ -670,6 +671,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let (top_docs, aggregation_results) = self.top_in_segments(
@@ -690,6 +692,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } => {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
@@ -1116,6 +1119,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
+                    .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
                 } => {
                     let field = self
                         .schema
@@ -1145,6 +1149,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
+                    .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
                 } => {
                     erased_features.push_score_feature(*direction);
                 }

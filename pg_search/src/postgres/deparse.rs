@@ -68,20 +68,23 @@ pub unsafe fn deparse_expr(
         (rel.name().to_string(), rel.oid())
     };
 
-    // Collect all vars and remove duplicate vars
-    let mut vars = find_vars(expr_to_deparse);
-    vars.sort();
-    vars.dedup();
+    // Collect all vars, extract varnos and remove duplicate varnos
+    let mut varnos = find_vars(expr_to_deparse)
+        .into_iter()
+        .map(|var| (*var).varno as pg_sys::Index)
+        .collect::<Vec<pg_sys::Index>>();
+    varnos.sort();
+    varnos.dedup();
 
     // If expression has no var references (constant expression), use heap relation context
-    if vars.is_empty() {
+    if varnos.is_empty() {
         return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
     }
 
     // Get the PlannerInfo to access the rtable
     let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
         // No PlannerInfo available - try simple deparse for varno 1
-        if vars.len() == 1 && (*vars[0]).varno == 1 {
+        if varnos.len() == 1 && varnos[0] == 1 {
             return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
         }
         return node_to_string_fallback(expr_to_deparse);
@@ -99,9 +102,9 @@ pub unsafe fn deparse_expr(
 
     let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
 
-    if vars.len() == 1 {
+    if varnos.len() == 1 {
         // Single varno - get RTE and deparse
-        let varno = (*vars[0]).varno as pg_sys::Index;
+        let varno = varnos[0];
         let rte_idx = (varno - 1) as usize; // varno is 1-based
 
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
@@ -129,7 +132,7 @@ pub unsafe fn deparse_expr(
     }
 
     // Multiple varnos - try to build a context with all RTEs
-    deparse_with_full_context(expr_to_deparse, &rtable_list, &vars)
+    deparse_with_full_context(expr_to_deparse, &rtable_list, &varnos)
 }
 
 /// Deparse an expression with a single-relation context
@@ -159,7 +162,7 @@ unsafe fn deparse_with_single_relation(
 unsafe fn deparse_with_full_context(
     expr: *mut pg_sys::Node,
     rtable_list: &pgrx::PgList<pg_sys::RangeTblEntry>,
-    vars: &[*mut pg_sys::Var],
+    varnos: &[pg_sys::Index],
 ) -> String {
     // For multi-relation expressions, we need to build a context that includes
     // all referenced relations at their correct varno positions.
@@ -168,9 +171,8 @@ unsafe fn deparse_with_full_context(
     // To handle multiple relations, we use list_concat to combine contexts.
     // Each relation is placed at its correct position by padding with nulls.
 
-    // Verify all referenced vars are valid RTE_RELATION entries
-    for &var in vars {
-        let varno = (*var).varno as pg_sys::Index;
+    // Verify all referenced varnos are valid RTE_RELATION entries
+    for &varno in varnos {
         let rte_idx = (varno - 1) as usize;
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
             return node_to_string_fallback(expr);
@@ -181,11 +183,7 @@ unsafe fn deparse_with_full_context(
     }
 
     // Find the maximum varno to know how big our rtable needs to be
-    let max_varno = vars
-        .iter()
-        .map(|var| (*(*var)).varno as pg_sys::Index)
-        .max()
-        .unwrap_or(1);
+    let max_varno = *varnos.iter().max().unwrap_or(&1);
 
     // Build an rtable with all entries at their correct positions
     // We need to create RTE entries for each position up to max_varno

@@ -24,66 +24,75 @@ SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: max(paradedb.score(id))
+   Output: max((paradedb.score(id)))
    ->  Gather
-         Output: id
+         Output: (paradedb.score(id))
          Workers Planned: 1
          ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
-               Output: id, paradedb.score(id)
+               Output: paradedb.score(id), paradedb.score(id)
                Table: mock_items
                Index: search_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+     max     
+-------------
+ 0.057158466
+(1 row)
+
 -- Test case 2: min(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: min(paradedb.score(id))
+   Output: min((paradedb.score(id)))
    ->  Gather
-         Output: id
+         Output: (paradedb.score(id))
          Workers Planned: 1
          ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
-               Output: id, paradedb.score(id)
+               Output: paradedb.score(id), paradedb.score(id)
                Table: mock_items
                Index: search_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+     min     
+-------------
+ 0.057158466
+(1 row)
+
 -- Test case 3: avg(score) - should work with parallel execution
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: avg(paradedb.score(id))
+   Output: avg((paradedb.score(id)))
    ->  Gather
-         Output: id
+         Output: (paradedb.score(id))
          Workers Planned: 1
          ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
-               Output: id, paradedb.score(id)
+               Output: paradedb.score(id), paradedb.score(id)
                Table: mock_items
                Index: search_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+         avg          
+----------------------
+ 0.057158466428518295
+(1 row)
+
 -- Test case 4: count with score condition - uses score in WHERE, not in aggregate projection
 -- This can still use parallelism because score is evaluated in the WHERE clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -114,22 +123,25 @@ SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: sum(paradedb.score(id))
+   Output: sum((paradedb.score(id)))
    ->  Gather
-         Output: id
+         Output: (paradedb.score(id))
          Workers Planned: 1
          ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
-               Output: id, paradedb.score(id)
+               Output: paradedb.score(id), paradedb.score(id)
                Table: mock_items
                Index: search_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+    sum     
+------------
+ 0.45726773
+(1 row)
+
 -- Test case 6: Without parallel to verify it works in non-parallel mode too
 SET debug_parallel_query = off;
 SET max_parallel_workers_per_gather = 0;
@@ -140,14 +152,13 @@ SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
  Aggregate
    Output: max((paradedb.score(id)))
    ->  Custom Scan (ParadeDB Scan) on public.mock_items
-         Output: id, paradedb.score(id)
+         Output: paradedb.score(id), paradedb.score(id)
          Table: mock_items
          Index: search_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: id
+         Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
      max     
@@ -164,22 +175,25 @@ FROM mock_items WHERE description @@@ 'keyboard';
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   Output: min(paradedb.score(id)), max(paradedb.score(id)), avg(paradedb.score(id))
+   Output: min((paradedb.score(id))), max((paradedb.score(id))), avg((paradedb.score(id)))
    ->  Gather
-         Output: id
+         Output: (paradedb.score(id)), (paradedb.score(id)), (paradedb.score(id))
          Workers Planned: 1
          ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
-               Output: id, paradedb.score(id), paradedb.score(id), paradedb.score(id)
+               Output: paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id)
                Table: mock_items
                Index: search_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT min(paradedb.score(id)), max(paradedb.score(id)), avg(paradedb.score(id)) 
 FROM mock_items WHERE description @@@ 'keyboard';
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+     min     |     max     |         avg          
+-------------+-------------+----------------------
+ 0.057158466 | 0.057158466 | 0.057158466428518295
+(1 row)
+
 -- Clean up
 DROP TABLE mock_items;

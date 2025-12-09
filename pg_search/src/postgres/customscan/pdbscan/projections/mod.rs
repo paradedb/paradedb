@@ -38,9 +38,15 @@ use tantivy::snippet::SnippetGenerator;
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
-    // we will "simply" calls to `pdb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
-    // node in a `PlaceHolderVar`.  This ensures that Postgres won't lose the scores when they're
-    // emitted by our custom scan from underneath JOIN nodes (Hash Join, Merge Join, etc).
+    // We "simplify" calls to `pdb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
+    // node in a `PlaceHolderVar`. This ensures that Postgres won't lose the scores when they're
+    // emitted by our custom scan from underneath:
+    // - JOIN nodes (Hash Join, Merge Join, etc.)
+    // - Gather nodes (parallel aggregation)
+    //
+    // Without PlaceHolderVar, PostgreSQL may decide to re-evaluate the score function at a higher
+    // level (e.g., in the Aggregate node above a Gather), which fails because scores can only be
+    // computed within our Custom Scan execution context.
     if let Some(srs) = nodecast!(
         SupportRequestSimplify,
         T_SupportRequestSimplify,
@@ -50,9 +56,15 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
             return ReturnedNodePointer(None);
         }
 
-        if !(*(*srs).root).hasJoinRTEs {
-            // however, if the query does not do joins, then using a `PlaceHolderVar` will lead
-            // to a crash -- it wouldn't provide any additional value anyways
+        let root = (*srs).root;
+        let has_joins = (*root).hasJoinRTEs;
+        let has_aggs = !(*root).parse.is_null() && (*(*root).parse).hasAggs;
+
+        // Use PlaceHolderVar when the query has joins OR aggregates.
+        // - Joins: to preserve score across join nodes
+        // - Aggregates: to preserve score across Gather nodes in parallel plans
+        if !has_joins && !has_aggs {
+            // No joins and no aggregates - PlaceHolderVar provides no benefit
             return ReturnedNodePointer(None);
         }
 

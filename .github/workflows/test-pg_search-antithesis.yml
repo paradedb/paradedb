@@ -78,7 +78,7 @@ jobs:
       - name: Patch paradedb.yaml with workload image (tagged with sha)
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ github.sha }}|" paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata

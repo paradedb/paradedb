@@ -31,7 +31,8 @@ use pgrx::{pg_guard, pg_sys};
 /// - Simple expressions (varno 1): deparse directly
 /// - Single-table expressions with varno != 1: remap varno and deparse
 /// - Multi-table expressions: build context with all RTEs
-/// - Expressions with PARAM nodes: fall back to nodeToString
+/// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
+/// - Expressions with PARAM_EXTERN: deparse as "$N"
 pub unsafe fn deparse_expr_for_index(
     planner_context: &PlannerContext,
     indexrel: &PgSearchRelation,
@@ -42,23 +43,27 @@ pub unsafe fn deparse_expr_for_index(
         return "<null>".to_string();
     }
 
-    // Skip deparsing for expressions containing PARAM_EXEC nodes (correlated subquery params)
-    // These can cause crashes in deparse_expression - use nodeToString fallback
+    // For expressions containing PARAM_EXEC nodes (correlated subquery params),
+    // clone and replace them with placeholder constants, then deparse
     // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
     // deparsed as "$N" by PostgreSQL's deparse_expression
-    if contains_exec_param(expr) {
-        return node_to_string_fallback(expr);
-    }
+    let expr_to_deparse = if contains_exec_param(expr) {
+        let cloned = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
+        replace_exec_params_with_placeholders(cloned);
+        cloned
+    } else {
+        expr
+    };
 
     // Collect all varnos referenced in the expression
-    let varnos = collect_varnos(expr);
+    let varnos = collect_varnos(expr_to_deparse);
 
     // If expression has no var references (constant expression), use heap relation context
     if varnos.is_empty() {
         let Some(heaprel) = indexrel.heap_relation() else {
-            return node_to_string_fallback(expr);
+            return node_to_string_fallback(expr_to_deparse);
         };
-        return deparse_with_single_relation(expr, heaprel.name(), heaprel.oid());
+        return deparse_with_single_relation(expr_to_deparse, heaprel.name(), heaprel.oid());
     }
 
     // Get the PlannerInfo to access the rtable
@@ -66,21 +71,21 @@ pub unsafe fn deparse_expr_for_index(
         // No PlannerInfo available - try simple deparse for varno 1
         if varnos.len() == 1 && varnos[0] == 1 {
             let Some(heaprel) = indexrel.heap_relation() else {
-                return node_to_string_fallback(expr);
+                return node_to_string_fallback(expr_to_deparse);
             };
-            return deparse_with_single_relation(expr, heaprel.name(), heaprel.oid());
+            return deparse_with_single_relation(expr_to_deparse, heaprel.name(), heaprel.oid());
         }
-        return node_to_string_fallback(expr);
+        return node_to_string_fallback(expr_to_deparse);
     };
 
     let parse = (*root).parse;
     if parse.is_null() {
-        return node_to_string_fallback(expr);
+        return node_to_string_fallback(expr_to_deparse);
     }
 
     let rtable = (*parse).rtable;
     if rtable.is_null() {
-        return node_to_string_fallback(expr);
+        return node_to_string_fallback(expr_to_deparse);
     }
 
     let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
@@ -91,12 +96,12 @@ pub unsafe fn deparse_expr_for_index(
         let rte_idx = (varno - 1) as usize; // varno is 1-based
 
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
-            return node_to_string_fallback(expr);
+            return node_to_string_fallback(expr_to_deparse);
         };
 
         // Only handle RTE_RELATION
         if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
-            return node_to_string_fallback(expr);
+            return node_to_string_fallback(expr_to_deparse);
         }
 
         let relid = (*rte).relid;
@@ -104,18 +109,18 @@ pub unsafe fn deparse_expr_for_index(
 
         if varno == 1 {
             // Already at varno 1, deparse directly
-            return deparse_with_single_relation(expr, &relname, relid);
+            return deparse_with_single_relation(expr_to_deparse, &relname, relid);
         }
 
         // Need to remap varno to 1 for deparsing
-        // Clone the expression and remap varnos
-        let expr_copy = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
+        // Clone the expression and remap varnos (note: may already be cloned for PARAM replacement)
+        let expr_copy = pg_sys::copyObjectImpl(expr_to_deparse.cast()).cast::<pg_sys::Node>();
         remap_varnos(expr_copy, varno, 1);
         return deparse_with_single_relation(expr_copy, &relname, relid);
     }
 
     // Multiple varnos - try to build a context with all RTEs
-    deparse_with_full_context(expr, &rtable_list, &varnos)
+    deparse_with_full_context(expr_to_deparse, &rtable_list, &varnos)
 }
 
 /// Deparse an expression with a single-relation context
@@ -218,6 +223,37 @@ unsafe fn get_rel_name_safe(relid: pg_sys::Oid) -> String {
     std::ffi::CStr::from_ptr(name_ptr)
         .to_string_lossy()
         .into_owned()
+}
+
+/// Replace PARAM_EXEC nodes with PARAM_EXTERN in an expression tree.
+/// This allows deparse_expression to render them as `$N` instead of crashing.
+/// The expression should be cloned before calling this function.
+unsafe fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
+    if node.is_null() {
+        return;
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn param_replacer(
+        node: *mut pg_sys::Node,
+        _context: *mut core::ffi::c_void,
+    ) -> bool {
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            // Convert PARAM_EXEC to PARAM_EXTERN so deparse_expression can handle it
+            // PARAM_EXEC = 1 (subquery params), PARAM_EXTERN = 0 (prepared stmt params)
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+                // Adjust paramid: PARAM_EXEC uses 0-based ids, PARAM_EXTERN uses 1-based
+                // Add 1 to make it display as $1, $2, etc. instead of $0
+                (*param).paramid += 1;
+            }
+        }
+
+        // Continue walking
+        pg_sys::expression_tree_walker(node, Some(param_replacer), std::ptr::null_mut())
+    }
+
+    param_replacer(node, std::ptr::null_mut());
 }
 
 /// Remap varnos in an expression tree from old_varno to new_varno

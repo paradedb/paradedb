@@ -805,11 +805,9 @@ pub unsafe fn extract_quals(
                 // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
-                // Use deparse_expr_for_index for human-readable description
-                let expr_desc = deparse_expr_for_index(context, indexrel, node, rti);
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc,
+                    expr_desc: deparse_expr_for_index(context, indexrel, node, rti),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -855,11 +853,9 @@ pub unsafe fn extract_quals(
                 // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
-                // Use deparse_expr_for_index for human-readable description
-                let expr_desc = deparse_expr_for_index(context, indexrel, node, rti);
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc,
+                    expr_desc: deparse_expr_for_index(context, indexrel, node, rti),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -1208,11 +1204,9 @@ unsafe fn try_pushdown(
 
             // Create HeapExpr: predicate will be evaluated via heap access
             // This is slower but necessary for non-indexed fields
-            // Use deparse_expr_for_index to generate a human-readable description
-            let expr_desc = deparse_expr_for_index(context, indexrel, opexpr_node, rti);
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc,
+                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node, rti),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if contains_param(opexpr_node) {
@@ -1225,11 +1219,9 @@ unsafe fn try_pushdown(
             // These will be evaluated by PostgreSQL's executor at runtime
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;
-            // Use deparse_expr_for_index for human-readable description
-            let expr_desc = deparse_expr_for_index(context, indexrel, opexpr_node, rti);
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc,
+                expr_desc: deparse_expr_for_index(context, indexrel, opexpr_node, rti),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if convert_external_to_special_qual {
@@ -1745,12 +1737,10 @@ unsafe fn create_heap_expr_for_field_ref(
             return None;
         }
         *uses_tantivy_to_query = true;
-        // Use deparse_expr_for_index to generate a human-readable description
         let context = PlannerContext::from_planner(root);
-        let expr_desc = deparse_expr_for_index(&context, indexrel, expr_node, rti);
         Some(Qual::HeapExpr {
             expr_node,
-            expr_desc,
+            expr_desc: deparse_expr_for_index(&context, indexrel, expr_node, rti),
             search_query_input: Box::new(SearchQueryInput::All),
         })
     } else {

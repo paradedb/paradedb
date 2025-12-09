@@ -40,7 +40,17 @@ INSERT INTO numeric_conversion (description, amount) VALUES ('Above U64', 184467
 -- For indexing of the mutable segment, which will trigger the type conversions.
 -- TODO: See https://github.com/paradedb/paradedb/issues/3579
 SELECT description, amount FROM numeric_conversion WHERE id @@@ pdb.all() ORDER BY id;
-ERROR:  assertion `left == right` failed: Input type forbidden. This column has been forced to type F64, received I64(9007199254740991)
-  left: I64
- right: F64
+   description    |        amount        
+------------------+----------------------
+ Safe F64 Max     |     9007199254740990
+ Safe F64 Min     |    -9007199254740989
+ Unsafe I64 Upper |     9007199254740991
+ Unsafe I64 Lower |    -9007199254740990
+ Max I64          |  9223372036854775807
+ Min I64          | -9223372036854775808
+ Min U64          |  9223372036854775808
+ Max U64          | 18446744073709551615
+ Above U64        | 18446744073709551616
+(9 rows)
+
 DROP TABLE numeric_conversion;

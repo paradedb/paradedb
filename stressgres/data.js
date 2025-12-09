@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765312988178,
+  "lastUpdate": 1765312992363,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10278,6 +10278,126 @@ window.BENCHMARK_DATA = {
             "value": 50.765625,
             "unit": "median mem",
             "extra": "avg mem: 49.700409212728424, max mem: 61.74609375, count: 55270"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7b82e334edd84456d9f4ec877424b33faa2fdf4",
+          "message": "fix: score aggregates with parallel execution (#3732)\n\n## Ticket(s) Closed\n\n- Closes #2687\n\n## What\n\nFixes `paradedb.score()` returning errors when used with aggregate\nfunctions (`max`, `min`, `avg`, `sum`) in parallel query plans.\n\n## Why\n\nWhen PostgreSQL uses a parallel plan, the `Gather` node wasn't passing\nthrough the computed score value—only the `id` column. This caused the\n`Aggregate` node to try re-evaluating `paradedb.score(id)` directly,\nwhich panics because scores can only be computed within the Custom Scan\nexecution context.\n\nBefore fix:\n```\nGather\n    Output: id           <-- Score NOT passed through\n    ->  Parallel Custom Scan\n          Output: id, paradedb.score(id)\n```\n\n## How\n\nExtended `placeholder_support` to wrap `paradedb.score()` in a\n`PlaceHolderVar` when the query has **aggregates** (not just joins).\nThis tells PostgreSQL to preserve the computed score and pass it through\nthe Gather node.\n\nAfter fix:\n```\nGather\n    Output: (paradedb.score(id))    <-- Score IS passed through\n    ->  Parallel Custom Scan\n          Output: paradedb.score(id), paradedb.score(id)\n```\n\nAlso added handling in `qual_inspect.rs` to unwrap `PlaceHolderVar` when\ndetecting score expressions in WHERE clauses, so `paradedb.score(id) >\n0` conditions still become proper Tantivy `score_filter` queries.\n\n## Tests\n\nAdded `agg-score.sql` regression test covering:\n- `max/min/avg/sum(paradedb.score(id))` with parallel execution\n- `count(*)` with score condition in WHERE clause  \n- Multiple score aggregates in one query\n- Non-parallel execution (baseline)",
+          "timestamp": "2025-12-09T12:26:12-08:00",
+          "tree_id": "26df91a95baeb3cb868a5d774ebbcbd9bdb714f3",
+          "url": "https://github.com/paradedb/paradedb/commit/a7b82e334edd84456d9f4ec877424b33faa2fdf4"
+        },
+        "date": 1765312989900,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.646063280033762, max cpu: 19.296484, count: 54677"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.01697897424877, max mem: 67.8125, count: 54677"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.558698031661262, max cpu: 9.311348, count: 54677"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.2605139472493, max mem: 35.05078125, count: 54677"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.630455677458856, max cpu: 18.953604, count: 54677"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.21772208835525, max mem: 68.0, count: 54677"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6043585204239035, max cpu: 9.448819, count: 54677"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.270697831126434, max mem: 67.63671875, count: 54677"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584966305240581, max cpu: 9.486166, count: 109354"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.11737928682307, max mem: 55.87109375, count: 109354"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1804,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1791.9126872359493, max block_count: 3116.0, count: 54677"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.344404411361268, max segment_count: 30.0, count: 54677"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5321792456353815, max cpu: 9.430255, count: 54677"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.58043887283501, max mem: 58.0859375, count: 54677"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9518336103510023, max cpu: 4.819277, count: 54677"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.326017666820604, max mem: 62.109375, count: 54677"
           }
         ]
       }

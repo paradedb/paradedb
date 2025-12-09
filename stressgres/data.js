@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765312992363,
+  "lastUpdate": 1765313828126,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12190,6 +12190,42 @@ window.BENCHMARK_DATA = {
             "value": 5.284155948173243,
             "unit": "median tps",
             "extra": "avg tps: 4.749043369253621, max tps: 5.929003117290774, count: 57913"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7b82e334edd84456d9f4ec877424b33faa2fdf4",
+          "message": "fix: score aggregates with parallel execution (#3732)\n\n## Ticket(s) Closed\n\n- Closes #2687\n\n## What\n\nFixes `paradedb.score()` returning errors when used with aggregate\nfunctions (`max`, `min`, `avg`, `sum`) in parallel query plans.\n\n## Why\n\nWhen PostgreSQL uses a parallel plan, the `Gather` node wasn't passing\nthrough the computed score value—only the `id` column. This caused the\n`Aggregate` node to try re-evaluating `paradedb.score(id)` directly,\nwhich panics because scores can only be computed within the Custom Scan\nexecution context.\n\nBefore fix:\n```\nGather\n    Output: id           <-- Score NOT passed through\n    ->  Parallel Custom Scan\n          Output: id, paradedb.score(id)\n```\n\n## How\n\nExtended `placeholder_support` to wrap `paradedb.score()` in a\n`PlaceHolderVar` when the query has **aggregates** (not just joins).\nThis tells PostgreSQL to preserve the computed score and pass it through\nthe Gather node.\n\nAfter fix:\n```\nGather\n    Output: (paradedb.score(id))    <-- Score IS passed through\n    ->  Parallel Custom Scan\n          Output: paradedb.score(id), paradedb.score(id)\n```\n\nAlso added handling in `qual_inspect.rs` to unwrap `PlaceHolderVar` when\ndetecting score expressions in WHERE clauses, so `paradedb.score(id) >\n0` conditions still become proper Tantivy `score_filter` queries.\n\n## Tests\n\nAdded `agg-score.sql` regression test covering:\n- `max/min/avg/sum(paradedb.score(id))` with parallel execution\n- `count(*)` with score condition in WHERE clause  \n- Multiple score aggregates in one query\n- Non-parallel execution (baseline)",
+          "timestamp": "2025-12-09T12:26:12-08:00",
+          "tree_id": "26df91a95baeb3cb868a5d774ebbcbd9bdb714f3",
+          "url": "https://github.com/paradedb/paradedb/commit/a7b82e334edd84456d9f4ec877424b33faa2fdf4"
+        },
+        "date": 1765313825560,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.824319180072983,
+            "unit": "median tps",
+            "extra": "avg tps: 6.688637588928252, max tps: 10.271638508600233, count: 57333"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.382294983852787,
+            "unit": "median tps",
+            "extra": "avg tps: 4.822746087377746, max tps: 5.999388348252835, count: 57333"
           }
         ]
       }

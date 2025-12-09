@@ -23,9 +23,13 @@ use crate::postgres::customscan::qual_inspect::{contains_exec_param, PlannerCont
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::{pg_guard, pg_sys};
 
-/// Helper function to deparse an expression using the heap relation from an index relation.
+/// Helper function to deparse an expression using a relation context.
 /// Returns a human-readable SQL string representation of the expression.
 /// Falls back to nodeToString representation if deparsing fails (e.g., for complex expressions).
+///
+/// The `rel` parameter can be either:
+/// - An index relation (will use its underlying heap relation for context)
+/// - A heap relation directly (will use it directly for context)
 ///
 /// This function handles:
 /// - Simple expressions (varno 1): deparse directly
@@ -35,7 +39,7 @@ use pgrx::{pg_guard, pg_sys};
 /// - Expressions with PARAM_EXTERN: deparse as "$N"
 pub unsafe fn deparse_expr(
     planner_context: Option<&PlannerContext>,
-    indexrel: &PgSearchRelation,
+    rel: &PgSearchRelation,
     expr: *mut pg_sys::Node,
 ) -> String {
     if expr.is_null() {
@@ -54,25 +58,28 @@ pub unsafe fn deparse_expr(
         expr
     };
 
+    // Get the heap relation for deparsing context.
+    // If rel.heap_relation() returns Some, rel is an index and we use its heap relation.
+    // If it returns None, rel IS the heap relation, so use it directly.
+    let (heap_name, heap_oid) = if let Some(heaprel) = rel.heap_relation() {
+        (heaprel.name().to_string(), heaprel.oid())
+    } else {
+        (rel.name().to_string(), rel.oid())
+    };
+
     // Collect all varnos referenced in the expression
     let varnos = collect_varnos(expr_to_deparse);
 
     // If expression has no var references (constant expression), use heap relation context
     if varnos.is_empty() {
-        let Some(heaprel) = indexrel.heap_relation() else {
-            return node_to_string_fallback(expr_to_deparse);
-        };
-        return deparse_with_single_relation(expr_to_deparse, heaprel.name(), heaprel.oid());
+        return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
     }
 
     // Get the PlannerInfo to access the rtable
     let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
         // No PlannerInfo available - try simple deparse for varno 1
         if varnos.len() == 1 && varnos[0] == 1 {
-            let Some(heaprel) = indexrel.heap_relation() else {
-                return node_to_string_fallback(expr_to_deparse);
-            };
-            return deparse_with_single_relation(expr_to_deparse, heaprel.name(), heaprel.oid());
+            return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
         }
         return node_to_string_fallback(expr_to_deparse);
     };

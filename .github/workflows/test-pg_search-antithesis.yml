@@ -37,8 +37,6 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # Fetch the entire history (required to checkout tags)
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -49,26 +47,6 @@ jobs:
           registry: us-central1-docker.pkg.dev
           username: _json_key
           password: ${{ secrets.ANTITHESIS_REGISTRY_KEY }}
-
-      - name: Extract Config Metadata
-        id: extract-config-metadata
-        uses: docker/metadata-action@v5
-        with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
-          tags: |
-            type=sha
-            paradedb
-
-      - name: Build and Push Config Docker Image to Antithesis Registry
-        id: build-push-config
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          file: docker/Dockerfile.config
-          push: true
-          tags: ${{ steps.extract-config-metadata.outputs.tags }}
-          labels: ${{ steps.extract-config-metadata.outputs.labels }}
 
       - name: Extract Workload Metadata
         id: extract-workload-metadata
@@ -96,6 +74,31 @@ jobs:
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
+
+      - name: Patch paradedb.yaml with workload image digest
+        working-directory: docker/manifests/
+        run: |
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}|" paradedb.yaml
+
+      - name: Extract Config Metadata
+        id: extract-config-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
+          tags: |
+            type=sha
+            paradedb
+
+      - name: Build and Push Config Docker Image to Antithesis Registry
+        id: build-push-config
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          file: docker/Dockerfile.config
+          push: true
+          tags: ${{ steps.extract-config-metadata.outputs.tags }}
+          labels: ${{ steps.extract-config-metadata.outputs.labels }}
 
       # antithesis.duration is in minutes
       - name: Trigger Antithesis Test

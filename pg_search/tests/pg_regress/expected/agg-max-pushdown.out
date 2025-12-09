@@ -1,0 +1,269 @@
+-- Test for MAX/MIN aggregate pushdown with date/datetime types
+-- Issue: MAX agg pushdown always returns null values for dates
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Create test table with various date/time types
+CREATE TABLE date_agg_test (
+    id serial PRIMARY KEY,
+    d date,
+    ts timestamp,
+    tstz timestamptz,
+    t time,
+    ttz timetz
+);
+-- Insert test data with some NULL values
+INSERT INTO date_agg_test (d, ts, tstz, t, ttz) VALUES
+    ('2051-01-02'::date, '2051-01-02 10:30:00'::timestamp, '2051-01-02 10:30:00+00'::timestamptz, '10:30:00'::time, '10:30:00+00'::timetz),
+    ('2023-06-15'::date, '2023-06-15 14:45:30'::timestamp, '2023-06-15 14:45:30+00'::timestamptz, '14:45:30'::time, '14:45:30+00'::timetz),
+    ('1990-12-25'::date, '1990-12-25 08:00:00'::timestamp, '1990-12-25 08:00:00+00'::timestamptz, '08:00:00'::time, '08:00:00+00'::timetz),
+    (NULL, NULL, NULL, NULL, NULL);
+-- Create bm25 index
+CREATE INDEX ON date_agg_test USING bm25 (id, d, ts, tstz, t, ttz) WITH (key_field = 'id');
+-- Enable aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test MAX with date
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(d) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(d)
+     Aggregate Definition: {"0":{"max":{"field":"d","missing":null}}}
+(6 rows)
+
+SELECT max(d) FROM date_agg_test WHERE id @@@ pdb.all();
+    max     
+------------
+ 01-02-2051
+(1 row)
+
+-- Test MIN with date
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(d) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MIN(d)
+     Aggregate Definition: {"0":{"min":{"field":"d","missing":null}}}
+(6 rows)
+
+SELECT min(d) FROM date_agg_test WHERE id @@@ pdb.all();
+    min     
+------------
+ 12-25-1990
+(1 row)
+
+-- Test MAX with timestamp
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(ts) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(ts)
+     Aggregate Definition: {"0":{"max":{"field":"ts","missing":null}}}
+(6 rows)
+
+SELECT max(ts) FROM date_agg_test WHERE id @@@ pdb.all();
+           max            
+--------------------------
+ Mon Jan 02 10:30:00 2051
+(1 row)
+
+-- Test MIN with timestamp
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(ts) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MIN(ts)
+     Aggregate Definition: {"0":{"min":{"field":"ts","missing":null}}}
+(6 rows)
+
+SELECT min(ts) FROM date_agg_test WHERE id @@@ pdb.all();
+           min            
+--------------------------
+ Tue Dec 25 08:00:00 1990
+(1 row)
+
+-- Test MAX with timestamptz
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(tstz) FROM date_agg_test WHERE id @@@ pdb.all();
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(tstz)
+     Aggregate Definition: {"0":{"max":{"field":"tstz","missing":null}}}
+(6 rows)
+
+SELECT max(tstz) FROM date_agg_test WHERE id @@@ pdb.all();
+             max              
+------------------------------
+ Mon Jan 02 02:30:00 2051 PST
+(1 row)
+
+-- Test MIN with timestamptz
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(tstz) FROM date_agg_test WHERE id @@@ pdb.all();
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MIN(tstz)
+     Aggregate Definition: {"0":{"min":{"field":"tstz","missing":null}}}
+(6 rows)
+
+SELECT min(tstz) FROM date_agg_test WHERE id @@@ pdb.all();
+             min              
+------------------------------
+ Tue Dec 25 00:00:00 1990 PST
+(1 row)
+
+-- Test MAX with time
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(t) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(t)
+     Aggregate Definition: {"0":{"max":{"field":"t","missing":null}}}
+(6 rows)
+
+SELECT max(t) FROM date_agg_test WHERE id @@@ pdb.all();
+   max    
+----------
+ 14:45:30
+(1 row)
+
+-- Test MIN with time
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(t) FROM date_agg_test WHERE id @@@ pdb.all();
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MIN(t)
+     Aggregate Definition: {"0":{"min":{"field":"t","missing":null}}}
+(6 rows)
+
+SELECT min(t) FROM date_agg_test WHERE id @@@ pdb.all();
+   min    
+----------
+ 08:00:00
+(1 row)
+
+-- Test MAX with timetz
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(ttz)
+     Aggregate Definition: {"0":{"max":{"field":"ttz","missing":null}}}
+(6 rows)
+
+SELECT max(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+     max     
+-------------
+ 14:45:30+00
+(1 row)
+
+-- Test MIN with timetz
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT min(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.date_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: date_agg_test_id_d_ts_tstz_t_ttz_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MIN(ttz)
+     Aggregate Definition: {"0":{"min":{"field":"ttz","missing":null}}}
+(6 rows)
+
+SELECT min(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+     min     
+-------------
+ 08:00:00+00
+(1 row)
+
+-- Test without aggregate pushdown to verify correct expected values
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT max(d), min(d) FROM date_agg_test WHERE id @@@ pdb.all();
+    max     |    min     
+------------+------------
+ 01-02-2051 | 12-25-1990
+(1 row)
+
+SELECT max(ts), min(ts) FROM date_agg_test WHERE id @@@ pdb.all();
+           max            |           min            
+--------------------------+--------------------------
+ Mon Jan 02 10:30:00 2051 | Tue Dec 25 08:00:00 1990
+(1 row)
+
+SELECT max(tstz), min(tstz) FROM date_agg_test WHERE id @@@ pdb.all();
+             max              |             min              
+------------------------------+------------------------------
+ Mon Jan 02 02:30:00 2051 PST | Tue Dec 25 00:00:00 1990 PST
+(1 row)
+
+SELECT max(t), min(t) FROM date_agg_test WHERE id @@@ pdb.all();
+   max    |   min    
+----------+----------
+ 14:45:30 | 08:00:00
+(1 row)
+
+SELECT max(ttz), min(ttz) FROM date_agg_test WHERE id @@@ pdb.all();
+     max     |     min     
+-------------+-------------
+ 14:45:30+00 | 08:00:00+00
+(1 row)
+
+-- Test with all NULL datetime values
+CREATE TABLE all_null_dates (
+    id serial PRIMARY KEY,
+    d date
+);
+INSERT INTO all_null_dates (d) VALUES (NULL), (NULL);
+CREATE INDEX ON all_null_dates USING bm25 (id, d) WITH (key_field = 'id');
+SET paradedb.enable_aggregate_custom_scan TO on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(d) FROM all_null_dates WHERE id @@@ pdb.all();
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.all_null_dates
+   Output: pdb.agg_fn('MAX'::text)
+   Index: all_null_dates_id_d_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: MAX(d)
+     Aggregate Definition: {"0":{"max":{"field":"d","missing":null}}}
+(6 rows)
+
+SELECT max(d) FROM all_null_dates WHERE id @@@ pdb.all();
+ max 
+-----
+ 
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT max(d) FROM all_null_dates WHERE id @@@ pdb.all();
+ max 
+-----
+ 
+(1 row)
+
+DROP TABLE all_null_dates;
+-- Clean up
+DROP TABLE date_agg_test;

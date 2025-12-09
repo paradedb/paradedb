@@ -251,9 +251,9 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
-    curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
-    export LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
-  fi
+   curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+   export LD_LIBRARY_PATH=/usr/lib/libvoidstar.so ; \
+ fi
 
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.

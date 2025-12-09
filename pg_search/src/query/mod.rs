@@ -817,11 +817,7 @@ impl SearchQueryInput {
             }
             SearchQueryInput::All => {
                 let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
-                Ok(builder.build_leaf(
-                    query,
-                    || "All Query".to_string(),
-                    || cloned_for_estimate.unwrap(),
-                ))
+                Ok(builder.build_leaf(query, || "All Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::Boolean {
                 must,
@@ -890,7 +886,7 @@ impl SearchQueryInput {
                                 child_query.box_clone(),
                                 || format!("Must Clause [{}]", idx),
                                 |_| vec![child],
-                                || SearchQueryInput::Empty,
+                                Some(SearchQueryInput::Empty),
                             );
                             children.push(wrapped);
                         }
@@ -900,7 +896,7 @@ impl SearchQueryInput {
                                 child_query.box_clone(),
                                 || format!("Should Clause [{}]", idx),
                                 |_| vec![child],
-                                || SearchQueryInput::Empty,
+                                Some(SearchQueryInput::Empty),
                             );
                             children.push(wrapped);
                         }
@@ -910,13 +906,13 @@ impl SearchQueryInput {
                                 child_query.box_clone(),
                                 || format!("MustNot Clause [{}]", idx),
                                 |_| vec![child],
-                                || SearchQueryInput::Empty,
+                                Some(SearchQueryInput::Empty),
                             );
                             children.push(wrapped);
                         }
                         children
                     },
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::Boost {
@@ -931,7 +927,7 @@ impl SearchQueryInput {
                     query,
                     || format!("Boost Query (factor: {})", factor),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::ConstScore {
@@ -946,7 +942,7 @@ impl SearchQueryInput {
                     query,
                     || format!("ConstScore Query (score: {})", score),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::ScoreFilter {
@@ -962,7 +958,7 @@ impl SearchQueryInput {
                     query,
                     || "ScoreFilter Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::DisjunctionMax {
@@ -1011,21 +1007,17 @@ impl SearchQueryInput {
                                     child_query.box_clone(),
                                     || format!("Disjunct [{}]", idx),
                                     |_| vec![output],
-                                    || SearchQueryInput::All, // Placeholder
+                                    Some(SearchQueryInput::All), // Placeholder
                                 )
                             })
                             .collect()
                     },
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::Empty => {
                 let query = Box::new(EmptyQuery);
-                Ok(builder.build_leaf(
-                    query,
-                    || "Empty Query".to_string(),
-                    || cloned_for_estimate.unwrap(),
-                ))
+                Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
@@ -1110,7 +1102,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     query,
                     || "MoreLikeThis Query".to_string(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::Parse {
@@ -1135,11 +1127,7 @@ impl SearchQueryInput {
                     ) as Box<dyn TantivyQuery>,
                 };
 
-                Ok(builder.build_leaf(
-                    query,
-                    || "Parse Query".to_string(),
-                    || cloned_for_estimate.unwrap(),
-                ))
+                Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms } => {
                 let query = Box::new(TermSetQuery::new(terms.iter().flat_map(
@@ -1184,11 +1172,7 @@ impl SearchQueryInput {
                     },
                 )));
 
-                Ok(builder.build_leaf(
-                    query,
-                    || "TermSet Query".to_string(),
-                    || cloned_for_estimate.unwrap(),
-                ))
+                Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::WithIndex {
                 oid: _,
@@ -1201,7 +1185,7 @@ impl SearchQueryInput {
                     inner_tantivy,
                     || "WithIndex Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::HeapFilter {
@@ -1230,7 +1214,7 @@ impl SearchQueryInput {
                     query,
                     || "HeapFilter Query".to_string(),
                     |_| opt_output.into_iter().collect(),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
@@ -1249,7 +1233,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(
                     Box::new(query),
                     || format!("FieldedQuery (field: {})", field),
-                    || cloned_for_estimate.unwrap(),
+                    cloned_for_estimate,
                 ))
             }
         }

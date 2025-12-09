@@ -34,7 +34,7 @@ use pgrx::{pg_guard, pg_sys};
 /// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
 /// - Expressions with PARAM_EXTERN: deparse as "$N"
 pub unsafe fn deparse_expr_for_index(
-    planner_context: &PlannerContext,
+    planner_context: Option<&PlannerContext>,
     indexrel: &PgSearchRelation,
     expr: *mut pg_sys::Node,
 ) -> String {
@@ -66,7 +66,7 @@ pub unsafe fn deparse_expr_for_index(
     }
 
     // Get the PlannerInfo to access the rtable
-    let Some(root) = planner_context.planner_info() else {
+    let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
         // No PlannerInfo available - try simple deparse for varno 1
         if varnos.len() == 1 && varnos[0] == 1 {
             let Some(heaprel) = indexrel.heap_relation() else {

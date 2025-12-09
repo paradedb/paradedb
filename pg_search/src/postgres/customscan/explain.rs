@@ -37,6 +37,7 @@ pub trait ExplainFormat {
 /// Removes variabilities like:
 /// - `oid` fields from `with_index` objects
 /// - `postgres_expression` fields (contain pointers)
+/// - `expr_node` fields from `field_filters` (internal node representation)
 /// - Any other non-deterministic data
 pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
     match json_value {
@@ -47,6 +48,17 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
                     if let Some(with_index_obj) = with_index.as_object_mut() {
                         with_index_obj.remove("oid");
                     }
+                }
+            }
+
+            // Clean up field_filters in heap_filter: remove raw expr_node and rename description to filter
+            // The description field contains human-readable SQL expression
+            if obj.contains_key("expr_node") && obj.contains_key("description") {
+                // This is a HeapFieldFilter object - remove internal node representation
+                // and rename "description" to "filter" for cleaner output
+                obj.remove("expr_node");
+                if let Some(description) = obj.remove("description") {
+                    obj.insert("heap_filter".to_string(), description);
                 }
             }
 
@@ -150,6 +162,45 @@ mod tests {
                 { "oid": 123, "name": "a" },
                 { "value": "b" }
             ])
+        );
+    }
+
+    #[test]
+    fn test_cleanup_heap_filter_field_filters() {
+        // Test that expr_node is removed and description is renamed to filter
+        let mut value = json!({
+            "heap_filter": {
+                "indexed_query": "all",
+                "field_filters": [
+                    {
+                        "expr_node": "{OPEXPR :opno 98 :opfuncid 67 ...}",
+                        "description": "(category = 'Electronics'::text)"
+                    },
+                    {
+                        "expr_node": "{OPEXPR :opno 1754 ...}",
+                        "description": "(price > 500.00)"
+                    }
+                ]
+            }
+        });
+
+        cleanup_json_for_explain(&mut value);
+
+        assert_eq!(
+            value,
+            json!({
+                "heap_filter": {
+                    "indexed_query": "all",
+                    "field_filters": [
+                        {
+                            "filter": "(category = 'Electronics'::text)"
+                        },
+                        {
+                            "filter": "(price > 500.00)"
+                        }
+                    ]
+                }
+            })
         );
     }
 }

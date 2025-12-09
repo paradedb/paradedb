@@ -23,7 +23,6 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -31,6 +30,98 @@ use pg_sys::BoolExprType;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
+
+/// Helper function to deparse an expression using the heap relation from an index relation.
+/// Returns a human-readable SQL string representation of the expression.
+/// Falls back to a basic description if deparsing fails (e.g., for complex expressions).
+///
+/// The `rti` parameter specifies the expected range table index for this relation.
+/// We only attempt deparsing when the expression references exactly varno 1, because
+/// `deparse_context_for` always creates a context where the relation is at varno 1.
+unsafe fn deparse_expr_for_index(
+    _planner_context: &PlannerContext,
+    indexrel: &PgSearchRelation,
+    expr: *mut pg_sys::Node,
+    _rti: pg_sys::Index,
+) -> String {
+    if expr.is_null() {
+        return "<expression>".to_string();
+    }
+
+    // Skip deparsing for expressions that might contain PARAM nodes (subqueries)
+    // These can cause crashes in deparse_expression
+    if contains_exec_param(expr) || contains_param(expr) {
+        return "<expression>".to_string();
+    }
+
+    // Collect all varnos referenced in the expression
+    let varnos = collect_varnos(expr);
+
+    // deparse_context_for creates a context where the relation is always at varno 1.
+    // We can only safely deparse if the expression references exactly varno 1.
+    // For views, JOINs, or complex queries where our relation has a different varno,
+    // we fall back to a generic description.
+    if varnos.len() != 1 || varnos[0] != 1 {
+        return "<expression>".to_string();
+    }
+
+    // Get the heap relation from the index relation
+    let Some(heaprel) = indexrel.heap_relation() else {
+        return "<expression>".to_string();
+    };
+
+    let heapname = heaprel.name().to_string();
+    let heap_oid = heaprel.oid();
+
+    let heapname_cstr = match std::ffi::CString::new(heapname.as_str()) {
+        Ok(s) => s,
+        Err(_) => return "<expression>".to_string(),
+    };
+
+    // Create deparse context for our heap relation at varno 1
+    let context = pg_sys::deparse_context_for(heapname_cstr.as_ptr(), heap_oid);
+    let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
+    if deparsed.is_null() {
+        return "<expression>".to_string();
+    }
+
+    std::ffi::CStr::from_ptr(deparsed)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Collect all unique varnos (range table indices) referenced in an expression.
+unsafe fn collect_varnos(node: *mut pg_sys::Node) -> Vec<pg_sys::Index> {
+    if node.is_null() {
+        return Vec::new();
+    }
+
+    let mut varnos: Vec<pg_sys::Index> = Vec::new();
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        let varnos = &mut *(context as *mut Vec<pg_sys::Index>);
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let varno = (*var).varno as pg_sys::Index;
+            if !varnos.contains(&varno) {
+                varnos.push(varno);
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    walker(
+        node,
+        &mut varnos as *mut Vec<pg_sys::Index> as *mut core::ffi::c_void,
+    );
+
+    varnos
+}
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -674,7 +765,13 @@ pub unsafe fn extract_quals(
                 // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
                 // We need to handle both cases since they're semantically equivalent
                 let var_node = nodecast!(Var, T_Var, node)?;
-                try_create_heap_expr_from_var(root, var_node, rti, &mut state.uses_tantivy_to_query)
+                try_create_heap_expr_from_var(
+                    root,
+                    var_node,
+                    rti,
+                    indexrel,
+                    &mut state.uses_tantivy_to_query,
+                )
             } else {
                 // Query context: We can't do full pushdown analysis without PlannerInfo,
                 // but we can still create HeapExpr if filter_pushdown is enabled
@@ -693,9 +790,11 @@ pub unsafe fn extract_quals(
                 // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
+                // Use deparse_expr_for_index for human-readable description
+                let expr_desc = deparse_expr_for_index(context, indexrel, node, rti);
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "Var node (Query context)".to_string(),
+                    expr_desc,
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -726,6 +825,7 @@ pub unsafe fn extract_quals(
                     nulltest,
                     rti,
                     root,
+                    indexrel,
                     &mut state.uses_tantivy_to_query,
                 )
             } else {
@@ -740,9 +840,11 @@ pub unsafe fn extract_quals(
                 // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
+                // Use deparse_expr_for_index for human-readable description
+                let expr_desc = deparse_expr_for_index(context, indexrel, node, rti);
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "NullTest (Query context)".to_string(),
+                    expr_desc,
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -1091,9 +1193,11 @@ unsafe fn try_pushdown(
 
             // Create HeapExpr: predicate will be evaluated via heap access
             // This is slower but necessary for non-indexed fields
+            // Use deparse_expr_for_index to generate a human-readable description
+            let expr_desc = deparse_expr_for_index(context, indexrel, opexpr_node, rti);
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with operator OID {opno}"),
+                expr_desc,
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if contains_param(opexpr_node) {
@@ -1106,9 +1210,11 @@ unsafe fn try_pushdown(
             // These will be evaluated by PostgreSQL's executor at runtime
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;
+            // Use deparse_expr_for_index for human-readable description
+            let expr_desc = deparse_expr_for_index(context, indexrel, opexpr_node, rti);
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with PARAM nodes (OID {})", opno),
+                expr_desc,
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if convert_external_to_special_qual {
@@ -1611,10 +1717,11 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
 /// This is a common pattern for expressions that reference fields in our relation
 /// but cannot be pushed down to the index
 unsafe fn create_heap_expr_for_field_ref(
+    root: *mut pg_sys::PlannerInfo,
     expr_node: *mut pg_sys::Node,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
-    expr_desc: String,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
@@ -1623,6 +1730,9 @@ unsafe fn create_heap_expr_for_field_ref(
             return None;
         }
         *uses_tantivy_to_query = true;
+        // Use deparse_expr_for_index to generate a human-readable description
+        let context = PlannerContext::from_planner(root);
+        let expr_desc = deparse_expr_for_index(&context, indexrel, expr_node, rti);
         Some(Qual::HeapExpr {
             expr_node,
             expr_desc,
@@ -1638,6 +1748,7 @@ unsafe fn try_create_heap_expr_from_var(
     root: *mut pg_sys::PlannerInfo,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Check if root and parse are valid
@@ -1645,12 +1756,12 @@ unsafe fn try_create_heap_expr_from_var(
         return None;
     }
 
-    let attno = (*var_node).varattno;
     create_heap_expr_for_field_ref(
+        root,
         var_node as *mut pg_sys::Node,
         var_node,
         rti,
-        format!("Boolean field_{attno} = true"),
+        indexrel,
         uses_tantivy_to_query,
     )
 }
@@ -1660,25 +1771,19 @@ unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
     root: *mut pg_sys::PlannerInfo,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Extract the field being tested
     let arg = (*nulltest).arg;
-    if let Some((var, fieldname)) =
-        find_one_var_and_fieldname(VarContext::from_planner(root), arg as *mut pg_sys::Node)
-    {
-        let attno = (*var).varattno;
-        let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
-            "IS NULL"
-        } else {
-            "IS NOT NULL"
-        };
-
+    // Check if the arg is a Var referencing our relation
+    if let Some(var) = nodecast!(Var, T_Var, arg) {
         create_heap_expr_for_field_ref(
+            root,
             nulltest as *mut pg_sys::Node,
             var,
             rti,
-            format!("NULL test: field_{attno} {test_type}"),
+            indexrel,
             uses_tantivy_to_query,
         )
     } else {

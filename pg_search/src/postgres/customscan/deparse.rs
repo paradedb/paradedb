@@ -33,7 +33,7 @@ use pgrx::{pg_guard, pg_sys};
 /// - Multi-table expressions: build context with all RTEs
 /// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
 /// - Expressions with PARAM_EXTERN: deparse as "$N"
-pub unsafe fn deparse_expr_for_index(
+pub unsafe fn deparse_expr(
     planner_context: Option<&PlannerContext>,
     indexrel: &PgSearchRelation,
     expr: *mut pg_sys::Node,

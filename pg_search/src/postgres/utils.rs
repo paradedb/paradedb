@@ -22,7 +22,7 @@ use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::customscan::deparse::deparse_expr_for_index;
+use crate::postgres::customscan::deparse::deparse_expr;
 use crate::postgres::customscan::pdbscan::text_lower_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -354,9 +354,7 @@ pub unsafe fn extract_field_attributes(
 
                 let Some(attname) = attname else {
                     let expr_str = expression
-                        .map(|expr| unsafe {
-                            deparse_expr_for_index(None, &heap_relation, expr.cast())
-                        })
+                        .map(|expr| unsafe { deparse_expr(None, &heap_relation, expr.cast()) })
                         .unwrap_or("<null>".to_string());
                     panic!(
                         "indexed expression requires a tokenizer cast with an alias: {expr_str}"
@@ -401,7 +399,7 @@ pub unsafe fn extract_field_attributes(
             && matches!(tantivy_type, SearchFieldType::Text(..));
         if missing_tokenizer_cast {
             let expr_str =
-                unsafe { deparse_expr_for_index(None, &heap_relation, expression.unwrap().cast()) };
+                unsafe { deparse_expr(None, &heap_relation, expression.unwrap().cast()) };
             panic!("indexed expression must be cast to a tokenizer: {expr_str}");
         }
 

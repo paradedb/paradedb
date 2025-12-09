@@ -48,6 +48,7 @@ jobs:
           username: _json_key
           password: ${{ secrets.ANTITHESIS_REGISTRY_KEY }}
 
+      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Extract Workload Metadata
         id: extract-workload-metadata
         uses: docker/metadata-action@v5

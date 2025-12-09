@@ -1204,3 +1204,15 @@ pub enum TantivyValueError {
     #[error("UTF8 conversion error: {0}")]
     Utf8ConversionError(#[from] std::str::Utf8Error),
 }
+
+/// Check if the given OID is a date/time type that requires special conversion
+pub fn is_datetime_type(typoid: pg_sys::Oid) -> bool {
+    matches!(
+        typoid,
+        pg_sys::DATEOID
+            | pg_sys::TIMESTAMPOID
+            | pg_sys::TIMESTAMPTZOID
+            | pg_sys::TIMEOID
+            | pg_sys::TIMETZOID
+    )
+}

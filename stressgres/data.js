@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765254759960,
+  "lastUpdate": 1765312988178,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3620,6 +3620,72 @@ window.BENCHMARK_DATA = {
             "value": 125.82643526462184,
             "unit": "median tps",
             "extra": "avg tps: 153.9249836180176, max tps: 539.0101983244904, count: 55270"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7b82e334edd84456d9f4ec877424b33faa2fdf4",
+          "message": "fix: score aggregates with parallel execution (#3732)\n\n## Ticket(s) Closed\n\n- Closes #2687\n\n## What\n\nFixes `paradedb.score()` returning errors when used with aggregate\nfunctions (`max`, `min`, `avg`, `sum`) in parallel query plans.\n\n## Why\n\nWhen PostgreSQL uses a parallel plan, the `Gather` node wasn't passing\nthrough the computed score value—only the `id` column. This caused the\n`Aggregate` node to try re-evaluating `paradedb.score(id)` directly,\nwhich panics because scores can only be computed within the Custom Scan\nexecution context.\n\nBefore fix:\n```\nGather\n    Output: id           <-- Score NOT passed through\n    ->  Parallel Custom Scan\n          Output: id, paradedb.score(id)\n```\n\n## How\n\nExtended `placeholder_support` to wrap `paradedb.score()` in a\n`PlaceHolderVar` when the query has **aggregates** (not just joins).\nThis tells PostgreSQL to preserve the computed score and pass it through\nthe Gather node.\n\nAfter fix:\n```\nGather\n    Output: (paradedb.score(id))    <-- Score IS passed through\n    ->  Parallel Custom Scan\n          Output: paradedb.score(id), paradedb.score(id)\n```\n\nAlso added handling in `qual_inspect.rs` to unwrap `PlaceHolderVar` when\ndetecting score expressions in WHERE clauses, so `paradedb.score(id) >\n0` conditions still become proper Tantivy `score_filter` queries.\n\n## Tests\n\nAdded `agg-score.sql` regression test covering:\n- `max/min/avg/sum(paradedb.score(id))` with parallel execution\n- `count(*)` with score condition in WHERE clause  \n- Multiple score aggregates in one query\n- Non-parallel execution (baseline)",
+          "timestamp": "2025-12-09T12:26:12-08:00",
+          "tree_id": "26df91a95baeb3cb868a5d774ebbcbd9bdb714f3",
+          "url": "https://github.com/paradedb/paradedb/commit/a7b82e334edd84456d9f4ec877424b33faa2fdf4"
+        },
+        "date": 1765312985719,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 553.5028586464502,
+            "unit": "median tps",
+            "extra": "avg tps: 558.3285321261036, max tps: 672.2254446955378, count: 54677"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3129.3920328387585,
+            "unit": "median tps",
+            "extra": "avg tps: 3108.8967479668418, max tps: 3358.367064656325, count: 54677"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 548.0350029656705,
+            "unit": "median tps",
+            "extra": "avg tps: 551.6194699725551, max tps: 686.1290567366647, count: 54677"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 461.58776389744685,
+            "unit": "median tps",
+            "extra": "avg tps: 465.702592113957, max tps: 515.967825087264, count: 54677"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3223.2495308848274,
+            "unit": "median tps",
+            "extra": "avg tps: 3277.338851879846, max tps: 3556.1783438779835, count: 109354"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2151.0619611143097,
+            "unit": "median tps",
+            "extra": "avg tps: 2137.341167343329, max tps: 2155.738773397455, count: 54677"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 123.05595203238944,
+            "unit": "median tps",
+            "extra": "avg tps: 204.35374890944885, max tps: 550.9907040441831, count: 54677"
           }
         ]
       }

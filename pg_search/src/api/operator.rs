@@ -397,10 +397,19 @@ pub unsafe fn field_name_from_node(
                         indexed_expression.cast(),
                     )) {
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let typmod =
-                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
-
-                        typmod.alias().map(FieldName::from).or_else(|| {
+                        let field_name =
+                            // if the expression was indexed as `<expression>::pdb.alias
+                            if type_is_alias(pg_sys::exprType(indexed_expression.cast())) {
+                                let typmod =
+                                    AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                                typmod.alias().map(FieldName::from)
+                            // if the expression was indexed as `<expression>::pdb.<tokenizer>
+                            } else {
+                                let typmod = UncheckedTypmod::try_from(typmod)
+                                    .unwrap_or_else(|e| panic!("{e}"));
+                                typmod.alias().map(FieldName::from)
+                            };
+                        field_name.or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })

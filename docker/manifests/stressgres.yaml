@@ -10,7 +10,8 @@ spec:
     - name: dockerhub-secret
   containers:
     - name: stressgres
-      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
+      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:v0.2.0
+      imagePullPolicy: IfNotPresent
       command:
         - sleep
         - infinity

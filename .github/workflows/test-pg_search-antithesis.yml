@@ -56,7 +56,7 @@ jobs:
           tags: |
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
-            type=raw,value=antithesis-latest
+            type=raw,value=latest-antithesis-workload
 
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
@@ -75,10 +75,10 @@ jobs:
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
 
-      - name: Patch paradedb.yaml with workload image digest
+      - name: Patch paradedb.yaml with workload image (tagged with sha)
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}|" paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ github.sha }}|" paradedb.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata
@@ -87,7 +87,7 @@ jobs:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
           tags: |
             type=sha
-            paradedb
+            type=raw,value=latest-antithesis-config
 
       - name: Build and Push Config Docker Image to Antithesis Registry
         id: build-push-config

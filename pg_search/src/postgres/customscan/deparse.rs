@@ -21,6 +21,7 @@
 use crate::nodecast;
 use crate::postgres::customscan::qual_inspect::{contains_exec_param, PlannerContext};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::find_vars;
 use pgrx::{pg_guard, pg_sys};
 
 /// Helper function to deparse an expression using a relation context.
@@ -68,7 +69,7 @@ pub unsafe fn deparse_expr(
     };
 
     // Collect all varnos referenced in the expression
-    let varnos = collect_varnos(expr_to_deparse);
+    let varnos = find_vars(expr_to_deparse);
 
     // If expression has no var references (constant expression), use heap relation context
     if varnos.is_empty() {
@@ -78,7 +79,7 @@ pub unsafe fn deparse_expr(
     // Get the PlannerInfo to access the rtable
     let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
         // No PlannerInfo available - try simple deparse for varno 1
-        if varnos.len() == 1 && varnos[0] == 1 {
+        if varnos.len() == 1 && (*varnos[0]).varno == 1 {
             return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
         }
         return node_to_string_fallback(expr_to_deparse);
@@ -98,7 +99,7 @@ pub unsafe fn deparse_expr(
 
     if varnos.len() == 1 {
         // Single varno - get RTE and deparse
-        let varno = varnos[0];
+        let varno = (*varnos[0]).varno as pg_sys::Index;
         let rte_idx = (varno - 1) as usize; // varno is 1-based
 
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
@@ -156,7 +157,7 @@ unsafe fn deparse_with_single_relation(
 unsafe fn deparse_with_full_context(
     expr: *mut pg_sys::Node,
     rtable_list: &pgrx::PgList<pg_sys::RangeTblEntry>,
-    varnos: &[pg_sys::Index],
+    var_elems: &[*mut pg_sys::Var],
 ) -> String {
     // For multi-relation expressions, we need to build a context that includes
     // all referenced relations at their correct varno positions.
@@ -165,8 +166,9 @@ unsafe fn deparse_with_full_context(
     // To handle multiple relations, we use list_concat to combine contexts.
     // Each relation is placed at its correct position by padding with nulls.
 
-    // Verify all referenced varnos are valid RTE_RELATION entries
-    for &varno in varnos {
+    // Verify all referenced var_elems are valid RTE_RELATION entries
+    for &var_elem in var_elems {
+        let varno = (*var_elem).varno as pg_sys::Index;
         let rte_idx = (varno - 1) as usize;
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
             return node_to_string_fallback(expr);
@@ -177,7 +179,11 @@ unsafe fn deparse_with_full_context(
     }
 
     // Find the maximum varno to know how big our rtable needs to be
-    let max_varno = *varnos.iter().max().unwrap_or(&1);
+    let max_varno = var_elems
+        .iter()
+        .map(|var_elem| (*(*var_elem)).varno as pg_sys::Index)
+        .max()
+        .unwrap_or(1);
 
     // Build an rtable with all entries at their correct positions
     // We need to create RTE entries for each position up to max_varno
@@ -306,37 +312,4 @@ pub unsafe fn node_to_string_fallback(expr: *mut pg_sys::Node) -> String {
     pgrx::node_to_string(expr)
         .unwrap_or("<unknown>")
         .to_string()
-}
-
-/// Collect all unique varnos (range table indices) referenced in an expression.
-pub unsafe fn collect_varnos(node: *mut pg_sys::Node) -> Vec<pg_sys::Index> {
-    if node.is_null() {
-        return Vec::new();
-    }
-
-    let mut varnos: Vec<pg_sys::Index> = Vec::new();
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        let varnos = &mut *(context as *mut Vec<pg_sys::Index>);
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let varno = (*var).varno as pg_sys::Index;
-            if !varnos.contains(&varno) {
-                varnos.push(varno);
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    walker(
-        node,
-        &mut varnos as *mut Vec<pg_sys::Index> as *mut core::ffi::c_void,
-    );
-
-    varnos
 }

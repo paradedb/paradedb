@@ -175,8 +175,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                                                                              QUERY PLAN                                                                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Scan) on documents d
@@ -194,7 +194,7 @@ ORDER BY d.id;
                        Scores: true
                           TopN Order By: pdb.score() desc
                           TopN Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"<expression>"}]}}]}}
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}"}]}}]}}
 (18 rows)
 
 SELECT d.id, d.title, d.parents,

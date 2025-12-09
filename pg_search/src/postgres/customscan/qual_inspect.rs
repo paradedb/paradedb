@@ -33,7 +33,7 @@ use tantivy::schema::OwnedValue;
 
 /// Helper function to deparse an expression using the heap relation from an index relation.
 /// Returns a human-readable SQL string representation of the expression.
-/// Falls back to a basic description if deparsing fails (e.g., for complex expressions).
+/// Falls back to nodeToString representation if deparsing fails (e.g., for complex expressions).
 ///
 /// The `rti` parameter specifies the expected range table index for this relation.
 /// We only attempt deparsing when the expression references exactly varno 1, because
@@ -45,13 +45,13 @@ unsafe fn deparse_expr_for_index(
     _rti: pg_sys::Index,
 ) -> String {
     if expr.is_null() {
-        return "<expression>".to_string();
+        return "<null>".to_string();
     }
 
     // Skip deparsing for expressions that might contain PARAM nodes (subqueries)
-    // These can cause crashes in deparse_expression
+    // These can cause crashes in deparse_expression - use nodeToString fallback
     if contains_exec_param(expr) || contains_param(expr) {
-        return "<expression>".to_string();
+        return node_to_string_fallback(expr);
     }
 
     // Collect all varnos referenced in the expression
@@ -60,14 +60,14 @@ unsafe fn deparse_expr_for_index(
     // deparse_context_for creates a context where the relation is always at varno 1.
     // We can only safely deparse if the expression references exactly varno 1.
     // For views, JOINs, or complex queries where our relation has a different varno,
-    // we fall back to a generic description.
+    // we fall back to nodeToString representation.
     if varnos.len() != 1 || varnos[0] != 1 {
-        return "<expression>".to_string();
+        return node_to_string_fallback(expr);
     }
 
     // Get the heap relation from the index relation
     let Some(heaprel) = indexrel.heap_relation() else {
-        return "<expression>".to_string();
+        return node_to_string_fallback(expr);
     };
 
     let heapname = heaprel.name().to_string();
@@ -75,17 +75,32 @@ unsafe fn deparse_expr_for_index(
 
     let heapname_cstr = match std::ffi::CString::new(heapname.as_str()) {
         Ok(s) => s,
-        Err(_) => return "<expression>".to_string(),
+        Err(_) => return node_to_string_fallback(expr),
     };
 
     // Create deparse context for our heap relation at varno 1
     let context = pg_sys::deparse_context_for(heapname_cstr.as_ptr(), heap_oid);
     let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
     if deparsed.is_null() {
-        return "<expression>".to_string();
+        return node_to_string_fallback(expr);
     }
 
     std::ffi::CStr::from_ptr(deparsed)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Convert a PostgreSQL node to its string representation using nodeToString.
+/// This provides a fallback representation when proper deparsing isn't possible.
+unsafe fn node_to_string_fallback(expr: *mut pg_sys::Node) -> String {
+    if expr.is_null() {
+        return "<null>".to_string();
+    }
+    let node_str = pg_sys::nodeToString(expr.cast());
+    if node_str.is_null() {
+        return "<unknown>".to_string();
+    }
+    std::ffi::CStr::from_ptr(node_str)
         .to_string_lossy()
         .into_owned()
 }

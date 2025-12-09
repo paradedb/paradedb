@@ -51,15 +51,10 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
                 }
             }
 
-            // Clean up field_filters in heap_filter: remove raw expr_node and rename description to filter
-            // The description field contains human-readable SQL expression
-            if obj.contains_key("expr_node") && obj.contains_key("description") {
-                // This is a HeapFieldFilter object - remove internal node representation
-                // and rename "description" to "filter" for cleaner output
+            // Clean up HeapFieldFilter objects: remove raw expr_node (internal node representation)
+            // Keep the heap_filter field which contains the human-readable SQL expression
+            if obj.contains_key("expr_node") && obj.contains_key("heap_filter") {
                 obj.remove("expr_node");
-                if let Some(description) = obj.remove("description") {
-                    obj.insert("heap_filter".to_string(), description);
-                }
             }
 
             // Remove any field named "postgres_expression" (contains pointers)
@@ -167,18 +162,18 @@ mod tests {
 
     #[test]
     fn test_cleanup_heap_filter_field_filters() {
-        // Test that expr_node is removed and description is renamed to filter
+        // Test that expr_node is removed and heap_filter is kept
         let mut value = json!({
             "heap_filter": {
                 "indexed_query": "all",
                 "field_filters": [
                     {
                         "expr_node": "{OPEXPR :opno 98 :opfuncid 67 ...}",
-                        "description": "(category = 'Electronics'::text)"
+                        "heap_filter": "(category = 'Electronics'::text)"
                     },
                     {
                         "expr_node": "{OPEXPR :opno 1754 ...}",
-                        "description": "(price > 500.00)"
+                        "heap_filter": "(price > 500.00)"
                     }
                 ]
             }
@@ -193,10 +188,10 @@ mod tests {
                     "indexed_query": "all",
                     "field_filters": [
                         {
-                            "filter": "(category = 'Electronics'::text)"
+                            "heap_filter": "(category = 'Electronics'::text)"
                         },
                         {
-                            "filter": "(price > 500.00)"
+                            "heap_filter": "(price > 500.00)"
                         }
                     ]
                 }

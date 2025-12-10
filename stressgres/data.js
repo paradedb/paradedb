@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765382423496,
+  "lastUpdate": 1765383225367,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34238,6 +34238,54 @@ window.BENCHMARK_DATA = {
             "value": 113.11174956192633,
             "unit": "median tps",
             "extra": "avg tps: 109.96426816898776, max tps: 220.1267922732915, count: 107374"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8531fe604b16cdfbf51cb0e745478f137fd56c34",
+          "message": "feat: add recursive estimates to EXPLAIN VERBOSE (#3493)\n\nCloses #3430\n\n  ## Summary\n\nImplements recursive cost estimation for EXPLAIN VERBOSE, showing\nestimated document counts for each nested query component. Helps\nidentify expensive query portions when debugging performance issues.\n\n  ## What Changed\n\n  ### Query Module (query/mod.rs)\n- Added into_tantivy_query_generic<B: QueryBuilder>() using builder\npattern for dual outputs (query-only vs query+tree)\n  - Maintained backward compatibility with existing into_tantivy_query()\n\n  ### Query Builder (query/builder.rs) - NEW\n- QueryBuilder trait with QueryOnlyBuilder (returns query) and\nQueryTreeBuilder (returns query+tree)\n\n  ### Estimate Tree (query/estimate_tree.rs) - NEW\n- QueryWithEstimates structure holds query tree with optional document\ncount estimates\n  - Supports JSON/YAML/XML serialization\n\n  ### Index Reader (index/reader/index.rs)\n  - build_query_tree_with_estimates() constructs tree with estimates\n  - estimate_docs_recursive() traverses and estimates each node\n- Protection: MAX_ESTIMATION_DEPTH=100, interrupt checking every 10\nlevels, multi-segment graceful degradation\n\n  ### EXPLAIN Output (postgres/customscan/query_explain.rs) - NEW\n  - Unified tree formatting (replaces JSON format)\n  - format_query_tree() and format_query_tree_with_estimates() methods\n\n  ### Custom Scan Explainer (postgres/customscan/explainer.rs)\n  - Modified add_query() to use tree format\n  - Added add_query_with_estimates() method\n\n  ### PDB Scan (postgres/customscan/pdbscan/mod.rs)\n- Updated explain_custom_scan() to conditionally show estimates based on\nGUC\n  - Handles both EXPLAIN ANALYZE and plain EXPLAIN\n\n  ### GUC Configuration (gucs.rs)\n- Added paradedb.explain_recursive_estimates boolean GUC (default:\nfalse)\n\n  ## Why These Changes\n\nExisting estimate_docs() only provided a single estimate for the entire\nquery. Users couldn't identify which nested boolean clauses were\nexpensive. This implements recursive estimation similar to PostgreSQL's\ncost display, helping developers optimize query structure based on\nactual cost data.\n\n  ## How It Works\n\n1. Query Tree Construction: When GUC enabled, uses QueryTreeBuilder to\nbuild tree + query\n2. Recursive Estimation: For each node, converts to Tantivy Query,\ncreates Weight, gets Scorer, uses size_hint() (fast) or\ncount_including_deleted(), scales from segment to total docs\n3. Protection: Depth limit prevents stack overflow, interrupt checking\nrespects statement_timeout, multi-segment check sets estimates to None\n4. Tree Output: Displays hierarchical tree instead of JSON: boolean\n(est: 800 docs) → must[0] (est: 1200 docs) → term: category =\n\"electronics\"\n\n  ## Note\n\n  EXPLAIN Output Format Change\n\nBefore: Tantivy Query: {\"fuzzy\": {\"field\": \"brand\", \"value\": \"Apple\",\n\"distance\": 2, ...}}\n  After: Tantivy Query: fuzzy: brand ≈ \"Apple\"\n\nTree view is more readable but omits query parameters (fuzzy distance,\nMLT settings, boost factors, phrase slop). This affects ALL queries, not\njust when estimates enabled.\n\n  Questions for Reviewers:\n1. Is simplified tree view acceptable, or preserve detailed parameters?\n  2. Provide full JSON via EXPLAIN (FORMAT JSON)?\n\n  ## Test Coverage\n\n  Unit Tests (2): QueryOnlyBuilder and QueryTreeBuilder verification\n\n  Regression Tests (41 in recursive_estimates.sql):\n- Query types: boolean, term, phrase, regex, fuzzy, wildcard, range,\nboost, const_score, more_like_this, all, empty\n  - Nesting depth: 1-10 levels (tests depth protection)\n  - Output formats: TEXT, JSON, YAML, XML\n  - GUC behavior: enabled/disabled toggle\n  - Edge cases: empty results, full scans, errors, uninitialized queries\n\nAll Tests: 83 unit tests passing, 41 SQL regression tests passing, cargo\nfmt/clippy clean",
+          "timestamp": "2025-12-10T20:32:01+05:30",
+          "tree_id": "214be46ee185d8496e0f4c562167741e98823d52",
+          "url": "https://github.com/paradedb/paradedb/commit/8531fe604b16cdfbf51cb0e745478f137fd56c34"
+        },
+        "date": 1765383222707,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 557.9392819215855,
+            "unit": "median tps",
+            "extra": "avg tps: 560.4162783170551, max tps: 714.3482266507995, count: 53582"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 628.8154228818605,
+            "unit": "median tps",
+            "extra": "avg tps: 633.0031930614372, max tps: 828.1801704455022, count: 53582"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.45648790132455,
+            "unit": "median tps",
+            "extra": "avg tps: 86.58013232834888, max tps: 95.56646662327536, count: 53582"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.27126633138384,
+            "unit": "median tps",
+            "extra": "avg tps: 107.5702168861603, max tps: 197.13688248719717, count: 107164"
           }
         ]
       }

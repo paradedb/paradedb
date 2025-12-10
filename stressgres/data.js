@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765392906899,
+  "lastUpdate": 1765392910960,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44494,6 +44494,186 @@ window.BENCHMARK_DATA = {
             "value": 29.80859375,
             "unit": "median mem",
             "extra": "avg mem: 29.1267249000615, max mem: 29.8984375, count: 53658"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7bab7a2ef420edadc91c0e2be6ef03d681d5f12",
+          "message": "feat: validate fields in `pdb.agg()` and error on invalid references (#3729)\n\n# Ticket(s) Closed\n\n- Closes #3548\n\n## What\n\nAdd field validation to `pdb.agg()` to detect and report\ninvalid/non-indexed field references instead of silently returning empty\nresults.\n\n## Why\n\nPreviously, `pdb.agg()` with an invalid field would return confusing\nempty results:\n\n```sql\nSELECT pdb.agg('{\"date_histogram\": {\"field\": \"not_valid\", \"fixed_interval\": \"30d\"}}')\nFROM mock_items WHERE id @@@ pdb.all();\n-- Returns: {\"buckets\": []}\n```\n\nThis made debugging difficult since there was no indication the field\ndidn't exist.\n\n## How\n\n- Added `validate_fields()` method to `AggregateType` that recursively\nextracts all `\"field\"` values from the aggregation JSON and checks them\nagainst the index schema\n- Validation runs during aggregation collection for both GROUP BY and\nwindow function (TopN) contexts\n- Invalid fields now produce a clear error with available field names:\n  ```\nERROR: pdb.agg() references invalid field 'not_valid'. Available indexed\nfields are: [created_at, description, id, rating]\n  ```\n\n## Tests\n\nAdded `agg-validate.sql` regression test.",
+          "timestamp": "2025-12-10T09:41:25-08:00",
+          "tree_id": "1909998e13af3ab73435bd61a66d2293cc95f54e",
+          "url": "https://github.com/paradedb/paradedb/commit/b7bab7a2ef420edadc91c0e2be6ef03d681d5f12"
+        },
+        "date": 1765392908113,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0122549548955835, max cpu: 9.320388, count: 53745"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 46.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.399045405386545, max mem: 52.58203125, count: 53745"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.047088765966922, max cpu: 4.5933013, count: 53745"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.171782258814773, max mem: 30.546875, count: 53745"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.292728469615598, max cpu: 18.426102, count: 53745"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 48.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.6842971584566, max mem: 55.05078125, count: 53745"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.965782414386557, max cpu: 9.257474, count: 53745"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 46.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.18370284445065, max mem: 52.265625, count: 53745"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.651086082600666, max cpu: 9.221902, count: 53745"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.043297414294354, max mem: 35.37890625, count: 53745"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1106,
+            "unit": "median pages",
+            "extra": "avg pages: 1112.0342729556237, max pages: 1864.0, count: 53745"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.640625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.68776819355289, max relation_size:MB: 14.5625, count: 53745"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.026104753930598, max segment_count: 21.0, count: 53745"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.061259244853225, max cpu: 4.5845275, count: 53745"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.379189415875896, max mem: 27.47265625, count: 53745"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.621540117021044, max cpu: 4.5757866, count: 53745"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 26.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.28156667189971, max mem: 27.4453125, count: 53745"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.644651297861655, max cpu: 22.922636, count: 53745"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 44.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.229610894036654, max mem: 50.3046875, count: 53745"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000035924944326216396, max replication_lag:MB: 0.318939208984375, count: 53745"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.102833315805875, max cpu: 13.714285, count: 107490"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 44.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.77963495150712, max mem: 51.0546875, count: 107490"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.285792409521525, max cpu: 4.5845275, count: 53745"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.485120708903153, max mem: 30.2109375, count: 53745"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.376060939266101, max cpu: 4.58891, count: 53745"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.667804853939902, max mem: 30.75, count: 53745"
           }
         ]
       }

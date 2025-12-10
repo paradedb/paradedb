@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765383229342,
+  "lastUpdate": 1765387517082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3818,6 +3818,72 @@ window.BENCHMARK_DATA = {
             "value": 259.5090452177144,
             "unit": "median tps",
             "extra": "avg tps: 310.3822338045151, max tps: 537.561271708068, count: 54717"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee7d7e72672cc81dc3f219087b997646a1942f7c",
+          "message": "fix: Revert numeric pushdown for now (#3740)\n\n## What\n\nTemporarily revert #2978.\n\nAs demonstrated in the new test added in `anynumeric-conversion`, the\n`AnyNumeric` conversion added in #2978 triggers during indexing, and can\ncause valid `AnyNumeric` values which are being used directly in columns\n(outside of JSON columns) to fail to match the schema.\n\n## Why\n\nTo fix indexing of `AnyNumeric` values while preserving the numeric\npushdown, the cases which were added to `impl TryFrom<pgrx::AnyNumeric>\nfor TantivyValue` will likely need to be moved to JSON-specific query\nparsing codepaths.\n\nIt's also possible that our strategy for indexing `numeric` columns\nneeds a rethink to explicitly bound it to particular bitwidths (and then\nsupport those bitwidths in Tantivy). Finally, we should potentially\nbound numeric pushdown on JSON to values which we know JSON can\nrepresent precisely, and then let Postgres deal with JSON values between\n2^53 and 2^64, for example.",
+          "timestamp": "2025-12-10T09:06:47-08:00",
+          "tree_id": "16497675323aff89a80dc7c03d2ce19d2281f352",
+          "url": "https://github.com/paradedb/paradedb/commit/ee7d7e72672cc81dc3f219087b997646a1942f7c"
+        },
+        "date": 1765387514413,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 575.717340500358,
+            "unit": "median tps",
+            "extra": "avg tps: 583.0550752910294, max tps: 628.7844507785777, count: 55250"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3183.393849805403,
+            "unit": "median tps",
+            "extra": "avg tps: 3155.016157894757, max tps: 3251.881177128956, count: 55250"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 548.6157782679988,
+            "unit": "median tps",
+            "extra": "avg tps: 555.6136987115566, max tps: 617.9711327942119, count: 55250"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 480.4016652984319,
+            "unit": "median tps",
+            "extra": "avg tps: 485.01136001274455, max tps: 523.8796164999417, count: 55250"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3323.4443937785118,
+            "unit": "median tps",
+            "extra": "avg tps: 3310.158690338448, max tps: 3335.646740974772, count: 110500"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2174.976898377814,
+            "unit": "median tps",
+            "extra": "avg tps: 2154.7072954288856, max tps: 2185.714813293576, count: 55250"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 96.07014131379556,
+            "unit": "median tps",
+            "extra": "avg tps: 120.21385748524267, max tps: 475.18011793751214, count: 55250"
           }
         ]
       }

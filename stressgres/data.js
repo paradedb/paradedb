@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765316284412,
+  "lastUpdate": 1765325462840,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3686,6 +3686,72 @@ window.BENCHMARK_DATA = {
             "value": 123.05595203238944,
             "unit": "median tps",
             "extra": "avg tps: 204.35374890944885, max tps: 550.9907040441831, count: 54677"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96c0fe1a2166b43169bdc0730a5479de83e4b470",
+          "message": "fix: MAX/MIN aggregate pushdown for date/datetime types (#3725)\n\n## Ticket(s) Closed\n\n- Closes #3574\n\n## What\n\nFixed `MAX` and `MIN` aggregate pushdown returning null values for date,\ntimestamp, timestamptz, time, and timetz columns.\n\n## Why\n\nWhen aggregate pushdown was enabled, queries like `SELECT max(d) FROM\ntable WHERE id @@@ pdb.all()` on date columns returned null instead of\nthe actual max value.\n\nThe root cause: Tantivy stores DateTime values as nanoseconds in fast\nfields and returns them as `f64` from MIN/MAX aggregates. The code was\ntrying to convert this `f64` directly to PostgreSQL date types via\n`TantivyValue(OwnedValue::F64(value))`, but the conversion from `F64` to\ndate types isn't supported—only `OwnedValue::Date` can be converted to\ndates.\n\n## How\n\nAdded special handling in `aggregate_result_to_datum` for date/time\ntypes:\n1. Detect when the expected PostgreSQL type is a date/time type using\nnew `is_datetime_type()` helper\n2. Convert the f64 value (nanoseconds) back to a `tantivy::DateTime`\nusing `from_timestamp_nanos()`\n3. Wrap it in `TantivyValue(OwnedValue::Date(...))` so the existing\nconversion to PostgreSQL types works\n\n## Tests\n\nAdded `agg-max-pushdown` regression test.",
+          "timestamp": "2025-12-09T15:54:18-08:00",
+          "tree_id": "d8c846acfedf981464379acab7535c4bf7b13797",
+          "url": "https://github.com/paradedb/paradedb/commit/96c0fe1a2166b43169bdc0730a5479de83e4b470"
+        },
+        "date": 1765325460273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 567.6754200473524,
+            "unit": "median tps",
+            "extra": "avg tps: 573.8538212401377, max tps: 698.7835033275793, count: 55133"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3176.664014739757,
+            "unit": "median tps",
+            "extra": "avg tps: 3143.1414272468473, max tps: 3195.3404727126576, count: 55133"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 576.7779885619061,
+            "unit": "median tps",
+            "extra": "avg tps: 583.5569516424276, max tps: 660.1249439042597, count: 55133"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 469.64493709130187,
+            "unit": "median tps",
+            "extra": "avg tps: 475.2679255674772, max tps: 553.8761380796074, count: 55133"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3326.101330753032,
+            "unit": "median tps",
+            "extra": "avg tps: 3286.6738011912357, max tps: 3405.94062903056, count: 110266"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2168.7733295344315,
+            "unit": "median tps",
+            "extra": "avg tps: 2139.6724973360156, max tps: 2179.178444249103, count: 55133"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 126.18158765802418,
+            "unit": "median tps",
+            "extra": "avg tps: 151.081467587978, max tps: 621.2638743754745, count: 55133"
           }
         ]
       }

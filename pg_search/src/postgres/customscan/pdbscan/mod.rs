@@ -775,6 +775,17 @@ impl CustomScan for PdbScan {
                             root,
                             rti,
                         );
+
+                        // Validate that all fields in window aggregates exist in the index schema
+                        if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
+                            for window_agg in &window_aggregates {
+                                for agg_type in window_agg.targetlist.aggregates() {
+                                    if let Err(e) = agg_type.validate_fields(&schema) {
+                                        pgrx::error!("{}", e);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

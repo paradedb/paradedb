@@ -65,3 +65,629 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 }
+
+// ============================================================================
+// Field-agnostic JSON search tests (Issue #2769)
+// ============================================================================
+
+#[rstest]
+fn field_agnostic_term_finds_json_string(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"name": "alice", "age": 30}');
+    INSERT INTO test_table (data) VALUES ('{"name": "bob", "age": 25}');
+    INSERT INTO test_table (data) VALUES ('{"nested": {"value": "alice"}}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic term should find "alice" in JSON
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.term(value => 'alice')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_term_finds_json_numeric(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"count": 42}');
+    INSERT INTO test_table (data) VALUES ('{"count": 100}');
+    INSERT INTO test_table (data) VALUES ('{"nested": {"count": 42}}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic term should find numeric 42 in JSON
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.term(value => 42)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_match_tokenizes_json_strings(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"description": "hello world"}');
+    INSERT INTO test_table (data) VALUES ('{"description": "goodbye world"}');
+    INSERT INTO test_table (data) VALUES ('{"title": "hello there"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic match should tokenize and find "hello"
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn lenient_parse_finds_json_values(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"status": "active"}');
+    INSERT INTO test_table (data) VALUES ('{"status": "inactive"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Lenient parse should find values in JSON
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.parse('active', lenient => true)
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+}
+
+#[rstest]
+fn mixed_schema_text_and_json(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        metadata JSONB
+    );
+
+    INSERT INTO test_table (title, metadata) VALUES ('hello', '{"tag": "world"}');
+    INSERT INTO test_table (title, metadata) VALUES ('world', '{"tag": "hello"}');
+    INSERT INTO test_table (title, metadata) VALUES ('other', '{"tag": "other"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, title, metadata) WITH (
+        key_field='id',
+        text_fields='{"title": {}}',
+        json_fields='{"metadata": {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Should find "hello" in both TEXT and JSON fields
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.term(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1); // title = 'hello'
+    assert_eq!(rows[1].0, 2); // metadata.tag = 'hello'
+}
+
+#[rstest]
+fn field_agnostic_no_match_returns_empty(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"name": "alice"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Should return no results for non-existent value
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.term(value => 'nonexistent')
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 0);
+}
+
+#[rstest]
+fn field_agnostic_term_finds_json_bool(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"active": true}');
+    INSERT INTO test_table (data) VALUES ('{"active": false}');
+    INSERT INTO test_table (data) VALUES ('{"nested": {"active": true}}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic term should find boolean true in JSON
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.term(value => true)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_fuzzy_match_finds_json_string(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"name": "alice"}');
+    INSERT INTO test_table (data) VALUES ('{"name": "bob"}');
+    INSERT INTO test_table (data) VALUES ('{"name": "alise"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Fuzzy match with distance=1 should find both "alice" and "alise" (1 char difference)
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'alice', distance => 1)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1); // "alice" exact match
+    assert_eq!(rows[1].0, 3); // "alise" is 1 edit away
+}
+
+#[rstest]
+fn field_agnostic_prefix_match_finds_json_string(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"name": "alexander"}');
+    INSERT INTO test_table (data) VALUES ('{"name": "bob"}');
+    INSERT INTO test_table (data) VALUES ('{"name": "alexis"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Prefix match with distance=1 should match words starting with "alx" (typo for "alex")
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'alx', distance => 1, prefix => true)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1); // "alexander" starts with "alex" (distance 1 from "alx")
+    assert_eq!(rows[1].0, 3); // "alexis" starts with "alex" (distance 1 from "alx")
+}
+
+#[rstest]
+fn field_agnostic_transposition_cost_one_works(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    INSERT INTO test_table (data) VALUES ('{"word": "the"}');
+    INSERT INTO test_table (data) VALUES ('{"word": "cat"}');
+
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // With transposition_cost_one=true (default), 'teh' -> 'the' is 1 edit (swap e and h)
+    let rows_true: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'teh', distance => 1, transposition_cost_one => true)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows_true.len(), 1);
+    assert_eq!(rows_true[0].0, 1); // "the" found with transposition
+
+    // With transposition_cost_one=false, 'teh' -> 'the' is 2 edits, so distance=1 won't match
+    let rows_false: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'teh', distance => 1, transposition_cost_one => false)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows_false.len(), 0); // No match when transposition counts as 2
+}
+
+#[rstest]
+fn field_agnostic_match_with_expand_dots_false(mut conn: PgConnection) {
+    // Test that literal dot keys work correctly when expand_dots=false
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    -- JSON with a literal dot in the key name (not nested)
+    INSERT INTO test_table (data) VALUES ('{"user.name": "alice"}');
+    -- JSON with actual nested structure
+    INSERT INTO test_table (data) VALUES ('{"user": {"name": "bob"}}');
+
+    -- Create index with expand_dots=false so "user.name" stays as a literal key
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {"expand_dots": false}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic match should find "alice" in the literal "user.name" key
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'alice')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1); // Found in literal "user.name" key
+
+    // Should also find "bob" in the nested structure
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'bob')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 2); // Found in nested user.name
+}
+
+#[rstest]
+fn field_agnostic_match_with_expand_dots_true(mut conn: PgConnection) {
+    // Test that nested paths work correctly when expand_dots=true (default)
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    -- JSON with nested structure
+    INSERT INTO test_table (data) VALUES ('{"user": {"profile": {"name": "alice"}}}');
+    INSERT INTO test_table (data) VALUES ('{"user": {"profile": {"name": "bob"}}}');
+
+    -- Create index with expand_dots=true (default)
+    CREATE INDEX test_idx ON test_table
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {"expand_dots": true}}');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic match should find "alice" in deeply nested path
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'alice')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+
+    // Should find "bob" too
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_table WHERE test_table.id @@@ paradedb.match(value => 'bob')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 2);
+}
+
+// ============================================================================
+// Field-agnostic search tests for TEXT fields
+// These tests verify that field-agnostic search works on plain text columns
+// ============================================================================
+
+#[rstest]
+fn field_agnostic_term_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        description TEXT
+    );
+
+    INSERT INTO test_text (title, description) VALUES ('hello', 'world');
+    INSERT INTO test_text (title, description) VALUES ('goodbye', 'universe');
+    INSERT INTO test_text (title, description) VALUES ('hello', 'there');
+
+    CREATE INDEX test_text_idx ON test_text
+    USING bm25 (id, title, description) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic term should find "hello" in title field
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text WHERE test_text.id @@@ paradedb.term(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+
+    // Field-agnostic term should find "world" in description field
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_text WHERE test_text.id @@@ paradedb.term(value => 'world')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_match_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text_match (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    INSERT INTO test_text_match (title, content) VALUES ('quick brown fox', 'jumps over lazy dog');
+    INSERT INTO test_text_match (title, content) VALUES ('slow white cat', 'sleeps on warm bed');
+    INSERT INTO test_text_match (title, content) VALUES ('fast red bird', 'flies through blue sky');
+
+    CREATE INDEX test_text_match_idx ON test_text_match
+    USING bm25 (id, title, content) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Field-agnostic match should find "quick" in title
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_match WHERE test_text_match.id @@@ paradedb.match(value => 'quick')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+
+    // Field-agnostic match should find "lazy" in content
+    let rows2: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_match WHERE test_text_match.id @@@ paradedb.match(value => 'lazy')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_fuzzy_match_on_text_field(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_text_fuzzy (
+        id SERIAL PRIMARY KEY,
+        name TEXT
+    );
+
+    INSERT INTO test_text_fuzzy (name) VALUES ('restaurant');
+    INSERT INTO test_text_fuzzy (name) VALUES ('pharmacy');
+    INSERT INTO test_text_fuzzy (name) VALUES ('hospital');
+
+    CREATE INDEX test_text_fuzzy_idx ON test_text_fuzzy
+    USING bm25 (id, name) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Fuzzy match with distance=2 should find "restaurant" even with typo "restarant"
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_text_fuzzy WHERE test_text_fuzzy.id @@@ paradedb.match(value => 'restarant', distance => 2)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 1);
+}
+
+#[rstest]
+fn field_agnostic_search_mixed_text_and_json(mut conn: PgConnection) {
+    // Test that field-agnostic search works when both text and JSON fields are indexed
+    r#"
+    CREATE TABLE test_mixed (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        metadata JSONB
+    );
+
+    INSERT INTO test_mixed (title, metadata) VALUES ('hello world', '{"tag": "greeting"}');
+    INSERT INTO test_mixed (title, metadata) VALUES ('goodbye world', '{"tag": "farewell"}');
+    INSERT INTO test_mixed (title, metadata) VALUES ('test document', '{"tag": "hello"}');
+
+    CREATE INDEX test_mixed_idx ON test_mixed
+    USING bm25 (id, title, metadata) WITH (key_field='id', json_fields='{"metadata": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Should find "hello" in both text title (row 1) and JSON metadata (row 3)
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_mixed WHERE test_mixed.id @@@ paradedb.match(value => 'hello')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_match_single_positional_arg(mut conn: PgConnection) {
+    // Test the exact syntax requested in issue #2769: paradedb.match('search term')
+    r#"
+    CREATE TABLE test_single_arg (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        content TEXT
+    );
+
+    INSERT INTO test_single_arg (title, content) VALUES ('running shoes', 'for athletes');
+    INSERT INTO test_single_arg (title, content) VALUES ('walking boots', 'for hikers');
+    INSERT INTO test_single_arg (title, content) VALUES ('athletic gear', 'running equipment');
+
+    CREATE INDEX test_single_arg_idx ON test_single_arg
+    USING bm25 (id, title, content) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Use the exact syntax: paradedb.match('running') - single positional argument
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM test_single_arg WHERE test_single_arg.id @@@ paradedb.match('running')
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[1].0, 3);
+}
+
+#[rstest]
+fn field_agnostic_json_path_enumeration_guardrail(mut conn: PgConnection) {
+    // Test that the JSON path enumeration guardrail works correctly.
+    // When there are more paths than the limit, only first N paths are searched.
+    //
+    // We use alphabetically sorted keys (aaa, bbb, ccc, ...) so the term dictionary
+    // order is predictable. The value "hidden" is placed in "zzz" which should be
+    // outside the guardrail limit when set low.
+    r#"
+    CREATE TABLE test_guardrail (
+        id SERIAL PRIMARY KEY,
+        data JSONB
+    );
+
+    -- Insert document with alphabetically ordered keys
+    -- "hidden" is in "zzz" which will be last in term dictionary order
+    INSERT INTO test_guardrail (data) VALUES ('{
+        "aaa": "first",
+        "bbb": "second",
+        "ccc": "third",
+        "ddd": "fourth",
+        "eee": "fifth",
+        "zzz": "hidden"
+    }');
+
+    CREATE INDEX test_guardrail_idx ON test_guardrail
+    USING bm25 (id, data) WITH (key_field='id', json_fields='{"data": {}}');
+    "#
+    .execute(&mut conn);
+
+    // Set guardrail to 3 paths: will search "", "aaa", "bbb" only
+    // "zzz" path won't be searched, so "hidden" won't be found
+    r#"SET paradedb.max_json_path_enumeration = 3"#.execute(&mut conn);
+
+    let rows_limited: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'hidden')
+    "#
+    .fetch(&mut conn);
+
+    // "hidden" is in "zzz" which is outside the first 3 paths - should NOT be found
+    assert_eq!(
+        rows_limited.len(),
+        0,
+        "Guardrail should prevent finding 'hidden' in 'zzz' path"
+    );
+
+    // Value in early path should still be found
+    let rows_early: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'first')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(
+        rows_early.len(),
+        1,
+        "Value in 'aaa' path should be found within guardrail limit"
+    );
+
+    // Reset to default and verify "hidden" CAN be found
+    r#"SET paradedb.max_json_path_enumeration = 1000"#.execute(&mut conn);
+
+    let rows_full: Vec<(i32,)> = r#"
+        SELECT id FROM test_guardrail WHERE test_guardrail.id @@@ paradedb.term(value => 'hidden')
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        rows_full.len(),
+        1,
+        "With high guardrail, 'hidden' in 'zzz' should be found"
+    );
+    assert_eq!(rows_full[0].0, 1);
+}

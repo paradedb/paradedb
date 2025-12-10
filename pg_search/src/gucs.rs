@@ -94,6 +94,10 @@ static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 
+/// Maximum number of JSON paths to enumerate when performing field-agnostic search.
+/// This is a guardrail to prevent performance issues with documents that have many unique paths.
+static MAX_JSON_PATH_ENUMERATION: GucSetting<i32> = GucSetting::<i32>::new(1000);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -270,6 +274,19 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_json_path_enumeration",
+        c"Maximum number of JSON paths to enumerate for field-agnostic search",
+        c"Limits the number of unique JSON paths scanned when using field-agnostic \
+          term or match queries. Higher values increase coverage but may impact performance \
+          for documents with many unique JSON paths. A warning is logged when this limit is reached.",
+        &MAX_JSON_PATH_ENUMERATION,
+        1,
+        100_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -404,6 +421,10 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
 
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn max_json_path_enumeration() -> usize {
+    MAX_JSON_PATH_ENUMERATION.get() as usize
 }
 
 #[cfg(any(test, feature = "pg_test"))]

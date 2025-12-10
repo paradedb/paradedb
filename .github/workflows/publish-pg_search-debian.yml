@@ -24,6 +24,7 @@ concurrency:
 
 # Used by actions/attest-build-provenance to sign the builds
 permissions:
+  contents: write
   id-token: write
   attestations: write
 

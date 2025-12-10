@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765328749594,
+  "lastUpdate": 1765379941440,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3752,6 +3752,72 @@ window.BENCHMARK_DATA = {
             "value": 126.18158765802418,
             "unit": "median tps",
             "extra": "avg tps: 151.081467587978, max tps: 621.2638743754745, count: 55133"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8531fe604b16cdfbf51cb0e745478f137fd56c34",
+          "message": "feat: add recursive estimates to EXPLAIN VERBOSE (#3493)\n\nCloses #3430\n\n  ## Summary\n\nImplements recursive cost estimation for EXPLAIN VERBOSE, showing\nestimated document counts for each nested query component. Helps\nidentify expensive query portions when debugging performance issues.\n\n  ## What Changed\n\n  ### Query Module (query/mod.rs)\n- Added into_tantivy_query_generic<B: QueryBuilder>() using builder\npattern for dual outputs (query-only vs query+tree)\n  - Maintained backward compatibility with existing into_tantivy_query()\n\n  ### Query Builder (query/builder.rs) - NEW\n- QueryBuilder trait with QueryOnlyBuilder (returns query) and\nQueryTreeBuilder (returns query+tree)\n\n  ### Estimate Tree (query/estimate_tree.rs) - NEW\n- QueryWithEstimates structure holds query tree with optional document\ncount estimates\n  - Supports JSON/YAML/XML serialization\n\n  ### Index Reader (index/reader/index.rs)\n  - build_query_tree_with_estimates() constructs tree with estimates\n  - estimate_docs_recursive() traverses and estimates each node\n- Protection: MAX_ESTIMATION_DEPTH=100, interrupt checking every 10\nlevels, multi-segment graceful degradation\n\n  ### EXPLAIN Output (postgres/customscan/query_explain.rs) - NEW\n  - Unified tree formatting (replaces JSON format)\n  - format_query_tree() and format_query_tree_with_estimates() methods\n\n  ### Custom Scan Explainer (postgres/customscan/explainer.rs)\n  - Modified add_query() to use tree format\n  - Added add_query_with_estimates() method\n\n  ### PDB Scan (postgres/customscan/pdbscan/mod.rs)\n- Updated explain_custom_scan() to conditionally show estimates based on\nGUC\n  - Handles both EXPLAIN ANALYZE and plain EXPLAIN\n\n  ### GUC Configuration (gucs.rs)\n- Added paradedb.explain_recursive_estimates boolean GUC (default:\nfalse)\n\n  ## Why These Changes\n\nExisting estimate_docs() only provided a single estimate for the entire\nquery. Users couldn't identify which nested boolean clauses were\nexpensive. This implements recursive estimation similar to PostgreSQL's\ncost display, helping developers optimize query structure based on\nactual cost data.\n\n  ## How It Works\n\n1. Query Tree Construction: When GUC enabled, uses QueryTreeBuilder to\nbuild tree + query\n2. Recursive Estimation: For each node, converts to Tantivy Query,\ncreates Weight, gets Scorer, uses size_hint() (fast) or\ncount_including_deleted(), scales from segment to total docs\n3. Protection: Depth limit prevents stack overflow, interrupt checking\nrespects statement_timeout, multi-segment check sets estimates to None\n4. Tree Output: Displays hierarchical tree instead of JSON: boolean\n(est: 800 docs) → must[0] (est: 1200 docs) → term: category =\n\"electronics\"\n\n  ## Note\n\n  EXPLAIN Output Format Change\n\nBefore: Tantivy Query: {\"fuzzy\": {\"field\": \"brand\", \"value\": \"Apple\",\n\"distance\": 2, ...}}\n  After: Tantivy Query: fuzzy: brand ≈ \"Apple\"\n\nTree view is more readable but omits query parameters (fuzzy distance,\nMLT settings, boost factors, phrase slop). This affects ALL queries, not\njust when estimates enabled.\n\n  Questions for Reviewers:\n1. Is simplified tree view acceptable, or preserve detailed parameters?\n  2. Provide full JSON via EXPLAIN (FORMAT JSON)?\n\n  ## Test Coverage\n\n  Unit Tests (2): QueryOnlyBuilder and QueryTreeBuilder verification\n\n  Regression Tests (41 in recursive_estimates.sql):\n- Query types: boolean, term, phrase, regex, fuzzy, wildcard, range,\nboost, const_score, more_like_this, all, empty\n  - Nesting depth: 1-10 levels (tests depth protection)\n  - Output formats: TEXT, JSON, YAML, XML\n  - GUC behavior: enabled/disabled toggle\n  - Edge cases: empty results, full scans, errors, uninitialized queries\n\nAll Tests: 83 unit tests passing, 41 SQL regression tests passing, cargo\nfmt/clippy clean",
+          "timestamp": "2025-12-10T20:32:01+05:30",
+          "tree_id": "214be46ee185d8496e0f4c562167741e98823d52",
+          "url": "https://github.com/paradedb/paradedb/commit/8531fe604b16cdfbf51cb0e745478f137fd56c34"
+        },
+        "date": 1765379938140,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 564.853262562256,
+            "unit": "median tps",
+            "extra": "avg tps: 566.5917969812069, max tps: 715.2920133661509, count: 54717"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3119.5384616192164,
+            "unit": "median tps",
+            "extra": "avg tps: 3080.6538892681897, max tps: 3214.0112784635216, count: 54717"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 551.4101211880411,
+            "unit": "median tps",
+            "extra": "avg tps: 553.527466620802, max tps: 674.5007262608743, count: 54717"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 486.9708043276606,
+            "unit": "median tps",
+            "extra": "avg tps: 489.01687838846453, max tps: 523.9083703028198, count: 54717"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3267.861649773685,
+            "unit": "median tps",
+            "extra": "avg tps: 3271.402804075655, max tps: 3515.2835896447887, count: 109434"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2160.810539732716,
+            "unit": "median tps",
+            "extra": "avg tps: 2126.6847616222167, max tps: 2172.5635963421905, count: 54717"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 259.5090452177144,
+            "unit": "median tps",
+            "extra": "avg tps: 310.3822338045151, max tps: 537.561271708068, count: 54717"
           }
         ]
       }

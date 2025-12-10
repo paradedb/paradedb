@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765390779226,
+  "lastUpdate": 1765390783392,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24712,6 +24712,108 @@ window.BENCHMARK_DATA = {
             "value": 159.33984375,
             "unit": "median mem",
             "extra": "avg mem: 179.59822655435377, max mem: 219.76953125, count: 56583"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fc5f69719c8669ae9d635e98ce0b36f45f9408e",
+          "message": "feat: human-readable EXPLAIN output for HeapFilter (#3734)\n\n# Ticket(s) Closed\n\n- Closes #2777\n\n## What\n\nMakes `HeapFilter` expressions in EXPLAIN output human-readable instead\nof showing raw PostgreSQL node representations.\n\n**Before:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"expr_node\":\"{OPEXPR :opno 98 :opfuncid 67 ...}\"}]}}\n```\n\n**After:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"heap_filter\":\"(category = 'Electronics'::text)\"}]}}\n```\n\n## Why\n\nThe internal `nodeToString` representation (`{OPEXPR :opno 98 ...}`) is\nunreadable and unhelpful for debugging queries. Users need to see actual\nSQL expressions to understand what filters are being applied.\n\n## How\n\n- Created `pg_search/src/postgres/customscan/deparse.rs` with expression\ndeparsing utilities\n- Handles all cases with human-readable output:\n- **Simple expressions (varno 1):** deparse directly → `(price <\n200.00)`\n- **Single-table expressions with varno != 1 (JOINs, views):** remap\nvarno and deparse → `(author_id = ANY (...))`\n- **Prepared statement params (`PARAM_EXTERN`):** deparse as `$N` → `($2\n= 0)`\n- **Correlated subquery params (`PARAM_EXEC`):** clone, convert to\n`PARAM_EXTERN`, deparse → `(documentid = $1)`\n- **Multi-table expressions:** fall back to `nodeToString` (complex\ncontext required)\n- Renamed `description` field to `heap_filter` in `HeapFieldFilter`\nstruct\n- Updated `cleanup_json_for_explain()` to strip internal `expr_node`\nfield from output\n\n## Tests\n\n- Updated existing regression test expected outputs to reflect new\nreadable format\n- Added unit test `test_cleanup_heap_filter_field_filters` for cleanup\nfunction\n- All existing regression tests pass",
+          "timestamp": "2025-12-10T09:32:53-08:00",
+          "tree_id": "12a81600473e6e15c9b92c59c1caaf105c4fa515",
+          "url": "https://github.com/paradedb/paradedb/commit/7fc5f69719c8669ae9d635e98ce0b36f45f9408e"
+        },
+        "date": 1765390780541,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08194412252393603, max background_merging: 2.0, count: 56087"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7017264840649675, max cpu: 9.657948, count: 56087"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.750493025901726, max mem: 22.765625, count: 56087"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.02369961516511, max cpu: 11.474104, count: 56087"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.8267971939799, max mem: 165.29296875, count: 56087"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64936,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64832.84672027386, max block_count: 64936.0, count: 56087"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.66560878634978, max segment_count: 56.0, count: 56087"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6095146899443815, max cpu: 9.467456, count: 56087"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 113.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 104.45108025533992, max mem: 131.13671875, count: 56087"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7308182280201505, max cpu: 9.628887, count: 56087"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.8102291835675, max mem: 165.09765625, count: 56087"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.040460486896993, max cpu: 33.939396, count: 56087"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 178.58202916061208, max mem: 220.015625, count: 56087"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765383225367,
+  "lastUpdate": 1765383229342,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41842,6 +41842,186 @@ window.BENCHMARK_DATA = {
             "value": 29.58203125,
             "unit": "median mem",
             "extra": "avg mem: 28.869320159559113, max mem: 29.66796875, count: 53687"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8531fe604b16cdfbf51cb0e745478f137fd56c34",
+          "message": "feat: add recursive estimates to EXPLAIN VERBOSE (#3493)\n\nCloses #3430\n\n  ## Summary\n\nImplements recursive cost estimation for EXPLAIN VERBOSE, showing\nestimated document counts for each nested query component. Helps\nidentify expensive query portions when debugging performance issues.\n\n  ## What Changed\n\n  ### Query Module (query/mod.rs)\n- Added into_tantivy_query_generic<B: QueryBuilder>() using builder\npattern for dual outputs (query-only vs query+tree)\n  - Maintained backward compatibility with existing into_tantivy_query()\n\n  ### Query Builder (query/builder.rs) - NEW\n- QueryBuilder trait with QueryOnlyBuilder (returns query) and\nQueryTreeBuilder (returns query+tree)\n\n  ### Estimate Tree (query/estimate_tree.rs) - NEW\n- QueryWithEstimates structure holds query tree with optional document\ncount estimates\n  - Supports JSON/YAML/XML serialization\n\n  ### Index Reader (index/reader/index.rs)\n  - build_query_tree_with_estimates() constructs tree with estimates\n  - estimate_docs_recursive() traverses and estimates each node\n- Protection: MAX_ESTIMATION_DEPTH=100, interrupt checking every 10\nlevels, multi-segment graceful degradation\n\n  ### EXPLAIN Output (postgres/customscan/query_explain.rs) - NEW\n  - Unified tree formatting (replaces JSON format)\n  - format_query_tree() and format_query_tree_with_estimates() methods\n\n  ### Custom Scan Explainer (postgres/customscan/explainer.rs)\n  - Modified add_query() to use tree format\n  - Added add_query_with_estimates() method\n\n  ### PDB Scan (postgres/customscan/pdbscan/mod.rs)\n- Updated explain_custom_scan() to conditionally show estimates based on\nGUC\n  - Handles both EXPLAIN ANALYZE and plain EXPLAIN\n\n  ### GUC Configuration (gucs.rs)\n- Added paradedb.explain_recursive_estimates boolean GUC (default:\nfalse)\n\n  ## Why These Changes\n\nExisting estimate_docs() only provided a single estimate for the entire\nquery. Users couldn't identify which nested boolean clauses were\nexpensive. This implements recursive estimation similar to PostgreSQL's\ncost display, helping developers optimize query structure based on\nactual cost data.\n\n  ## How It Works\n\n1. Query Tree Construction: When GUC enabled, uses QueryTreeBuilder to\nbuild tree + query\n2. Recursive Estimation: For each node, converts to Tantivy Query,\ncreates Weight, gets Scorer, uses size_hint() (fast) or\ncount_including_deleted(), scales from segment to total docs\n3. Protection: Depth limit prevents stack overflow, interrupt checking\nrespects statement_timeout, multi-segment check sets estimates to None\n4. Tree Output: Displays hierarchical tree instead of JSON: boolean\n(est: 800 docs) → must[0] (est: 1200 docs) → term: category =\n\"electronics\"\n\n  ## Note\n\n  EXPLAIN Output Format Change\n\nBefore: Tantivy Query: {\"fuzzy\": {\"field\": \"brand\", \"value\": \"Apple\",\n\"distance\": 2, ...}}\n  After: Tantivy Query: fuzzy: brand ≈ \"Apple\"\n\nTree view is more readable but omits query parameters (fuzzy distance,\nMLT settings, boost factors, phrase slop). This affects ALL queries, not\njust when estimates enabled.\n\n  Questions for Reviewers:\n1. Is simplified tree view acceptable, or preserve detailed parameters?\n  2. Provide full JSON via EXPLAIN (FORMAT JSON)?\n\n  ## Test Coverage\n\n  Unit Tests (2): QueryOnlyBuilder and QueryTreeBuilder verification\n\n  Regression Tests (41 in recursive_estimates.sql):\n- Query types: boolean, term, phrase, regex, fuzzy, wildcard, range,\nboost, const_score, more_like_this, all, empty\n  - Nesting depth: 1-10 levels (tests depth protection)\n  - Output formats: TEXT, JSON, YAML, XML\n  - GUC behavior: enabled/disabled toggle\n  - Edge cases: empty results, full scans, errors, uninitialized queries\n\nAll Tests: 83 unit tests passing, 41 SQL regression tests passing, cargo\nfmt/clippy clean",
+          "timestamp": "2025-12-10T20:32:01+05:30",
+          "tree_id": "214be46ee185d8496e0f4c562167741e98823d52",
+          "url": "https://github.com/paradedb/paradedb/commit/8531fe604b16cdfbf51cb0e745478f137fd56c34"
+        },
+        "date": 1765383226646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.97975816071182, max cpu: 9.257474, count: 53582"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 46.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.506089235890784, max mem: 52.578125, count: 53582"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.260564337719503, max cpu: 4.6021094, count: 53582"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.36473681693479, max mem: 29.46875, count: 53582"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.822813467877137, max cpu: 18.443804, count: 53582"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 48.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.361285477165836, max mem: 54.6953125, count: 53582"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9498463606110565, max cpu: 9.29332, count: 53582"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 46.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.22996791133217, max mem: 52.29296875, count: 53582"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.657978134083928, max cpu: 9.17782, count: 53582"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.080904691057633, max mem: 35.24609375, count: 53582"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1113,
+            "unit": "median pages",
+            "extra": "avg pages: 1118.3542420962262, max pages: 1869.0, count: 53582"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6953125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.737142589279049, max relation_size:MB: 14.6015625, count: 53582"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.79718935463402, max segment_count: 18.0, count: 53582"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.462049960129171, max cpu: 4.5845275, count: 53582"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 26.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.97341764141876, max mem: 27.02734375, count: 53582"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5283017,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.091307115596693, max cpu: 9.151573, count: 53582"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 26.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.936415505673548, max mem: 27.03515625, count: 53582"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.844411027585523, max cpu: 13.88621, count: 53582"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 44.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.32799968097962, max mem: 50.36328125, count: 53582"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00001808147424012495, max replication_lag:MB: 0.170257568359375, count: 53582"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.102625858730884, max cpu: 9.257474, count: 107164"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.08179245857984, max mem: 51.51953125, count: 107164"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3289414459360485, max cpu: 4.5801525, count: 53582"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 29.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.00391441505543, max mem: 30.078125, count: 53582"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.16133793150984, max cpu: 4.610951, count: 53582"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 29.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.133679745530216, max mem: 29.953125, count: 53582"
           }
         ]
       }

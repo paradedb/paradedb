@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765390421546,
+  "lastUpdate": 1765390425681,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16628,6 +16628,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 95.85823901784002, max segment_count: 162.0, count: 57343"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7bab7a2ef420edadc91c0e2be6ef03d681d5f12",
+          "message": "feat: validate fields in `pdb.agg()` and error on invalid references (#3729)\n\n# Ticket(s) Closed\n\n- Closes #3548\n\n## What\n\nAdd field validation to `pdb.agg()` to detect and report\ninvalid/non-indexed field references instead of silently returning empty\nresults.\n\n## Why\n\nPreviously, `pdb.agg()` with an invalid field would return confusing\nempty results:\n\n```sql\nSELECT pdb.agg('{\"date_histogram\": {\"field\": \"not_valid\", \"fixed_interval\": \"30d\"}}')\nFROM mock_items WHERE id @@@ pdb.all();\n-- Returns: {\"buckets\": []}\n```\n\nThis made debugging difficult since there was no indication the field\ndidn't exist.\n\n## How\n\n- Added `validate_fields()` method to `AggregateType` that recursively\nextracts all `\"field\"` values from the aggregation JSON and checks them\nagainst the index schema\n- Validation runs during aggregation collection for both GROUP BY and\nwindow function (TopN) contexts\n- Invalid fields now produce a clear error with available field names:\n  ```\nERROR: pdb.agg() references invalid field 'not_valid'. Available indexed\nfields are: [created_at, description, id, rating]\n  ```\n\n## Tests\n\nAdded `agg-validate.sql` regression test.",
+          "timestamp": "2025-12-10T09:41:25-08:00",
+          "tree_id": "1909998e13af3ab73435bd61a66d2293cc95f54e",
+          "url": "https://github.com/paradedb/paradedb/commit/b7bab7a2ef420edadc91c0e2be6ef03d681d5f12"
+        },
+        "date": 1765390422839,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.96996552653844, max cpu: 42.72997, count: 57787"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 231.70379394370707, max mem: 233.24609375, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.4730091111454, max cpu: 33.168808, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.1990840960121, max mem: 171.6328125, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50041,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49281.181199923856, max block_count: 51849.0, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.59850831501895, max segment_count: 162.0, count: 57787"
           }
         ]
       }

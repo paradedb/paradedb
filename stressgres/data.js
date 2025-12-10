@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765389208615,
+  "lastUpdate": 1765389212827,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24184,6 +24184,108 @@ window.BENCHMARK_DATA = {
             "value": 159.12890625,
             "unit": "median mem",
             "extra": "avg mem: 179.60869621602768, max mem: 219.55078125, count: 56627"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee7d7e72672cc81dc3f219087b997646a1942f7c",
+          "message": "fix: Revert numeric pushdown for now (#3740)\n\n## What\n\nTemporarily revert #2978.\n\nAs demonstrated in the new test added in `anynumeric-conversion`, the\n`AnyNumeric` conversion added in #2978 triggers during indexing, and can\ncause valid `AnyNumeric` values which are being used directly in columns\n(outside of JSON columns) to fail to match the schema.\n\n## Why\n\nTo fix indexing of `AnyNumeric` values while preserving the numeric\npushdown, the cases which were added to `impl TryFrom<pgrx::AnyNumeric>\nfor TantivyValue` will likely need to be moved to JSON-specific query\nparsing codepaths.\n\nIt's also possible that our strategy for indexing `numeric` columns\nneeds a rethink to explicitly bound it to particular bitwidths (and then\nsupport those bitwidths in Tantivy). Finally, we should potentially\nbound numeric pushdown on JSON to values which we know JSON can\nrepresent precisely, and then let Postgres deal with JSON values between\n2^53 and 2^64, for example.",
+          "timestamp": "2025-12-10T09:06:47-08:00",
+          "tree_id": "16497675323aff89a80dc7c03d2ce19d2281f352",
+          "url": "https://github.com/paradedb/paradedb/commit/ee7d7e72672cc81dc3f219087b997646a1942f7c"
+        },
+        "date": 1765389210013,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08104907834508598, max background_merging: 2.0, count: 56583"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7267194230971725, max cpu: 9.504951, count: 56583"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.12338573699256, max mem: 22.22265625, count: 56583"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.016025336385287, max cpu: 14.131501, count: 56583"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.8812206736122, max mem: 165.390625, count: 56583"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65501,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65401.23874662001, max block_count: 65501.0, count: 56583"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.1952529911811, max segment_count: 57.0, count: 56583"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5494053299648725, max cpu: 9.338522, count: 56583"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 115.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 106.37365497642843, max mem: 133.28125, count: 56583"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77298233535734, max cpu: 9.599999, count: 56583"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.82035088387855, max mem: 165.02734375, count: 56583"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.699824991191583, max cpu: 33.73494, count: 56583"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.59822655435377, max mem: 219.76953125, count: 56583"
           }
         ]
       }

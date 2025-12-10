@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765391499115,
+  "lastUpdate": 1765391634822,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -30668,6 +30668,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 29269.779000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fc5f69719c8669ae9d635e98ce0b36f45f9408e",
+          "message": "feat: human-readable EXPLAIN output for HeapFilter (#3734)\n\n# Ticket(s) Closed\n\n- Closes #2777\n\n## What\n\nMakes `HeapFilter` expressions in EXPLAIN output human-readable instead\nof showing raw PostgreSQL node representations.\n\n**Before:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"expr_node\":\"{OPEXPR :opno 98 :opfuncid 67 ...}\"}]}}\n```\n\n**After:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"heap_filter\":\"(category = 'Electronics'::text)\"}]}}\n```\n\n## Why\n\nThe internal `nodeToString` representation (`{OPEXPR :opno 98 ...}`) is\nunreadable and unhelpful for debugging queries. Users need to see actual\nSQL expressions to understand what filters are being applied.\n\n## How\n\n- Created `pg_search/src/postgres/customscan/deparse.rs` with expression\ndeparsing utilities\n- Handles all cases with human-readable output:\n- **Simple expressions (varno 1):** deparse directly → `(price <\n200.00)`\n- **Single-table expressions with varno != 1 (JOINs, views):** remap\nvarno and deparse → `(author_id = ANY (...))`\n- **Prepared statement params (`PARAM_EXTERN`):** deparse as `$N` → `($2\n= 0)`\n- **Correlated subquery params (`PARAM_EXEC`):** clone, convert to\n`PARAM_EXTERN`, deparse → `(documentid = $1)`\n- **Multi-table expressions:** fall back to `nodeToString` (complex\ncontext required)\n- Renamed `description` field to `heap_filter` in `HeapFieldFilter`\nstruct\n- Updated `cleanup_json_for_explain()` to strip internal `expr_node`\nfield from output\n\n## Tests\n\n- Updated existing regression test expected outputs to reflect new\nreadable format\n- Added unit test `test_cleanup_heap_filter_field_filters` for cleanup\nfunction\n- All existing regression tests pass",
+          "timestamp": "2025-12-10T09:32:53-08:00",
+          "tree_id": "12a81600473e6e15c9b92c59c1caaf105c4fa515",
+          "url": "https://github.com/paradedb/paradedb/commit/7fc5f69719c8669ae9d635e98ce0b36f45f9408e"
+        },
+        "date": 1765391632083,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1188.2224999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 500.2735,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1475.7265,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 529.2135000000001,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 524.3495,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1289.604,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 27843.7235,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 27789.5815,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 27914.385000000002,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

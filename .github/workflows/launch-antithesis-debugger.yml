@@ -2,33 +2,36 @@
 #
 # Lint Antithesis Debugger
 # Trigger a session of the Antithesis Multiverse Debugger for a given session ID and time. This
-<<<<<<< HEAD
 # will send an email to the provided email recipients, within 5-10 minutes, with a link to the debugger session.
-=======
-# will send an email, within 5-10 minutes, with a link to the debugger session.
->>>>>>> 39aa473a3 (Add antithtesis debugger action)
 
 name: Launch Antithesis Debugger
 
 on:
+  push:
+    branches:
+      - phil/antithesis
   workflow_dispatch:
     inputs:
       session_id:
         type: string
         required: true
         description: Antithesis test session ID
+        default: "83a8d89f83f80c0978d6616e80e3895a-44-18"
       input_hash:
         type: string
         required: true
         description: Input hash for the moment
+        default: "8175857176111059257"
       vtime:
         type: string
         required: true
         description: Vtime for the moment
+        default: "28.654512580716982"
       emails:
         type: string
         required: true
         description: Email recipients
+        default: "phil@paradedb.com"
 
 # No concurrency group since we want to allow multiple sessions to run simultaneously
 
@@ -50,7 +53,7 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           description: "Debugging session from GitHub Actions triggered by ${{ github.actor }} for session ${{ github.event.inputs.session_id }}"
-          email_recipients: ${{ github.event.inputs.emails }}
+          email_recipients: developers@paradedb.com;${{ github.event.inputs.emails }}
           additional_parameters: |-
             antithesis.debugging.session_id=${{ github.event.inputs.session_id }}
             antithesis.debugging.input_hash=${{ github.event.inputs.input_hash }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765390015358,
+  "lastUpdate": 1765390019527,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33180,6 +33180,114 @@ window.BENCHMARK_DATA = {
             "value": 171.39453125,
             "unit": "median mem",
             "extra": "avg mem: 167.72627151365577, max mem: 172.640625, count: 55764"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee7d7e72672cc81dc3f219087b997646a1942f7c",
+          "message": "fix: Revert numeric pushdown for now (#3740)\n\n## What\n\nTemporarily revert #2978.\n\nAs demonstrated in the new test added in `anynumeric-conversion`, the\n`AnyNumeric` conversion added in #2978 triggers during indexing, and can\ncause valid `AnyNumeric` values which are being used directly in columns\n(outside of JSON columns) to fail to match the schema.\n\n## Why\n\nTo fix indexing of `AnyNumeric` values while preserving the numeric\npushdown, the cases which were added to `impl TryFrom<pgrx::AnyNumeric>\nfor TantivyValue` will likely need to be moved to JSON-specific query\nparsing codepaths.\n\nIt's also possible that our strategy for indexing `numeric` columns\nneeds a rethink to explicitly bound it to particular bitwidths (and then\nsupport those bitwidths in Tantivy). Finally, we should potentially\nbound numeric pushdown on JSON to values which we know JSON can\nrepresent precisely, and then let Postgres deal with JSON values between\n2^53 and 2^64, for example.",
+          "timestamp": "2025-12-10T09:06:47-08:00",
+          "tree_id": "16497675323aff89a80dc7c03d2ce19d2281f352",
+          "url": "https://github.com/paradedb/paradedb/commit/ee7d7e72672cc81dc3f219087b997646a1942f7c"
+        },
+        "date": 1765390016645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.666326294413693, max cpu: 46.466602, count: 55539"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 153.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.01267767638507, max mem: 166.7265625, count: 55539"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.726105721736681, max cpu: 28.015566, count: 55539"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 115.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 114.47701945648554, max mem: 115.66015625, count: 55539"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.811277440992786, max cpu: 9.347614, count: 55539"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 128.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 113.79026428782026, max mem: 148.92578125, count: 55539"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14600,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14703.623381767768, max block_count: 25438.0, count: 55539"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579586088803876, max cpu: 4.729064, count: 55539"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.34746381765517, max mem: 129.12109375, count: 55539"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.258665082194494, max segment_count: 39.0, count: 55539"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.696441250724492, max cpu: 28.374382, count: 111078"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.26979503563936, max mem: 160.71875, count: 111078"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.201948663284758, max cpu: 28.070175, count: 55539"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.75476185653324, max mem: 172.484375, count: 55539"
           }
         ]
       }

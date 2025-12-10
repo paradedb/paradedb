@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765389591136,
+  "lastUpdate": 1765389595764,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11208,6 +11208,126 @@ window.BENCHMARK_DATA = {
             "value": 49.48046875,
             "unit": "median mem",
             "extra": "avg mem: 49.06572234528785, max mem: 61.4375, count: 55272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7bab7a2ef420edadc91c0e2be6ef03d681d5f12",
+          "message": "feat: validate fields in `pdb.agg()` and error on invalid references (#3729)\n\n# Ticket(s) Closed\n\n- Closes #3548\n\n## What\n\nAdd field validation to `pdb.agg()` to detect and report\ninvalid/non-indexed field references instead of silently returning empty\nresults.\n\n## Why\n\nPreviously, `pdb.agg()` with an invalid field would return confusing\nempty results:\n\n```sql\nSELECT pdb.agg('{\"date_histogram\": {\"field\": \"not_valid\", \"fixed_interval\": \"30d\"}}')\nFROM mock_items WHERE id @@@ pdb.all();\n-- Returns: {\"buckets\": []}\n```\n\nThis made debugging difficult since there was no indication the field\ndidn't exist.\n\n## How\n\n- Added `validate_fields()` method to `AggregateType` that recursively\nextracts all `\"field\"` values from the aggregation JSON and checks them\nagainst the index schema\n- Validation runs during aggregation collection for both GROUP BY and\nwindow function (TopN) contexts\n- Invalid fields now produce a clear error with available field names:\n  ```\nERROR: pdb.agg() references invalid field 'not_valid'. Available indexed\nfields are: [created_at, description, id, rating]\n  ```\n\n## Tests\n\nAdded `agg-validate.sql` regression test.",
+          "timestamp": "2025-12-10T09:41:25-08:00",
+          "tree_id": "1909998e13af3ab73435bd61a66d2293cc95f54e",
+          "url": "https://github.com/paradedb/paradedb/commit/b7bab7a2ef420edadc91c0e2be6ef03d681d5f12"
+        },
+        "date": 1765389592953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.605367009263583, max cpu: 19.335348, count: 55444"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.288021824385865, max mem: 66.9609375, count: 55444"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.616207134548405, max cpu: 9.590409, count: 55444"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.47007566192915, max mem: 35.015625, count: 55444"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6289922756642135, max cpu: 19.335348, count: 55444"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.598647678288, max mem: 67.25, count: 55444"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.471981578607499, max cpu: 4.804805, count: 55444"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.58440914199463, max mem: 66.88671875, count: 55444"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.634170863994936, max cpu: 9.60961, count: 110888"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 44.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.76447156280436, max mem: 55.6015625, count: 110888"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1722,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1721.8009883846764, max block_count: 3042.0, count: 55444"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.994354664165645, max segment_count: 17.0, count: 55444"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.576337742738952, max cpu: 4.819277, count: 55444"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.349045954589315, max mem: 58.078125, count: 55444"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.884200936598675, max cpu: 4.7058825, count: 55444"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.4937770120527, max mem: 61.3203125, count: 55444"
           }
         ]
       }

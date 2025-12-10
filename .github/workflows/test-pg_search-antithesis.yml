@@ -107,12 +107,12 @@ jobs:
         with:
           notebook_name: basic_k8s_test
           tenant: paradedb
-          username: ${{ secrets.ANTITHESIS_USERNAME }}
+          username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config@${{ steps.build-push-config.outputs.digest }}
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
-          email_recipients: "developers@paradedb.com"
+          email_recipients: developers@paradedb.com
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || '10' }}

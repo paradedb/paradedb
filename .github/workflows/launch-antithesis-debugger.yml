@@ -2,7 +2,11 @@
 #
 # Lint Antithesis Debugger
 # Trigger a session of the Antithesis Multiverse Debugger for a given session ID and time. This
+<<<<<<< HEAD
 # will send an email to the provided email recipients, within 5-10 minutes, with a link to the debugger session.
+=======
+# will send an email, within 5-10 minutes, with a link to the debugger session.
+>>>>>>> 39aa473a3 (Add antithtesis debugger action)
 
 name: Launch Antithesis Debugger
 
@@ -46,7 +50,7 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           description: "Debugging session from GitHub Actions triggered by ${{ github.actor }} for session ${{ github.event.inputs.session_id }}"
-          email_recipients: phil@paradedb.com
+          email_recipients: ${{ github.event.inputs.emails }}
           additional_parameters: |-
             antithesis.debugging.session_id=${{ github.event.inputs.session_id }}
             antithesis.debugging.input_hash=${{ github.event.inputs.input_hash }}

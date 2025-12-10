@@ -87,7 +87,6 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
-ENV LD_LIBRARY_PATH=/usr/lib/libvoidstar.so
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
     curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so; \
     export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar" ; \
@@ -248,7 +247,6 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     ldconfig && ldconfig # Yes, running it twice
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
-ENV LD_LIBRARY_PATH=/usr/lib/libvoidstar.so
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
    mkdir /symbols && \

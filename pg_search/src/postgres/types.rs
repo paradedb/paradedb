@@ -694,36 +694,9 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        // Use conservative boundary (2^53-2) not (2^53-1) to avoid precision loss during JSON roundtrip.
-        const MAX_SAFE_FOR_JSON: i64 = (1i64 << 53) - 2;
-        const MIN_SAFE_FOR_JSON: i64 = -MAX_SAFE_FOR_JSON;
-
-        // Try to extract as i64 first (covers most common cases)
-        if let Ok(i64_val) = TryInto::<i64>::try_into(val.clone()) {
-            // Check if it's within JSON-safe F64 range (excluding boundary values)
-            if i64_val > MIN_SAFE_FOR_JSON && i64_val <= MAX_SAFE_FOR_JSON {
-                // Safe to convert to F64
-                let f64_val: f64 = val.try_into()?;
-                return Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)));
-            }
-            // Use I64 to preserve precision
-            return Ok(TantivyValue(tantivy::schema::OwnedValue::I64(i64_val)));
-        }
-
-        // If it doesn't fit in i64, try u64
-        if let Ok(u64_val) = TryInto::<u64>::try_into(val.clone()) {
-            if u64_val <= MAX_SAFE_FOR_JSON as u64 {
-                // Safe to convert to F64
-                let f64_val: f64 = val.try_into()?;
-                return Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)));
-            }
-            // Use U64 to preserve precision
-            return Ok(TantivyValue(tantivy::schema::OwnedValue::U64(u64_val)));
-        }
-
-        // If it's not an integer, it's already a float - use F64
-        let f64_val: f64 = val.try_into()?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+            val.try_into()?,
+        )))
     }
 }
 

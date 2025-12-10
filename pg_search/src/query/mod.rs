@@ -38,7 +38,6 @@ use core::panic;
 use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use smallvec::{smallvec, SmallVec};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
@@ -52,106 +51,6 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
-
-// F64 can exactly represent integers up to 2^53 (permissive boundary).
-// This is used when converting F64 to integer types where 2^53 is losslessly convertible.
-pub(crate) const F64_EXACT_INTEGER_MAX: u64 = 1u64 << 53;
-
-// Conservative boundary (2^53-2) for deciding when to create F64 variants from integers.
-// Matches types.rs classification logic to ensure consistency between indexing and querying.
-// Values > this threshold are stored/queried as I64/U64 only, not F64.
-pub(crate) const F64_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 2;
-
-/// Expands a numeric value into multiple Tantivy term variants to handle
-/// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
-/// This enables cross-type matching for equality and IN clause queries.
-/// Uses SmallVec to avoid heap allocation for typical cases (up to 3 terms).
-pub(crate) fn expand_json_numeric_to_terms(
-    tantivy_field: Field,
-    value: &OwnedValue,
-    path: Option<&str>,
-) -> anyhow::Result<SmallVec<[Term; 3]>> {
-    let mut terms = SmallVec::new();
-
-    match value {
-        OwnedValue::I64(i64_val) => {
-            // Create I64 variant (matches JSON integers like 1)
-            let i64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(i64_term);
-
-            // Also create F64 variant (matches JSON floats like 1.0)
-            let f64_value = OwnedValue::F64(*i64_val as f64);
-            let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
-            terms.push(f64_term);
-
-            // For non-negative i64 values, also create U64 variant
-            // This handles the case where JSON stores a number as U64 but query uses I64
-            if *i64_val >= 0 {
-                let u64_value = OwnedValue::U64(*i64_val as u64);
-                let u64_term = value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
-                terms.push(u64_term);
-            }
-        }
-        OwnedValue::U64(u64_val) => {
-            // Create U64 variant (matches large JSON integers)
-            let u64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(u64_term);
-
-            // Also create F64 variant if it doesn't lose precision
-            if *u64_val <= F64_SAFE_INTEGER_MAX {
-                let f64_value = OwnedValue::F64(*u64_val as f64);
-                let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
-                terms.push(f64_term);
-            }
-
-            // If value fits in I64, also create I64 variant
-            if *u64_val <= i64::MAX as u64 {
-                let i64_value = OwnedValue::I64(*u64_val as i64);
-                let i64_term = value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
-                terms.push(i64_term);
-            }
-        }
-        OwnedValue::F64(f64_val) => {
-            // Always create F64 variant
-            let f64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(f64_term);
-
-            // For special float values (NaN, Infinity, -Infinity), only create F64 variant
-            if !f64_val.is_finite() {
-                return Ok(terms);
-            }
-
-            // If it's a whole number, create integer variants
-            if f64_val.fract() == 0.0 {
-                // Create I64 variant if in i64 range and within safe precision
-                // Using permissive boundary: 2^53 can be exactly represented in F64
-                if *f64_val >= i64::MIN as f64
-                    && *f64_val <= i64::MAX as f64
-                    && *f64_val >= -(F64_EXACT_INTEGER_MAX as f64)
-                    && *f64_val <= F64_EXACT_INTEGER_MAX as f64
-                {
-                    let i64_value = OwnedValue::I64(*f64_val as i64);
-                    let i64_term =
-                        value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
-                    terms.push(i64_term);
-                }
-
-                // Create U64 variant if in u64 range (including values > i64::MAX)
-                // Note: We check >= 0 because U64 can't represent negative numbers
-                // Using permissive boundary for lossless conversion
-                if *f64_val >= 0.0 && *f64_val <= F64_EXACT_INTEGER_MAX as f64 {
-                    let u64_value = OwnedValue::U64(*f64_val as u64);
-                    let u64_term =
-                        value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
-                    terms.push(u64_term);
-                }
-            }
-        }
-        _ => return Err(anyhow::anyhow!("Expected numeric value")),
-    }
-
-    Ok(terms)
-}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -936,7 +835,7 @@ impl SearchQueryInput {
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                Ok(Box::new(TermSetQuery::new(fields.into_iter().flat_map(
+                Ok(Box::new(TermSetQuery::new(fields.into_iter().map(
                     |TermInput {
                          field,
                          value,
@@ -948,33 +847,14 @@ impl SearchQueryInput {
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
                         let is_datetime = search_field.is_datetime() || is_datetime;
-
-                        // Check if this is a JSON field with numeric value
-                        let is_json_field = matches!(field_type, FieldType::JsonObject(_));
-                        let is_numeric = matches!(
-                            value,
-                            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-                        );
-
-                        if is_json_field && is_numeric && !is_datetime {
-                            // For JSON numeric fields, expand to multiple type variants
-                            expand_json_numeric_to_terms(
-                                search_field.field(),
-                                &value,
-                                field.path().as_deref(),
-                            )
-                            .expect("could not expand JSON numeric to terms")
-                        } else {
-                            // Standard term creation for non-JSON or non-numeric fields
-                            smallvec![value_to_term(
-                                search_field.field(),
-                                &value,
-                                field_type,
-                                field.path().as_deref(),
-                                is_datetime,
-                            )
-                            .expect("could not convert argument to search term")]
-                        }
+                        value_to_term(
+                            search_field.field(),
+                            &value,
+                            field_type,
+                            field.path().as_deref(),
+                            is_datetime,
+                        )
+                        .expect("could not convert argument to search term")
                     },
                 ))))
             }

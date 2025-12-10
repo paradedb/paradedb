@@ -41,15 +41,15 @@ SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
-                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on dates
    Table: dates
    Index: idx_dates
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, d
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1093 :opfuncid 1086 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 1082 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 1082 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ -84 35 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 1093"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(d = '01-01-2025'::date)"}]}}]}}
 (7 rows)
 
 DROP TABLE dates;
@@ -60,28 +60,28 @@ INSERT INTO ints (i) VALUES (1), (2), (3);
 CREATE INDEX idx_ints ON ints USING bm25 (id, ((i * 2)::pdb.alias('i'))) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
-                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, i
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(i = 1)"}]}}]}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, i
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({OPEXPR :opno 514 :opfuncid 141 :opresulttype 23 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 3 0 0 0 0 0 0 0 ]}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"((i * 3) = 1)"}]}}]}}
 (7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

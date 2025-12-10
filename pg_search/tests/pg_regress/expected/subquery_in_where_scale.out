@@ -32,8 +32,8 @@ WHERE id @@@ paradedb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
-                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -49,7 +49,7 @@ LIMIT 100;
             TopN Order By: id asc
             TopN Limit: 100
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 667 :opfuncid 743 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}","description":"OpExpr with operator OID 667"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(id >= $1)"}]}}]}}
 (16 rows)
 
 SELECT * FROM test_pages_scale 
@@ -177,8 +177,8 @@ WHERE id @@@ paradedb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;
-                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -194,7 +194,7 @@ LIMIT 100;
             TopN Order By: id desc
             TopN Limit: 100
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 667 :opfuncid 743 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 1 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 1 :location -1} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}","description":"OpExpr with operator OID 667"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(id >= $1)"}]}}]}}
 (16 rows)
 
 SELECT * FROM test_pages_scale 

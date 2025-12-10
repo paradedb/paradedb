@@ -37,8 +37,9 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{deparse_expr, locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{
     find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
 };
@@ -404,7 +405,7 @@ pub unsafe fn field_name_from_node(
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })
                     } else {
-                        let expr_str = deparse_expr(heaprel, Some(indexed_expression));
+                        let expr_str = deparse_expr(None, heaprel, indexed_expression.cast());
                         panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
                     };
 

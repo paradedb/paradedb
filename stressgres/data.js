@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765382419600,
+  "lastUpdate": 1765382423496,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32118,6 +32118,114 @@ window.BENCHMARK_DATA = {
             "value": 171.890625,
             "unit": "median mem",
             "extra": "avg mem: 168.2273659645063, max mem: 174.33984375, count: 55531"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8531fe604b16cdfbf51cb0e745478f137fd56c34",
+          "message": "feat: add recursive estimates to EXPLAIN VERBOSE (#3493)\n\nCloses #3430\n\n  ## Summary\n\nImplements recursive cost estimation for EXPLAIN VERBOSE, showing\nestimated document counts for each nested query component. Helps\nidentify expensive query portions when debugging performance issues.\n\n  ## What Changed\n\n  ### Query Module (query/mod.rs)\n- Added into_tantivy_query_generic<B: QueryBuilder>() using builder\npattern for dual outputs (query-only vs query+tree)\n  - Maintained backward compatibility with existing into_tantivy_query()\n\n  ### Query Builder (query/builder.rs) - NEW\n- QueryBuilder trait with QueryOnlyBuilder (returns query) and\nQueryTreeBuilder (returns query+tree)\n\n  ### Estimate Tree (query/estimate_tree.rs) - NEW\n- QueryWithEstimates structure holds query tree with optional document\ncount estimates\n  - Supports JSON/YAML/XML serialization\n\n  ### Index Reader (index/reader/index.rs)\n  - build_query_tree_with_estimates() constructs tree with estimates\n  - estimate_docs_recursive() traverses and estimates each node\n- Protection: MAX_ESTIMATION_DEPTH=100, interrupt checking every 10\nlevels, multi-segment graceful degradation\n\n  ### EXPLAIN Output (postgres/customscan/query_explain.rs) - NEW\n  - Unified tree formatting (replaces JSON format)\n  - format_query_tree() and format_query_tree_with_estimates() methods\n\n  ### Custom Scan Explainer (postgres/customscan/explainer.rs)\n  - Modified add_query() to use tree format\n  - Added add_query_with_estimates() method\n\n  ### PDB Scan (postgres/customscan/pdbscan/mod.rs)\n- Updated explain_custom_scan() to conditionally show estimates based on\nGUC\n  - Handles both EXPLAIN ANALYZE and plain EXPLAIN\n\n  ### GUC Configuration (gucs.rs)\n- Added paradedb.explain_recursive_estimates boolean GUC (default:\nfalse)\n\n  ## Why These Changes\n\nExisting estimate_docs() only provided a single estimate for the entire\nquery. Users couldn't identify which nested boolean clauses were\nexpensive. This implements recursive estimation similar to PostgreSQL's\ncost display, helping developers optimize query structure based on\nactual cost data.\n\n  ## How It Works\n\n1. Query Tree Construction: When GUC enabled, uses QueryTreeBuilder to\nbuild tree + query\n2. Recursive Estimation: For each node, converts to Tantivy Query,\ncreates Weight, gets Scorer, uses size_hint() (fast) or\ncount_including_deleted(), scales from segment to total docs\n3. Protection: Depth limit prevents stack overflow, interrupt checking\nrespects statement_timeout, multi-segment check sets estimates to None\n4. Tree Output: Displays hierarchical tree instead of JSON: boolean\n(est: 800 docs) → must[0] (est: 1200 docs) → term: category =\n\"electronics\"\n\n  ## Note\n\n  EXPLAIN Output Format Change\n\nBefore: Tantivy Query: {\"fuzzy\": {\"field\": \"brand\", \"value\": \"Apple\",\n\"distance\": 2, ...}}\n  After: Tantivy Query: fuzzy: brand ≈ \"Apple\"\n\nTree view is more readable but omits query parameters (fuzzy distance,\nMLT settings, boost factors, phrase slop). This affects ALL queries, not\njust when estimates enabled.\n\n  Questions for Reviewers:\n1. Is simplified tree view acceptable, or preserve detailed parameters?\n  2. Provide full JSON via EXPLAIN (FORMAT JSON)?\n\n  ## Test Coverage\n\n  Unit Tests (2): QueryOnlyBuilder and QueryTreeBuilder verification\n\n  Regression Tests (41 in recursive_estimates.sql):\n- Query types: boolean, term, phrase, regex, fuzzy, wildcard, range,\nboost, const_score, more_like_this, all, empty\n  - Nesting depth: 1-10 levels (tests depth protection)\n  - Output formats: TEXT, JSON, YAML, XML\n  - GUC behavior: enabled/disabled toggle\n  - Edge cases: empty results, full scans, errors, uninitialized queries\n\nAll Tests: 83 unit tests passing, 41 SQL regression tests passing, cargo\nfmt/clippy clean",
+          "timestamp": "2025-12-10T20:32:01+05:30",
+          "tree_id": "214be46ee185d8496e0f4c562167741e98823d52",
+          "url": "https://github.com/paradedb/paradedb/commit/8531fe604b16cdfbf51cb0e745478f137fd56c34"
+        },
+        "date": 1765382420849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.276338521253315, max cpu: 42.687748, count: 55764"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 169.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 151.81897469133312, max mem: 172.578125, count: 55764"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.768556407123307, max cpu: 37.907207, count: 55764"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.56344938322664, max mem: 116.87890625, count: 55764"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7713710892953705, max cpu: 9.421001, count: 55764"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 133.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 117.72024724172405, max mem: 154.63671875, count: 55764"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14932,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14960.667294311743, max block_count: 25958.0, count: 55764"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.612323166556832, max cpu: 4.7151275, count: 55764"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.66512872608224, max mem: 132.68359375, count: 55764"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.12800373000502, max segment_count: 39.0, count: 55764"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.203166392785235, max cpu: 37.907207, count: 111528"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 157.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.37069558765512, max mem: 160.67578125, count: 111528"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.858798678484357, max cpu: 28.486649, count: 55764"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.72627151365577, max mem: 172.640625, count: 55764"
           }
         ]
       }

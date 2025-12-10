@@ -1058,12 +1058,14 @@ impl CustomScan for PdbScan {
                         OrderByInfo {
                             feature: OrderByFeature::Field(fieldname),
                             direction,
+                            ..
                         } => {
                             format!("{fieldname} {}", direction.as_ref())
                         }
                         OrderByInfo {
                             feature: OrderByFeature::Score,
                             direction,
+                            ..
                         } => {
                             format!("pdb.score() {}", direction.as_ref())
                         }

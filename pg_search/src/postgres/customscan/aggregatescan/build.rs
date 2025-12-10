@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, MvccVisibility, OrderByFeature};
+use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::FilterQuery;
@@ -57,9 +57,6 @@ pub struct FilterSentinelKey;
 impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
-
-// Sentinel used to represent SQL NULL in term aggregations
-pub const NULL_GROUP_KEY_SENTINEL: &str = "\u{0000}__PDB_NULL__";
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
@@ -325,6 +322,33 @@ impl AggregateCSClause {
 
     pub fn set_is_execution_time(&mut self) {
         self.is_execution_time = true;
+    }
+
+    /// Returns set of field names where the sentinel should use MIN values
+    /// (i.e., NULLs should sort FIRST in the final output)
+    ///
+    /// The logic accounts for both the NULLS FIRST/LAST setting and the sort direction:
+    /// - For ASC: MIN sentinel → appears first, MAX sentinel → appears last
+    /// - For DESC: MAX sentinel → appears first (reversed), MIN sentinel → appears last (reversed)
+    ///
+    /// So we need MIN sentinel when: (nulls_first && ASC) || (!nulls_first && DESC)
+    /// Which simplifies to: nulls_first == (direction == ASC)
+    pub fn use_min_sentinel_fields(&self) -> HashSet<String> {
+        use crate::api::{OrderByFeature, SortDirection};
+        self.orderby
+            .orderby_info()
+            .iter()
+            .filter(|info| {
+                let is_asc = matches!(info.direction, SortDirection::Asc);
+                // Use MIN sentinel when nulls should appear first in final output
+                // accounting for direction reversal
+                info.nulls_first == is_asc
+            })
+            .filter_map(|info| match &info.feature {
+                OrderByFeature::Field(name) => Some(name.to_string()),
+                OrderByFeature::Score => None,
+            })
+            .collect()
     }
 }
 

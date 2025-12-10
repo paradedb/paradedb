@@ -108,11 +108,11 @@ ORDER BY rating
 LIMIT 5 OFFSET 5;
  rating | count 
 --------+-------
-      5 |     5
       6 |     6
       7 |     7
       8 |     8
       9 |     9
+     10 |    10
 (5 rows)
 
 -- Ordering on a non-grouping column

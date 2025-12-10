@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765391272082,
+  "lastUpdate": 1765391275943,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24862,6 +24862,108 @@ window.BENCHMARK_DATA = {
             "value": 159.6015625,
             "unit": "median mem",
             "extra": "avg mem: 178.58202916061208, max mem: 220.015625, count: 56087"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7bab7a2ef420edadc91c0e2be6ef03d681d5f12",
+          "message": "feat: validate fields in `pdb.agg()` and error on invalid references (#3729)\n\n# Ticket(s) Closed\n\n- Closes #3548\n\n## What\n\nAdd field validation to `pdb.agg()` to detect and report\ninvalid/non-indexed field references instead of silently returning empty\nresults.\n\n## Why\n\nPreviously, `pdb.agg()` with an invalid field would return confusing\nempty results:\n\n```sql\nSELECT pdb.agg('{\"date_histogram\": {\"field\": \"not_valid\", \"fixed_interval\": \"30d\"}}')\nFROM mock_items WHERE id @@@ pdb.all();\n-- Returns: {\"buckets\": []}\n```\n\nThis made debugging difficult since there was no indication the field\ndidn't exist.\n\n## How\n\n- Added `validate_fields()` method to `AggregateType` that recursively\nextracts all `\"field\"` values from the aggregation JSON and checks them\nagainst the index schema\n- Validation runs during aggregation collection for both GROUP BY and\nwindow function (TopN) contexts\n- Invalid fields now produce a clear error with available field names:\n  ```\nERROR: pdb.agg() references invalid field 'not_valid'. Available indexed\nfields are: [created_at, description, id, rating]\n  ```\n\n## Tests\n\nAdded `agg-validate.sql` regression test.",
+          "timestamp": "2025-12-10T09:41:25-08:00",
+          "tree_id": "1909998e13af3ab73435bd61a66d2293cc95f54e",
+          "url": "https://github.com/paradedb/paradedb/commit/b7bab7a2ef420edadc91c0e2be6ef03d681d5f12"
+        },
+        "date": 1765391273273,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08203896450493728, max background_merging: 2.0, count: 56205"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714807091238051, max cpu: 9.67742, count: 56205"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.06073998087359, max mem: 23.08203125, count: 56205"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.956012018320766, max cpu: 13.967022, count: 56205"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.9318864119073, max mem: 165.46484375, count: 56205"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64997,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64871.418112267595, max block_count: 64997.0, count: 56205"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.15619606796548, max segment_count: 55.0, count: 56205"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.564767545293828, max cpu: 9.648242, count: 56205"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 114.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 105.00782570500846, max mem: 130.6484375, count: 56205"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.791541171538527, max cpu: 13.899614, count: 56205"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.4237134151766, max mem: 164.9765625, count: 56205"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.829012668332933, max cpu: 33.802814, count: 56205"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.625,
+            "unit": "median mem",
+            "extra": "avg mem: 178.24584459234055, max mem: 220.09765625, count: 56205"
           }
         ]
       }

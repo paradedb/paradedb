@@ -16,22 +16,18 @@ on:
         type: string
         required: true
         description: Antithesis test session ID
-        default: "83a8d89f83f80c0978d6616e80e3895a-44-18"
       input_hash:
         type: string
         required: true
         description: Input hash for the moment
-        default: "8175857176111059257"
       vtime:
         type: string
         required: true
         description: Vtime for the moment
-        default: "28.654512580716982"
       emails:
         type: string
         required: true
         description: Email recipients
-        default: "phil@paradedb.com"
 
 # No concurrency group since we want to allow multiple sessions to run simultaneously
 
@@ -55,6 +51,6 @@ jobs:
           description: "Debugging session from GitHub Actions triggered by ${{ github.actor }} for session ${{ github.event.inputs.session_id }}"
           email_recipients: developers@paradedb.com;${{ github.event.inputs.emails }}
           additional_parameters: |-
-            antithesis.debugging.session_id=${{ github.event.inputs.session_id }}
-            antithesis.debugging.input_hash=${{ github.event.inputs.input_hash }}
-            antithesis.debugging.vtime=${{ github.event.inputs.vtime }}
+            antithesis.debugging.session_id="83a8d89f83f80c0978d6616e80e3895a-44-18"
+            antithesis.debugging.input_hash="8175857176111059257"
+            antithesis.debugging.vtime="28.654512580716982"

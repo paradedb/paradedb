@@ -322,6 +322,8 @@ impl AggregateType {
 
     /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
     /// Returns an error if any field is invalid.
+    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// https://github.com/quickwit-oss/tantivy/issues/2767
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         if let AggregateType::Custom { agg_json, .. } = self {
             let fields = extract_fields_from_agg_json(agg_json);

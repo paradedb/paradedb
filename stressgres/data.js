@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765388348365,
+  "lastUpdate": 1765388352384,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16064,6 +16064,66 @@ window.BENCHMARK_DATA = {
             "value": 90,
             "unit": "median segment_count",
             "extra": "avg segment_count: 95.85257985257985, max segment_count: 163.0, count: 57794"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee7d7e72672cc81dc3f219087b997646a1942f7c",
+          "message": "fix: Revert numeric pushdown for now (#3740)\n\n## What\n\nTemporarily revert #2978.\n\nAs demonstrated in the new test added in `anynumeric-conversion`, the\n`AnyNumeric` conversion added in #2978 triggers during indexing, and can\ncause valid `AnyNumeric` values which are being used directly in columns\n(outside of JSON columns) to fail to match the schema.\n\n## Why\n\nTo fix indexing of `AnyNumeric` values while preserving the numeric\npushdown, the cases which were added to `impl TryFrom<pgrx::AnyNumeric>\nfor TantivyValue` will likely need to be moved to JSON-specific query\nparsing codepaths.\n\nIt's also possible that our strategy for indexing `numeric` columns\nneeds a rethink to explicitly bound it to particular bitwidths (and then\nsupport those bitwidths in Tantivy). Finally, we should potentially\nbound numeric pushdown on JSON to values which we know JSON can\nrepresent precisely, and then let Postgres deal with JSON values between\n2^53 and 2^64, for example.",
+          "timestamp": "2025-12-10T09:06:47-08:00",
+          "tree_id": "16497675323aff89a80dc7c03d2ce19d2281f352",
+          "url": "https://github.com/paradedb/paradedb/commit/ee7d7e72672cc81dc3f219087b997646a1942f7c"
+        },
+        "date": 1765388349647,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.480688372991523, max cpu: 42.814667, count: 57911"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 231.45431560659893, max mem: 232.9921875, count: 57911"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.542887884335155, max cpu: 33.300297, count: 57911"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.1970187820535, max mem: 171.69140625, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49941,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49318.66108338658, max block_count: 51948.0, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.04729671392309, max segment_count: 163.0, count: 57911"
           }
         ]
       }

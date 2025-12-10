@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765327941718,
+  "lastUpdate": 1765327945698,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31524,6 +31524,114 @@ window.BENCHMARK_DATA = {
             "value": 171.09375,
             "unit": "median mem",
             "extra": "avg mem: 167.55321302062666, max mem: 173.421875, count: 55438"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96c0fe1a2166b43169bdc0730a5479de83e4b470",
+          "message": "fix: MAX/MIN aggregate pushdown for date/datetime types (#3725)\n\n## Ticket(s) Closed\n\n- Closes #3574\n\n## What\n\nFixed `MAX` and `MIN` aggregate pushdown returning null values for date,\ntimestamp, timestamptz, time, and timetz columns.\n\n## Why\n\nWhen aggregate pushdown was enabled, queries like `SELECT max(d) FROM\ntable WHERE id @@@ pdb.all()` on date columns returned null instead of\nthe actual max value.\n\nThe root cause: Tantivy stores DateTime values as nanoseconds in fast\nfields and returns them as `f64` from MIN/MAX aggregates. The code was\ntrying to convert this `f64` directly to PostgreSQL date types via\n`TantivyValue(OwnedValue::F64(value))`, but the conversion from `F64` to\ndate types isn't supported—only `OwnedValue::Date` can be converted to\ndates.\n\n## How\n\nAdded special handling in `aggregate_result_to_datum` for date/time\ntypes:\n1. Detect when the expected PostgreSQL type is a date/time type using\nnew `is_datetime_type()` helper\n2. Convert the f64 value (nanoseconds) back to a `tantivy::DateTime`\nusing `from_timestamp_nanos()`\n3. Wrap it in `TantivyValue(OwnedValue::Date(...))` so the existing\nconversion to PostgreSQL types works\n\n## Tests\n\nAdded `agg-max-pushdown` regression test.",
+          "timestamp": "2025-12-09T15:54:18-08:00",
+          "tree_id": "d8c846acfedf981464379acab7535c4bf7b13797",
+          "url": "https://github.com/paradedb/paradedb/commit/96c0fe1a2166b43169bdc0730a5479de83e4b470"
+        },
+        "date": 1765327942954,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.58267364149104, max cpu: 48.144432, count: 55531"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 167.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.73727540697988, max mem: 172.17578125, count: 55531"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.730938376086797, max cpu: 27.961164, count: 55531"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.20857381462606, max mem: 116.4765625, count: 55531"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.769785225578236, max cpu: 9.402546, count: 55531"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 124.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 113.08363170740218, max mem: 157.234375, count: 55531"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14320,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14403.274729430408, max block_count: 24868.0, count: 55531"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.558383201960194, max cpu: 4.669261, count: 55531"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 97.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.07274378556572, max mem: 134.25, count: 55531"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.135960094361707, max segment_count: 36.0, count: 55531"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.835152380397961, max cpu: 27.988338, count: 111062"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 135.93748290650717, max mem: 161.0703125, count: 111062"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.146621629137401, max cpu: 27.961164, count: 55531"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.2273659645063, max mem: 174.33984375, count: 55531"
           }
         ]
       }

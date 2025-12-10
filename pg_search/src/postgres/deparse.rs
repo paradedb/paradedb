@@ -35,9 +35,9 @@ use pgrx::{pg_guard, pg_sys};
 /// This function handles:
 /// - Simple expressions (varno 1): deparse directly
 /// - Single-table expressions with varno != 1: remap varno and deparse
-/// - Multi-table expressions: build context with all RTEs
 /// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
 /// - Expressions with PARAM_EXTERN: deparse as "$N"
+/// - Multi-table expressions: fall back to nodeToString
 pub unsafe fn deparse_expr(
     planner_context: Option<&PlannerContext>,
     rel: &PgSearchRelation,
@@ -117,22 +117,23 @@ pub unsafe fn deparse_expr(
         }
 
         let relid = (*rte).relid;
-        let relname = get_rel_name_safe(relid);
+        let relname = rel.name();
 
         if varno == 1 {
             // Already at varno 1, deparse directly
-            return deparse_with_single_relation(expr_to_deparse, &relname, relid);
+            return deparse_with_single_relation(expr_to_deparse, relname, relid);
         }
 
         // Need to remap varno to 1 for deparsing
         // Clone the expression and remap varnos (note: may already be cloned for PARAM replacement)
         let expr_copy = pg_sys::copyObjectImpl(expr_to_deparse.cast()).cast::<pg_sys::Node>();
         remap_varnos(expr_copy, varno, 1);
-        return deparse_with_single_relation(expr_copy, &relname, relid);
+        return deparse_with_single_relation(expr_copy, relname, relid);
     }
 
-    // Multiple varnos - try to build a context with all RTEs
-    deparse_with_full_context(expr_to_deparse, &rtable_list, &varnos)
+    // For now, fall back to nodeToString for multi-relation expressions
+    // This is a known limitation that could be improved in the future
+    node_to_string_fallback(expr)
 }
 
 /// Deparse an expression with a single-relation context
@@ -153,86 +154,6 @@ unsafe fn deparse_with_single_relation(
     }
 
     std::ffi::CStr::from_ptr(deparsed)
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// Try to deparse an expression that references multiple relations
-/// by building a context with all required RTEs
-unsafe fn deparse_with_full_context(
-    expr: *mut pg_sys::Node,
-    rtable_list: &pgrx::PgList<pg_sys::RangeTblEntry>,
-    varnos: &[pg_sys::Index],
-) -> String {
-    // For multi-relation expressions, we need to build a context that includes
-    // all referenced relations at their correct varno positions.
-    //
-    // PostgreSQL's deparse_context_for creates a context for a single relation at varno 1.
-    // To handle multiple relations, we use list_concat to combine contexts.
-    // Each relation is placed at its correct position by padding with nulls.
-
-    // Verify all referenced varnos are valid RTE_RELATION entries
-    for &varno in varnos {
-        let rte_idx = (varno - 1) as usize;
-        let Some(rte) = rtable_list.get_ptr(rte_idx) else {
-            return node_to_string_fallback(expr);
-        };
-        if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
-            return node_to_string_fallback(expr);
-        }
-    }
-
-    // Find the maximum varno to know how big our rtable needs to be
-    let max_varno = *varnos.iter().max().unwrap_or(&1);
-
-    // Build an rtable with all entries at their correct positions
-    // We need to create RTE entries for each position up to max_varno
-    let mut rte_names: Vec<std::ffi::CString> = Vec::new();
-    let mut combined_rtable: *mut pg_sys::List = std::ptr::null_mut();
-
-    for varno in 1..=max_varno {
-        let rte_idx = (varno - 1) as usize;
-
-        if let Some(rte) = rtable_list.get_ptr(rte_idx) {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                let relid = (*rte).relid;
-                let relname = get_rel_name_safe(relid);
-                let relname_cstr = match std::ffi::CString::new(relname) {
-                    Ok(s) => s,
-                    Err(_) => return node_to_string_fallback(expr),
-                };
-
-                // Create a context for this relation
-                // Note: deparse_context_for puts the relation at varno 1 in its internal context
-                // We'll use the first relation's context as base and the rtable will be built properly
-                if combined_rtable.is_null() && varno == 1 {
-                    combined_rtable = pg_sys::deparse_context_for(relname_cstr.as_ptr(), relid);
-                }
-                rte_names.push(relname_cstr);
-            }
-        }
-    }
-
-    // If we couldn't build a proper context, fall back
-    if combined_rtable.is_null() {
-        return node_to_string_fallback(expr);
-    }
-
-    // For multi-varno expressions, we need a more sophisticated approach
-    // Since building the full context is complex, let's try a different strategy:
-    // Deparse each var reference separately and reconstruct the expression string
-    // For now, fall back to nodeToString for multi-relation expressions
-    // This is a known limitation that could be improved in the future
-    node_to_string_fallback(expr)
-}
-
-/// Get a relation name safely, returning a fallback if not found
-unsafe fn get_rel_name_safe(relid: pg_sys::Oid) -> String {
-    let name_ptr = pg_sys::get_rel_name(relid);
-    if name_ptr.is_null() {
-        return format!("relation_{}", u32::from(relid));
-    }
-    std::ffi::CStr::from_ptr(name_ptr)
         .to_string_lossy()
         .into_owned()
 }

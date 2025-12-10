@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765391595140,
+  "lastUpdate": 1765391599915,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33738,6 +33738,114 @@ window.BENCHMARK_DATA = {
             "value": 171.3359375,
             "unit": "median mem",
             "extra": "avg mem: 167.75476185653324, max mem: 172.484375, count: 55539"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fc5f69719c8669ae9d635e98ce0b36f45f9408e",
+          "message": "feat: human-readable EXPLAIN output for HeapFilter (#3734)\n\n# Ticket(s) Closed\n\n- Closes #2777\n\n## What\n\nMakes `HeapFilter` expressions in EXPLAIN output human-readable instead\nof showing raw PostgreSQL node representations.\n\n**Before:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"expr_node\":\"{OPEXPR :opno 98 :opfuncid 67 ...}\"}]}}\n```\n\n**After:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"heap_filter\":\"(category = 'Electronics'::text)\"}]}}\n```\n\n## Why\n\nThe internal `nodeToString` representation (`{OPEXPR :opno 98 ...}`) is\nunreadable and unhelpful for debugging queries. Users need to see actual\nSQL expressions to understand what filters are being applied.\n\n## How\n\n- Created `pg_search/src/postgres/customscan/deparse.rs` with expression\ndeparsing utilities\n- Handles all cases with human-readable output:\n- **Simple expressions (varno 1):** deparse directly → `(price <\n200.00)`\n- **Single-table expressions with varno != 1 (JOINs, views):** remap\nvarno and deparse → `(author_id = ANY (...))`\n- **Prepared statement params (`PARAM_EXTERN`):** deparse as `$N` → `($2\n= 0)`\n- **Correlated subquery params (`PARAM_EXEC`):** clone, convert to\n`PARAM_EXTERN`, deparse → `(documentid = $1)`\n- **Multi-table expressions:** fall back to `nodeToString` (complex\ncontext required)\n- Renamed `description` field to `heap_filter` in `HeapFieldFilter`\nstruct\n- Updated `cleanup_json_for_explain()` to strip internal `expr_node`\nfield from output\n\n## Tests\n\n- Updated existing regression test expected outputs to reflect new\nreadable format\n- Added unit test `test_cleanup_heap_filter_field_filters` for cleanup\nfunction\n- All existing regression tests pass",
+          "timestamp": "2025-12-10T09:32:53-08:00",
+          "tree_id": "12a81600473e6e15c9b92c59c1caaf105c4fa515",
+          "url": "https://github.com/paradedb/paradedb/commit/7fc5f69719c8669ae9d635e98ce0b36f45f9408e"
+        },
+        "date": 1765391597177,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.59660008881775, max cpu: 46.153847, count: 55405"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 172.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.1964205340222, max mem: 172.55078125, count: 55405"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.35574577967776, max cpu: 27.961164, count: 55405"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.54135781405108, max mem: 116.828125, count: 55405"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7656891217604915, max cpu: 13.846154, count: 55405"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 93.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.35249385208917, max mem: 156.546875, count: 55405"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13842,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14014.424582618898, max block_count: 24296.0, count: 55405"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.144153184657844, max cpu: 4.6511626, count: 55405"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 76.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 82.20660554947658, max mem: 130.55859375, count: 55405"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.076942514213517, max segment_count: 38.0, count: 55405"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.700117448309323, max cpu: 28.125, count: 110810"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 130.90600954759273, max mem: 160.46875, count: 110810"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.460663826653143, max cpu: 28.042841, count: 55405"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.2093927668983, max mem: 172.75, count: 55405"
           }
         ]
       }

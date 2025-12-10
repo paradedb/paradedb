@@ -26,8 +26,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout target repository
-      uses: actions/checkout@v4
+    - name: Checkout Target Repository
+      uses: actions/checkout@v6
       with:
         repository: ${{ inputs.repository }}
         token: ${{ inputs.push-token || github.token }}

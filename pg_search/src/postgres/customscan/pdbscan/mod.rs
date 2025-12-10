@@ -1076,14 +1076,58 @@ impl CustomScan for PdbScan {
         }
 
         // Add a flag to indicate if the query is a full index scan
-        if state
-            .custom_state()
-            .base_search_query_input()
-            .is_full_scan_query()
-        {
-            explainer.add_bool("Full Index Scan", true);
+        let base_query = state.custom_state().base_search_query_input();
+
+        // Only process the query if it's initialized
+        // For EXPLAIN without ANALYZE, the query might not be initialized yet
+        if !matches!(base_query, SearchQueryInput::Uninitialized) {
+            if base_query.is_full_scan_query() {
+                explainer.add_bool("Full Index Scan", true);
+            }
+
+            // Show query with integrated estimates if GUC is enabled and verbose
+            if gucs::explain_recursive_estimates() && explainer.is_verbose() {
+                // Get or create a search reader for estimates.
+                // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
+                // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
+                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                let query_tree =
+                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
+                        // EXPLAIN ANALYZE: use the existing search reader
+                        search_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    } else {
+                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
+                        let indexrel = state
+                            .custom_state()
+                            .indexrel
+                            .as_ref()
+                            .expect("indexrel should be open");
+
+                        let temp_reader = SearchIndexReader::open_with_context(
+                            indexrel,
+                            base_query.clone(),
+                            false,                         // don't need scores for estimates
+                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
+                            None,                          // No expr_context needed for estimates
+                            None,                          // No planstate needed for estimates
+                        )
+                        .expect("opening temporary search reader for estimates should not fail");
+
+                        temp_reader
+                            .build_query_tree_with_estimates(base_query.clone())
+                            .expect("building query tree with estimates should not fail")
+                    };
+
+                explainer.add_query_with_estimates(&query_tree);
+            } else {
+                // Regular display without estimates
+                explainer.add_query(base_query);
+            }
+        } else {
+            explainer.add_text("Tantivy Query", "(query not yet initialized)");
         }
-        explainer.add_query(state.custom_state().base_search_query_input());
     }
 
     fn begin_custom_scan(
@@ -1099,6 +1143,8 @@ impl CustomScan for PdbScan {
 
             state.custom_state_mut().open_relations(lockmode);
 
+            // For EXPLAIN ANALYZE queries, we need to continue with full initialization
+            // For EXPLAIN-only (without ANALYZE), begin_custom_scan is not called at all
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
                 // don't do anything else if we're only explaining the query
                 return;

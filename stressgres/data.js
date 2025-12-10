@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765391275943,
+  "lastUpdate": 1765391595140,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27872,6 +27872,60 @@ window.BENCHMARK_DATA = {
             "value": 15.207658620147674,
             "unit": "median tps",
             "extra": "avg tps: 15.388822727496411, max tps: 20.82224635474303, count: 55539"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fc5f69719c8669ae9d635e98ce0b36f45f9408e",
+          "message": "feat: human-readable EXPLAIN output for HeapFilter (#3734)\n\n# Ticket(s) Closed\n\n- Closes #2777\n\n## What\n\nMakes `HeapFilter` expressions in EXPLAIN output human-readable instead\nof showing raw PostgreSQL node representations.\n\n**Before:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"expr_node\":\"{OPEXPR :opno 98 :opfuncid 67 ...}\"}]}}\n```\n\n**After:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"heap_filter\":\"(category = 'Electronics'::text)\"}]}}\n```\n\n## Why\n\nThe internal `nodeToString` representation (`{OPEXPR :opno 98 ...}`) is\nunreadable and unhelpful for debugging queries. Users need to see actual\nSQL expressions to understand what filters are being applied.\n\n## How\n\n- Created `pg_search/src/postgres/customscan/deparse.rs` with expression\ndeparsing utilities\n- Handles all cases with human-readable output:\n- **Simple expressions (varno 1):** deparse directly → `(price <\n200.00)`\n- **Single-table expressions with varno != 1 (JOINs, views):** remap\nvarno and deparse → `(author_id = ANY (...))`\n- **Prepared statement params (`PARAM_EXTERN`):** deparse as `$N` → `($2\n= 0)`\n- **Correlated subquery params (`PARAM_EXEC`):** clone, convert to\n`PARAM_EXTERN`, deparse → `(documentid = $1)`\n- **Multi-table expressions:** fall back to `nodeToString` (complex\ncontext required)\n- Renamed `description` field to `heap_filter` in `HeapFieldFilter`\nstruct\n- Updated `cleanup_json_for_explain()` to strip internal `expr_node`\nfield from output\n\n## Tests\n\n- Updated existing regression test expected outputs to reflect new\nreadable format\n- Added unit test `test_cleanup_heap_filter_field_filters` for cleanup\nfunction\n- All existing regression tests pass",
+          "timestamp": "2025-12-10T09:32:53-08:00",
+          "tree_id": "12a81600473e6e15c9b92c59c1caaf105c4fa515",
+          "url": "https://github.com/paradedb/paradedb/commit/7fc5f69719c8669ae9d635e98ce0b36f45f9408e"
+        },
+        "date": 1765391592361,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.34999505600908,
+            "unit": "median tps",
+            "extra": "avg tps: 32.24840181120898, max tps: 36.0004965939805, count: 55405"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 126.52347676301467,
+            "unit": "median tps",
+            "extra": "avg tps: 167.15432125623198, max tps: 2772.9804972569764, count: 55405"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1926.4272433342785,
+            "unit": "median tps",
+            "extra": "avg tps: 1914.3322835504223, max tps: 2207.8694151218688, count: 55405"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.97637065652907,
+            "unit": "median tps",
+            "extra": "avg tps: 153.21454286124617, max tps: 1665.4506643453985, count: 110810"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.322351399440027,
+            "unit": "median tps",
+            "extra": "avg tps: 15.205232675100445, max tps: 19.358645368723828, count: 55405"
           }
         ]
       }

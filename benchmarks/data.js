@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765399543272,
+  "lastUpdate": 1765401370253,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -32480,6 +32480,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 30330.7105,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c291730e3e1cf5d3b9ba8e9e59d6b38ba45324d",
+          "message": "fix: `NULL` ordering in aggregate custom scan (#3728)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes incorrect NULL positioning when using `NULLS FIRST`/`NULLS LAST`\nwith `ORDER BY` in aggregate custom scans.\n\n## Why\n\nPreviously, `ORDER BY col DESC` with the default `NULLS FIRST` would\nincorrectly place NULLs last, and `ORDER BY col DESC NULLS LAST` would\nplace them first. This happened because the sentinel values used to\nrepresent NULLs in Tantivy's terms aggregation didn't account for the\nsort direction reversal.\n\n## How\n\nThe fix tracks both the `nulls_first` preference AND the sort direction\nto choose the correct sentinel:\n\n- For ASC: MIN sentinel → appears first, MAX sentinel → appears last\n- For DESC: MAX sentinel → appears first (reversed), MIN sentinel →\nappears last (reversed)\n\nSo we use MIN sentinel when: `nulls_first == (direction == ASC)`\n\nChanges:\n- Added `nulls_first` field to `OrderByInfo` extracted from PostgreSQL's\n`pk_nulls_first`\n- Renamed `nulls_first_fields` → `use_min_sentinel_fields` with\ndirection-aware logic\n- Updated sentinel detection to recognize both MIN and MAX sentinels\n\n## Tests\n\nAdded `nulls_ordering.sql` regression test covering:\n- Text, integer, float, and JSON columns\n- All 4 combinations: ASC/DESC × NULLS FIRST/LAST\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Moe <mdashti@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-12-10T12:19:10-08:00",
+          "tree_id": "be05e0d925173720eaf7d1d360f99c615386ea7e",
+          "url": "https://github.com/paradedb/paradedb/commit/4c291730e3e1cf5d3b9ba8e9e59d6b38ba45324d"
+        },
+        "date": 1765401367340,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1225.15,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 520.3075,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1504.451,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 546.1469999999999,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 544.7270000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1287.9465,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 26440.322,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 26399.601000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 26658.139000000003,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

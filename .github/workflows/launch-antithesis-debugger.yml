@@ -52,6 +52,8 @@ jobs:
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config@${{ steps.build-push-config.outputs.digest }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}
           description: "Debugging session from GitHub Actions triggered by ${{ github.actor }} for session ${{ github.event.inputs.session_id }}"
           email_recipients: developers@paradedb.com;${{ github.event.inputs.emails }}
           additional_parameters: |-

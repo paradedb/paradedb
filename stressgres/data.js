@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765389918327,
+  "lastUpdate": 1765389922529,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16532,6 +16532,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.04729671392309, max segment_count: 163.0, count: 57911"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fc5f69719c8669ae9d635e98ce0b36f45f9408e",
+          "message": "feat: human-readable EXPLAIN output for HeapFilter (#3734)\n\n# Ticket(s) Closed\n\n- Closes #2777\n\n## What\n\nMakes `HeapFilter` expressions in EXPLAIN output human-readable instead\nof showing raw PostgreSQL node representations.\n\n**Before:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"expr_node\":\"{OPEXPR :opno 98 :opfuncid 67 ...}\"}]}}\n```\n\n**After:**\n```json\n{\"heap_filter\":{\"field_filters\":[{\"heap_filter\":\"(category = 'Electronics'::text)\"}]}}\n```\n\n## Why\n\nThe internal `nodeToString` representation (`{OPEXPR :opno 98 ...}`) is\nunreadable and unhelpful for debugging queries. Users need to see actual\nSQL expressions to understand what filters are being applied.\n\n## How\n\n- Created `pg_search/src/postgres/customscan/deparse.rs` with expression\ndeparsing utilities\n- Handles all cases with human-readable output:\n- **Simple expressions (varno 1):** deparse directly → `(price <\n200.00)`\n- **Single-table expressions with varno != 1 (JOINs, views):** remap\nvarno and deparse → `(author_id = ANY (...))`\n- **Prepared statement params (`PARAM_EXTERN`):** deparse as `$N` → `($2\n= 0)`\n- **Correlated subquery params (`PARAM_EXEC`):** clone, convert to\n`PARAM_EXTERN`, deparse → `(documentid = $1)`\n- **Multi-table expressions:** fall back to `nodeToString` (complex\ncontext required)\n- Renamed `description` field to `heap_filter` in `HeapFieldFilter`\nstruct\n- Updated `cleanup_json_for_explain()` to strip internal `expr_node`\nfield from output\n\n## Tests\n\n- Updated existing regression test expected outputs to reflect new\nreadable format\n- Added unit test `test_cleanup_heap_filter_field_filters` for cleanup\nfunction\n- All existing regression tests pass",
+          "timestamp": "2025-12-10T09:32:53-08:00",
+          "tree_id": "12a81600473e6e15c9b92c59c1caaf105c4fa515",
+          "url": "https://github.com/paradedb/paradedb/commit/7fc5f69719c8669ae9d635e98ce0b36f45f9408e"
+        },
+        "date": 1765389919644,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.604836567116866, max cpu: 42.985077, count: 57343"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 231.7235361661406, max mem: 233.28125, count: 57343"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.385941048118028, max cpu: 33.168808, count: 57343"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.18493797739043, max mem: 171.5625, count: 57343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49790,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49160.52133651884, max block_count: 51786.0, count: 57343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 95.85823901784002, max segment_count: 162.0, count: 57343"
           }
         ]
       }

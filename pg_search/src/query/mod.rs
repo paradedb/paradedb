@@ -835,7 +835,7 @@ impl SearchQueryInput {
                 }
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                let query = Box::new(TermSetQuery::new(fields.into_iter().map(
+                Ok(Box::new(TermSetQuery::new(fields.into_iter().map(
                     |TermInput {
                          field,
                          value,

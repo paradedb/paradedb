@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765390876445,
+  "lastUpdate": 1765391272082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19296,6 +19296,54 @@ window.BENCHMARK_DATA = {
             "value": 5.371359392309751,
             "unit": "median tps",
             "extra": "avg tps: 5.391255739140003, max tps: 7.964233328972119, count: 56087"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7bab7a2ef420edadc91c0e2be6ef03d681d5f12",
+          "message": "feat: validate fields in `pdb.agg()` and error on invalid references (#3729)\n\n# Ticket(s) Closed\n\n- Closes #3548\n\n## What\n\nAdd field validation to `pdb.agg()` to detect and report\ninvalid/non-indexed field references instead of silently returning empty\nresults.\n\n## Why\n\nPreviously, `pdb.agg()` with an invalid field would return confusing\nempty results:\n\n```sql\nSELECT pdb.agg('{\"date_histogram\": {\"field\": \"not_valid\", \"fixed_interval\": \"30d\"}}')\nFROM mock_items WHERE id @@@ pdb.all();\n-- Returns: {\"buckets\": []}\n```\n\nThis made debugging difficult since there was no indication the field\ndidn't exist.\n\n## How\n\n- Added `validate_fields()` method to `AggregateType` that recursively\nextracts all `\"field\"` values from the aggregation JSON and checks them\nagainst the index schema\n- Validation runs during aggregation collection for both GROUP BY and\nwindow function (TopN) contexts\n- Invalid fields now produce a clear error with available field names:\n  ```\nERROR: pdb.agg() references invalid field 'not_valid'. Available indexed\nfields are: [created_at, description, id, rating]\n  ```\n\n## Tests\n\nAdded `agg-validate.sql` regression test.",
+          "timestamp": "2025-12-10T09:41:25-08:00",
+          "tree_id": "1909998e13af3ab73435bd61a66d2293cc95f54e",
+          "url": "https://github.com/paradedb/paradedb/commit/b7bab7a2ef420edadc91c0e2be6ef03d681d5f12"
+        },
+        "date": 1765391269408,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1130.9679325623395,
+            "unit": "median tps",
+            "extra": "avg tps: 1131.6888243947337, max tps: 1173.6445967098991, count: 56205"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1267.4404258295401,
+            "unit": "median tps",
+            "extra": "avg tps: 1262.7179662849771, max tps: 1279.6857436909386, count: 56205"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1872.2384673000006,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.696191280991, max tps: 2033.958513219099, count: 56205"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.422132678977104,
+            "unit": "median tps",
+            "extra": "avg tps: 5.451732476606411, max tps: 7.513291867951357, count: 56205"
           }
         ]
       }

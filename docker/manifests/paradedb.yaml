@@ -201,12 +201,21 @@ data:
             description: Layer segments size distribution
             usage: HISTOGRAM
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paradedb-superuser
+  namespace: paradedb
+type: Opaque
+stringData:
+  password: antithesis-super-secret-password
+---
 # Source: paradedb/templates/cluster.yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: paradedb
-  namespace: default
+  namespace: paradedb
   labels:
     helm.sh/chart: paradedb-0.11.2
     app.kubernetes.io/name: paradedb
@@ -229,7 +238,12 @@ spec:
   primaryUpdateMethod: switchover
   primaryUpdateStrategy: unsupervised
   logLevel: info
+
   enableSuperuserAccess: true
+
+  superuserSecret:
+    name: paradedb-superuser
+
   enablePDB: true
   postgresql:
     shared_preload_libraries:

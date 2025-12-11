@@ -1,4 +1,9 @@
+\i common/common_setup.sql
+
 DROP TABLE IF EXISTS use_alias;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 CREATE TABLE use_alias (
     id serial8 not null primary key,
     t text
@@ -28,3 +33,5 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHER
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(ngram_3_5) @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(no_such_alias) &&& 'this is a test';
+
+RESET paradedb.enable_aggregate_custom_scan;

@@ -30,14 +30,16 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
+use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{deparse_expr, locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{
     find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
 };
@@ -287,7 +289,7 @@ unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var
         && (*a).varcollid == (*b).varcollid
 }
 
-unsafe fn field_name_from_node(
+pub unsafe fn field_name_from_node(
     context: VarContext,
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
@@ -335,6 +337,11 @@ unsafe fn field_name_from_node(
                 };
 
                 if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
+                    // this means we have a non-text/json field cast to `pdb.alias`
+                    // in which case it's likely an expression not a var
+                    if !type_can_be_tokenized((*var).vartype) {
+                        return None;
+                    }
                     let vars = find_vars(expression.cast());
                     if vars.len() == 1 {
                         let expr_var = vars[0];
@@ -398,7 +405,7 @@ unsafe fn field_name_from_node(
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })
                     } else {
-                        let expr_str = deparse_expr(heaprel, Some(indexed_expression));
+                        let expr_str = deparse_expr(None, heaprel, indexed_expression.cast());
                         panic!("indexed expression requires a tokenizer cast with an alias: {expr_str}");
                     };
 
@@ -408,6 +415,17 @@ unsafe fn field_name_from_node(
                 if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {
                     reduced_expression = (*relabel).arg.cast();
                     continue;
+                }
+
+                // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
+                if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
+                    let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                    if args.len() == 1 {
+                        if let Some(arg) = args.get_ptr(0) {
+                            reduced_expression = arg.cast();
+                            continue;
+                        }
+                    }
                 }
 
                 break;
@@ -421,7 +439,7 @@ unsafe fn field_name_from_node(
 
     // could it be a json(b) path reference like:  json_field->'foo'->>'bar'?
     let json_path = find_json_path(&context, node);
-    if !json_path.is_empty() {
+    if json_path.len() > 1 {
         return Some(FieldName::from(json_path.join(".")));
     }
 
@@ -704,19 +722,8 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
 #[track_caller]
 #[inline]
 unsafe fn validate_lhs_type_as_text_compatible(lhs: *mut pg_sys::Node, operator_name: &str) {
-    #[inline]
-    pub fn type_is_text_compatible(oid: pg_sys::Oid) -> bool {
-        oid == pg_sys::TEXTOID
-            || oid == pg_sys::VARCHAROID
-            || oid == pg_sys::TEXTARRAYOID
-            || oid == pg_sys::VARCHARARRAYOID
-            || oid == pg_sys::JSONOID
-            || oid == pg_sys::JSONBOID
-            || type_is_tokenizer(oid)
-    }
-
     let typoid = pg_sys::exprType(lhs);
-    if !type_is_text_compatible(typoid) {
+    if !type_can_be_tokenized(typoid) && !type_is_tokenizer(typoid) {
         let typname = lookup_type_name(typoid).unwrap_or_else(|| String::from("<unknown type>"));
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,

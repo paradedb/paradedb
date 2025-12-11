@@ -38,6 +38,7 @@ pub use crate::api::tokenizers::typmod::{
     UnicodeWordsTypmod,
 };
 
+// if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
 #[inline]
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
@@ -45,10 +46,24 @@ pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
         .map(|c| c == b't')
         .unwrap_or(false)
 }
+// if a ::pdb.alias cast is used
 #[inline]
 pub fn type_is_alias(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
     Some(oid) == lookup_typoid(c"pdb", c"alias")
+}
+// only fields that could contain text can be tokenized
+#[inline]
+pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
+    [
+        pg_sys::VARCHAROID,
+        pg_sys::TEXTOID,
+        pg_sys::JSONOID,
+        pg_sys::JSONBOID,
+        pg_sys::TEXTARRAYOID,
+        pg_sys::VARCHARARRAYOID,
+    ]
+    .contains(&oid)
 }
 
 pub fn search_field_config_from_type(
@@ -57,6 +72,10 @@ pub fn search_field_config_from_type(
     inner_typoid: pg_sys::Oid,
 ) -> Option<SearchFieldConfig> {
     let type_name = lookup_type_name(oid)?;
+
+    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
+        return None;
+    }
 
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
@@ -209,8 +228,6 @@ pub trait CowString {
 }
 
 pub trait DatumWrapper {
-    fn sql_name() -> &'static str;
-
     #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
 
@@ -276,22 +293,24 @@ impl<T: DatumWrapper> CowString for T {
     }
 }
 
-struct GenericTypeWrapper<Type: DatumWrapper> {
+struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
     pub datum: pg_sys::Datum,
-    __marker: PhantomData<Type>,
+    __marker: PhantomData<(Type, SqlName)>,
 }
 
-unsafe impl<Type: DatumWrapper> SqlTranslatable for GenericTypeWrapper<Type> {
+unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> SqlTranslatable
+    for GenericTypeWrapper<Type, SqlName>
+{
     fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As(Type::sql_name().into()))
+        Ok(SqlMapping::As(SqlName::SQL_NAME.into()))
     }
 
     fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As(Type::sql_name().into())))
+        Ok(Returns::One(SqlMapping::As(SqlName::SQL_NAME.into())))
     }
 }
 
-impl<Type: DatumWrapper> IntoDatum for GenericTypeWrapper<Type> {
+impl<Type: DatumWrapper, SqlName: SqlNameMarker> IntoDatum for GenericTypeWrapper<Type, SqlName> {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         Some(self.datum)
     }
@@ -301,7 +320,7 @@ impl<Type: DatumWrapper> IntoDatum for GenericTypeWrapper<Type> {
     }
 }
 
-impl<Type: DatumWrapper> FromDatum for GenericTypeWrapper<Type> {
+impl<Type: DatumWrapper, SqlName: SqlNameMarker> FromDatum for GenericTypeWrapper<Type, SqlName> {
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
@@ -318,7 +337,9 @@ impl<Type: DatumWrapper> FromDatum for GenericTypeWrapper<Type> {
     }
 }
 
-unsafe impl<'mct, Type: DatumWrapper> ArgAbi<'mct> for GenericTypeWrapper<Type> {
+unsafe impl<'mct, Type: DatumWrapper, SqlName: SqlNameMarker> ArgAbi<'mct>
+    for GenericTypeWrapper<Type, SqlName>
+{
     unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'mct>) -> Self {
         let index = arg.index();
         unsafe {
@@ -328,13 +349,15 @@ unsafe impl<'mct, Type: DatumWrapper> ArgAbi<'mct> for GenericTypeWrapper<Type> 
     }
 }
 
-unsafe impl<Type: DatumWrapper> BoxRet for GenericTypeWrapper<Type> {
+unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> BoxRet
+    for GenericTypeWrapper<Type, SqlName>
+{
     unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {
         fcinfo.return_raw_datum(self.datum)
     }
 }
 
-impl<Type: DatumWrapper> GenericTypeWrapper<Type> {
+impl<Type: DatumWrapper, SqlName: SqlNameMarker> GenericTypeWrapper<Type, SqlName> {
     fn new(datum: pg_sys::Datum) -> Self {
         Self {
             datum,
@@ -343,46 +366,90 @@ impl<Type: DatumWrapper> GenericTypeWrapper<Type> {
     }
 }
 
-impl DatumWrapper for pgrx::Json {
-    fn sql_name() -> &'static str {
-        "json"
-    }
-
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <pgrx::Json as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
-
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
-    }
-}
-
-impl DatumWrapper for pgrx::JsonB {
-    fn sql_name() -> &'static str {
-        "jsonb"
-    }
-
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <pgrx::JsonB as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
-
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
+macro_rules! datum_wrapper_for {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl DatumWrapper for $ty {
+fn from_datum(datum: pg_sys::Datum) -> Self {
+    unsafe {
+        if datum.is_null() {
+            panic!("null datum not allowed in alias cast");
+        }
+        <$ty as pgrx::datum::FromDatum>::from_datum(datum, false)
+            .expect("failed to convert datum")
     }
 }
 
-impl DatumWrapper for Vec<String> {
-    fn sql_name() -> &'static str {
-        "text[]"
-    }
+                fn as_datum(&self) -> pg_sys::Datum {
+                    unreachable!("this is not supported")
+                }
+            }
+        )+
+    };
+}
 
-    fn from_datum(datum: pg_sys::Datum) -> Self {
-        unsafe { <Vec<String> as FromDatum>::from_datum(datum, datum.is_null()).unwrap() }
-    }
+datum_wrapper_for!(
+    String,
+    pgrx::datum::Uuid,
+    pgrx::Json,
+    pgrx::JsonB,
+    Vec<String>,
+    i16,
+    i32,
+    i64,
+    u32,
+    f32,
+    f64,
+    bool,
+    pgrx::datum::Date,
+    pgrx::datum::Time,
+    pgrx::datum::Timestamp,
+    pgrx::datum::TimestampWithTimeZone,
+    pgrx::datum::TimeWithTimeZone,
+    pgrx::datum::Inet,
+    pgrx::datum::AnyNumeric,
+    pgrx::datum::Range<i32>,
+    pgrx::datum::Range<i64>,
+    pgrx::datum::Range<pgrx::datum::AnyNumeric>,
+    pgrx::datum::Range<pgrx::datum::Date>,
+    pgrx::datum::Range<pgrx::datum::Timestamp>,
+    pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone>,
+    Vec<i16>,
+    Vec<i32>,
+    Vec<i64>,
+    Vec<f32>,
+    Vec<f64>,
+    Vec<bool>,
+    Vec<pgrx::datum::Date>,
+    Vec<pgrx::datum::Time>,
+    Vec<pgrx::datum::Timestamp>,
+    Vec<pgrx::datum::TimestampWithTimeZone>,
+    Vec<pgrx::datum::TimeWithTimeZone>,
+    Vec<pgrx::datum::AnyNumeric>
+);
 
-    fn as_datum(&self) -> pg_sys::Datum {
-        unreachable!("this is not supported")
-    }
+pub trait SqlNameMarker {
+    const SQL_NAME: &'static str;
+}
+
+pub struct TextArrayMarker;
+impl SqlNameMarker for TextArrayMarker {
+    const SQL_NAME: &'static str = "text[]";
+}
+
+pub struct VarcharArrayMarker;
+impl SqlNameMarker for VarcharArrayMarker {
+    const SQL_NAME: &'static str = "varchar[]";
+}
+
+pub struct JsonMarker;
+impl SqlNameMarker for JsonMarker {
+    const SQL_NAME: &'static str = "json";
+}
+
+pub struct JsonbMarker;
+impl SqlNameMarker for JsonbMarker {
+    const SQL_NAME: &'static str = "jsonb";
 }
 
 //

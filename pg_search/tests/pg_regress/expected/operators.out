@@ -1,12 +1,28 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'mock_items'
+);
+ALTER TABLE mock_items ADD COLUMN sku UUID;
+UPDATE mock_items SET sku = ('da2fea21-' || lpad(to_hex( id::int4), 4, '0') || '-411b-9e8c-2cb64e471293')::uuid;
+VACUUM FULL mock_items;
+CREATE INDEX IF NOT EXISTS idxregress_mock_items
+ON mock_items
+    USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+WITH (key_field='id');
 --
 -- these are designed to validate that the EXPLAIN output is correct
 -- and that each operator returns the expected number of rows
 --
-    
 --
 -- @@@ (parse)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'running shoes';
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -17,7 +33,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
+SELECT * FROM mock_items WHERE description @@@ 'running shoes';
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -25,7 +41,7 @@ SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes';
                                                                              QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -36,7 +52,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description_lower","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -47,7 +63,7 @@ SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes' OR
 --
 -- &&& (match conjunction)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'running shoes';
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -58,13 +74,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description &&& 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE description &&& 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) &&& 'running shoes';
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -75,7 +91,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) &&& 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -84,7 +100,7 @@ SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes' OR
 --
 -- ||| (match disjunction)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'running shoes';
                                                                                                 QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -95,7 +111,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description ||| 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE description ||| 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -103,7 +119,7 @@ SELECT * FROM regress.mock_items WHERE description ||| 'running shoes' ORDER BY 
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) ||| 'running shoes';
                                                                                                    QUERY PLAN                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -114,7 +130,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description_lower","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) ||| 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -125,7 +141,7 @@ SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes' OR
 --
 -- ### (phrase)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ### 'running shoes';
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -136,13 +152,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description ### 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE description ### 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
 (1 row)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) ### 'running shoes';
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -153,7 +169,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description_lower","phrase":"running shoes","slop":null}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) ### 'running shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -162,7 +178,7 @@ SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes' OR
 --
 -- === (term equality)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes';
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -173,7 +189,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes","is_datetime":false}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description === 'shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE description === 'shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -181,7 +197,7 @@ SELECT * FROM regress.mock_items WHERE description === 'shoes' ORDER BY id;
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) === 'shoes';
                                                       QUERY PLAN                                                      
 ----------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -192,7 +208,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"term":{"field":"description_lower","value":"shoes","is_datetime":false}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) === 'shoes' ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -203,7 +219,7 @@ SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY i
 --
 -- === (termset equality)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'];
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === ARRAY['shoes', 'SHOES'];
                                                 QUERY PLAN                                                
 ----------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -214,7 +230,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description","terms":["shoes","SHOES"]}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] ORDER BY id;
+SELECT * FROM mock_items WHERE description === ARRAY['shoes', 'SHOES'] ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -222,7 +238,7 @@ SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] O
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
                                                    QUERY PLAN                                                   
 ----------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
@@ -233,7 +249,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
    Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description_lower","terms":["shoes","SHOES"]}}}}
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -244,31 +260,31 @@ SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SH
 ---
 --- the rhs of the operator is an expression that must be evaluated at execution time
 ---
-select * from regress.mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
 (1 row)
 
-select * from regress.mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
 (1 row)
 
-select * from regress.mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
 (1 row)
 
-select * from regress.mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
 (1 row)
 
-select * from regress.mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
@@ -278,17 +294,17 @@ select * from regress.mock_items where description === case when id = 1 then 'ke
 -- other supported types on the lhs
 -- these are types that postgres will coerce to TEXT
 --
-SELECT * FROM regress.mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `@@@(field, TEXT)` operator: `keyboard`
-SELECT * FROM regress.mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `keyboard`
-SELECT * FROM regress.mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `keyboard`
-SELECT * FROM regress.mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `keyboard`
-SELECT * FROM regress.mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `keyboard`
-SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category @@@ 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -299,7 +315,7 @@ SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
  33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE category &&& 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category &&& 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -310,7 +326,7 @@ SELECT * FROM regress.mock_items WHERE category &&& 'footwear' ORDER BY id;
  33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE category ||| 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -321,7 +337,7 @@ SELECT * FROM regress.mock_items WHERE category ||| 'footwear' ORDER BY id;
  33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE category ### 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category ### 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -332,7 +348,7 @@ SELECT * FROM regress.mock_items WHERE category ### 'footwear' ORDER BY id;
  33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
 (6 rows)
 
-SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category === 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -347,43 +363,44 @@ SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
 -- some unsupported types on the lhs
 -- these will all produce an error
 --
-SELECT * FROM regress.mock_items WHERE id &&& '42';
+SELECT * FROM mock_items WHERE id &&& '42';
 ERROR:  type `int4` is not compatible with the `&&&` operator
-SELECT * FROM regress.mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
+SELECT * FROM mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `&&&` operator
-SELECT * FROM regress.mock_items WHERE in_stock &&& 'true';
-ERROR:  type `bool` is not compatible with the `&&&` operator
-SELECT * FROM regress.mock_items WHERE last_updated_date &&& now()::date::text;
-ERROR:  type `date` is not compatible with the `&&&` operator
-SELECT * FROM regress.mock_items WHERE latest_available_time &&& now()::date::text;
-ERROR:  type `time` is not compatible with the `&&&` operator
-SELECT * FROM regress.mock_items WHERE id ||| '42';
+SELECT * FROM mock_items WHERE in_stock &&& 'true';
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `true`
+SELECT * FROM mock_items WHERE last_updated_date &&& '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time &&& '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE id ||| '42';
 ERROR:  type `int4` is not compatible with the `|||` operator
-SELECT * FROM regress.mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
+SELECT * FROM mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `|||` operator
-SELECT * FROM regress.mock_items WHERE in_stock ||| 'true';
-ERROR:  type `bool` is not compatible with the `|||` operator
-SELECT * FROM regress.mock_items WHERE last_updated_date ||| now()::date::text;
-ERROR:  type `date` is not compatible with the `|||` operator
-SELECT * FROM regress.mock_items WHERE latest_available_time ||| now()::date::text;
-ERROR:  type `time` is not compatible with the `|||` operator
-SELECT * FROM regress.mock_items WHERE id ### '42';
+SELECT * FROM mock_items WHERE in_stock ||| 'true';
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `true`
+SELECT * FROM mock_items WHERE last_updated_date ||| '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time ||| '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE id ### '42';
 ERROR:  type `int4` is not compatible with the `###` operator
-SELECT * FROM regress.mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
+SELECT * FROM mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `###` operator
-SELECT * FROM regress.mock_items WHERE in_stock ### 'true';
-ERROR:  type `bool` is not compatible with the `###` operator
-SELECT * FROM regress.mock_items WHERE last_updated_date ### now()::date::text;
-ERROR:  type `date` is not compatible with the `###` operator
-SELECT * FROM regress.mock_items WHERE latest_available_time ### now()::date::text;
-ERROR:  type `time` is not compatible with the `###` operator
-SELECT * FROM regress.mock_items WHERE id === '42';
+SELECT * FROM mock_items WHERE in_stock ### 'true';
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `true`
+SELECT * FROM mock_items WHERE last_updated_date ### '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time ### '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE id === '42';
 ERROR:  type `int4` is not compatible with the `===` operator
-SELECT * FROM regress.mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
+SELECT * FROM mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
 ERROR:  type `uuid` is not compatible with the `===` operator
-SELECT * FROM regress.mock_items WHERE in_stock === 'true';
-ERROR:  type `bool` is not compatible with the `===` operator
-SELECT * FROM regress.mock_items WHERE last_updated_date === now()::date::text;
-ERROR:  type `date` is not compatible with the `===` operator
-SELECT * FROM regress.mock_items WHERE latest_available_time === now()::date::text;
-ERROR:  type `time` is not compatible with the `===` operator
+SELECT * FROM mock_items WHERE in_stock === 'true';
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `true`
+SELECT * FROM mock_items WHERE last_updated_date === '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-06-2025`
+SELECT * FROM mock_items WHERE latest_available_time === '12-06-25'::date::text;
+ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `12-06-2025`
+DROP TABLE mock_items;

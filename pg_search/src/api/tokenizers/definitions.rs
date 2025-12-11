@@ -22,8 +22,12 @@ use std::ffi::CStr;
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
-    use crate::api::tokenizers::{CowString, DatumWrapper, GenericTypeWrapper};
+    use crate::api::tokenizers::{
+        CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
+        TextArrayMarker, VarcharArrayMarker,
+    };
     use macros::generate_tokenizer_sql;
+    use paste::paste;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -38,8 +42,27 @@ pub(crate) mod pdb {
         fn make_search_tokenizer() -> SearchTokenizer;
     }
 
+    macro_rules! cast_alias {
+        ($sql_name:literal, $marker:ident, $rust_ty:ty, $fn_prefix:ident) => {
+            paste::paste! {
+                struct [<$marker Marker>];
+
+                impl SqlNameMarker for [<$marker Marker>] {
+                    const SQL_NAME: &'static str = $sql_name;
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
+                unsafe fn [<$fn_prefix _to_alias>](
+                    arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
+                ) -> GenericTypeWrapper<Alias, AliasMarker> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
+            }
+        };
+    }
+
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -50,10 +73,6 @@ pub(crate) mod pdb {
             }
 
             impl DatumWrapper for $rust_name {
-                fn sql_name() -> &'static str {
-                    concat!("pdb", ".", $sql_name)
-                }
-
                 fn from_datum(datum: pg_sys::Datum) -> Self {
                     $rust_name(datum)
                 }
@@ -151,25 +170,54 @@ pub(crate) mod pdb {
                 tokens
             }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            fn $json_cast_name(
-                json: GenericTypeWrapper<pgrx::Json>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(json.datum)
-            }
+            paste! {
+                struct [<$rust_name JsonMarker>];
+                impl SqlNameMarker for [<$rust_name JsonMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            unsafe fn $jsonb_cast_name(
-                jsonb: GenericTypeWrapper<pgrx::JsonB>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(jsonb.datum)
-            }
+                struct [<$rust_name JsonbMarker>];
+                impl SqlNameMarker for [<$rust_name JsonbMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
 
-            #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
-            unsafe fn $text_array_cast_name(
-                arr: GenericTypeWrapper<Vec<String>>,
-            ) -> GenericTypeWrapper<$rust_name> {
-                GenericTypeWrapper::new(arr.datum)
+                struct [<$rust_name TextArrayMarker>];
+                impl SqlNameMarker for [<$rust_name TextArrayMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
+                struct [<$rust_name VarcharArrayMarker>];
+                impl SqlNameMarker for [<$rust_name VarcharArrayMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn $json_cast_name(
+                    json: GenericTypeWrapper<pgrx::Json, JsonMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonMarker>]> {
+                    GenericTypeWrapper::new(json.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $jsonb_cast_name(
+                    jsonb: GenericTypeWrapper<pgrx::JsonB, JsonbMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonbMarker>]> {
+                    GenericTypeWrapper::new(jsonb.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $text_array_cast_name(
+                    arr: GenericTypeWrapper<Vec<String>, TextArrayMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name TextArrayMarker>]> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $varchar_array_cast_name(
+                    arr: GenericTypeWrapper<Vec<String>, VarcharArrayMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name VarcharArrayMarker>]> {
+                    GenericTypeWrapper::new(arr.datum)
+                }
             }
 
             generate_tokenizer_sql!(
@@ -181,6 +229,7 @@ pub(crate) mod pdb {
                 json_cast_name = $json_cast_name,
                 jsonb_cast_name = $jsonb_cast_name,
                 text_array_cast_name = $text_array_cast_name,
+                varchar_array_cast_name = $varchar_array_cast_name,
                 schema = pdb
             );
         };
@@ -193,6 +242,7 @@ pub(crate) mod pdb {
         json_to_alias,
         jsonb_to_alias,
         text_array_to_alias,
+        varchar_array_to_alias,
         "alias",
         preferred = false,
         custom_typmod = false
@@ -205,6 +255,7 @@ pub(crate) mod pdb {
         json_to_simple,
         jsonb_to_simple,
         text_array_to_simple,
+        varchar_array_to_simple,
         "simple",
         preferred = true,
         custom_typmod = false
@@ -217,6 +268,7 @@ pub(crate) mod pdb {
         json_to_whitespace,
         jsonb_to_whitespace,
         text_array_to_whitespace,
+        varchar_array_to_whitespace,
         "whitespace",
         preferred = false,
         custom_typmod = false
@@ -229,6 +281,7 @@ pub(crate) mod pdb {
         json_to_literal,
         jsonb_to_literal,
         text_array_to_literal,
+        varchar_array_to_literal,
         "literal",
         preferred = false,
         custom_typmod = true
@@ -241,6 +294,7 @@ pub(crate) mod pdb {
         json_to_literal_normalized,
         jsonb_to_literal_normalized,
         text_array_to_literal_normalized,
+        varchar_array_to_literal_normalized,
         "literal_normalized",
         preferred = false,
         custom_typmod = false
@@ -253,6 +307,7 @@ pub(crate) mod pdb {
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,
         text_array_to_chinese_compatible,
+        varchar_array_to_chinese_compatible,
         "chinese_compatible",
         preferred = false,
         custom_typmod = false
@@ -265,6 +320,7 @@ pub(crate) mod pdb {
         json_to_lindera,
         jsonb_to_lindera,
         text_array_to_lindera,
+        varchar_array_to_lindera,
         "lindera",
         preferred = false,
         custom_typmod = false
@@ -277,6 +333,7 @@ pub(crate) mod pdb {
         json_to_jieba,
         jsonb_to_jieba,
         text_array_to_jieba,
+        varchar_array_to_jieba,
         "jieba",
         preferred = false,
         custom_typmod = false
@@ -289,6 +346,7 @@ pub(crate) mod pdb {
         json_to_source_code,
         jsonb_to_source_code,
         text_array_to_source_code,
+        varchar_array_to_source_code,
         "source_code",
         preferred = false,
         custom_typmod = false
@@ -302,6 +360,7 @@ pub(crate) mod pdb {
         json_to_icu,
         jsonb_to_icu,
         text_array_to_icu,
+        varchar_array_to_icu,
         "icu",
         preferred = false,
         custom_typmod = false
@@ -319,6 +378,7 @@ pub(crate) mod pdb {
         json_to_ngram,
         jsonb_to_ngram,
         text_array_to_ngram,
+        varchar_array_to_ngram,
         "ngram",
         preferred = false,
         custom_typmod = false
@@ -334,6 +394,7 @@ pub(crate) mod pdb {
         json_to_regex,
         jsonb_to_regex,
         text_array_to_regex_pattern,
+        varchar_array_to_regex_pattern,
         "regex_pattern",
         preferred = false,
         custom_typmod = false
@@ -349,9 +410,185 @@ pub(crate) mod pdb {
         json_to_unicode_words,
         jsonb_to_unicode_words,
         text_array_to_unicode_words,
+        varchar_array_to_unicode_words,
         "unicode_words",
         preferred = false,
         custom_typmod = false
+    );
+
+    struct AliasMarker;
+    impl SqlNameMarker for AliasMarker {
+        const SQL_NAME: &'static str = "pdb.alias";
+    }
+
+    // allow the following types to be cast to `pdb.alias` at CREATE INDEX time
+    cast_alias!("text", Text, String, text);
+    cast_alias!("varchar", Varchar, String, varchar);
+    cast_alias!("uuid", Uuid, pgrx::datum::Uuid, uuid);
+    cast_alias!("smallint", SmallInt, i16, smallint);
+    cast_alias!("integer", Integer, i32, integer);
+    cast_alias!("bigint", BigInt, i64, bigint);
+    cast_alias!("oid", Oid, u32, oid);
+    cast_alias!("float4", Float4, f32, float4);
+    cast_alias!("float8", Float8, f64, float8);
+    cast_alias!("numeric", Numeric, pgrx::datum::AnyNumeric, numeric);
+    cast_alias!("boolean", Boolean, bool, boolean);
+    cast_alias!("date", Date, pgrx::datum::Date, date);
+    cast_alias!("time", Time, pgrx::datum::Time, time);
+    cast_alias!("timestamp", Timestamp, pgrx::datum::Timestamp, timestamp);
+    cast_alias!(
+        "timestamp with time zone",
+        TimestampWithTimeZone,
+        pgrx::datum::TimestampWithTimeZone,
+        timestamp_with_time_zone
+    );
+    cast_alias!(
+        "time with time zone",
+        TimeWithTimeZone,
+        pgrx::datum::TimeWithTimeZone,
+        time_with_time_zone
+    );
+
+    cast_alias!("inet", Inet, pgrx::datum::Inet, inet);
+    cast_alias!("int4range", Int4Range, pgrx::datum::Range<i32>, int4range);
+    cast_alias!("int8range", Int8Range, pgrx::datum::Range<i64>, int8range);
+    cast_alias!(
+        "numrange",
+        NumRange,
+        pgrx::datum::Range<pgrx::datum::AnyNumeric>,
+        numrange
+    );
+    cast_alias!(
+        "daterange",
+        DateRange,
+        pgrx::datum::Range<pgrx::datum::Date>,
+        daterange
+    );
+    cast_alias!(
+        "tsrange",
+        TsRange,
+        pgrx::datum::Range<pgrx::datum::Timestamp>,
+        tsrange
+    );
+    cast_alias!(
+        "tstzrange",
+        TstzRange,
+        pgrx::datum::Range<pgrx::datum::TimestampWithTimeZone>,
+        tstzrange
+    );
+    cast_alias!("smallint[]", SmallIntArray, Vec<i16>, smallint_array);
+    cast_alias!("integer[]", IntegerArray, Vec<i32>, integer_array);
+    cast_alias!("bigint[]", BigIntArray, Vec<i64>, bigint_array);
+    cast_alias!("float4[]", Float4Array, Vec<f32>, float4_array);
+    cast_alias!("float8[]", Float8Array, Vec<f64>, float8_array);
+    cast_alias!(
+        "numeric[]",
+        NumericArray,
+        Vec<pgrx::datum::AnyNumeric>,
+        numeric_array
+    );
+    cast_alias!("boolean[]", BooleanArray, Vec<bool>, boolean_array);
+    cast_alias!("date[]", DateArray, Vec<pgrx::datum::Date>, date_array);
+    cast_alias!("time[]", TimeArray, Vec<pgrx::datum::Time>, time_array);
+    cast_alias!(
+        "timestamp[]",
+        TimestampArray,
+        Vec<pgrx::datum::Timestamp>,
+        timestamp_array
+    );
+    cast_alias!(
+        "timestamp with time zone[]",
+        TimestampWithTimeZoneArray,
+        Vec<pgrx::datum::TimestampWithTimeZone>,
+        timestamp_with_time_zone_array
+    );
+    cast_alias!(
+        "time with time zone[]",
+        TimeWithTimeZoneArray,
+        Vec<pgrx::datum::TimeWithTimeZone>,
+        time_with_time_zone_array
+    );
+
+    extension_sql!(
+        r#"
+        CREATE CAST (text AS pdb.alias) WITH FUNCTION pdb.text_to_alias AS ASSIGNMENT;
+        CREATE CAST (varchar AS pdb.alias) WITH FUNCTION pdb.varchar_to_alias AS ASSIGNMENT;
+        CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;
+        CREATE CAST (smallint AS pdb.alias) WITH FUNCTION pdb.smallint_to_alias AS ASSIGNMENT;
+        CREATE CAST (integer AS pdb.alias) WITH FUNCTION pdb.integer_to_alias AS ASSIGNMENT;
+        CREATE CAST (bigint AS pdb.alias) WITH FUNCTION pdb.bigint_to_alias AS ASSIGNMENT;
+        CREATE CAST (oid AS pdb.alias) WITH FUNCTION pdb.oid_to_alias AS ASSIGNMENT;
+        CREATE CAST (float4 AS pdb.alias) WITH FUNCTION pdb.float4_to_alias AS ASSIGNMENT;
+        CREATE CAST (float8 AS pdb.alias) WITH FUNCTION pdb.float8_to_alias AS ASSIGNMENT;
+        CREATE CAST (numeric AS pdb.alias) WITH FUNCTION pdb.numeric_to_alias AS ASSIGNMENT;
+        CREATE CAST (boolean AS pdb.alias) WITH FUNCTION pdb.boolean_to_alias AS ASSIGNMENT;
+        CREATE CAST (date AS pdb.alias) WITH FUNCTION pdb.date_to_alias AS ASSIGNMENT;
+        CREATE CAST (time AS pdb.alias) WITH FUNCTION pdb.time_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp AS pdb.alias) WITH FUNCTION pdb.timestamp_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp with time zone AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_to_alias AS ASSIGNMENT;
+        CREATE CAST (time with time zone AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_to_alias AS ASSIGNMENT;
+        CREATE CAST (inet AS pdb.alias) WITH FUNCTION pdb.inet_to_alias AS ASSIGNMENT;
+        CREATE CAST (int4range AS pdb.alias) WITH FUNCTION pdb.int4range_to_alias AS ASSIGNMENT;
+        CREATE CAST (int8range AS pdb.alias) WITH FUNCTION pdb.int8range_to_alias AS ASSIGNMENT;
+        CREATE CAST (numrange AS pdb.alias) WITH FUNCTION pdb.numrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (daterange AS pdb.alias) WITH FUNCTION pdb.daterange_to_alias AS ASSIGNMENT;
+        CREATE CAST (tsrange AS pdb.alias) WITH FUNCTION pdb.tsrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (tstzrange AS pdb.alias) WITH FUNCTION pdb.tstzrange_to_alias AS ASSIGNMENT;
+        CREATE CAST (smallint[] AS pdb.alias) WITH FUNCTION pdb.smallint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (integer[] AS pdb.alias) WITH FUNCTION pdb.integer_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (bigint[] AS pdb.alias) WITH FUNCTION pdb.bigint_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float4[] AS pdb.alias) WITH FUNCTION pdb.float4_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (float8[] AS pdb.alias) WITH FUNCTION pdb.float8_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (numeric[] AS pdb.alias) WITH FUNCTION pdb.numeric_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (boolean[] AS pdb.alias) WITH FUNCTION pdb.boolean_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (date[] AS pdb.alias) WITH FUNCTION pdb.date_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time[] AS pdb.alias) WITH FUNCTION pdb.time_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp[] AS pdb.alias) WITH FUNCTION pdb.timestamp_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (timestamp with time zone[] AS pdb.alias) WITH FUNCTION pdb.timestamp_with_time_zone_array_to_alias AS ASSIGNMENT;
+        CREATE CAST (time with time zone[] AS pdb.alias) WITH FUNCTION pdb.time_with_time_zone_array_to_alias AS ASSIGNMENT;
+        "#,
+        name = "alias_casts",
+        requires = [
+            tokenize_alias,
+            "alias_definition",
+            text_to_alias,
+            varchar_to_alias,
+            uuid_to_alias,
+            smallint_to_alias,
+            integer_to_alias,
+            bigint_to_alias,
+            oid_to_alias,
+            float4_to_alias,
+            float8_to_alias,
+            numeric_to_alias,
+            boolean_to_alias,
+            date_to_alias,
+            time_to_alias,
+            timestamp_to_alias,
+            timestamp_with_time_zone_to_alias,
+            time_with_time_zone_to_alias,
+            inet_to_alias,
+            int4range_to_alias,
+            int8range_to_alias,
+            numrange_to_alias,
+            daterange_to_alias,
+            tsrange_to_alias,
+            tstzrange_to_alias,
+            text_array_to_alias,
+            varchar_array_to_alias,
+            smallint_array_to_alias,
+            integer_array_to_alias,
+            bigint_array_to_alias,
+            float4_array_to_alias,
+            float8_array_to_alias,
+            numeric_array_to_alias,
+            boolean_array_to_alias,
+            date_array_to_alias,
+            time_array_to_alias,
+            timestamp_array_to_alias,
+            timestamp_with_time_zone_array_to_alias,
+            time_with_time_zone_array_to_alias
+        ]
     );
 }
 

@@ -31,6 +31,7 @@ use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -581,6 +582,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Field(sort_field),
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
             } => {
                 let field = self
                     .schema
@@ -669,6 +671,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let (top_docs, aggregation_results) = self.top_in_segments(
@@ -689,6 +692,7 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
+                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } => {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
@@ -912,6 +916,136 @@ impl SearchIndexReader {
         (count as f64 / segment_doc_proportion).ceil() as usize
     }
 
+    /// Build a query tree with recursive estimates for EXPLAIN output.
+    pub fn build_query_tree_with_estimates(
+        &self,
+        query_input: SearchQueryInput,
+    ) -> Result<QueryWithEstimates> {
+        let parser_closure = || {
+            QueryParser::for_index(
+                &self.underlying_index,
+                self.schema
+                    .fields()
+                    .map(|(field, _)| field)
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
+            &self.schema,
+            &parser_closure,
+            &self.searcher,
+            self.index_rel.oid(),
+            self.index_rel.rel_oid(),
+            None, // expr_context not needed for estimation
+            None,
+        )?;
+
+        let total_docs = self.searcher.num_docs() as f64;
+        self.estimate_docs_recursive(&mut query_tree, total_docs, &parser_closure);
+
+        Ok(query_tree)
+    }
+
+    fn estimate_docs_recursive<QueryParserCtor: Fn() -> QueryParser>(
+        &self,
+        query_tree: &mut QueryWithEstimates,
+        total_docs: f64,
+        parser: &QueryParserCtor,
+    ) {
+        let segment_readers = self.searcher.segment_readers();
+
+        if segment_readers.is_empty() {
+            query_tree.traverse_mut(0, &mut |node, _depth| {
+                node.estimated_docs = Some(0);
+            });
+            return;
+        }
+
+        // Find the largest segment by num_docs for estimation
+        let largest_reader = segment_readers
+            .iter()
+            .max_by_key(|r| r.num_docs())
+            .expect("should have at least one segment reader");
+
+        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
+        self.estimate_node_recursive(query_tree, largest_reader, segment_doc_proportion, parser);
+    }
+
+    fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
+        &self,
+        node: &mut QueryWithEstimates,
+        largest_reader: &SegmentReader,
+        segment_doc_proportion: f64,
+        parser: &QueryParserCtor,
+    ) {
+        use crate::query::SearchQueryInput;
+
+        // First, recursively estimate all children
+        for child in node.children_mut() {
+            self.estimate_node_recursive(child, largest_reader, segment_doc_proportion, parser);
+        }
+
+        // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
+        // estimate from child. These are placeholders created in into_tantivy_query_generic
+        // to wrap children for better tree structure display.
+        //
+        // - Empty: used for Boolean clause labels ("Must Clause [0]", etc.)
+        // - All: used for DisjunctionMax disjunct labels ("Disjunct [0]", etc.)
+        //
+        // Note: We check for exactly 1 child to distinguish structural wrappers from
+        // actual leaf queries (e.g., real "All" query has 0 children and should be estimated).
+        if matches!(&node.query, SearchQueryInput::Empty | SearchQueryInput::All)
+            && node.children().len() == 1
+        {
+            if let Some(child_estimate) = node.children()[0].estimated_docs {
+                node.set_estimate(child_estimate);
+                return;
+            }
+        }
+
+        let tantivy_query = node
+            .query
+            .clone()
+            .into_tantivy_query(
+                &self.schema,
+                parser,
+                &self.searcher,
+                self.index_rel.oid(),
+                self.index_rel.rel_oid(),
+                None,
+                None,
+            )
+            .expect("converting query for estimation should not fail");
+
+        // Use EnableScoring::Enabled because some queries (e.g., MoreLikeThisQuery)
+        // require access to the searcher to build their internal query structure.
+        // We're not using the actual scores, just counting documents.
+        let weight = tantivy_query
+            .weight(EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
+            })
+            .expect("creating weight for estimation should not fail");
+
+        let mut scorer = weight
+            .scorer(largest_reader, 1.0)
+            .expect("creating scorer for estimation should not fail");
+
+        let mut count = scorer.size_hint() as usize;
+        if count == 0 {
+            count = scorer.count_including_deleted() as usize;
+        }
+
+        let estimated = if segment_doc_proportion > 0.0 {
+            (count as f64 / segment_doc_proportion).ceil() as usize
+        } else {
+            count
+        };
+
+        node.set_estimate(estimated);
+    }
+
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {
         self.searcher
             .search_with_executor(
@@ -985,6 +1119,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
+                    .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
                 } => {
                     let field = self
                         .schema
@@ -1014,6 +1149,7 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
+                    .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
                 } => {
                     erased_features.push_score_feature(*direction);
                 }

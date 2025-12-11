@@ -1,3 +1,8 @@
+CREATE INDEX IF NOT EXISTS idxregress_mock_items
+ON regress.mock_items
+    USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
+WITH (key_field='id');
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2);
 
@@ -26,3 +31,73 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'running shoes'::pdb.slop(2);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('running shoes')::pdb.slop(2);
+
+
+-- test for JIEBA tokenizer
+CREATE TABLE IF NOT EXISTS content_segment_text (
+id VARCHAR, -- 唯一标识（fileid_chunkid）
+routing_id VARCHAR NOT NULL, -- 对应 ES 的 routing
+chunk_id INT NOT NULL, -- 文档内容块的 ID
+chunk_type VARCHAR NOT NULL, -- 文档内容块的类型
+user_id BIGINT NOT NULL, -- 用户 ID
+creator BIGINT NOT NULL, -- 创建者 ID
+sharer BIGINT NOT NULL, -- 分享者 ID
+fileid BIGINT NOT NULL, -- 文档唯一标记
+filename VARCHAR(255) NOT NULL,
+group_id BIGINT NOT NULL, -- 圈子 ID
+ctime BIGINT NOT NULL, -- 创建时间
+mtime BIGINT NOT NULL, -- 最后修改时间
+y INT NOT NULL, -- 修改日期（年）
+ym INT NOT NULL, -- 修改日期（年月）
+ymd INT NOT NULL, -- 修改日期（年月日）
+ext VARCHAR(10) NOT NULL, -- 文件格式
+fsize BIGINT NOT NULL, -- 文件大小
+parent_id BIGINT NOT NULL, -- 目录 ID
+parent_ids bigint[], -- path
+ftype VARCHAR(50) NOT NULL, -- 文件类型
+version BIGINT NOT NULL, -- 文件版本号
+index_update_time BIGINT NOT NULL, -- 全文更新时间
+ext_group VARCHAR(50) NOT NULL, -- 格式组
+content text NOT NULL, -- 文档内容段的内容
+PRIMARY KEY (routing_id, fileid, id) 
+);
+
+-- 测试数据 INSERT 语句
+INSERT INTO content_segment_text (
+    id, routing_id, chunk_id, chunk_type, user_id, creator, sharer,
+    fileid, filename, group_id, ctime, mtime, y, ym, ymd,
+    ext, fsize, parent_id, parent_ids, ftype, version,
+    index_update_time, ext_group, content
+) VALUES
+-- 文档1: 路径为 /docs (parent_id=100)
+('doc1_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10001, '项目计划.docx', 5001, 1672502400000, 1672502400000, 2023, 202301, 20230101, 'docx', 20480, 100, '{100}', 'document', 1, 1672502400000, 'office', '这是项目计划文档的第一部分内容...'),
+('doc1_002', 'user_1000', 2, 'text', 1000, 1000, 1000, 10001, '项目计划.docx', 5001, 1672502400000, 1672502400000, 2023, 202301, 20230101, 'docx', 20480, 100, '{100}', 'document', 1, 1672502400000, 'office', '这是项目计划文档的第二部分内容...'),
+-- 文档2: 路径为 /docs/report (parent_id=101)
+('doc2_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10002, '周报告.docx', 5001, 1672588800000, 1672588800000, 2023, 202301, 20230102, 'docx', 15360, 101, '{100, 101}', 'document', 1, 1672588800000, 'office', '本周工作总结如下...'),
+-- 文档3: 路径为 /docs/report (parent_id=101)
+('doc3_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10003, '月报告.docx', 5001, 1675267200000, 1675267200000, 2023, 202302, 20230201, 'docx', 30720, 101, '{100, 101}', 'document', 1, 1675267200000, 'office', '本月项目进展顺利...'),
+-- 文档4: 路径为 /images (parent_id=102)
+('doc4_001', 'user_1000', 1, 'image_caption', 1000, 1000, 1000, 10004, '产品截图.png', 5001, 1673020800000, 1673020800000, 2023, 202301, 20230108, 'png', 40960, 102, '{100, 102}', 'image', 1, 1673020800000, 'image', '这是产品主界面的截图。'),
+-- 文档5: 路径为 /docs/design (parent_id=103)
+('doc5_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10005, 'UI设计稿.fig', 5001, 1673539200000, 1673539200000, 2023, 202301, 20230114, 'fig', 102400, 103, '{100, 103}', 'design', 1, 1673539200000, 'design', '首页设计方案...'),
+('doc5_002', 'user_1000', 2, 'text', 1000, 1000, 1000, 10005, 'UI设计稿.fig', 5001, 1673539200000, 1673539200000, 2023, 202301, 20230114, 'fig', 102400, 103, '{100, 103}', 'design', 1, 1673539200000, 'design', '个人中心设计方案...'),
+-- 文档6: 路径为 / (parent_id=0)
+('doc6_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10006, 'README.md', 5001, 1672416000000, 1672416000000, 2023, 202301, 20230101, 'md', 1024, 0, '{0}', 'document', 1, 1672416000000, 'markdown', '项目说明文档'),
+-- 文档7: 路径为 /docs/report/2024 (parent_id=104)
+('doc7_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10007, '2024年计划.docx', 5001, 1704067200000, 1704067200000, 2024, 202401, 20240101, 'docx', 25600, 104, '{100, 101, 104}', 'document', 1, 1704067200000, 'office', '2024年的工作规划...'),
+-- 文档8: 路径为 /docs/report (parent_id=101)
+('doc8_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10008, '季度报告.docx', 5001, 1678003200000, 1678003200000, 2023, 202303, 20230305, 'docx', 18432, 101, '{100, 101}', 'document', 1, 1678003200000, 'office', '第一季度报告...');
+
+CREATE INDEX content_segment_text_bm25 ON content_segment_text 
+USING bm25(id, routing_id, group_id, parent_id, ext_group,  filename, content) 
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "filename": {"tokenizer": {"type": "jieba"}, "fast": true},
+        "content": {"tokenizer":{"type": "jieba"}, "fast": true},
+        "filename_keyword": {"tokenizer": {"type": "keyword"}, "column": "filename", "fast": true}
+    }'                                              
+);
+
+SELECT * FROM content_segment_text  WHERE content ### '项目计划';
+SELECT * FROM content_segment_text WHERE id @@@ paradedb.phrase('content', ARRAY['项目', '计划']);

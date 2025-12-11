@@ -24,6 +24,7 @@ concurrency:
 
 # Used by actions/attest-build-provenance to sign the builds
 permissions:
+  contents: write
   id-token: write
   attestations: write
 
@@ -31,7 +32,7 @@ jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
-    if: ${{ !contains(github.ref, '-') }}
+    if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
@@ -40,9 +41,6 @@ jobs:
           # macOS 14 (Sonoma)
           - name: macOS 14 (Sonoma)
             runner: macos-14
-            pg_version: 14
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
             pg_version: 15
           - name: macOS 14 (Sonoma)
             runner: macos-14
@@ -50,12 +48,12 @@ jobs:
           - name: macOS 14 (Sonoma)
             runner: macos-14
             pg_version: 17
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
+            pg_version: 18
           # macOS 15 (Sequoia)
           - name: macOS 15 (Sequoia)
             runner: macos-15
-            pg_version: 14
-          - name: macOS 15 (Sequoia)
-            runner: macos-15
             pg_version: 15
           - name: macOS 15 (Sequoia)
             runner: macos-15
@@ -63,6 +61,9 @@ jobs:
           - name: macOS 15 (Sequoia)
             runner: macos-15
             pg_version: 17
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
+            pg_version: 18
 
     steps:
       # We force reinstall icu4c and git to make sure it is in PATH
@@ -70,7 +71,7 @@ jobs:
         run: brew reinstall icu4c git
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases. We force install gh to make sure it is in PATH.
       - name: Install GitHub CLI

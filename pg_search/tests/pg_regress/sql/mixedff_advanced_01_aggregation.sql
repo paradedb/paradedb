@@ -2,6 +2,8 @@
 
 \i common/mixedff_advanced_setup.sql
 
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 \echo 'Test: Aggregation query'
 
 -- Check execution plan for COUNT
@@ -33,5 +35,7 @@ SELECT
     MAX(page_number) AS max_page
 FROM pages
 WHERE content @@@ 'Socienty';
+
+RESET paradedb.enable_aggregate_custom_scan;
 
 \i common/mixedff_advanced_cleanup.sql

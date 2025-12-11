@@ -1,0 +1,18 @@
+---
+title: 0.20.1
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Correctly support correlated subqueries with the aggregate custom scan enabled
+- Fixed an issue where TopN queries with an `UNNEST` would not receive a TopN query plan
+- Fixed a race condition that caused prepared statements to return incorrect results
+- Fixed an issue where `varchar[]` arrays could not be indexed
+
+## New Features 🚀
+
+- Added an optional [toggle](/documentation/aggregates/facets#faceted-performance-optimization) to faceted queries to disable visibility checks, which can improve
+  query times by 2-4X at the expense of correctness
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.1).

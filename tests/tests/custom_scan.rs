@@ -245,7 +245,24 @@ from (select pdb.score(id), * from paradedb.bm25_search) a
 inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
-    assert_eq!(result, (40, 3.3322046, 40, 6.664409));
+
+    // PG18 introduces self-join elimination (SJE) which combines the queries into a single scan.
+    // When SJE kicks in, both score() calls return the same combined score.
+    // PG17 and earlier: separate scores (3.3322046 for 'bear', 6.664409 for 'teddy bear')
+    // PG18 with SJE: same combined score for both (9.9966135)
+    let pg_version: i32 = "SHOW server_version_num"
+        .fetch_one::<(String,)>(&mut conn)
+        .0
+        .parse()
+        .unwrap();
+
+    if pg_version >= 180000 {
+        // PG18+: SJE combines queries, both aliases get the same combined score
+        assert_eq!(result, (40, 9.9966135, 40, 9.9966135));
+    } else {
+        // PG17 and earlier: separate scores per alias
+        assert_eq!(result, (40, 3.3322046, 40, 6.664409));
+    }
 }
 
 #[rstest]
@@ -261,7 +278,22 @@ from (select pdb.score(id), * from paradedb.bm25_search) a
 inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
-    assert_eq!(result, (40, 3.3322046, 40, 6.664409));
+
+    // PG18 introduces self-join elimination (SJE) which combines the queries into a single scan.
+    // When SJE kicks in, both score() calls return the same combined score.
+    let pg_version: i32 = "SHOW server_version_num"
+        .fetch_one::<(String,)>(&mut conn)
+        .0
+        .parse()
+        .unwrap();
+
+    if pg_version >= 180000 {
+        // PG18+: SJE combines queries, both aliases get the same combined score
+        assert_eq!(result, (40, 9.9966135, 40, 9.9966135));
+    } else {
+        // PG17 and earlier: separate scores per alias
+        assert_eq!(result, (40, 3.3322046, 40, 6.664409));
+    }
 }
 
 #[rstest]
@@ -1099,6 +1131,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
     r#"
     SET max_parallel_workers = 8;
     SET max_parallel_workers_per_gather = 2;
+    SET paradedb.enable_aggregate_custom_scan = false;
 
     CREATE TABLE t (id bigint);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;

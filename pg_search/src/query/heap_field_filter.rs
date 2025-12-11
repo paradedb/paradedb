@@ -37,8 +37,8 @@ use tantivy::{
 pub struct HeapFieldFilter {
     /// PostgreSQL expression node that can be serialized and reconstructed
     expr_node: PostgresPointer,
-    /// Human-readable description of the expression
-    pub description: String,
+    /// Human-readable description of the expression for EXPLAIN output
+    pub heap_filter: String,
 
     #[serde(skip)]
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
@@ -50,7 +50,7 @@ impl Clone for HeapFieldFilter {
     fn clone(&self) -> Self {
         Self {
             expr_node: self.expr_node.clone(),
-            description: self.description.clone(),
+            heap_filter: self.heap_filter.clone(),
             initialized_expression: None,
             heap_fetch_state: None,
         }
@@ -59,7 +59,7 @@ impl Clone for HeapFieldFilter {
 
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
-        self.expr_node == other.expr_node && self.description == other.description
+        self.expr_node == other.expr_node && self.heap_filter == other.heap_filter
     }
 }
 
@@ -69,10 +69,10 @@ unsafe impl Sync for HeapFieldFilter {}
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
-    pub unsafe fn new(expr_node: *mut pg_sys::Node, expr_desc: String) -> Self {
+    pub unsafe fn new(expr_node: *mut pg_sys::Node, heap_filter: String) -> Self {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
-            description: expr_desc,
+            heap_filter,
             initialized_expression: None,
             heap_fetch_state: None,
         }
@@ -116,7 +116,7 @@ impl HeapFieldFilter {
             heap_fetch_state.scan,
             ctid,
             pg_sys::GetActiveSnapshot(),
-            heap_fetch_state.slot,
+            heap_fetch_state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {
@@ -127,7 +127,12 @@ impl HeapFieldFilter {
         let original_scan_tuple = (*econtext).ecxt_scantuple;
 
         // Set the tuple slot in the expression context
-        (*econtext).ecxt_scantuple = heap_fetch_state.slot;
+        (*econtext).ecxt_scantuple = heap_fetch_state.slot();
+
+        // Ensure all attributes in the slot are deformed (fetched from tuple storage)
+        // This is necessary because the expression might reference any attribute,
+        // and the slot's tts_nvalid must be >= the highest attribute number referenced
+        pg_sys::slot_getallattrs(heap_fetch_state.slot());
 
         let eval_result = (|| {
             // Initialize the expression for execution with proper planstate for subquery support

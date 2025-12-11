@@ -184,13 +184,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-   author_name   |     book_title      | author_score | book_score 
------------------+---------------------+--------------+------------
- J.K. Rowling    | Magic Detective     |              |  1.3025584
- Agatha Christie | Murder Mystery Case |              |  1.3702781
- George Orwell   | Dystopian Future    |              |          0
-(3 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- =============================================================================
 -- SECTION 2: Non-equi joins and problematic conditions
 -- =============================================================================
@@ -284,13 +278,7 @@ FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
- author_name  |      book_title      | author_score | book_score 
---------------+----------------------+--------------+------------
- J.K. Rowling | Harry Potter Magic   |   0.66167223 |           
- J.K. Rowling | Magic Detective      |   0.66167223 |           
- Stephen King | Harry Potter Horrors |   0.66167223 |           
-(3 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- =============================================================================
 -- SECTION 3: CROSS-TABLE OR TESTS
 -- =============================================================================
@@ -430,10 +418,7 @@ JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'British' AND b.is_published = true) 
    OR (b.content @@@ 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
- author_name | book_title | review_content | author_score | book_score | review_score 
--------------+------------+----------------+--------------+------------+--------------
-(0 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
     a.name as author_name,
@@ -475,12 +460,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
- author_name  |      book_title      | author_score | book_score 
---------------+----------------------+--------------+------------
- J.K. Rowling | Harry Potter Magic   |   0.66167223 |           
- Stephen King | Harry Potter Horrors |   0.66167223 |           
-(2 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test 5.3: LEFT JOIN semantics test
 SELECT 
     a.name as author_name,
@@ -586,11 +566,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
- total_results | avg_author_score | avg_book_score 
----------------+------------------+----------------
-             8 |                  |               
-(1 row)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
     a.name as author_name,
@@ -634,16 +610,7 @@ WHERE (
 )
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC
 LIMIT 10;
- author_name  |      book_title      | review_content | author_score | book_score | review_score 
---------------+----------------------+----------------+--------------+------------+--------------
- J.K. Rowling | Harry Potter Magic   |                |              |            |             
- J.K. Rowling | Magic Detective      |                |              |            |             
- Stephen King | Harry Potter Horrors |                |              |            |             
- Stephen King | The Shining Terror   |                |              |            |             
- John Smith   | Smartphone Tech      |                |              |            |             
- John Smith   | Future Technologies  |                |              |            |             
-(6 rows)
-
+ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
 -- Test 7.2: Conservative OR handling demonstration
 SELECT 
     a.name as author_name,

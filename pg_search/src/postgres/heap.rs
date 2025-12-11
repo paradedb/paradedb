@@ -96,7 +96,7 @@ impl VisibilityChecker {
 #[derive(Debug)]
 pub struct HeapFetchState {
     pub scan: *mut pg_sys::IndexFetchTableData,
-    pub slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::BufferHeapTupleTableSlot,
 }
 
 impl HeapFetchState {
@@ -105,8 +105,19 @@ impl HeapFetchState {
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-            Self { scan, slot }
+            Self {
+                scan,
+                slot: slot.cast(),
+            }
         }
+    }
+
+    pub fn slot(&self) -> *mut pg_sys::TupleTableSlot {
+        self.slot.cast()
+    }
+
+    pub fn buffer_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
+        self.slot
     }
 }
 
@@ -118,7 +129,7 @@ impl Drop for HeapFetchState {
                 return;
             }
 
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+            pg_sys::ExecDropSingleTupleTableSlot(self.slot.cast());
             pg_sys::table_index_fetch_end(self.scan);
         }
     }

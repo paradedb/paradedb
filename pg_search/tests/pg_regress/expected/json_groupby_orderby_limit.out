@@ -19,7 +19,8 @@ INSERT INTO json_test_single (metadata, data) VALUES
     ('{"category": "electronics", "brand": "Apple", "price": 1299}', '{"color": "gold", "stock": 5}'),
     ('{"category": "clothing", "brand": "Nike", "price": 89}', '{"size": "M", "stock": 20}'),
     ('{"category": "clothing", "brand": "Adidas", "price": 79}', '{"size": "L", "stock": 25}'),
-    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}');
+    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}'),
+    ('{"category": "clothing", "brand": "Puma", "price": 99}', '{"size": "S", "stock": 30}');
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
 USING bm25 (id, metadata, data)
@@ -38,8 +39,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
@@ -49,7 +50,7 @@ LIMIT 5;
            Applies to Aggregates: COUNT(*)
            Group By: metadata.category
            Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":5,"size":5}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (10 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
@@ -60,7 +61,7 @@ ORDER BY 1
 LIMIT 5;
   category   | count 
 -------------+-------
- clothing    |     3
+ clothing    |     4
  electronics |     3
 (2 rows)
 
@@ -72,27 +73,22 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: ((metadata ->> 'category'::text)), (count(*))
+   Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
    ->  Sort
-         Output: ((metadata ->> 'category'::text)), (count(*))
-         Sort Key: (count(*))
-         ->  GroupAggregate
-               Output: ((metadata ->> 'category'::text)), count(*)
-               Group Key: ((json_test_single.metadata ->> 'category'::text))
-               ->  Sort
-                     Output: ((metadata ->> 'category'::text))
-                     Sort Key: ((json_test_single.metadata ->> 'category'::text))
-                     ->  Custom Scan (ParadeDB Scan) on public.json_test_single
-                           Output: (metadata ->> 'category'::text)
-                           Table: json_test_single
-                           Index: idx_json_single
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-(18 rows)
+         Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
+               Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
+               Index: idx_json_single
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: metadata.category
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","segment_size":65000,"size":65000}}}
+(13 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
@@ -102,8 +98,8 @@ ORDER BY 2
 LIMIT 5;
   category   | count 
 -------------+-------
- clothing    |     3
  electronics |     3
+ clothing    |     4
 (2 rows)
 
 DROP TABLE json_test_single CASCADE;

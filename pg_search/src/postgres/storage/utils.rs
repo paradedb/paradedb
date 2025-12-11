@@ -237,7 +237,7 @@ unsafe fn extend_by_one_buffer(
         )
     }
 
-    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
     {
         pg_sys::ExtendBufferedRel(
             pg_sys::BufferManagerRelation {
@@ -287,7 +287,7 @@ unsafe fn bulk_extend_relation(
         && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
             || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
 
-    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
     {
         // `ExtendBufferedRelBy` is only allowed from certain backends
         if is_backend_bulk_compatible {

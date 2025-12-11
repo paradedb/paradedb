@@ -20,7 +20,9 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
+use crate::postgres::customscan::explain;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 
 pub struct Explainer {
@@ -51,6 +53,14 @@ impl Explainer {
     /// Add an explainable object to the output
     pub fn add_explainable<T: ExplainFormat>(&mut self, key: &str, value: &T) {
         self.add_text(key, value.explain_format());
+    }
+
+    /// Add a query with recursive estimates to the EXPLAIN output
+    pub fn add_query_with_estimates(&mut self, query_tree: &QueryWithEstimates) {
+        self.add_text(
+            "Tantivy Query",
+            explain::format_for_explain_with_estimates(query_tree),
+        );
     }
 
     pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {

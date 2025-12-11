@@ -359,8 +359,8 @@ ORDER BY state, id
 LIMIT 10000;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=2500 loops=1)
-   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500 loops=1)
+ Limit (actual rows=2500.00 loops=1)
+   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500.00 loops=1)
          Table: records
          Index: records_search_idx
          Heap Fetches: 2500

@@ -31,8 +31,10 @@ use pgrx::{
     direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
 };
 
-use crate::postgres::utils::lookup_pdb_function;
-pub use aggregate::agg_fn_oid;
+pub use aggregate::{
+    agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
+    MvccVisibility,
+};
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -312,16 +314,13 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
+    /// Whether NULLs should sort first (true) or last (false, the default for ASC)
+    #[serde(default)]
+    pub nulls_first: bool,
 }
 
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score)
     }
-}
-
-/// Get the OID of the pdb.agg() aggregate function
-/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
-pub fn agg_funcoid() -> pg_sys::Oid {
-    lookup_pdb_function("agg", &[pg_sys::JSONBOID])
 }

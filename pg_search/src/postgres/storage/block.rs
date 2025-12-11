@@ -460,7 +460,11 @@ impl SegmentMetaEntry {
             return Err("Cannot snapshot a non-mutable segment");
         };
 
-        let entries = unsafe { content.open(indexrel).list() };
+        let entries = unsafe {
+            content
+                .open(indexrel)
+                .list(Some(self.max_doc() as usize + self.num_deleted_docs()))
+        };
 
         // The mutable segment is composed of Adds and Removes in some order: in order to align with
         // the snapshot of the SegmentMeta entry as it existed when we opened it, we should only

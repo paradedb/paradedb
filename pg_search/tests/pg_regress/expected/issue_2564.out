@@ -8,6 +8,7 @@ SET paradedb.enable_mixed_fast_field_exec = true;
 -- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
 -- more permutations of selected columns.
 SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.enable_aggregate_custom_scan = false;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
@@ -101,7 +102,7 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte1', 'file_cte1', 1, 'Page 1 with searchable content for CTE testing'),
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
-('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing'); 
+('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
@@ -174,8 +175,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                 QUERY PLAN                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Scan) on documents d
@@ -193,7 +194,7 @@ ORDER BY d.id;
                        Scores: true
                           TopN Order By: pdb.score() desc
                           TopN Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
 (18 rows)
 
 SELECT d.id, d.title, d.parents,

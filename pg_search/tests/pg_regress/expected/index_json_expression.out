@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
@@ -19,18 +20,17 @@ SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
  metadata | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
 (3 rows)
 
-EXPLAIN SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=10.02..10.03 rows=1 width=8)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=0)
-         Table: mock_items
-         Index: search_idx
-         Segment Count: 1
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata","query_string":"white","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: search_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
  count 
@@ -39,3 +39,4 @@ SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
 (1 row)
 
 DROP TABLE mock_items;
+RESET paradedb.enable_aggregate_custom_scan;

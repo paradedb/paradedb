@@ -41,11 +41,30 @@ impl OrderByStyle {
             let pathkey = self.pathkey();
             assert!(!pathkey.is_null());
 
-            match (*pathkey).pk_strategy as u32 {
-                pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-                pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-                value => panic!("unrecognized sort strategy number: {value}"),
+            #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+            {
+                match (*pathkey).pk_strategy as u32 {
+                    pg_sys::BTLessStrategyNumber => SortDirection::Asc,
+                    pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
+                    value => panic!("unrecognized sort strategy number: {value}"),
+                }
             }
+            #[cfg(feature = "pg18")]
+            {
+                match (*pathkey).pk_cmptype {
+                    pg_sys::CompareType::COMPARE_LT => SortDirection::Asc,
+                    pg_sys::CompareType::COMPARE_GT => SortDirection::Desc,
+                    value => panic!("unrecognized compare type: {value}"),
+                }
+            }
+        }
+    }
+
+    pub fn nulls_first(&self) -> bool {
+        unsafe {
+            let pathkey = self.pathkey();
+            assert!(!pathkey.is_null());
+            (*pathkey).pk_nulls_first
         }
     }
 
@@ -69,6 +88,7 @@ impl From<&OrderByStyle> for OrderByInfo {
         OrderByInfo {
             feature,
             direction: value.direction(),
+            nulls_first: value.nulls_first(),
         }
     }
 }

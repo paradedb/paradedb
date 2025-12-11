@@ -15,15 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::{anyelement_query_input_opoid, searchqueryinput_typoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -41,6 +41,11 @@ pub enum Qual {
         lhs: *mut pg_sys::Node,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
+        /// For ScalarArrayOpExpr (e.g., `field @@@ ANY(array)`):
+        /// - Some(true) = OR semantics (ANY)
+        /// - Some(false) = AND semantics (ALL)
+        /// - None = regular OpExpr, not a ScalarArrayOpExpr
+        scalar_array_use_or: Option<bool>,
     },
     Expr {
         node: *mut pg_sys::Node,
@@ -159,7 +164,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
-            Qual::HeapExpr { .. } => false,
+            Qual::HeapExpr { expr_node, .. } => contains_exec_param(*expr_node),
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
@@ -261,9 +266,45 @@ impl From<&Qual> for SearchQueryInput {
             Qual::All => SearchQueryInput::All,
             Qual::ExternalVar => SearchQueryInput::All,
             Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::OpExpr { val, .. } => unsafe {
-                SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
-                    .expect("rhs of @@@ operator Qual must not be null")
+            // Handle ScalarArrayOpExpr: PostgreSQL 18+ rewrites OR clauses like
+            // `field @@@ 'a' OR field @@@ 'b'` into `field @@@ ANY(ARRAY['a','b'])`.
+            // We decode the array and convert it to a Boolean query (should/must).
+            Qual::OpExpr {
+                val,
+                scalar_array_use_or,
+                ..
+            } => unsafe {
+                if let Some(use_or) = *scalar_array_use_or {
+                    let elements: Vec<SearchQueryInput> = pgrx::FromDatum::from_polymorphic_datum(
+                        (**val).constvalue,
+                        (**val).constisnull,
+                        searchqueryinput_typoid(),
+                    )
+                    .expect("ScalarArrayOpExpr should not contain NULL");
+
+                    if elements.is_empty() {
+                        if use_or {
+                            SearchQueryInput::Empty
+                        } else {
+                            SearchQueryInput::All
+                        }
+                    } else {
+                        let (must, should) = if use_or {
+                            (Vec::new(), elements)
+                        } else {
+                            (elements, Vec::new())
+                        };
+
+                        SearchQueryInput::Boolean {
+                            must,
+                            should,
+                            must_not: vec![],
+                        }
+                    }
+                } else {
+                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
+                        .expect("rhs of @@@ operator Qual must not be null")
+                }
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
             Qual::PushdownExpr { funcexpr } => unsafe {
@@ -633,7 +674,13 @@ pub unsafe fn extract_quals(
                 // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
                 // We need to handle both cases since they're semantically equivalent
                 let var_node = nodecast!(Var, T_Var, node)?;
-                try_create_heap_expr_from_var(root, var_node, rti, &mut state.uses_tantivy_to_query)
+                try_create_heap_expr_from_var(
+                    root,
+                    var_node,
+                    rti,
+                    indexrel,
+                    &mut state.uses_tantivy_to_query,
+                )
             } else {
                 // Query context: We can't do full pushdown analysis without PlannerInfo,
                 // but we can still create HeapExpr if filter_pushdown is enabled
@@ -654,7 +701,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "Var node (Query context)".to_string(),
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -685,6 +732,7 @@ pub unsafe fn extract_quals(
                     nulltest,
                     rti,
                     root,
+                    indexrel,
                     &mut state.uses_tantivy_to_query,
                 )
             } else {
@@ -701,7 +749,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "NullTest (Query context)".to_string(),
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -845,6 +893,39 @@ unsafe fn opexpr(
                 value: rhs,
             })
         }
+        pg_sys::NodeTag::T_PlaceHolderVar => {
+            // PlaceHolderVar may wrap a score function when the query has joins or aggregates.
+            // We need to unwrap it to check if it's a score expression.
+            let phv = nodecast!(PlaceHolderVar, T_PlaceHolderVar, lhs)?;
+            let phexpr = (*phv).phexpr;
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, phexpr) {
+                if score_funcoids().contains(&(*funcexpr).funcid) {
+                    state.uses_our_operator = true;
+
+                    if is_complex(rhs) {
+                        return None;
+                    }
+
+                    return Some(Qual::ScoreExpr {
+                        opoid: opexpr.opno(),
+                        value: rhs,
+                    });
+                }
+            }
+            // Not a score function - fall through to pushdown
+            if attempt_pushdown {
+                try_pushdown(
+                    context,
+                    rti,
+                    opexpr,
+                    indexrel,
+                    state,
+                    convert_external_to_special_qual,
+                )
+            } else {
+                None
+            }
+        }
         pg_sys::NodeTag::T_OpExpr => node_opexpr(
             context,
             rti,
@@ -955,6 +1036,7 @@ unsafe fn node_opexpr(
                 lhs,
                 opno: opexpr.opno(),
                 val: rhs,
+                scalar_array_use_or: opexpr.use_or(),
             })
         } else {
             // the node comes from a different range table
@@ -1051,7 +1133,7 @@ unsafe fn try_pushdown(
             // This is slower but necessary for non-indexed fields
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with operator OID {opno}"),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if contains_param(opexpr_node) {
@@ -1066,7 +1148,7 @@ unsafe fn try_pushdown(
             state.uses_tantivy_to_query = true;
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with PARAM nodes (OID {})", opno),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if convert_external_to_special_qual {
@@ -1569,10 +1651,11 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
 /// This is a common pattern for expressions that reference fields in our relation
 /// but cannot be pushed down to the index
 unsafe fn create_heap_expr_for_field_ref(
+    root: *mut pg_sys::PlannerInfo,
     expr_node: *mut pg_sys::Node,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
-    expr_desc: String,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
@@ -1581,9 +1664,10 @@ unsafe fn create_heap_expr_for_field_ref(
             return None;
         }
         *uses_tantivy_to_query = true;
+        let context = PlannerContext::from_planner(root);
         Some(Qual::HeapExpr {
             expr_node,
-            expr_desc,
+            expr_desc: deparse_expr(Some(&context), indexrel, expr_node),
             search_query_input: Box::new(SearchQueryInput::All),
         })
     } else {
@@ -1596,6 +1680,7 @@ unsafe fn try_create_heap_expr_from_var(
     root: *mut pg_sys::PlannerInfo,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Check if root and parse are valid
@@ -1603,12 +1688,12 @@ unsafe fn try_create_heap_expr_from_var(
         return None;
     }
 
-    let attno = (*var_node).varattno;
     create_heap_expr_for_field_ref(
+        root,
         var_node as *mut pg_sys::Node,
         var_node,
         rti,
-        format!("Boolean field_{attno} = true"),
+        indexrel,
         uses_tantivy_to_query,
     )
 }
@@ -1618,25 +1703,19 @@ unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
     root: *mut pg_sys::PlannerInfo,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Extract the field being tested
     let arg = (*nulltest).arg;
-    if let Some((var, fieldname)) =
-        find_one_var_and_fieldname(VarContext::from_planner(root), arg as *mut pg_sys::Node)
-    {
-        let attno = (*var).varattno;
-        let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
-            "IS NULL"
-        } else {
-            "IS NOT NULL"
-        };
-
+    // Check if the arg is a Var referencing our relation
+    if let Some(var) = nodecast!(Var, T_Var, arg) {
         create_heap_expr_for_field_ref(
+            root,
             nulltest as *mut pg_sys::Node,
             var,
             rti,
-            format!("NULL test: field_{attno} {test_type}"),
+            indexrel,
             uses_tantivy_to_query,
         )
     } else {

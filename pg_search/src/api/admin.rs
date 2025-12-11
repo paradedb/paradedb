@@ -298,7 +298,7 @@ fn index_info(
     for index in index_kind.partitions() {
         // open the specified index
         let mut segment_components = MetaPage::open(&index).segment_metas();
-        let all_entries = unsafe { segment_components.list() };
+        let all_entries = unsafe { segment_components.list(None) };
 
         for entry in all_entries {
             if !show_invisible && unsafe { !entry.visible() } {

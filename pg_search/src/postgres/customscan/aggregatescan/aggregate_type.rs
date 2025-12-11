@@ -15,8 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::agg_funcoid;
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::{
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, HashSet,
+    MvccVisibility,
+};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
@@ -24,6 +27,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -81,6 +85,7 @@ pub enum AggregateType {
         agg_json: serde_json::Value,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        mvcc_visibility: MvccVisibility,
     },
 }
 
@@ -141,22 +146,43 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate
-        if aggfnoid == agg_funcoid().to_u32() {
-            // Extract JSON argument
+        // Check for pdb.agg() custom aggregate (both overloads)
+        let agg_oid = agg_funcoid().to_u32();
+        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+
+        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
+            // Extract JSON argument (first arg)
             let arg = args.get_ptr(0)?;
             let expr = (*arg).expr;
-            if let Some(const_node) = nodecast!(Const, T_Const, expr) {
+            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
                 let json_datum = (*const_node).constvalue;
-                let json_value = pgrx::JsonB::from_datum(json_datum, false)?;
+                pgrx::JsonB::from_datum(json_datum, false)?.0
+            } else {
+                return None;
+            };
 
-                return Some(AggregateType::Custom {
-                    agg_json: json_value.0,
-                    filter: filter_query,
-                    indexrelid: bm25_index.oid(),
-                });
-            }
-            return None;
+            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
+            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
+                args.get_ptr(1)
+                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
+                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
+                    .unwrap_or(true)
+            } else {
+                true // Single-arg overload: default to solve_mvcc = true
+            };
+
+            let mvcc_visibility = if solve_mvcc {
+                MvccVisibility::Enabled
+            } else {
+                MvccVisibility::Disabled
+            };
+
+            return Some(AggregateType::Custom {
+                agg_json: json_value,
+                filter: filter_query,
+                indexrelid: bm25_index.oid(),
+                mvcc_visibility,
+            });
         }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
@@ -270,6 +296,19 @@ impl AggregateType {
         }
     }
 
+    /// Get the MVCC visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    pub fn mvcc_visibility(&self) -> MvccVisibility {
+        match self {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => *mvcc_visibility,
+            // Standard SQL aggregates always use default MVCC behavior
+            _ => MvccVisibility::default(),
+        }
+    }
+
     pub fn result_type_oid(&self) -> pg_sys::Oid {
         match &self {
             AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
@@ -279,6 +318,68 @@ impl AggregateType {
             | AggregateType::Max { .. } => pg_sys::FLOAT8OID,
             AggregateType::Custom { .. } => pg_sys::JSONBOID,
         }
+    }
+
+    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
+    /// Returns an error if any field is invalid.
+    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// https://github.com/quickwit-oss/tantivy/issues/2767
+    pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
+        if let AggregateType::Custom { agg_json, .. } = self {
+            let fields = extract_fields_from_agg_json(agg_json);
+            let indexed_fields: HashSet<String> = schema
+                .fields()
+                .map(|(_, entry)| entry.name().to_string())
+                .collect();
+
+            for field in &fields {
+                if !indexed_fields.contains(field) {
+                    // Build a sorted list of available fields for the error message
+                    let mut available: Vec<_> = indexed_fields
+                        .iter()
+                        .filter(|f| *f != "ctid") // Don't show internal ctid field
+                        .cloned()
+                        .collect();
+                    available.sort();
+                    return Err(format!(
+                        "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
+                        field,
+                        available.join(", ")
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Recursively extract all "field" values from an aggregation JSON structure.
+/// Handles nested aggregations via the "aggs" key.
+fn extract_fields_from_agg_json(json: &serde_json::Value) -> HashSet<String> {
+    let mut fields = HashSet::default();
+    extract_fields_recursive(json, &mut fields);
+    fields
+}
+
+fn extract_fields_recursive(json: &serde_json::Value, fields: &mut HashSet<String>) {
+    match json {
+        serde_json::Value::Object(map) => {
+            // Check for a "field" key at this level
+            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
+                fields.insert(field_name.clone());
+            }
+
+            // Recurse into all values
+            for (key, value) in map {
+                extract_fields_recursive(value, fields);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                extract_fields_recursive(item, fields);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -319,18 +420,7 @@ impl From<AggregateType> for AggregationVariants {
                 AggregationVariants::Max(MaxAggregation { field, missing })
             }
             AggregateType::Custom { agg_json, .. } => {
-                // NOTE: This conversion extracts only the top-level aggregation variant.
-                //
-                // This trait returns AggregationVariants (just the aggregation type),
-                // not Aggregation (which includes sub_aggregation field).
-                //
-                // Example:
-                //   Input:  {"terms": {"field": "category", "aggs": {"brand": {...}}}}
-                //   Output: TermsAggregation { field: "category" }  // "aggs" is extracted separately
-                //
-                // Nested "aggs" are handled by serde_json::from_value::<Aggregation>().
-                //
-                // This trait is only used when the caller will handle sub_aggregations separately.
+                // For Custom aggregates, deserialize the JSON directly into AggregationVariants
                 serde_json::from_value(agg_json)
                     .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
             }

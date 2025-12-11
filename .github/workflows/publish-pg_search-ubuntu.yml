@@ -24,6 +24,7 @@ concurrency:
 
 # Used by actions/attest-build-provenance to sign the builds
 permissions:
+  contents: write
   id-token: write
   attestations: write
 
@@ -31,21 +32,13 @@ jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ !contains(github.ref, '-') }}
+    if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
             runner: ubicloud-standard-8-ubuntu-2204
-            pg_version: 14
-            arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
-            pg_version: 14
-            arch: arm64
-          - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 15
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
@@ -67,18 +60,18 @@ jobs:
           - name: Ubuntu 22.04 (Jammy)
             runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 17
+            arch: arm64
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-ubuntu-2204
+            pg_version: 18
+            arch: amd64
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-arm-ubuntu-2204
+            pg_version: 18
             arch: arm64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
             runner: ubicloud-standard-8-ubuntu-2404
-            pg_version: 14
-            arch: amd64
-          - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
-            pg_version: 14
-            arch: arm64
-          - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
@@ -100,14 +93,22 @@ jobs:
           - name: Ubuntu 24.04 (Noble)
             runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 17
+            arch: arm64
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-ubuntu-2404
+            pg_version: 18
+            arch: amd64
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-arm-ubuntu-2404
+            pg_version: 18
             arch: arm64
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       # Used to upload the release to GitHub Releases
       - name: Install GitHub CLI
@@ -146,10 +147,19 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          # Create keyrings dir (works on Debian/Ubuntu)
+          sudo install -d -m 0755 /usr/share/keyrings
+
+          # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
+          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+
+          # Install PostgreSQL + build tooling
+          DEBIAN_FRONTEND=noninteractive sudo apt-get update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+
+          # Add Postgres bin dir to PATH for subsequent steps
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> "$GITHUB_PATH"
 
       - name: Extract pgrx Version
         id: pgrx
@@ -167,12 +177,12 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
         run: |

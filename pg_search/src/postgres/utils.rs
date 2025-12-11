@@ -15,12 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, UncheckedTypmod};
+use crate::api::tokenizers::{
+    type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
+};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::customscan::pdbscan::text_lower_funcoid;
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
@@ -31,7 +34,6 @@ use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
-use std::ffi::{CStr, CString};
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
@@ -48,7 +50,14 @@ extern "C-unwind" {
 /// let context_guard = ExprContextGuard::new();
 /// // Use context_guard.as_ptr() to get the raw pointer
 /// // Context is automatically freed when context_guard goes out of scope
+#[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+
+// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
+// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
+// these are never actually shared across threads in our PostgreSQL context.
+unsafe impl Send for ExprContextGuard {}
+unsafe impl Sync for ExprContextGuard {}
 
 impl ExprContextGuard {
     /// Creates a new standalone expression context
@@ -278,9 +287,6 @@ pub unsafe fn extract_field_attributes(
                 let mut normalizer = None;
 
                 if type_is_tokenizer(typoid) {
-                    if type_is_alias(typoid) {
-                        panic!("`pdb.alias` is not allowed in index definitions")
-                    }
                     typmod = pg_sys::exprTypmod(node);
 
                     let parsed_typmod =
@@ -288,8 +294,8 @@ pub unsafe fn extract_field_attributes(
                     let vars = find_vars(node);
 
                     normalizer = parsed_typmod.normalizer();
-
                     attname = parsed_typmod.alias();
+
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         let heap_attname = heap_relation
@@ -299,7 +305,7 @@ pub unsafe fn extract_field_attributes(
                             .name()
                             .to_string();
 
-                        let mut inner_expression = var as *mut pg_sys::Node;
+                        inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if let Some(coerce) =
                             nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
                         {
@@ -313,18 +319,43 @@ pub unsafe fn extract_field_attributes(
                             nodecast!(RelabelType, T_RelabelType, expression.unwrap())
                         {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
-                                inner_expression = (*relabel).arg.cast();
+                                inner_typoid = pg_sys::exprType((*relabel).arg.cast());
+                            // if we have a UDF cast to `pdb.alias`, use the return type of the UDF as the inner_typoid
+                            } else if let Some(func) =
+                                nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                            {
+                                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                                if args.len() == 1 {
+                                    if let Some(arg) = args.get_ptr(0) {
+                                        if let Some(inner_func) =
+                                            nodecast!(FuncExpr, T_FuncExpr, arg)
+                                        {
+                                            inner_typoid = (*inner_func).funcresulttype;
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         attname = Some(heap_attname);
                         expression = None;
-                        inner_typoid = pg_sys::exprType(inner_expression.cast());
+                    }
+
+                    if type_is_alias(typoid) {
+                        if type_can_be_tokenized(inner_typoid) {
+                            panic!("To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`");
+                        } else {
+                            let alias_typmod =
+                                AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
+                            attname = alias_typmod.alias();
+                        }
                     }
                 }
 
                 let Some(attname) = attname else {
-                    let expr_str = deparse_expr(&heap_relation, expression);
+                    let expr_str = expression
+                        .map(|expr| unsafe { deparse_expr(None, &heap_relation, expr.cast()) })
+                        .unwrap_or("<null>".to_string());
                     panic!(
                         "indexed expression requires a tokenizer cast with an alias: {expr_str}"
                     );
@@ -367,7 +398,8 @@ pub unsafe fn extract_field_attributes(
             && att_typmod == -1
             && matches!(tantivy_type, SearchFieldType::Text(..));
         if missing_tokenizer_cast {
-            let expr_str = unsafe { deparse_expr(&heap_relation, expression) };
+            let expr_str =
+                unsafe { deparse_expr(None, &heap_relation, expression.unwrap().cast()) };
             panic!("indexed expression must be cast to a tokenizer: {expr_str}");
         }
 
@@ -384,20 +416,6 @@ pub unsafe fn extract_field_attributes(
         );
     }
     field_attributes
-}
-
-pub unsafe fn deparse_expr(heaprel: &PgSearchRelation, expr: Option<*mut pg_sys::Expr>) -> String {
-    let Some(expr) = expr else {
-        return "<null expression>".into();
-    };
-    let heapname =
-        CString::from_str(heaprel.name()).expect("heap relation name must be valid UTF8");
-    let context = pg_sys::deparse_context_for(heapname.as_ptr(), heaprel.oid());
-    let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
-    if deparsed.is_null() {
-        return "<null expression>".into();
-    }
-    CStr::from_ptr(deparsed).to_string_lossy().into_owned()
 }
 
 pub unsafe fn row_to_search_document<'a>(

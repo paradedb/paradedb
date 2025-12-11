@@ -26,8 +26,8 @@ mod pdb {
     use pgrx::{extension_sql, pg_extern, AnyElement};
 
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-    fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
-        None
+    fn score_from_relation(_relation_reference: AnyElement) -> f32 {
+        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
     extension_sql!(
@@ -44,7 +44,7 @@ mod pdb {
 #[warn(deprecated)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
-    None
+    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 
 extension_sql!(

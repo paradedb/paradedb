@@ -34,6 +34,7 @@ use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::agg_req::Aggregations;
@@ -41,7 +42,9 @@ use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::Key;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
+use tantivy::aggregation::{
+    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
+};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 
@@ -226,6 +229,8 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn execute_aggregate(
         &mut self,
         worker_style: QueryWorkerStyle,
+        expr_context: Option<*mut pg_sys::ExprContext>,
+        planstate: Option<*mut pg_sys::PlanState>,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
         let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
@@ -233,27 +238,49 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
-        let standalone_context = ExprContextGuard::new();
+
+        // Use provided context if available (for non-parallel/leader execution with correlation),
+        // otherwise create a standalone context (for parallel workers)
+        let standalone_context;
+        let context_ptr = if let Some(ctx) = expr_context {
+            ctx
+        } else {
+            standalone_context = ExprContextGuard::new();
+            standalone_context.as_ptr()
+        };
+
         let reader = SearchIndexReader::open_with_context(
             &indexrel,
             self.query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
-            NonNull::new(standalone_context.as_ptr()),
-            None,
+            NonNull::new(context_ptr),
+            planstate.and_then(NonNull::new),
         )?;
 
+        let use_min_sentinel_fields = match self.aggregation.as_ref() {
+            Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
-            set_missing_on_terms(&mut aggregations);
+            let schema = indexrel.schema()?;
+            set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
+
+        let nworkers = self.state.launched_workers();
+        // Get the tokenizer manager from the index (has all custom tokenizers registered)
+        let tokenizer_manager = reader.searcher().index().tokenizers().clone();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
-            AggregationLimitsGuard::new(
-                Some(self.config.memory_limit),
-                Some(self.config.bucket_limit),
+            AggContextParams::new(
+                AggregationLimitsGuard::new(
+                    Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
+                    Some(self.config.bucket_limit),
+                ),
+                tokenizer_manager,
             ),
         );
 
@@ -330,7 +357,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
         }
 
         if let Some(intermediate_results) =
-            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number))?
+            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number), None, None)?
         {
             let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
@@ -340,6 +367,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
@@ -348,17 +376,23 @@ pub fn execute_aggregate(
     memory_limit: u64,
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
+    planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
+        // Extract fields needing min sentinel before agg_req is moved
+        let use_min_sentinel_fields = match &agg_req {
+            AggregateRequest::Sql(clause) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),
             false,
             MvccSatisfies::Snapshot,
             NonNull::new(expr_context),
-            None,
+            NonNull::new(planstate),
         )?;
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader
@@ -418,7 +452,11 @@ pub fn execute_aggregate(
             if pg_sys::parallel_leader_participation {
                 let mut worker =
                     ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
-                if let Some(result) = worker.execute_aggregate(QueryWorkerStyle::ParallelLeader)? {
+                if let Some(result) = worker.execute_aggregate(
+                    QueryWorkerStyle::ParallelLeader,
+                    Some(expr_context),
+                    Some(planstate),
+                )? {
                     agg_results.push(Ok(result));
                 }
             }
@@ -435,11 +473,17 @@ pub fn execute_aggregate(
             let mut aggregations: Aggregations = agg_req.try_into()?;
             // normalize missing on terms here too before merge, but only for SQL-originated requests
             if agg_from_sql {
-                set_missing_on_terms(&mut aggregations);
+                let schema = index.schema()?;
+                set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
             }
+            // Get the tokenizer manager from the index (has all custom tokenizers registered)
+            let tokenizer_manager = reader.searcher().index().tokenizers().clone();
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                AggContextParams::new(
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                    tokenizer_manager,
+                ),
             );
             Ok(collector.merge_fruits(agg_results)?.into_final_result(
                 aggregations,
@@ -468,12 +512,21 @@ pub fn execute_aggregate(
                 bucket_limit as _,
                 &mut state,
             );
-            if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+            if let Some(agg_results) = worker.execute_aggregate(
+                QueryWorkerStyle::NonParallel,
+                Some(expr_context),
+                Some(planstate),
+            )? {
                 Ok(agg_results.into_final_result(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
                         if agg_from_sql {
-                            set_missing_on_terms(&mut aggregations);
+                            let schema = index.schema()?;
+                            set_missing_on_terms(
+                                &mut aggregations,
+                                &schema,
+                                &use_min_sentinel_fields,
+                            );
                         }
                         aggregations
                     },
@@ -486,9 +539,19 @@ pub fn execute_aggregate(
     }
 }
 
+// Sentinel strings for NULL values in terms aggregations (used for text/json columns).
+// Using longer prefixes and extreme Unicode codepoints to minimize collision risk.
+pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
+pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
+
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
-fn set_missing_on_terms(aggs: &mut Aggregations) {
-    use crate::postgres::customscan::aggregatescan::build::NULL_GROUP_KEY_SENTINEL;
+fn set_missing_on_terms(
+    aggs: &mut Aggregations,
+    schema: &SearchIndexSchema,
+    use_min_sentinel_fields: &HashSet<String>,
+) {
+    use crate::schema::SearchFieldType;
+
     for (
         _name,
         Aggregation {
@@ -499,10 +562,59 @@ fn set_missing_on_terms(aggs: &mut Aggregations) {
     {
         if let AggregationVariants::Terms(terms) = agg {
             if terms.missing.is_none() {
-                terms.missing = Some(Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()));
+                // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
+                let use_min = use_min_sentinel_fields.contains(&terms.field);
+                // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
+                // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
+                // for numeric column) would break the sort order.
+                //
+                // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
+                // theoretically collide with valid data values, though this is unlikely in practice.
+                // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
+                let sentinel = match schema.get_field_type(&terms.field) {
+                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
+                        if use_min {
+                            Key::I64(i64::MIN)
+                        } else {
+                            Key::I64(i64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::U64(_)) => {
+                        // For U64, 0 is a common value so we use string for MIN
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(u64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::F64(_)) => {
+                        if use_min {
+                            Key::F64(f64::MIN)
+                        } else {
+                            Key::F64(f64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::Bool(_)) => {
+                        // For bool: 0=false, 1=true. Use string for MIN to avoid conflicts
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(2) // sorts after true (1)
+                        }
+                    }
+                    _ => {
+                        // Default for text/json/etc - string sentinels are safe here
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::Str(NULL_SENTINEL_MAX.to_string())
+                        }
+                    }
+                };
+                terms.missing = Some(sentinel);
             }
         }
-        set_missing_on_terms(sub_aggregation);
+        set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }
 }
 
@@ -633,7 +745,7 @@ pub mod vischeck {
     impl Drop for TSVisibilityChecker {
         fn drop(&mut self) {
             unsafe {
-                if !pg_sys::IsTransactionState() {
+                if !pg_sys::IsTransactionState() || std::thread::panicking() {
                     // TODO: None of the below operations care about the transaction state: in
                     // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
                     // lock. Consider removing this guard.

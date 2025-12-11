@@ -205,7 +205,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: paradedb-superuser
-  namespace: paradedb
+  namespace: default
 type: Opaque
 stringData:
   password: antithesis-super-secret-password
@@ -215,7 +215,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: paradedb
-  namespace: paradedb
+  namespace: default
   labels:
     helm.sh/chart: paradedb-0.11.2
     app.kubernetes.io/name: paradedb

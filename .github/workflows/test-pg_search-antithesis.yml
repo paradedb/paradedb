@@ -58,7 +58,7 @@ jobs:
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
             type=raw,value=${{ matrix.pg_version }}-0.0.0
-            type=raw,value=latest-antithesis-workload
+            type=raw,value=antithesis-workload-latest
 
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
@@ -91,7 +91,8 @@ jobs:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
           tags: |
             type=sha
-            type=raw,value=latest-antithesis-config
+            type=raw,value=v0.0.0
+            type=raw,value=antithesis-config-latest
 
       - name: Build and Push Config Docker Image to Antithesis Registry
         id: build-push-config
@@ -113,8 +114,8 @@ jobs:
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config@${{ steps.build-push-config.outputs.digest }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb@${{ steps.build-push-workload.outputs.digest }}
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:v0.0.0
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-0.0.0
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: developers@paradedb.com
           additional_parameters: |-

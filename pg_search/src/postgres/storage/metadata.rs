@@ -246,12 +246,12 @@ impl MetaPage {
         VacuumSentinel(sentinel)
     }
 
-    pub fn pin_vacuum_waiting(&self) -> PinnedBuffer {
+    pub fn request_background_merge_cancellation(&self) -> PinnedBuffer {
         assert!(block_number_is_valid(self.data.vacuum_waiting));
         self.bman.pinned_buffer(self.data.vacuum_waiting)
     }
 
-    pub fn vacuum_waiting_is_pinned(&self) -> bool {
+    pub fn should_cancel_background_merge(&self) -> bool {
         assert!(block_number_is_valid(self.data.vacuum_waiting));
         let mut bman = self.bman.clone();
         bman.get_buffer_for_cleanup_conditional(self.data.vacuum_waiting)

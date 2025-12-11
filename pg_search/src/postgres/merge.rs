@@ -409,7 +409,7 @@ unsafe fn merge_index(
             // We check under merge_lock to avoid false positives from other workers.
             if gc_after_merge {
                 let merge_lock = metadata.acquire_merge_lock();
-                let should_exit = metadata.vacuum_waiting_is_pinned();
+                let should_exit = metadata.should_cancel_background_merge();
                 drop(merge_lock);
 
                 if should_exit {

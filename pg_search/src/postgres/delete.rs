@@ -54,13 +54,15 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // Pin the vacuum_waiting buffer to signal background merge workers that VACUUM is waiting.
     // Workers check this pin (under merge_lock) and exit early so we can acquire cleanup_lock_exclusive.
     let mut metadata = MetaPage::open(&index_relation);
-    let vacuum_waiting = metadata.pin_vacuum_waiting();
+    let vacuum_waiting = metadata.request_background_merge_cancellation();
 
     let cleanup_lock = metadata.cleanup_lock_exclusive();
+    // Once we have the exclusive cleanup lock, no merges can be running.
+    // We can drop the vacuum_waiting pin now.
+    drop(vacuum_waiting);
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
-    drop(vacuum_waiting);
 
     // garbage collecting the MergeList is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge

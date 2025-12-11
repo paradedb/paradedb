@@ -254,7 +254,8 @@ pub unsafe fn do_merge(
             foreground_merge_policy,
             merge_lock,
             cleanup_lock,
-            false,
+            false, // gc_after_merge
+            false, // cancellable
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
         );
@@ -349,7 +350,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 merge_policy,
                 merge_lock,
                 cleanup_lock,
-                true,
+                true, // gc_after_merge
+                true, // cancellable
                 current_xid,
                 next_xid,
             )
@@ -359,12 +361,14 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
     gc_after_merge: bool,
+    cancellable: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
 ) {
@@ -407,7 +411,7 @@ unsafe fn merge_index(
         for candidate in merge_candidates {
             // Check if VACUUM is waiting for cleanup_lock_exclusive.
             // We check under merge_lock to avoid false positives from other workers.
-            if gc_after_merge {
+            if cancellable {
                 let merge_lock = metadata.acquire_merge_lock();
                 let should_exit = metadata.should_cancel_background_merge();
                 drop(merge_lock);

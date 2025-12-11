@@ -499,7 +499,7 @@ mod tests {
         .is_err());
 
         // global override
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE TABLE t (id SERIAL PRIMARY KEY, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id', mutable_segment_rows = 500)").unwrap();
         let relation_oid: pg_sys::Oid =

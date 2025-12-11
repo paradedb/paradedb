@@ -978,7 +978,6 @@ pub unsafe fn get_first_index_field_from_relation(
 
     let first_attr = (*tupdesc).attrs.as_ptr();
     let attr_name = pgrx::name_data_to_str(&(*first_attr).attname);
-    let attnum = (*first_attr).attnum;
     let typmod = (*first_attr).atttypmod;
     
     // Try to extract alias from typmod for both expressions and aliased columns

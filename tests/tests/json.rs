@@ -28,7 +28,7 @@ use sqlx::PgConnection;
 fn json_datatype(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id serial8,
+        id serial8 PRIMARY KEY,
         value json
     );
 
@@ -54,7 +54,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     r#"    
     CREATE TABLE crash
     (
-        id serial8,
+        id serial8 PRIMARY KEY,
         j  jsonb
     );
     

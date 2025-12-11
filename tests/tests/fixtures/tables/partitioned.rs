@@ -36,7 +36,7 @@ impl PartitionedTable {
 static PARTITIONED_TABLE_SETUP: &str = r#"
 BEGIN;
     CREATE TABLE sales (
-        id SERIAL,
+        id SERIAL PRIMARY KEY,
         sale_date DATE NOT NULL,
         amount REAL NOT NULL,
         description TEXT,

@@ -98,8 +98,8 @@ SELECT id, product_name, amount FROM products_view
 WHERE product_name @@@ 'laptop OR tablet OR computer' 
 AND amount > 100 
 ORDER BY amount DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: products_2023.amount DESC
    ->  Append
@@ -108,13 +108,13 @@ ORDER BY amount DESC;
                Index: idx_products_2023_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 4 :varattno 3 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 4 :varattnosyn 3 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(amount > '100'::numeric)"}]}}]}}
          ->  Custom Scan (ParadeDB Scan) on products_2024
                Table: products_2024
                Index: idx_products_2024_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 5 :varattno 3 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 5 :varattnosyn 3 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet OR computer","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(amount > '100'::numeric)"}]}}]}}
 (15 rows)
 
 SELECT id, product_name, amount FROM products_view 

@@ -206,8 +206,9 @@ kind: Secret
 metadata:
   name: paradedb-superuser
   namespace: default
-type: Opaque
+type: kubernetes.io/basic-auth
 stringData:
+  username: postgres
   password: antithesis-super-secret-password
 ---
 # Source: paradedb/templates/cluster.yaml

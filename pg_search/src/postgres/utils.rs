@@ -358,9 +358,7 @@ pub unsafe fn extract_field_attributes(
                 }
 
                 let Some(attname) = attname else {
-                    let expr_str = expression
-                        .map(|expr| unsafe { deparse_expr(None, &heap_relation, expr.cast()) })
-                        .unwrap_or("<null>".to_string());
+                    let expr_str = deparse_expr(None, &heap_relation, expression.cast());
                     panic!(
                         "indexed expression requires a tokenizer cast with an alias: {expr_str}"
                     );

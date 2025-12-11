@@ -7,9 +7,6 @@
 name: Launch Antithesis Debugger
 
 on:
-  push:
-    branches:
-      - phil/antithesis
   workflow_dispatch:
     inputs:
       session_id:

@@ -314,16 +314,10 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             match extract_column_names_from_expression(index_relation, &heap_relation) {
                 Ok(required_columns) => {
                     if required_columns.is_empty() || !check_columns_have_unique_index(&heap_relation, &required_columns) {
-                        let column_list = if required_columns.len() > 1 {
-                            format!("columns ({})", required_columns.join(", "))
-                        } else if required_columns.len() == 1 {
-                            format!("column '{}'", required_columns[0])
-                        } else {
-                            format!("first field '{}'", first_field.as_ref())
-                        };
+                        let column_list = format!("columns ({})", required_columns.join(", "));
                         ErrorReport::new(
                             PgSqlErrorCode::ERRCODE_INVALID_OBJECT_DEFINITION,
-                            "First field requires a unique constraint",
+                            "Key field requires a unique constraint",
                             "build_index",
                         )
                         .set_detail(format!("The key field requires a unique constraint (primary key or unique index) on {}", column_list))

@@ -57,6 +57,7 @@ jobs:
           tags: |
             type=sha
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
+            type=raw,value=${{ matrix.pg_version }}-0.0.0
             type=raw,value=latest-antithesis-workload
 
       # Antithesis only supports x86_64 instruction set
@@ -77,11 +78,11 @@ jobs:
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
 
       # TODO: Need to make it so ParadeDB and Stressgres are not latest yet they don't attempt to pull
-      # - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
-      #   working-directory: docker/manifests/
-      #   run: |
-      #     sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
-      #     cat paradedb.yaml
+      - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
+        working-directory: docker/manifests/
+        run: |
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-0.0.0|" paradedb.yaml
+          cat paradedb.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata

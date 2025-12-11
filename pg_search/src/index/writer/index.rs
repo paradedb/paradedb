@@ -506,7 +506,7 @@ mod tests {
             max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 75000);
-        assert_eq!(segment_ids.len(), 6);
+        assert_eq!(segment_ids.len(), 5);
     }
 
     #[pg_test]

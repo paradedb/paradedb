@@ -29,4 +29,16 @@ SELECT * FROM ints WHERE add_two_numbers(i, j) = 5 AND id @@@ pdb.all();
 
 DROP INDEX idx_ints;
 DROP FUNCTION add_two_numbers;
+
+CREATE INDEX idx_ints ON ints
+  USING bm25 (id,
+    ((i * 2)::pdb.alias('doubled')),
+    ((i + j)::pdb.alias('sum'))
+  ) with (key_field = 'id');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE i * 2 = 4 AND i + j = 5 AND id @@@ pdb.all();
+
+SELECT * FROM ints WHERE i * 2 = 4 AND i + j = 5 AND id @@@ pdb.all();
+DROP INDEX idx_ints;
 DROP TABLE ints;

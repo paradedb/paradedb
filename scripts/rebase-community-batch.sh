@@ -354,7 +354,7 @@ if [[ "$IS_DRY_RUN" == "false" && "$PROCESSED_COUNT" -gt 0 && "$SKIP_VALIDATION"
       log_error "1. View failed checks: $(git remote get-url origin | sed 's/\.git$//' | sed 's/github\.com:/github\.com\//')/actions"
       log_error "2. Check out the branch: git checkout $PATCH_BRANCH_NAME"
       log_error "3. Fix issues and push your fixes"
-      log_error "4. When CI passes, manually merge to main or create a PR"
+      log_error "4. Use the promotion job to submit it"
       log_error ""
 
       exit 1

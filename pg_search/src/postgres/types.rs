@@ -825,11 +825,29 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let posix_time = val.to_posix_time();
-        let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
-            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
-        let tantivy_date =
-            tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
+        let month = val
+            .month()
+            .try_into()
+            .map_err(|err: time::error::ComponentRange| {
+                TantivyValueError::DateOutOfRange(val, err.to_string())
+            })?;
+        let min_date = tantivy::DateTime::MIN.into_primitive();
+        let max_date = tantivy::DateTime::MAX.into_primitive();
+        let date = time::Date::from_calendar_date(val.year(), month, val.day())
+            .map(|date| time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT))
+            .ok()
+            .filter(|date| (min_date..=max_date).contains(date))
+            .ok_or_else(|| {
+                TantivyValueError::DateOutOfRange(
+                    val,
+                    format!(
+                        "date must be in the range {}..{}",
+                        min_date.date(),
+                        max_date.date()
+                    ),
+                )
+            })?;
+        let tantivy_date = tantivy::DateTime::from_primitive(date);
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }

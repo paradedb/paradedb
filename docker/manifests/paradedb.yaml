@@ -228,9 +228,9 @@ metadata:
     app.kubernetes.io/version: "0.19.5"
     app.kubernetes.io/managed-by: Helm
 spec:
-  instances: 1
+  instances: 3
 
-  imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+  imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-enterprise
   imagePullPolicy: IfNotPresent
   postgresUID: 999
   postgresGID: 999

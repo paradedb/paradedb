@@ -56,7 +56,7 @@ jobs:
         id: extract-workload-metadata
         uses: docker/metadata-action@v5
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-enterprise
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
             type=raw,value=antithesis-latest
@@ -82,7 +82,7 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-enterprise:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
           cat paradedb.yaml
 
       - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
@@ -145,7 +145,7 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:${{ github.sha }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-enterprise:${{ matrix.pg_version }}-${{ github.sha }}
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-

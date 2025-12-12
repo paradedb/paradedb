@@ -99,9 +99,6 @@ pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,
 
-    /// The target list of the plan, used to fetch constant values.
-    targetlist: *mut pg_sys::List,
-
     /// The batch size to use for this execution.
     batch_size: usize,
 
@@ -113,6 +110,7 @@ pub struct MixedFastFieldExecState {
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
+    targetlist: *mut pg_sys::List,
 }
 
 impl MixedFastFieldExecState {

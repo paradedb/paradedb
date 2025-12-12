@@ -100,6 +100,47 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
     create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
 }
 
+// Check if a function is EXTRACT with EPOCH parameter
+unsafe fn is_extract_epoch_function(funcid: pg_sys::Oid, args: *mut pg_sys::List) -> bool {
+    // Get function name from system catalog
+    let func_tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier::PROCOID as _,
+        funcid.into(),
+    );
+    
+    if func_tuple.is_null() {
+        return false;
+    }
+    
+    let func_form = pg_sys::GETSTRUCT(func_tuple) as *const pg_sys::FormData_pg_proc;
+    let func_name = pgrx::name_data_to_str(&(*func_form).proname);
+    
+    pg_sys::ReleaseSysCache(func_tuple);
+    
+    // Check if this is date_part or extract function
+    if func_name != "date_part" && func_name != "extract" {
+        return false;
+    }
+    
+    // Check if first argument is 'epoch'
+    let arg_list = PgList::<pg_sys::Node>::from_pg(args);
+    if let Some(first_arg) = arg_list.get_ptr(0) {
+        if (*first_arg).type_ == pg_sys::NodeTag::T_Const {
+            let const_node = first_arg.cast::<pg_sys::Const>();
+            if !(*const_node).constisnull {
+                // Try to get the string value - use TEXT type OID
+                let datum = (*const_node).constvalue;
+                let type_oid = (*const_node).consttype;
+                if let Ok(text_value) = String::try_from_datum(datum, false, type_oid.into()) {
+                    return text_value.as_deref() == Some("epoch");
+                }
+            }
+        }
+    }
+    
+    false
+}
+
 // Check if an expression only contains string concatenation operators
 unsafe fn validate_expression_for_uniqueness(node: *mut pg_sys::Node) -> Result<(), String> {
     if node.is_null() {
@@ -141,7 +182,34 @@ unsafe fn validate_expression_for_uniqueness(node: *mut pg_sys::Node) -> Result<
             }
         }
         pg_sys::NodeTag::T_FuncExpr => {
-            return Err("Functions are not allowed in key field expressions".to_string());
+            let funcexpr = node.cast::<pg_sys::FuncExpr>();
+            let funcid = (*funcexpr).funcid;
+            let args_list = (*funcexpr).args;
+            
+            if is_extract_epoch_function(funcid, args_list) {
+                // Allow EXTRACT(EPOCH FROM ...) - it's immutable and preserves uniqueness
+                let args = PgList::<pg_sys::Node>::from_pg(args_list);
+                for arg in args.iter_ptr() {
+                    validate_expression_for_uniqueness(arg)?;
+                }
+            } else {
+                // Get function name for better error message
+                let func_tuple = pg_sys::SearchSysCache1(
+                    pg_sys::SysCacheIdentifier::PROCOID as _,
+                    funcid.into(),
+                );
+                
+                let func_name = if !func_tuple.is_null() {
+                    let func_form = pg_sys::GETSTRUCT(func_tuple) as *const pg_sys::FormData_pg_proc;
+                    let name = pgrx::name_data_to_str(&(*func_form).proname);
+                    pg_sys::ReleaseSysCache(func_tuple);
+                    name.to_string()
+                } else {
+                    "unknown".to_string()
+                };
+                
+                return Err(format!("Function '{}' is not allowed in key field expressions. Only EXTRACT(EPOCH FROM ...) is permitted", func_name));
+            }
         }
         pg_sys::NodeTag::T_Var | 
         pg_sys::NodeTag::T_Const => {
@@ -296,9 +364,15 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     if !index_relation.rd_options.is_null() {
         let options = index_relation.options();
         if let Some(_) = options.options_data().key_field_name() {
-            pgrx::notice!(
-                "WITH (key_field='...') is deprecated. The first column in the index definition is automatically used as the key field."
-            );
+            // Use a static flag to ensure notice only shows once per session
+            // This prevents duplicate notices when creating indexes on partitioned tables
+            static mut WARNING_SHOWN: bool = false;
+            if !WARNING_SHOWN {
+                WARNING_SHOWN = true;
+                pgrx::notice!(
+                    "WITH (key_field='...') is deprecated. The first column in the index definition is automatically used as the key field."
+                );
+            }
         }
     }
 

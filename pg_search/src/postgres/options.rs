@@ -375,6 +375,7 @@ impl BM25IndexOptions {
             *self.lazy.computed_key_field_name.borrow_mut() = Some(computed_name);
         }
         self.lazy.computed_key_field_name.borrow().as_ref().unwrap().clone()
+	
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {

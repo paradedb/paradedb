@@ -58,7 +58,7 @@ fn invalid_create_index(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with no primary key or index on id"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: First column 'id' in index must have a unique constraint (primary key or unique index)"
+            "error returned from database: Key field requires a unique constraint"
         ),
     };
 }
@@ -792,8 +792,10 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
             id SERIAL,
             product_name TEXT,
             amount DECIMAL,
-            sale_date DATE
+            sale_date DATE,
+            PRIMARY KEY (id, sale_date)
         ) PARTITION BY RANGE (sale_date);
+
 
         CREATE TABLE sales_2023 PARTITION OF sales
         FOR VALUES FROM ('2023-01-01') TO ('2024-01-01');
@@ -814,7 +816,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         ('Speaker', 120.00, '2024-06-30');
 
         CREATE INDEX idx_sales_bm25 ON sales
-        USING bm25 (id, product_name, amount, sale_date)
+        USING bm25 (((id::text || EXTRACT(EPOCH FROM sale_date)::text)::pdb.literal('alias=id_union')), product_name, amount, sale_date)
         WITH (
             key_field = 'id',
             text_fields = '{"product_name": {}}',

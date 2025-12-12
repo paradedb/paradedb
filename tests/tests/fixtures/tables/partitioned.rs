@@ -36,7 +36,7 @@ impl PartitionedTable {
 static PARTITIONED_TABLE_SETUP: &str = r#"
 BEGIN;
     CREATE TABLE sales (
-        id SERIAL PRIMARY KEY,
+        id SERIAL,
         sale_date DATE NOT NULL,
         amount REAL NOT NULL,
         description TEXT,
@@ -50,7 +50,7 @@ BEGIN;
       FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
 
     CREATE INDEX sales_index ON sales
-      USING bm25 (id, description, sale_date, amount)
+      USING bm25 (((id::text || EXTRACT(EPOCH FROM sale_date)::text)::pdb.literal('alias=id_union')), description, sale_date, amount)
       WITH (
         key_field='id',
         numeric_fields='{"amount": {"fast": true}}',

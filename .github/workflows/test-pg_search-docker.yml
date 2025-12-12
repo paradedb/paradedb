@@ -1,9 +1,9 @@
 # workflows/test-pg_search-docker.yml
 #
-# Test pg_search Docker
+# Test pg_search (Docker)
 # Test building and running the ParadeDB Docker Image using Docker Compose.
 
-name: Test pg_search Docker
+name: Test pg_search (Docker)
 
 on:
   pull_request:

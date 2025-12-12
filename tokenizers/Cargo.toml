@@ -24,6 +24,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 tantivy-jieba = { workspace = true }
 emoji = "0.2.1"
 unicode-segmentation = "1.12.0"
+opencc = "0.3.0"
 
 [dependencies.rust_icu_ubrk]
 version = "5.4.0"

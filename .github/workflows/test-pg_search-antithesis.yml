@@ -7,7 +7,7 @@ name: Test pg_search (Antithesis)
 
 on:
   schedule:
-    - cron: '0 2 * * 1-5' # At 02:00 UTC on every day-of-week from Monday through Friday
+    - cron: "0 2 * * 1-5" # At 02:00 UTC on every day-of-week from Monday through Friday
   workflow_dispatch:
     inputs:
       duration:

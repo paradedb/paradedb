@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765575721639,
+  "lastUpdate": 1765576547453,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37448,6 +37448,54 @@ window.BENCHMARK_DATA = {
             "value": 107.85029109803281,
             "unit": "median tps",
             "extra": "avg tps: 106.0267776764027, max tps: 173.12445834457972, count: 107398"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1",
+          "message": "chore: Cargo upgrade (#3765)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nIt's been a very long time since we've upgraded our deps (aside from\nTantivy), and I figured this was relevant in our polish month. Putting\nthis here to see if it passes CI, and whether we want to do it or not.\n\n## Why\nUp-to-date dependencies\n\n## How\n`cargo upgrade`\n\nNote that I did not make `cargo upgrade` upgrade the deps which require\ncode changes, so that would need to come separately.\n\n## Tests\nBuilds locally, need to test with CI",
+          "timestamp": "2025-12-12T15:41:07-05:00",
+          "tree_id": "c840b96124deeeca24a95653e127bfd9ae969805",
+          "url": "https://github.com/paradedb/paradedb/commit/d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1"
+        },
+        "date": 1765576544631,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 549.0598490027073,
+            "unit": "median tps",
+            "extra": "avg tps: 553.514393759319, max tps: 713.3822779101463, count: 53713"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 624.734723536543,
+            "unit": "median tps",
+            "extra": "avg tps: 633.0403987326728, max tps: 809.8409210790088, count: 53713"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.22821231904749,
+            "unit": "median tps",
+            "extra": "avg tps: 86.31903874444097, max tps: 92.23412164231544, count: 53713"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.36225892931856,
+            "unit": "median tps",
+            "extra": "avg tps: 106.25553673057932, max tps: 149.51892203768307, count: 107426"
           }
         ]
       }

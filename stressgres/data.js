@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765574031420,
+  "lastUpdate": 1765574889419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19956,6 +19956,54 @@ window.BENCHMARK_DATA = {
             "value": 5.270378313683907,
             "unit": "median tps",
             "extra": "avg tps: 5.281404061016715, max tps: 7.532372111008107, count: 56415"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1",
+          "message": "chore: Cargo upgrade (#3765)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nIt's been a very long time since we've upgraded our deps (aside from\nTantivy), and I figured this was relevant in our polish month. Putting\nthis here to see if it passes CI, and whether we want to do it or not.\n\n## Why\nUp-to-date dependencies\n\n## How\n`cargo upgrade`\n\nNote that I did not make `cargo upgrade` upgrade the deps which require\ncode changes, so that would need to come separately.\n\n## Tests\nBuilds locally, need to test with CI",
+          "timestamp": "2025-12-12T15:41:07-05:00",
+          "tree_id": "c840b96124deeeca24a95653e127bfd9ae969805",
+          "url": "https://github.com/paradedb/paradedb/commit/d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1"
+        },
+        "date": 1765574886649,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1128.548326313756,
+            "unit": "median tps",
+            "extra": "avg tps: 1128.9361622058973, max tps: 1181.2126358813712, count: 56275"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1300.8216847926192,
+            "unit": "median tps",
+            "extra": "avg tps: 1287.799425389616, max tps: 1309.8046669539233, count: 56275"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1818.765721589645,
+            "unit": "median tps",
+            "extra": "avg tps: 1796.2783719292984, max tps: 1956.401052522139, count: 56275"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.593377588387437,
+            "unit": "median tps",
+            "extra": "avg tps: 5.582103948666536, max tps: 6.6731959440181585, count: 56275"
           }
         ]
       }

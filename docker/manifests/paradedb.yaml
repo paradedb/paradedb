@@ -1,3 +1,6 @@
+# This manifest is exclusively intended for usage within the Antithesis platform, as
+# it hardcodes the Antithesis registry for the image source, and configures a template
+# secret for the Postgres superuser password.
 ---
 # Source: paradedb/templates/monitoring-logical-replication.yaml
 apiVersion: v1

@@ -1,3 +1,5 @@
+# This manifest is exclusively intended for usage within the Antithesis platform, as
+# it hardcodes the Antithesis registry for the image source.
 apiVersion: v1
 kind: Pod
 metadata:

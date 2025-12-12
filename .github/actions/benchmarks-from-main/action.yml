@@ -13,7 +13,7 @@ runs:
   using: "composite"
   steps:
     - name: Fetch the Latest Benchmark Queries
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: ${{ github.repository }}
         path: bench-temp

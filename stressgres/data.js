@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765395469399,
+  "lastUpdate": 1765573174663,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4082,6 +4082,72 @@ window.BENCHMARK_DATA = {
             "value": 227.62578539893332,
             "unit": "median tps",
             "extra": "avg tps: 270.6764411261182, max tps: 547.2301144015336, count: 55258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1",
+          "message": "chore: Cargo upgrade (#3765)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nIt's been a very long time since we've upgraded our deps (aside from\nTantivy), and I figured this was relevant in our polish month. Putting\nthis here to see if it passes CI, and whether we want to do it or not.\n\n## Why\nUp-to-date dependencies\n\n## How\n`cargo upgrade`\n\nNote that I did not make `cargo upgrade` upgrade the deps which require\ncode changes, so that would need to come separately.\n\n## Tests\nBuilds locally, need to test with CI",
+          "timestamp": "2025-12-12T15:41:07-05:00",
+          "tree_id": "c840b96124deeeca24a95653e127bfd9ae969805",
+          "url": "https://github.com/paradedb/paradedb/commit/d7654161b73d2d8b4d5a79e2dc7e9a50ac37a2c1"
+        },
+        "date": 1765573171973,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 562.427700366845,
+            "unit": "median tps",
+            "extra": "avg tps: 561.4636287823386, max tps: 683.9284910829907, count: 55383"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3169.535035222743,
+            "unit": "median tps",
+            "extra": "avg tps: 3146.674052989851, max tps: 3282.0371028266245, count: 55383"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 636.4601355572878,
+            "unit": "median tps",
+            "extra": "avg tps: 633.8882377453866, max tps: 746.0126977690965, count: 55383"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 458.40221320434705,
+            "unit": "median tps",
+            "extra": "avg tps: 458.3770183695809, max tps: 532.3104739165473, count: 55383"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3339.9413178072086,
+            "unit": "median tps",
+            "extra": "avg tps: 3306.866539968318, max tps: 3353.709495249223, count: 110766"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2138.1041112564008,
+            "unit": "median tps",
+            "extra": "avg tps: 2119.5269530223673, max tps: 2154.6668449617187, count: 55383"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 107.89726030315124,
+            "unit": "median tps",
+            "extra": "avg tps: 121.57748980308351, max tps: 737.7678097149264, count: 55383"
           }
         ]
       }

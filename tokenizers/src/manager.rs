@@ -547,7 +547,7 @@ impl SearchTokenizer {
                 add_filters!(ICUTokenizer, filters)
             }
             SearchTokenizer::Jieba(filters) => {
-                // 如果配置了中文繁简转换，先在分词前进行转换
+                // If Chinese conversion is configured, perform the conversion before tokenization
                 if let Some(convert_mode) = filters.chinese_convert {
                     let base_tokenizer = tantivy_jieba::JiebaTokenizer {};
                     let convert_tokenizer =

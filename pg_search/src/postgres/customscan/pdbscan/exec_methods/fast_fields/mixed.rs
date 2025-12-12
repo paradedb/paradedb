@@ -22,6 +22,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
+use crate::nodecast;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
@@ -98,6 +99,9 @@ pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,
 
+    /// The target list of the plan, used to fetch constant values.
+    targetlist: *mut pg_sys::List,
+
     /// The batch size to use for this execution.
     batch_size: usize,
 
@@ -132,6 +136,7 @@ impl MixedFastFieldExecState {
             .unwrap_or(JOIN_BATCH_SIZE);
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
+            targetlist: std::ptr::null_mut(),
             batch_size,
             search_results: None,
             batch: Batch::default(),
@@ -254,6 +259,10 @@ impl ExecMethod for MixedFastFieldExecState {
         // Initialize the inner FastFieldExecState
         self.inner.init(state, cstate);
 
+        unsafe {
+            self.targetlist = (*(*cstate).ss.ps.plan).targetlist;
+        }
+
         // Reset mixed field specific state
         self.search_results = None;
         self.batch.reset();
@@ -374,6 +383,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         debug_assert!(natts == which_fast_fields.len());
 
                         self.batch.populate(
+                            self.targetlist,
                             row_idx,
                             scored,
                             doc_address,
@@ -457,6 +467,7 @@ impl Batch {
     #[allow(clippy::too_many_arguments)]
     fn populate(
         &mut self,
+        targetlist: *mut pg_sys::List,
         row_idx: usize,
         scored: SearchIndexScore,
         doc_address: DocAddress,
@@ -507,6 +518,22 @@ impl Batch {
                     if let Some(datum) = datum_opt {
                         datums[i] = datum;
                         isnull[i] = false;
+                    } else {
+                        // if we didn't get a datum from the fast fields, check if it's a constant
+                        // in the target list that we can just project directly.
+                        //
+                        // todo: Are there other node types that we need to project? ie functions/expressions?
+                        unsafe {
+                            let tle =
+                                pg_sys::list_nth(targetlist, i as i32) as *mut pg_sys::TargetEntry;
+                            if !tle.is_null() && !(*tle).expr.is_null() {
+                                if let Some(const_expr) = nodecast!(Const, T_Const, (*tle).expr) {
+                                    datums[i] = (*const_expr).constvalue;
+                                    isnull[i] = (*const_expr).constisnull;
+                                    continue;
+                                }
+                            }
+                        }
                     }
                 }
             }

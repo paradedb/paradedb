@@ -3045,6 +3045,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ce411919553d3f9fa53a0880544cda985a112117a0444d5ff1e870a893d6ea"
 
 [[package]]
+name = "opencc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee7ab19112fee8eab97a30413cecdbf730c4738ec408b98cfb22958333fa35d1"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "ordered-float"
 version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5429,6 +5438,7 @@ dependencies = [
  "emoji",
  "lindera",
  "once_cell",
+ "opencc",
  "rstest",
  "rust_icu_common",
  "rust_icu_sys",

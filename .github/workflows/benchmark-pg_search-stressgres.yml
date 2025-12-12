@@ -11,7 +11,8 @@ on:
   push:
     branches:
       - main
-      - 0.*.x # Release branches
+      # TODO: We do not run for release branch pushes, because we do not currently sort our graphs
+      # or PR comments by the git-graph. See https://github.com/paradedb/paradedb/issues/3769
     paths:
       - ".github/stressgres/**"
       - "**/*.rs"
@@ -20,6 +21,8 @@ on:
     types: [labeled, synchronize]
     branches:
       - main
+      # TODO: We support running benchmarks on release branch PRs, but they will always compare
+      # to `main`: see the TODO above.
       - 0.*.x # Release branches
   workflow_dispatch:
     inputs:

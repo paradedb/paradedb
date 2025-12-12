@@ -10,25 +10,25 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tantivy::tokenizer::Tokenizer;
 
-/// OpenCC 转换模式
+/// OpenCC conversion modes
 #[derive(Serialize, Deserialize, Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConvertMode {
-    /// 繁体转简体 (Traditional to Simplified)
+    /// Traditional to Simplified Chinese
     #[default]
     T2S,
-    /// 简体转繁体 (Simplified to Traditional)
+    /// Simplified to Traditional Chinese
     S2T,
-    /// 繁体转台湾繁体
+    /// Traditional Chinese to Taiwan Traditional
     T2TW,
-    /// 繁体转香港繁体
+    /// Traditional Chinese to Hong Kong Traditional
     T2HK,
-    /// 简体转台湾繁体
+    /// Simplified Chinese to Taiwan Traditional
     S2TW,
-    /// 简体转香港繁体
+    /// Simplified Chinese to Hong Kong Traditional
     S2HK,
 }
 
-/// OpenCC 转换器全局实例（使用懒加载）
+/// Global OpenCC converter instances (lazy-loaded)
 static OPENCC_T2S: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("t2s.json")));
 
 static OPENCC_S2T: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s2t.json")));
@@ -41,7 +41,7 @@ static OPENCC_S2TW: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s
 
 static OPENCC_S2HK: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s2hk.json")));
 
-/// 获取对应模式的 OpenCC 实例
+/// Get the OpenCC instance for the specified mode
 fn get_opencc(mode: ConvertMode) -> &'static Lazy<Mutex<OpenCC>> {
     match mode {
         ConvertMode::T2S => &OPENCC_T2S,
@@ -53,18 +53,18 @@ fn get_opencc(mode: ConvertMode) -> &'static Lazy<Mutex<OpenCC>> {
     }
 }
 
-/// 中文繁简转换 Tokenizer Wrapper
+/// Chinese Traditional/Simplified Conversion Tokenizer Wrapper
 ///
-/// **在分词前**对整个文本进行繁简转换，这样可以确保转换后的文本能够正确分词
+/// Converts the entire text **before tokenization** to ensure proper word segmentation
 #[derive(Clone)]
 pub struct ChineseConvertTokenizer<T: Tokenizer> {
     inner: T,
     mode: ConvertMode,
-    buffer: String, // 存储转换后的文本
+    buffer: String, // Buffer to store the converted text
 }
 
 impl<T: Tokenizer> ChineseConvertTokenizer<T> {
-    /// 创建新的转换器
+    /// Create a new converter tokenizer
     pub fn new(inner: T, mode: ConvertMode) -> Self {
         Self {
             inner,
@@ -78,32 +78,13 @@ impl<T: Tokenizer> Tokenizer for ChineseConvertTokenizer<T> {
     type TokenStream<'a> = T::TokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
-        // 在分词前先转换整个文本，存储到 buffer 中
+        // Convert the entire text before tokenization, storing it in buffer
         let opencc = get_opencc(self.mode);
         self.buffer = opencc.lock().unwrap().convert(text);
 
-        // 使用 buffer 中的文本进行分词
-        // buffer 的生命周期和 self 绑定（'a），所以这是安全的
+        // Tokenize using the buffer text
+        // The buffer's lifetime is bound to self ('a), so this is safe
         self.inner.token_stream(&self.buffer)
-    }
-}
-
-impl<T: TokenStream> TokenStream for TokenLengthFilterStream<T> {
-    fn advance(&mut self) -> bool {
-        while self.tail.advance() {
-            if self.predicate(self.tail.token()) {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn token(&self) -> &Token {
-        self.tail.token()
-    }
-
-    fn token_mut(&mut self) -> &mut Token {
-        self.tail.token_mut()
     }
 }
 
@@ -124,9 +105,9 @@ mod tests {
             tokens.push(stream.token().text.clone());
         }
 
-        // 应该转换为简体后再分词
+        // Should be converted to simplified Chinese before tokenization
         assert!(!tokens.is_empty());
-        // 检查是否包含简体字
+        // Check if it contains simplified Chinese characters
         let text = tokens.join("");
         assert!(text.contains("繁体") || text.contains("测试"));
     }
@@ -143,7 +124,7 @@ mod tests {
             tokens.push(stream.token().text.clone());
         }
 
-        // 应该转换为繁体
+        // Should be converted to traditional Chinese
         assert!(!tokens.is_empty());
         let text = tokens.join("");
         assert!(text.contains("簡體") || text.contains("測試"));
@@ -151,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_jieba_with_convert() {
-        // 测试与 Jieba 分词器的集成
+        // Test integration with Jieba tokenizer
         let base_tokenizer = tantivy_jieba::JiebaTokenizer {};
         let mut tokenizer = ChineseConvertTokenizer::new(base_tokenizer, ConvertMode::T2S);
 
@@ -163,7 +144,7 @@ mod tests {
         }
 
         assert!(!tokens.is_empty());
-        // 验证已转换为简体
+        // Verify that conversion to simplified Chinese was successful
         for token in &tokens {
             println!("Token: {}", token);
         }

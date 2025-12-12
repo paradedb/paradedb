@@ -6,20 +6,18 @@
 name: Test pg_search (Antithesis)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - main
-      - 0.*.x # Release branches
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/test-pg_search-antithesis.yml"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tests/**"
-      - "tokenizers/**"
+  schedule:
+    - cron: '0 2 * * 1-5' # At 02:00 UTC on every day-of-week from Monday through Friday
   workflow_dispatch:
+    inputs:
+      duration:
+        type: string
+        required: false
+        description: Test duration (minutes, default 30)
+      emails:
+        type: string
+        required: false
+        description: Email recipients (default notifies developers@paradedb.com)
 
 concurrency:
   group: test-pg_search-antithesis-${{ github.head_ref || github.ref }}
@@ -111,6 +109,6 @@ jobs:
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:${{ github.sha }}
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
-          email_recipients: developers@paradedb.com
+          email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
-            antithesis.duration=${{ github.event.inputs.duration || '10' }}
+            antithesis.duration=${{ github.event.inputs.duration || '30' }}

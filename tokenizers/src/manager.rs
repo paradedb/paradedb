@@ -30,6 +30,7 @@ use crate::{
     unicode_words::UnicodeWordsTokenizer,
 };
 
+use crate::chinese_convert::{ChineseConvertTokenizer, ConvertMode};
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::de::{self, Deserializer};
@@ -53,6 +54,7 @@ pub struct SearchTokenizerFilters {
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
+    pub chinese_convert: Option<ConvertMode>,
 }
 
 impl SearchTokenizerFilters {
@@ -73,6 +75,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            chinese_convert: None,
         }
     }
 
@@ -88,6 +91,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            chinese_convert: None,
         }
     }
 
@@ -155,6 +159,38 @@ impl SearchTokenizerFilters {
                 )
             })?);
         }
+        if let Some(chinese_convert) = value.get("chinese_convert") {
+            let mode_str = chinese_convert
+                .as_str()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                    "a 'chinese_convert' value passed to the pg_search tokenizer configuration \
+                     must be of type string, found: {chinese_convert:#?}"
+                )
+                })?
+                .to_lowercase();
+
+            filters.chinese_convert = match mode_str.as_str() {
+                "t2s" => Some(ConvertMode::T2S),
+                "tw2s" => Some(ConvertMode::TW2S),
+                "tw2sp" => Some(ConvertMode::TW2SP),
+                "s2t" => Some(ConvertMode::S2T),
+                "s2tw" => Some(ConvertMode::S2TW),
+                "s2twp" => Some(ConvertMode::S2TWP),
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "invalid 'chinese_convert' mode: '{}'. Valid modes are: \
+                         't2s' (Traditional to Simplified), \
+                         's2t' (Simplified to Traditional), \
+                         'tw2s' (Traditional Taiwan to Simplified), \
+                         'tw2sp' (Traditional Taiwan to Simplified with idioms), \
+                         's2tw' (Simplified to Traditional Taiwan), \
+                         's2twp' (Simplified to Traditional Taiwan with idioms)",
+                        mode_str
+                    ));
+                }
+            };
+        }
 
         Ok(filters)
     }
@@ -205,6 +241,10 @@ impl SearchTokenizerFilters {
         }
         if let Some(value) = self.ascii_folding {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
+        if let Some(value) = self.chinese_convert {
+            write!(buffer, "{}chinese_convert={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
         }
 
@@ -503,7 +543,15 @@ impl SearchTokenizer {
                 add_filters!(ICUTokenizer, filters)
             }
             SearchTokenizer::Jieba(filters) => {
-                add_filters!(JiebaTokenizer::new(), filters)
+                // If Chinese conversion is configured, perform the conversion before tokenization
+                if let Some(convert_mode) = filters.chinese_convert {
+                    let base_tokenizer = JiebaTokenizer::new();
+                    let convert_tokenizer =
+                        ChineseConvertTokenizer::new(base_tokenizer, convert_mode);
+                    add_filters!(convert_tokenizer, filters)
+                } else {
+                    add_filters!(JiebaTokenizer::new(), filters)
+                }
             }
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
                 panic!("LinderaStyle::Unspecified is not supported")
@@ -683,6 +731,7 @@ mod tests {
                     trim: None,
                     normalizer: None,
                     alpha_num_only: None,
+                    chinese_convert: None,
                 }
             }
         );
@@ -708,6 +757,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                chinese_convert: None,
             },
         };
 
@@ -753,6 +803,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                chinese_convert: None,
             })
         );
 
@@ -806,6 +857,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                chinese_convert: None,
             })
         );
 
@@ -858,6 +910,7 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
+                chinese_convert: None,
             })
         );
 
@@ -909,6 +962,7 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
+                chinese_convert: None,
             })
         );
 

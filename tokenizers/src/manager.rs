@@ -172,20 +172,20 @@ impl SearchTokenizerFilters {
 
             filters.chinese_convert = match mode_str.as_str() {
                 "t2s" => Some(ConvertMode::T2S),
+                "tw2s" => Some(ConvertMode::TW2S),
+                "tw2sp" => Some(ConvertMode::TW2SP),
                 "s2t" => Some(ConvertMode::S2T),
-                "t2tw" => Some(ConvertMode::T2TW),
-                "t2hk" => Some(ConvertMode::T2HK),
                 "s2tw" => Some(ConvertMode::S2TW),
-                "s2hk" => Some(ConvertMode::S2HK),
+                "s2twp" => Some(ConvertMode::S2TWP),
                 _ => {
                     return Err(anyhow::anyhow!(
                         "invalid 'chinese_convert' mode: '{}'. Valid modes are: \
                          't2s' (Traditional to Simplified), \
                          's2t' (Simplified to Traditional), \
-                         't2tw' (Traditional to Taiwan), \
-                         't2hk' (Traditional to Hong Kong), \
-                         's2tw' (Simplified to Taiwan), \
-                         's2hk' (Simplified to Hong Kong)",
+                         'tw2s' (Traditional Taiwan to Simplified), \
+                         'tw2sp' (Traditional Taiwan to Simplified with idioms), \
+                         's2tw' (Simplified to Traditional Taiwan), \
+                         's2twp' (Simplified to Traditional Taiwan with idioms)",
                         mode_str
                     ));
                 }

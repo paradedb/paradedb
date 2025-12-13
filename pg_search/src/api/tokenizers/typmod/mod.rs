@@ -351,10 +351,10 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                     match mode.to_lowercase().as_str() {
                         "t2s" => Some(ConvertMode::T2S),
                         "s2t" => Some(ConvertMode::S2T),
-                        "t2tw" => Some(ConvertMode::T2TW),
+                        "tw2s" => Some(ConvertMode::TW2S),
+                        "tw2sp" => Some(ConvertMode::TW2SP),
                         "s2tw" => Some(ConvertMode::S2TW),
-                        "t2hk" => Some(ConvertMode::T2HK),
-                        "s2hk" => Some(ConvertMode::S2HK),
+                        "s2twp" => Some(ConvertMode::S2TWP),
                         _ => None,
                     }
                 }),

@@ -2,10 +2,21 @@
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
-// Chinese Traditional/Simplified conversion using OpenCC
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use once_cell::sync::Lazy;
-use opencc::OpenCC;
+use opencc_jieba_rs::OpenCC;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tantivy::tokenizer::Tokenizer;
@@ -18,38 +29,28 @@ pub enum ConvertMode {
     T2S,
     /// Simplified to Traditional Chinese
     S2T,
-    /// Traditional Chinese to Taiwan Traditional
-    T2TW,
-    /// Traditional Chinese to Hong Kong Traditional
-    T2HK,
-    /// Simplified Chinese to Taiwan Traditional
+    /// Traditional Taiwan to Simplified Chinese
+    TW2S,
+    /// Traditional Taiwan to Simplified Chinese (with idioms)
+    TW2SP,
+    /// Simplified to Traditional Taiwan Chinese
     S2TW,
-    /// Simplified Chinese to Hong Kong Traditional
-    S2HK,
+    /// Simplified to Traditional Taiwan Chinese (with idioms)
+    S2TWP,
 }
 
-/// Global OpenCC converter instances (lazy-loaded)
-static OPENCC_T2S: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("t2s.json")));
+/// Global OpenCC converter instance (lazy-loaded)
+static OPENCC: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new()));
 
-static OPENCC_S2T: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s2t.json")));
-
-static OPENCC_T2TW: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("t2tw.json")));
-
-static OPENCC_T2HK: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("t2hk.json")));
-
-static OPENCC_S2TW: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s2tw.json")));
-
-static OPENCC_S2HK: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new("s2hk.json")));
-
-/// Get the OpenCC instance for the specified mode
-fn get_opencc(mode: ConvertMode) -> &'static Lazy<Mutex<OpenCC>> {
+/// Get the conversion mode string for the specified mode
+fn get_mode_str(mode: ConvertMode) -> &'static str {
     match mode {
-        ConvertMode::T2S => &OPENCC_T2S,
-        ConvertMode::S2T => &OPENCC_S2T,
-        ConvertMode::T2TW => &OPENCC_T2TW,
-        ConvertMode::T2HK => &OPENCC_T2HK,
-        ConvertMode::S2TW => &OPENCC_S2TW,
-        ConvertMode::S2HK => &OPENCC_S2HK,
+        ConvertMode::T2S => "t2s",
+        ConvertMode::S2T => "s2t",
+        ConvertMode::TW2S => "tw2s",
+        ConvertMode::TW2SP => "tw2sp",
+        ConvertMode::S2TW => "s2tw",
+        ConvertMode::S2TWP => "s2twp",
     }
 }
 
@@ -79,8 +80,9 @@ impl<T: Tokenizer> Tokenizer for ChineseConvertTokenizer<T> {
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
         // Convert the entire text before tokenization, storing it in buffer
-        let opencc = get_opencc(self.mode);
-        self.buffer = opencc.lock().unwrap().convert(text);
+        let opencc = OPENCC.lock().unwrap();
+        let mode_str = get_mode_str(self.mode);
+        self.buffer = opencc.convert(text, mode_str, false);
 
         // Tokenize using the buffer text
         // The buffer's lifetime is bound to self ('a), so this is safe

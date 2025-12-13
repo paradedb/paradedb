@@ -56,9 +56,3 @@ FROM mock_items
 WHERE description &&& 'running shoes'
 AND rating + 1 > 3;
 ```
-
-<Note>
-  A current limitation is that the alias name must be the same as the field
-  inside the expression in order for the index to be used at query time. For
-  example, the statement above uses `rating` as the alias name.
-</Note>

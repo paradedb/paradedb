@@ -65,6 +65,17 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
     ]
     .contains(&oid)
 }
+// given an oid and typmod, return the alias name if it is an alias, otherwise return None
+#[inline]
+pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
+    if type_is_alias(oid) {
+        AliasTypmod::try_from(typmod).ok()?.alias()
+    } else if type_is_tokenizer(oid) {
+        UncheckedTypmod::try_from(typmod).ok()?.alias()
+    } else {
+        None
+    }
+}
 
 pub fn search_field_config_from_type(
     oid: pg_sys::Oid,

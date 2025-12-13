@@ -132,7 +132,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
 
 #[rstest]
 fn quoted_table_name(mut conn: PgConnection) {
-    r#"CREATE TABLE "Activity" (key SERIAL, name TEXT, age INTEGER);
+    r#"CREATE TABLE "Activity" (key SERIAL PRIMARY KEY, name TEXT, age INTEGER);
     INSERT INTO "Activity" (name, age) VALUES ('Alice', 29);
     INSERT INTO "Activity" (name, age) VALUES ('Bob', 34);
     INSERT INTO "Activity" (name, age) VALUES ('Charlie', 45);
@@ -739,9 +739,6 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because the custom scan will not trigger (in all cases)
-// on a partial index: see https://github.com/paradedb/paradedb/issues/2747
-#[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     r#"

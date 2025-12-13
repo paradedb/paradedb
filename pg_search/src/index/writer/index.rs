@@ -452,7 +452,7 @@ mod tests {
 
     fn get_relation_oid() -> pg_sys::Oid {
         Spi::run("SET client_min_messages = 'debug1';").unwrap();
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE TABLE t (id SERIAL PRIMARY KEY, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run(
             "CREATE INDEX t_idx ON t USING bm25(id, (data::pdb.simple)) WITH (key_field = 'id')",

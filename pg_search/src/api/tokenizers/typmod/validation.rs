@@ -216,7 +216,7 @@ impl TypmodSchema {
                 rule!(
                     "chinese_convert",
                     ValueConstraint::StringChoice(vec![
-                        "t2s", "s2t", "t2tw", "t2hk", "s2tw", "s2hk"
+                        "t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"
                     ])
                 ),
             ]

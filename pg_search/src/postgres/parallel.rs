@@ -24,7 +24,7 @@ use tantivy::index::SegmentId;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
-    (*state).init_mutex();
+    (*state).init_mutex_and_mark_uninitialized();
 }
 
 #[pg_guard]

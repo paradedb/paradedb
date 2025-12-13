@@ -381,10 +381,23 @@ pub struct ParallelScanArgs<'a> {
 // arrays for metrics for up to a given number of parallel workers.
 const WORKER_METRICS_MAX_COUNT: usize = 256;
 
+/// Sentinel value indicating that the parallel state has not been initialized yet.
+/// Workers must wait until this changes before reading segment data.
+const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
+
+/// Timeout in seconds for workers waiting for the leader to initialize parallel state.
+const PARALLEL_INIT_TIMEOUT_SECS: u64 = 60;
+
+/// Sleep duration in microseconds between checks when waiting for initialization.
+const PARALLEL_INIT_SLEEP_MICROS: u64 = 100;
+
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
     remaining_segments: usize,
+    /// Number of segments in the index. Set to PARALLEL_STATE_UNINITIALIZED until the leader
+    /// initializes the parallel state. Workers must wait for this to be set before reading
+    /// segment data.
     nsegments: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
@@ -415,8 +428,13 @@ impl ParallelScanState {
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
     }
 
-    fn init_mutex(&mut self) {
+    /// Initialize the mutex and mark the state as uninitialized.
+    /// This is called by `aminitparallelscan` before workers are launched.
+    /// The leader will later call `init_without_mutex` to set up the segment data.
+    pub fn init_mutex_and_mark_uninitialized(&mut self) {
         self.mutex.init();
+        // Mark as uninitialized so workers know to wait for the leader
+        self.nsegments = PARALLEL_STATE_UNINITIALIZED;
     }
 
     fn acquire_mutex(&mut self) -> impl Drop {
@@ -612,7 +630,14 @@ impl ParallelScanState {
     }
 
     /// Returns a map of segment IDs to their deleted document counts.
+    ///
+    /// This method will wait (spin) until the leader has initialized the segment data.
+    /// This is necessary for parallel index scans where workers may call this before
+    /// the leader has finished initializing the parallel state.
     pub fn segments(&mut self) -> HashMap<SegmentId, u32> {
+        // Wait for the leader to initialize the parallel state
+        self.wait_for_initialization();
+
         let _mutex = self.acquire_mutex();
 
         let mut segments = HashMap::default();
@@ -620,6 +645,33 @@ impl ParallelScanState {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
+    }
+
+    /// Wait until the leader has initialized the parallel state.
+    /// Workers call this before reading segment data.
+    fn wait_for_initialization(&mut self) {
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(PARALLEL_INIT_TIMEOUT_SECS);
+
+        loop {
+            {
+                let _mutex = self.acquire_mutex();
+                if self.nsegments != PARALLEL_STATE_UNINITIALIZED {
+                    // Leader has initialized the state
+                    return;
+                }
+            }
+
+            // Check for interrupts to allow query cancellation
+            pgrx::check_for_interrupts!();
+
+            if std::time::Instant::now() >= deadline {
+                pgrx::error!("Timeout waiting for parallel scan leader to initialize segment data");
+            }
+
+            // Brief sleep to avoid busy-waiting
+            std::thread::sleep(std::time::Duration::from_micros(PARALLEL_INIT_SLEEP_MICROS));
+        }
     }
 
     /// Returns per-worker `ParallelExplainData`.

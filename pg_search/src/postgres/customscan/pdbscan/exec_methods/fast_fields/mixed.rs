@@ -517,18 +517,22 @@ impl Batch {
                         datums[i] = datum;
                         isnull[i] = false;
                     } else {
-                        // if we didn't get a datum from the fast fields, check if it's a constant
-                        // in the target list that we can just project directly.
-                        //
-                        // todo: Are there other node types that we need to project? ie functions/expressions?
+                        // if the tlist entry is not null but the datum retrieved is null,
+                        // it could mean there was a constant value in the tlist that we can
+                        // project into the slot
                         unsafe {
                             let tle =
                                 pg_sys::list_nth(targetlist, i as i32) as *mut pg_sys::TargetEntry;
                             if !tle.is_null() && !(*tle).expr.is_null() {
-                                if let Some(const_expr) = nodecast!(Const, T_Const, (*tle).expr) {
-                                    datums[i] = (*const_expr).constvalue;
-                                    isnull[i] = (*const_expr).constisnull;
+                                if let Some(expr) = nodecast!(Const, T_Const, (*tle).expr) {
+                                    datums[i] = (*expr).constvalue;
+                                    isnull[i] = (*expr).constisnull;
                                     continue;
+                                } else {
+                                    pgrx::error!(
+                                    "Expression in target list with node type {:?} is not yet supported. \
+                                    Please file an issue at https://github.com/paradedb/paradedb/issues.
+                                    ", (*(*tle).expr).type_);
                                 }
                             }
                         }

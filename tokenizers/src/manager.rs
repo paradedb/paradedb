@@ -549,12 +549,12 @@ impl SearchTokenizer {
             SearchTokenizer::Jieba(filters) => {
                 // If Chinese conversion is configured, perform the conversion before tokenization
                 if let Some(convert_mode) = filters.chinese_convert {
-                    let base_tokenizer = tantivy_jieba::JiebaTokenizer {};
+                    let base_tokenizer = JiebaTokenizer::new();
                     let convert_tokenizer =
                         ChineseConvertTokenizer::new(base_tokenizer, convert_mode);
                     add_filters!(convert_tokenizer, filters)
                 } else {
-                    add_filters!(tantivy_jieba::JiebaTokenizer {}, filters)
+                    add_filters!(JiebaTokenizer::new(), filters)
                 }
             }
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {

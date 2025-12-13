@@ -4,7 +4,7 @@ description: Converts between Traditional and Simplified Chinese characters
 canonical: https://docs.paradedb.com/documentation/token-filters/chinese-convert
 ---
 
-The Chinese convert filter converts text between Traditional and Simplified Chinese characters, enabling unified search across both 
+The Chinese convert filter converts text between Traditional and Simplified Chinese characters, enabling unified search across both
 character sets. It is supported for all tokenizers besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
 
 To enable Chinese conversion, append `chinese_convert=<mode>` to the tokenizer's arguments.
@@ -81,7 +81,7 @@ SELECT id, title FROM articles WHERE title ||| '标题' ORDER BY id;
 
 This query returns:
 ```ini Expected Response
- id |  title   
+ id |  title
 ----+----------
   1 | 繁體標題
   2 | 简体标题

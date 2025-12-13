@@ -22,6 +22,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
+use crate::nodecast;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
@@ -109,6 +110,7 @@ pub struct MixedFastFieldExecState {
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
+    targetlist: *mut pg_sys::List,
 }
 
 impl MixedFastFieldExecState {
@@ -132,6 +134,7 @@ impl MixedFastFieldExecState {
             .unwrap_or(JOIN_BATCH_SIZE);
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
+            targetlist: std::ptr::null_mut(),
             batch_size,
             search_results: None,
             batch: Batch::default(),
@@ -254,6 +257,10 @@ impl ExecMethod for MixedFastFieldExecState {
         // Initialize the inner FastFieldExecState
         self.inner.init(state, cstate);
 
+        unsafe {
+            self.targetlist = (*(*cstate).ss.ps.plan).targetlist;
+        }
+
         // Reset mixed field specific state
         self.search_results = None;
         self.batch.reset();
@@ -374,6 +381,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         debug_assert!(natts == which_fast_fields.len());
 
                         self.batch.populate(
+                            self.targetlist,
                             row_idx,
                             scored,
                             doc_address,
@@ -457,6 +465,7 @@ impl Batch {
     #[allow(clippy::too_many_arguments)]
     fn populate(
         &mut self,
+        targetlist: *mut pg_sys::List,
         row_idx: usize,
         scored: SearchIndexScore,
         doc_address: DocAddress,
@@ -507,6 +516,26 @@ impl Batch {
                     if let Some(datum) = datum_opt {
                         datums[i] = datum;
                         isnull[i] = false;
+                    } else {
+                        // if the tlist entry is not null but the datum retrieved is null,
+                        // it could mean there was a constant value in the tlist that we can
+                        // project into the slot
+                        unsafe {
+                            let tle =
+                                pg_sys::list_nth(targetlist, i as i32) as *mut pg_sys::TargetEntry;
+                            if !tle.is_null() && !(*tle).expr.is_null() {
+                                if let Some(expr) = nodecast!(Const, T_Const, (*tle).expr) {
+                                    datums[i] = (*expr).constvalue;
+                                    isnull[i] = (*expr).constisnull;
+                                    continue;
+                                } else {
+                                    pgrx::error!(
+                                    "Expression in target list with node type {:?} is not yet supported. \
+                                    Please file an issue at https://github.com/paradedb/paradedb/issues.
+                                    ", (*(*tle).expr).type_);
+                                }
+                            }
+                        }
                     }
                 }
             }

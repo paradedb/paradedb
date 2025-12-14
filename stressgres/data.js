@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765739041500,
+  "lastUpdate": 1765744134004,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4214,6 +4214,72 @@ window.BENCHMARK_DATA = {
             "value": 168.62761387687144,
             "unit": "median tps",
             "extra": "avg tps: 183.58215291016583, max tps: 749.6555332824568, count: 55323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765744131203,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 598.8009537203226,
+            "unit": "median tps",
+            "extra": "avg tps: 597.4068562975106, max tps: 700.7685390038179, count: 55220"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3145.5911860852384,
+            "unit": "median tps",
+            "extra": "avg tps: 3123.3720848072826, max tps: 3166.718769246729, count: 55220"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 592.652552839988,
+            "unit": "median tps",
+            "extra": "avg tps: 593.1863378297155, max tps: 749.1730903439922, count: 55220"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 488.1173957262446,
+            "unit": "median tps",
+            "extra": "avg tps: 488.26916429505684, max tps: 536.9041554459515, count: 55220"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3358.685373897446,
+            "unit": "median tps",
+            "extra": "avg tps: 3341.348286470549, max tps: 3400.884239845897, count: 110440"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2200.013476951919,
+            "unit": "median tps",
+            "extra": "avg tps: 2182.506147764033, max tps: 2207.0080985213617, count: 55220"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 182.43791356041461,
+            "unit": "median tps",
+            "extra": "avg tps: 187.78899016448833, max tps: 631.5647205420846, count: 55220"
           }
         ]
       }

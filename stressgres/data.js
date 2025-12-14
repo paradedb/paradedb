@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765735665500,
+  "lastUpdate": 1765736519403,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13966,6 +13966,42 @@ window.BENCHMARK_DATA = {
             "value": 5.335927858707394,
             "unit": "median tps",
             "extra": "avg tps: 4.781597513152615, max tps: 5.96092446597121, count: 57779"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765736516703,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.99975995055875,
+            "unit": "median tps",
+            "extra": "avg tps: 6.823434534787941, max tps: 10.509486136976701, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.34476575124914,
+            "unit": "median tps",
+            "extra": "avg tps: 4.801115836941043, max tps: 5.9480930225483055, count: 57543"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765736523299,
+  "lastUpdate": 1765737384022,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20286,6 +20286,54 @@ window.BENCHMARK_DATA = {
             "value": 5.593377588387437,
             "unit": "median tps",
             "extra": "avg tps: 5.582103948666536, max tps: 6.6731959440181585, count: 56275"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765737381218,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1100.7123774392976,
+            "unit": "median tps",
+            "extra": "avg tps: 1106.781397210988, max tps: 1155.3535899568108, count: 56530"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1288.3415145168929,
+            "unit": "median tps",
+            "extra": "avg tps: 1287.3383390033787, max tps: 1303.9855177312434, count: 56530"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1910.603953603436,
+            "unit": "median tps",
+            "extra": "avg tps: 1891.3787991182776, max tps: 2072.0530899571413, count: 56530"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.260033299915575,
+            "unit": "median tps",
+            "extra": "avg tps: 5.284786910277516, max tps: 7.504770576274146, count: 56530"
           }
         ]
       }

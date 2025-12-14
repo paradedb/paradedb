@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765735661168,
+  "lastUpdate": 1765735665500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11766,6 +11766,126 @@ window.BENCHMARK_DATA = {
             "value": 48.88671875,
             "unit": "median mem",
             "extra": "avg mem: 48.546573830191576, max mem: 61.6640625, count: 55383"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765735662833,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.391495295591718, max cpu: 14.769231, count: 55323"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.18491172014804, max mem: 68.421875, count: 55323"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.60789852775142, max cpu: 9.467456, count: 55323"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.80421350805723, max mem: 35.03515625, count: 55323"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.422401409538948, max cpu: 15.213947, count: 55323"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.38137626134248, max mem: 68.66015625, count: 55323"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.748112318257485, max cpu: 9.638554, count: 55323"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.70089922195561, max mem: 68.28515625, count: 55323"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.593971478794571, max cpu: 9.430255, count: 110646"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.27914376141026, max mem: 56.3984375, count: 110646"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1763,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1771.8034632973627, max block_count: 3148.0, count: 55323"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.574281944218498, max segment_count: 30.0, count: 55323"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.559881641530307, max cpu: 9.284333, count: 55323"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.8039444913282, max mem: 58.8203125, count: 55323"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.8430743,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.310486527417258, max cpu: 4.669261, count: 55323"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.74079983969145, max mem: 61.8828125, count: 55323"
           }
         ]
       }

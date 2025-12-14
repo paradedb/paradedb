@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765746691346,
+  "lastUpdate": 1765747526755,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38732,6 +38732,54 @@ window.BENCHMARK_DATA = {
             "value": 111.70759701453534,
             "unit": "median tps",
             "extra": "avg tps: 111.63629400111411, max tps: 164.65757892216135, count: 107436"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765747523843,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 539.3477587368101,
+            "unit": "median tps",
+            "extra": "avg tps: 547.1328119622933, max tps: 743.2517174974928, count: 53760"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 639.9180060285231,
+            "unit": "median tps",
+            "extra": "avg tps: 650.5344224711203, max tps: 813.5522736666532, count: 53760"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.04017420533367,
+            "unit": "median tps",
+            "extra": "avg tps: 88.2793699719464, max tps: 96.20039851335753, count: 53760"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.8185588397906,
+            "unit": "median tps",
+            "extra": "avg tps: 108.77491103610778, max tps: 179.20110749744867, count: 107520"
           }
         ]
       }

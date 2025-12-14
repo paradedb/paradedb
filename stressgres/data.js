@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765737387923,
+  "lastUpdate": 1765738202713,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29384,6 +29384,60 @@ window.BENCHMARK_DATA = {
             "value": 15.18391330542314,
             "unit": "median tps",
             "extra": "avg tps: 15.279405575710275, max tps: 21.072988529508738, count: 55594"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765738199888,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.191029501906876,
+            "unit": "median tps",
+            "extra": "avg tps: 32.050384613073774, max tps: 38.62840970002863, count: 55472"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 226.84810797790132,
+            "unit": "median tps",
+            "extra": "avg tps: 249.26271737829373, max tps: 2926.414745574168, count: 55472"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2010.5071949985768,
+            "unit": "median tps",
+            "extra": "avg tps: 1992.6233588266805, max tps: 2245.182898485671, count: 55472"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 154.3193432196073,
+            "unit": "median tps",
+            "extra": "avg tps: 187.1280914298202, max tps: 1782.6966244872865, count: 110944"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.040286593494743,
+            "unit": "median tps",
+            "extra": "avg tps: 15.119789341482182, max tps: 21.577844956322235, count: 55472"
           }
         ]
       }

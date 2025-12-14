@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765744995266,
+  "lastUpdate": 1765744999574,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17756,6 +17756,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.2970995603288, max segment_count: 163.0, count: 57543"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765744996591,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.068246372083387, max cpu: 42.687748, count: 57577"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 231.72491185716518, max mem: 233.3671875, count: 57577"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.446625298666397, max cpu: 33.3996, count: 57577"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.27644949914895, max mem: 171.7265625, count: 57577"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49828,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49497.50770272852, max block_count: 52444.0, count: 57577"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.45839484516387, max segment_count: 162.0, count: 57577"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765737384022,
+  "lastUpdate": 1765737387923,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26158,6 +26158,108 @@ window.BENCHMARK_DATA = {
             "value": 159.203125,
             "unit": "median mem",
             "extra": "avg mem: 177.88360804920035, max mem: 219.671875, count: 56275"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765737385146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07702105076950291, max background_merging: 2.0, count: 56530"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.72373219757278, max cpu: 9.67742, count: 56530"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.91170271868919, max mem: 22.92578125, count: 56530"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.014324136049932, max cpu: 13.980582, count: 56530"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.00214218390678, max mem: 165.53125, count: 56530"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64594,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64508.813143463645, max block_count: 64594.0, count: 56530"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.08024058022289, max segment_count: 59.0, count: 56530"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.593278366869142, max cpu: 9.504951, count: 56530"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 121.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 109.81941066966655, max mem: 136.72265625, count: 56530"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.756020256437785, max cpu: 9.495549, count: 56530"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.68841143529983, max mem: 165.015625, count: 56530"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.969164434057188, max cpu: 33.366436, count: 56530"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.5213546734035, max mem: 219.86328125, count: 56530"
           }
         ]
       }

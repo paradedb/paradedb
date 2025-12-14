@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765738206694,
+  "lastUpdate": 1765739037440,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38090,6 +38090,54 @@ window.BENCHMARK_DATA = {
             "value": 108.36225892931856,
             "unit": "median tps",
             "extra": "avg tps: 106.25553673057932, max tps: 149.51892203768307, count: 107426"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765739034493,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 536.6025981497348,
+            "unit": "median tps",
+            "extra": "avg tps: 539.795471696292, max tps: 696.6504324754281, count: 53718"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 606.2090519895244,
+            "unit": "median tps",
+            "extra": "avg tps: 611.3544804948469, max tps: 809.2921693679715, count: 53718"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.5602209690581,
+            "unit": "median tps",
+            "extra": "avg tps: 90.61902733080379, max tps: 96.24263692698608, count: 53718"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 111.70759701453534,
+            "unit": "median tps",
+            "extra": "avg tps: 111.63629400111411, max tps: 164.65757892216135, count: 107436"
           }
         ]
       }

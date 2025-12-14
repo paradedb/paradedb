@@ -19,6 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -721,6 +722,8 @@ pub fn index_memory_segment(
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
             let mut doc = tantivy::TantivyDocument::new();
+            let mut composite_slot_values = CompositeSlotValues::new();
+
             row_to_search_document(
                 categorized_fields
                     .iter()
@@ -730,6 +733,28 @@ pub fn index_memory_segment(
                         }
                         FieldSource::Expression { att_idx } => {
                             let (datum, is_null) = expr_results[att_idx];
+                            (datum, is_null, field, categorized)
+                        }
+                        FieldSource::CompositeField {
+                            expression_idx,
+                            field_idx,
+                            composite_type_oid,
+                            ..
+                        } => {
+                            // In MVCC build: composite comes from expr_results[expression_idx]
+                            let (composite_datum, composite_is_null) = expr_results[expression_idx];
+
+                            // Unpack the composite (caches to avoid redundant unpacking)
+                            // Note: already in unsafe block, no need for nested unsafe
+                            let unpacked_fields = composite_slot_values.unpack(
+                                expression_idx,
+                                composite_datum,
+                                composite_is_null,
+                                composite_type_oid,
+                            );
+
+                            // Return the specific field from the unpacked composite
+                            let (datum, is_null) = unpacked_fields[field_idx];
                             (datum, is_null, field, categorized)
                         }
                     }),

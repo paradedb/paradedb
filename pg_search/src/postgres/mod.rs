@@ -46,6 +46,7 @@ mod validate;
 
 mod build_parallel;
 pub mod catalog;
+pub mod composite;
 pub mod customscan;
 pub mod datetime;
 #[cfg(not(any(feature = "pg17", feature = "pg18")))]

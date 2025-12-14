@@ -21,13 +21,16 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
+use crate::postgres::utils::{
+    get_field_value, item_pointer_to_u64, row_to_search_document, FieldSource,
+};
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -278,16 +281,30 @@ unsafe fn insert(
     match &mut state.mode {
         InsertMode::Immutable(mode) => state.per_row_context.switch_to(|cxt| {
             let mut search_document = TantivyDocument::new();
+            let mut composite_slot_values = CompositeSlotValues::new();
 
             row_to_search_document(
                 mode.categorized_fields.iter().map(|(field, categorized)| {
-                    let index_attno = categorized.attno;
-                    (
-                        *values.add(index_attno),
-                        *isnull.add(index_attno),
-                        field,
-                        categorized,
-                    )
+                    let (datum, is_null) = match &categorized.source {
+                        FieldSource::CompositeField { .. } => {
+                            // Only CompositeField needs the helper for unpacking
+                            get_field_value(
+                                &categorized.source,
+                                categorized.attno,
+                                values,
+                                isnull,
+                                &mut composite_slot_values,
+                            )
+                        }
+                        _ => {
+                            // Heap and Expression: direct access with categorized.attno
+                            (
+                                *values.add(categorized.attno),
+                                *isnull.add(categorized.attno),
+                            )
+                        }
+                    };
+                    (datum, is_null, field, categorized)
                 }),
                 &mut search_document,
             )
@@ -296,6 +313,7 @@ unsafe fn insert(
                 .insert(search_document, ctid, || {})
                 .expect("insertion into index should succeed");
 
+            // CompositeSlotValues dropped here (releases any resources)
             cxt.reset();
         }),
         InsertMode::Mutable(mode) => {

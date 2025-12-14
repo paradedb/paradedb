@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765744999574,
+  "lastUpdate": 1765745862376,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20616,6 +20616,54 @@ window.BENCHMARK_DATA = {
             "value": 5.260033299915575,
             "unit": "median tps",
             "extra": "avg tps: 5.284786910277516, max tps: 7.504770576274146, count: 56530"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765745859457,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1110.9883839389631,
+            "unit": "median tps",
+            "extra": "avg tps: 1112.065310722599, max tps: 1159.6811229365362, count: 55974"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1255.9352657494244,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.4111648386152, max tps: 1265.6870833583907, count: 55974"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1817.8218634912557,
+            "unit": "median tps",
+            "extra": "avg tps: 1792.3405834567081, max tps: 1951.1630610128645, count: 55974"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.59933174016892,
+            "unit": "median tps",
+            "extra": "avg tps: 5.604429756886826, max tps: 7.546398939549836, count: 55974"
           }
         ]
       }

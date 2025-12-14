@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765746687291,
+  "lastUpdate": 1765746691346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36276,6 +36276,114 @@ window.BENCHMARK_DATA = {
             "value": 170.20703125,
             "unit": "median mem",
             "extra": "avg mem: 167.48187190722345, max mem: 172.8359375, count: 55472"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765746688451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.305195913074975, max cpu: 47.38401, count: 55508"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 171.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 169.06767781502217, max mem: 172.5, count: 55508"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.663852115621719, max cpu: 28.042841, count: 55508"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.09173783227193, max mem: 116.41796875, count: 55508"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.846684948258541, max cpu: 13.93998, count: 55508"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 128.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.64898865929236, max mem: 157.59765625, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14774,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14830.167129062478, max block_count: 25783.0, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.305092451855825, max cpu: 4.8096194, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.69456345256539, max mem: 134.00390625, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.160589464581683, max segment_count: 37.0, count: 55508"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.616076991435296, max cpu: 28.402367, count: 111016"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.46095537467573, max mem: 161.2421875, count: 111016"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.9265,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.781845673958234, max cpu: 28.015566, count: 55508"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.31579632947052, max mem: 172.0, count: 55508"
           }
         ]
       }

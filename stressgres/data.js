@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765738202713,
+  "lastUpdate": 1765738206694,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35682,6 +35682,114 @@ window.BENCHMARK_DATA = {
             "value": 171.390625,
             "unit": "median mem",
             "extra": "avg mem: 167.56527851476778, max mem: 172.68359375, count: 55594"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ccdb265acc5c1ae9eab6688776133ec4fe43bb7",
+          "message": "fix: Aliased non-text fields can be pushed down regardless of alias name (#3735)\n\n# Ticket(s) Closed\n\n- Closes #3711 \n\n## What\n\nSee issue description -- we are now able to push down queries to aliased\nfields even if the alias name does not match the heap attribute name.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test",
+          "timestamp": "2025-12-14T12:50:52-05:00",
+          "tree_id": "7b11f4db4c4b118713b58de703ee4ee661de2fa6",
+          "url": "https://github.com/paradedb/paradedb/commit/2ccdb265acc5c1ae9eab6688776133ec4fe43bb7"
+        },
+        "date": 1765738203897,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.537412298843417, max cpu: 47.571854, count: 55472"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 152.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 136.68134733232532, max mem: 172.69140625, count: 55472"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.743635614533897, max cpu: 28.015566, count: 55472"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 115.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 114.89213857328923, max mem: 116.15625, count: 55472"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.807253452822637, max cpu: 9.320388, count: 55472"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 136.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 120.06130985846463, max mem: 157.40234375, count: 55472"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14494,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14585.694873089125, max block_count: 25106.0, count: 55472"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.65326887679376, max cpu: 4.7151275, count: 55472"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 104.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 93.75087227283585, max mem: 134.8515625, count: 55472"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.170987164695703, max segment_count: 40.0, count: 55472"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.978465981620811, max cpu: 28.973843, count: 110944"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 159.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.2656933762754, max mem: 161.1875, count: 110944"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.230624881049192, max cpu: 28.290766, count: 55472"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.48187190722345, max mem: 172.8359375, count: 55472"
           }
         ]
       }

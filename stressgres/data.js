@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765747526755,
+  "lastUpdate": 1765747531036,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47596,6 +47596,186 @@ window.BENCHMARK_DATA = {
             "value": 29.92578125,
             "unit": "median mem",
             "extra": "avg mem: 29.251126324625822, max mem: 30.015625, count: 53718"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e",
+          "message": "fix: Project target list values into the custom scan's virtual slot (#3768)\n\n# Ticket(s) Closed\n\n- Closes #3767 \n\n## What\n\nIn the custom scan when Postgres tells us a tuple is visible/does not\nneed to be heap fetched, we project it directly into the result table.\nHowever, there's an edge case where hard-coded values in the target list\nget returned as null because they're not fetched from the index and\ninstead need to projected from the target list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-14T15:12:01-05:00",
+          "tree_id": "927f0c4216a580ba81e98000a6a34e2792628d85",
+          "url": "https://github.com/paradedb/paradedb/commit/3ba6c2f5ff1cedd7530f2d3a68b002d133c8650e"
+        },
+        "date": 1765747528151,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.924660029469051, max cpu: 9.257474, count: 53760"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 46.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.64129827590216, max mem: 52.69921875, count: 53760"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.506773083447658, max cpu: 4.5714283, count: 53760"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.582269795735677, max mem: 29.69140625, count: 53760"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.114363649735726, max cpu: 18.479307, count: 53760"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 49.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.82458249046689, max mem: 55.23046875, count: 53760"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.905022995655794, max cpu: 9.257474, count: 53760"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 46.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.25708443777902, max mem: 52.359375, count: 53760"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5956582165689115, max cpu: 9.248554, count: 53760"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.999827503022694, max mem: 35.1796875, count: 53760"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1122,
+            "unit": "median pages",
+            "extra": "avg pages: 1122.6136346726191, max pages: 1880.0, count: 53760"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.765625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.770419456845238, max relation_size:MB: 14.6875, count: 53760"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.342503720238096, max segment_count: 18.0, count: 53760"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.852396257295029, max cpu: 4.6065254, count: 53760"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 26.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.1908206031436, max mem: 27.26171875, count: 53760"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.175192732637741, max cpu: 9.142857, count: 53760"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 26.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.10698481968471, max mem: 27.19921875, count: 53760"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.571731895376966, max cpu: 13.88621, count: 53760"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 44.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.66619851248605, max mem: 50.73828125, count: 53760"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002344946066538493, max replication_lag:MB: 0.1487274169921875, count: 53760"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.063182602138759, max cpu: 13.72736, count: 107520"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.072265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.09113199143183, max mem: 51.23828125, count: 107520"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.483229352574276, max cpu: 4.597701, count: 53760"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.347657485235306, max mem: 30.375, count: 53760"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.869299548059707, max cpu: 4.6021094, count: 53760"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.377372451055617, max mem: 30.13671875, count: 53760"
           }
         ]
       }

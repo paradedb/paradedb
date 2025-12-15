@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765838194075,
+  "lastUpdate": 1765839113869,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14632,6 +14632,42 @@ window.BENCHMARK_DATA = {
             "value": 5.273441062904969,
             "unit": "median tps",
             "extra": "avg tps: 4.7435018039145715, max tps: 5.900212047429932, count: 57875"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d62fa246e00511c6b1c9be01d0d3e448df7faa92",
+          "message": "fix: Don't start background merges if the index is invalid (#3781)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA community user reported an issue where running `REINDEX CONCURRENTLY`\nat frequent intervals could cause many invalid indexes to pile up.\n\nHe also observed many background merges over these invalid indexes\nduring this time.\n\nThis led me to hypothesize that we are kicking off background merges\nover these invalid indexes, which hold onto old snapshots that block\nother reindexes from completing.\n\nThe solution is to not do a background merge if the index is invalid.\n\n## Why\n\n## How\n\n## Tests\n\nHard to write a test, but stressgres should expose if this is fine.",
+          "timestamp": "2025-12-15T17:19:38-05:00",
+          "tree_id": "3c7341992dd04310ed250c6dd90c5cff544e37ec",
+          "url": "https://github.com/paradedb/paradedb/commit/d62fa246e00511c6b1c9be01d0d3e448df7faa92"
+        },
+        "date": 1765839110940,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.125314823087557,
+            "unit": "median tps",
+            "extra": "avg tps: 6.932026385610101, max tps: 10.618600886559364, count: 57351"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.34808766442578,
+            "unit": "median tps",
+            "extra": "avg tps: 4.804518134937062, max tps: 5.975192952874321, count: 57351"
           }
         ]
       }

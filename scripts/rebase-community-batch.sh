@@ -260,7 +260,8 @@ for ((attempt=0; attempt < MAX_COMMITS; attempt++)); do
     log_info "Generating Slack notification payload..."
     if [[ -x "$ENTERPRISE_SYNC_BIN" ]]; then
       "$ENTERPRISE_SYNC_BIN" \
-        --repo "${GITHUB_REPOSITORY:-paradedb/paradedb}" \
+        --enterprise-repo "${GITHUB_REPOSITORY:-paradedb/paradedb-enterprise}" \
+        --community-repo "paradedb/paradedb" \
         --commit-sha "$NEXT_COMMIT" \
         --slack-payload > "$SLACK_PAYLOAD_FILE"
     else

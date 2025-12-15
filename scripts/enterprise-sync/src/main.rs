@@ -5,14 +5,19 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const DEFAULT_SLACK_MENTION: &str = "<@here>";
+const DEFAULT_SLACK_MENTION: &str = "<!here>";
 
 #[derive(Parser, Debug)]
 #[command(about = "Enterprise sync helper for mapping conflicts to Slack mentions.")]
 struct Args {
-    /// GitHub repository in 'owner/name' format (required).
+    /// GitHub enterprise repository in 'owner/name' format. Used as fallback for commit lookup.
     #[arg(long)]
-    repo: String,
+    enterprise_repo: String,
+
+    /// GitHub community repository in 'owner/name' format (optional). When looking up commit
+    /// details, this repo is tried first. Also displayed in Slack notifications.
+    #[arg(long)]
+    community_repo: Option<String>,
 
     /// Commit SHA to inspect for author attribution.
     #[arg(long)]
@@ -117,7 +122,12 @@ fn main() {
     let output = run(&args);
 
     if args.slack_payload {
-        let payload = build_slack_payload(&output, &args.repo);
+        // Prefer community repo for Slack notification since conflicts come from community commits
+        let display_repo = args
+            .community_repo
+            .as_deref()
+            .unwrap_or(&args.enterprise_repo);
+        let payload = build_slack_payload(&output, display_repo);
         match serde_json::to_string_pretty(&payload) {
             Ok(json) => println!("{json}"),
             Err(err) => {
@@ -262,14 +272,29 @@ fn determine_github_details(args: &Args) -> (Option<String>, Option<String>, Opt
         .or_else(|_| std::env::var("GITHUB_TOKEN"))
         .ok();
 
-    // Use the required --repo argument to fetch commit details
-    match fetch_github_commit_details(&args.repo, commit_sha, token.as_deref()) {
-        Ok((username, author, message)) => (username, Some(author), Some(message)),
-        Err(err) => {
-            log::warn!("Failed to query GitHub for commit {}: {}", commit_sha, err);
-            (None, None, None)
+    // Try community repo first (if provided)
+    if let Some(community_repo) = &args.community_repo {
+        if let Ok((username, author, message)) =
+            fetch_github_commit_details(community_repo, commit_sha, token.as_deref())
+        {
+            return (username, Some(author), Some(message));
         }
     }
+
+    // Fall back to enterprise repo
+    if let Ok((username, author, message)) =
+        fetch_github_commit_details(&args.enterprise_repo, commit_sha, token.as_deref())
+    {
+        return (username, Some(author), Some(message));
+    }
+
+    log::warn!(
+        "Failed to find commit {} in any repo (community: {:?}, enterprise: {})",
+        commit_sha,
+        args.community_repo,
+        args.enterprise_repo
+    );
+    (None, None, None)
 }
 
 fn fetch_github_commit_details(

@@ -279,10 +279,9 @@ pub unsafe fn extract_field_attributes(
                 };
                 let node = expression.cast();
 
-                let mut attname = None;
                 let typoid = pg_sys::exprType(node);
+                let mut attname = None;
                 let mut typmod = -1;
-                let mut expression = Some(expression);
                 let mut inner_typoid = typoid;
                 let mut normalizer = None;
 
@@ -306,9 +305,7 @@ pub unsafe fn extract_field_attributes(
                             .to_string();
 
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if let Some(coerce) =
-                            nodecast!(CoerceViaIO, T_CoerceViaIO, expression.unwrap())
-                        {
+                        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
                             if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
                             {
                                 if (*func_expr).funcid == text_lower_funcoid() {
@@ -316,35 +313,43 @@ pub unsafe fn extract_field_attributes(
                                 }
                             }
                         } else if let Some(relabel) =
-                            nodecast!(RelabelType, T_RelabelType, expression.unwrap())
+                            nodecast!(RelabelType, T_RelabelType, expression)
                         {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
-                            // if we have a UDF cast to `pdb.alias`, use the return type of the UDF as the inner_typoid
-                            } else if let Some(func) =
-                                nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
-                            {
-                                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                                if args.len() == 1 {
-                                    if let Some(arg) = args.get_ptr(0) {
-                                        if let Some(inner_func) =
-                                            nodecast!(FuncExpr, T_FuncExpr, arg)
-                                        {
-                                            inner_typoid = (*inner_func).funcresulttype;
-                                        }
-                                    }
-                                }
                             }
                         }
 
                         attname = Some(heap_attname);
-                        expression = None;
                     }
 
                     if type_is_alias(typoid) {
                         if type_can_be_tokenized(inner_typoid) {
                             panic!("To alias a text or JSON type, cast it to a tokenizer with an `alias` argument instead of `pdb.alias`");
                         } else {
+                            // if we have a non text field text to `pdb.alias`, unwrap it to get the inner typoid
+                            if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expression)
+                            {
+                                if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                                {
+                                    let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                                    if args.len() == 1 {
+                                        if let Some(arg) = args.get_ptr(0) {
+                                            if let Some(inner_func) =
+                                                nodecast!(FuncExpr, T_FuncExpr, arg)
+                                            {
+                                                inner_typoid = (*inner_func).funcresulttype;
+                                            } else if let Some(op_expr) =
+                                                nodecast!(OpExpr, T_OpExpr, arg)
+                                            {
+                                                inner_typoid = (*op_expr).opresulttype;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // use the alias name as the field name instead of the heap attribute name
                             let alias_typmod =
                                 AliasTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
                             attname = alias_typmod.alias();
@@ -353,7 +358,7 @@ pub unsafe fn extract_field_attributes(
                 }
 
                 let Some(attname) = attname else {
-                    let expr_str = deparse_expr(&heap_relation, expression);
+                    let expr_str = deparse_expr(&heap_relation, Some(expression.cast()));
                     panic!(
                         "indexed expression requires a tokenizer cast with an alias: {expr_str}"
                     );
@@ -364,7 +369,7 @@ pub unsafe fn extract_field_attributes(
                     typoid,
                     typmod,
                     source,
-                    expression,
+                    Some(expression),
                     inner_typoid,
                     normalizer,
                 )

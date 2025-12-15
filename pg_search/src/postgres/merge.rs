@@ -220,6 +220,10 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::FullTransactionId>,
     next_xid: Option<pg_sys::FullTransactionId>,
 ) -> anyhow::Result<()> {
+    if !index.is_valid() {
+        return Ok(());
+    }
+
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
     let cleanup_lock = metadata.cleanup_lock_shared();

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765839118018,
+  "lastUpdate": 1765840007466,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21276,6 +21276,54 @@ window.BENCHMARK_DATA = {
             "value": 5.644709753161685,
             "unit": "median tps",
             "extra": "avg tps: 5.644549740893189, max tps: 7.363771172195213, count: 56650"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d62fa246e00511c6b1c9be01d0d3e448df7faa92",
+          "message": "fix: Don't start background merges if the index is invalid (#3781)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA community user reported an issue where running `REINDEX CONCURRENTLY`\nat frequent intervals could cause many invalid indexes to pile up.\n\nHe also observed many background merges over these invalid indexes\nduring this time.\n\nThis led me to hypothesize that we are kicking off background merges\nover these invalid indexes, which hold onto old snapshots that block\nother reindexes from completing.\n\nThe solution is to not do a background merge if the index is invalid.\n\n## Why\n\n## How\n\n## Tests\n\nHard to write a test, but stressgres should expose if this is fine.",
+          "timestamp": "2025-12-15T17:19:38-05:00",
+          "tree_id": "3c7341992dd04310ed250c6dd90c5cff544e37ec",
+          "url": "https://github.com/paradedb/paradedb/commit/d62fa246e00511c6b1c9be01d0d3e448df7faa92"
+        },
+        "date": 1765840004405,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1118.865189853425,
+            "unit": "median tps",
+            "extra": "avg tps: 1117.8883048752048, max tps: 1163.0691974396873, count: 56216"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1302.0132565695487,
+            "unit": "median tps",
+            "extra": "avg tps: 1296.2347071402892, max tps: 1311.974256275632, count: 56216"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1869.6180344188474,
+            "unit": "median tps",
+            "extra": "avg tps: 1843.0015079152818, max tps: 2019.9871022493494, count: 56216"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.54909472921824,
+            "unit": "median tps",
+            "extra": "avg tps: 5.556699815022664, max tps: 6.677666831756398, count: 56216"
           }
         ]
       }

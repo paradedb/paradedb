@@ -220,6 +220,7 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::FullTransactionId>,
     next_xid: Option<pg_sys::FullTransactionId>,
 ) -> anyhow::Result<()> {
+    // don't kick off merges for invalid indexes
     if !index.is_valid() {
         return Ok(());
     }

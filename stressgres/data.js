@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765840848632,
+  "lastUpdate": 1765841696936,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40016,6 +40016,54 @@ window.BENCHMARK_DATA = {
             "value": 110.02917638585134,
             "unit": "median tps",
             "extra": "avg tps: 107.68066001170433, max tps: 153.85398761780647, count: 107494"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d62fa246e00511c6b1c9be01d0d3e448df7faa92",
+          "message": "fix: Don't start background merges if the index is invalid (#3781)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA community user reported an issue where running `REINDEX CONCURRENTLY`\nat frequent intervals could cause many invalid indexes to pile up.\n\nHe also observed many background merges over these invalid indexes\nduring this time.\n\nThis led me to hypothesize that we are kicking off background merges\nover these invalid indexes, which hold onto old snapshots that block\nother reindexes from completing.\n\nThe solution is to not do a background merge if the index is invalid.\n\n## Why\n\n## How\n\n## Tests\n\nHard to write a test, but stressgres should expose if this is fine.",
+          "timestamp": "2025-12-15T17:19:38-05:00",
+          "tree_id": "3c7341992dd04310ed250c6dd90c5cff544e37ec",
+          "url": "https://github.com/paradedb/paradedb/commit/d62fa246e00511c6b1c9be01d0d3e448df7faa92"
+        },
+        "date": 1765841693676,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 580.4209290985216,
+            "unit": "median tps",
+            "extra": "avg tps: 581.9864427449987, max tps: 790.9388463880097, count: 53728"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 595.90034218908,
+            "unit": "median tps",
+            "extra": "avg tps: 596.9689943807133, max tps: 807.6883971222776, count: 53728"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.01611595705165,
+            "unit": "median tps",
+            "extra": "avg tps: 87.12447344264152, max tps: 94.99170731030792, count: 53728"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.00185349006429,
+            "unit": "median tps",
+            "extra": "avg tps: 107.47842261801873, max tps: 193.1895677178869, count: 107456"
           }
         ]
       }

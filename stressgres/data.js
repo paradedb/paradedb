@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765838189459,
+  "lastUpdate": 1765838194075,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12324,6 +12324,126 @@ window.BENCHMARK_DATA = {
             "value": 49.45703125,
             "unit": "median mem",
             "extra": "avg mem: 48.42201615489548, max mem: 60.51953125, count: 55347"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d62fa246e00511c6b1c9be01d0d3e448df7faa92",
+          "message": "fix: Don't start background merges if the index is invalid (#3781)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nA community user reported an issue where running `REINDEX CONCURRENTLY`\nat frequent intervals could cause many invalid indexes to pile up.\n\nHe also observed many background merges over these invalid indexes\nduring this time.\n\nThis led me to hypothesize that we are kicking off background merges\nover these invalid indexes, which hold onto old snapshots that block\nother reindexes from completing.\n\nThe solution is to not do a background merge if the index is invalid.\n\n## Why\n\n## How\n\n## Tests\n\nHard to write a test, but stressgres should expose if this is fine.",
+          "timestamp": "2025-12-15T17:19:38-05:00",
+          "tree_id": "3c7341992dd04310ed250c6dd90c5cff544e37ec",
+          "url": "https://github.com/paradedb/paradedb/commit/d62fa246e00511c6b1c9be01d0d3e448df7faa92"
+        },
+        "date": 1765838191202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.491246946897054, max cpu: 19.21922, count: 55272"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.92012025471758, max mem: 68.1796875, count: 55272"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.570047553923574, max cpu: 9.4395275, count: 55272"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.01810244959021, max mem: 33.37890625, count: 55272"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.324835947644534, max cpu: 19.21922, count: 55272"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.23976128849146, max mem: 68.515625, count: 55272"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.560326537064297, max cpu: 4.743083, count: 55272"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.37028729793114, max mem: 67.86328125, count: 55272"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.600637950828482, max cpu: 9.448819, count: 110544"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.94801069738068, max mem: 55.90625, count: 110544"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1756,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1765.321681864235, max block_count: 3126.0, count: 55272"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.376103632942538, max segment_count: 23.0, count: 55272"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.402487712734928, max cpu: 4.843592, count: 55272"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.82088035929132, max mem: 58.265625, count: 55272"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.177280346559494, max cpu: 4.7524753, count: 55272"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.86141865738982, max mem: 61.62109375, count: 55272"
           }
         ]
       }

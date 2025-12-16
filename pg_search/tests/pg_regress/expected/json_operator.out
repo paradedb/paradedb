@@ -49,6 +49,36 @@ ORDER BY id LIMIT 5;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
+-- basic FTS query with subscript operator
+SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
+WHERE metadata['color'] @@@ 'white'
+ORDER BY id LIMIT 5;
+     description      | color | price 
+----------------------+-------+-------
+ White jogging shoes  | White | 
+ Refreshing face wash | White | 
+ Anti-aging serum     | White | 
+ Computer mouse       | white | 100
+ Monitor              | white | 200
+(5 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
+WHERE metadata['color'] @@@ 'white'
+ORDER BY id LIMIT 5;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
 -- should be pushed down
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
 WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100

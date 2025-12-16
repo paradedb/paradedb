@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765920876886,
+  "lastUpdate": 1765920880907,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12510,6 +12510,126 @@ window.BENCHMARK_DATA = {
             "value": 49.4453125,
             "unit": "median mem",
             "extra": "avg mem: 47.86141865738982, max mem: 61.62109375, count: 55272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a592128d17a6ede4a65237164ea471803dbacb6",
+          "message": "feat: Add support for the json/b subscript [] operator (#3785)\n\nThis can be used in place of `->`, the following two cases are treated\nthe same:\n\n```\nWHERE metadata->'color' @@@ 'white'\nWHERE metadata['color'] @@@ 'white'\n```\n\nBut the second shows up as a `T_SubscriptingRef` node and not a\n`T_OpExpr` node.\n\nNote that if you create an index in these ways:\n\n```\nUSING BM25(id, (metadata->'color'))\nUSING BM25(id, (metadata['color']))\n```\nThen you will have to access it with that operator as well, you can't\nswap. This is the same as standard Postgres expression indexes.",
+          "timestamp": "2025-12-17T10:17:41+13:00",
+          "tree_id": "220f15018597bade02d1530722690ccd44f215e7",
+          "url": "https://github.com/paradedb/paradedb/commit/1a592128d17a6ede4a65237164ea471803dbacb6"
+        },
+        "date": 1765920878112,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.575352956801417, max cpu: 19.712526, count: 54615"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.67265632152339, max mem: 67.1953125, count: 54615"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4921699314461705, max cpu: 9.430255, count: 54615"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.92265825265495, max mem: 35.71484375, count: 54615"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.539493758368948, max cpu: 19.732784, count: 54615"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.02197770758949, max mem: 67.5234375, count: 54615"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.458051080476235, max cpu: 9.311348, count: 54615"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.93318356335256, max mem: 66.9140625, count: 54615"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588318630441302, max cpu: 9.599999, count: 109230"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.98672357782889, max mem: 55.8515625, count: 109230"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1706,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1712.5679025908632, max block_count: 3012.0, count: 54615"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.92809667673716, max segment_count: 17.0, count: 54615"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584197143224473, max cpu: 9.29332, count: 54615"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.50828813055021, max mem: 58.2109375, count: 54615"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.196366182450834, max cpu: 4.7999997, count: 54615"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.43720532362904, max mem: 61.18359375, count: 54615"
           }
         ]
       }

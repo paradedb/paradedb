@@ -23,7 +23,7 @@ use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::composite::{
-    is_composite_type, validate_composite_for_index, CompositeSlotValues,
+    get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
 };
 use crate::postgres::customscan::pdbscan::text_lower_funcoid;
 use crate::postgres::rel::PgSearchRelation;
@@ -374,9 +374,9 @@ pub unsafe fn extract_field_attributes(
 
                 // Check if this expression is a composite type
                 if is_composite_type(typoid) {
-                    // Validate the composite type (checks for nested composites, etc.)
+                    // Get composite fields (validates for nested composites, etc.)
                     let composite_fields =
-                        validate_composite_for_index(typoid).unwrap_or_else(|e| panic!("{e}"));
+                        get_composite_fields_for_index(typoid).unwrap_or_else(|e| panic!("{e}"));
 
                     // Add each field from the composite to the index
                     for comp_field in composite_fields {

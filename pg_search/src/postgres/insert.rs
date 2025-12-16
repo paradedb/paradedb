@@ -28,9 +28,7 @@ use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{
-    get_field_value, item_pointer_to_u64, row_to_search_document, FieldSource,
-};
+use crate::postgres::utils::{get_field_value, item_pointer_to_u64, row_to_search_document};
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -285,25 +283,13 @@ unsafe fn insert(
 
             row_to_search_document(
                 mode.categorized_fields.iter().map(|(field, categorized)| {
-                    let (datum, is_null) = match &categorized.source {
-                        FieldSource::CompositeField { .. } => {
-                            // Only CompositeField needs the helper for unpacking
-                            get_field_value(
-                                &categorized.source,
-                                categorized.attno,
-                                values,
-                                isnull,
-                                &mut composite_slot_values,
-                            )
-                        }
-                        _ => {
-                            // Heap and Expression: direct access with categorized.attno
-                            (
-                                *values.add(categorized.attno),
-                                *isnull.add(categorized.attno),
-                            )
-                        }
-                    };
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        &mut composite_slot_values,
+                    );
                     (datum, is_null, field, categorized)
                 }),
                 &mut search_document,

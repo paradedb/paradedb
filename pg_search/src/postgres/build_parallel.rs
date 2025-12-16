@@ -35,7 +35,7 @@ use crate::postgres::ps_status::{
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::utils::{get_field_value, row_to_search_document, FieldSource};
+use crate::postgres::utils::{get_field_value, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
@@ -497,25 +497,13 @@ unsafe extern "C-unwind" fn build_callback(
                 .categorized_fields
                 .iter()
                 .map(|(field, categorized)| {
-                    let (datum, is_null) = match &categorized.source {
-                        FieldSource::CompositeField { .. } => {
-                            // Only CompositeField needs the helper for unpacking
-                            get_field_value(
-                                &categorized.source,
-                                categorized.attno,
-                                values,
-                                isnull,
-                                &mut composite_slot_values,
-                            )
-                        }
-                        _ => {
-                            // Heap and Expression: direct access with categorized.attno
-                            (
-                                *values.add(categorized.attno),
-                                *isnull.add(categorized.attno),
-                            )
-                        }
-                    };
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        &mut composite_slot_values,
+                    );
                     (datum, is_null, field, categorized)
                 }),
             &mut doc,

@@ -278,7 +278,7 @@ pub unsafe fn find_one_var_and_fieldname(
         // Handle PostgreSQL 14+ bracket notation: json['key']
         let var = find_one_var(node)?;
         let path = find_json_path(&context, node);
-        return Some((var, path.join(".").into()));
+        Some((var, path.join(".").into()));
     } else if is_a(node, T_Var) {
         let var = node.cast::<Var>();
         let (heaprelid, varattno) = context.var_relation(var);

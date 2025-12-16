@@ -8,10 +8,8 @@
  *
  */
 
-use rust_icu_sys::UBreakIteratorType;
-use rust_icu_ubrk::UBreakIterator;
-use rust_icu_uloc;
-use rust_icu_ustring::UChar;
+use icu_segmenter::WordSegmenter;
+use icu_segmenter::options::WordBreakInvariantOptions;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,107 +23,38 @@ impl Tokenizer for ICUTokenizer {
     }
 }
 
-struct ICUBreakingWord<'a> {
-    text: &'a str,
-    utf16_indices_to_byte_offsets: Vec<usize>,
-    default_breaking_iterator: UBreakIterator,
-}
-
-impl<'a> std::fmt::Debug for ICUBreakingWord<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ICUBreakingWord")
-            .field("text", &self.text)
-            .finish()
-    }
-}
-
-impl<'a> From<&'a str> for ICUBreakingWord<'a> {
-    fn from(text: &'a str) -> Self {
-        let loc = rust_icu_uloc::get_default();
-        let ustr = &UChar::try_from(text).expect("text should be an encodable character");
-
-        // Build mapping from UTF-16 code unit indices to byte offsets
-        let utf16_units: Vec<u16> = text.encode_utf16().collect();
-        let mut utf16_indices_to_byte_offsets = Vec::with_capacity(utf16_units.len() + 1);
-        //        let mut utf16_idx = 0;
-        let mut byte_offset = 0;
-        let bytes = text.as_bytes();
-
-        while byte_offset < bytes.len() {
-            let ch = text[byte_offset..].chars().next().unwrap();
-            let ch_utf16_len = ch.encode_utf16(&mut [0; 2]).len();
-            let ch_utf8_len = ch.len_utf8();
-
-            for _ in 0..ch_utf16_len {
-                utf16_indices_to_byte_offsets.push(byte_offset);
-                //              utf16_idx += 1;
-            }
-            byte_offset += ch_utf8_len;
-        }
-        // Append the final byte offset
-        utf16_indices_to_byte_offsets.push(byte_offset);
-
-        ICUBreakingWord {
-            text,
-            utf16_indices_to_byte_offsets,
-            default_breaking_iterator: UBreakIterator::try_new_ustring(
-                UBreakIteratorType::UBRK_WORD,
-                &loc,
-                ustr,
-            )
-            .expect("cannot create iterator"),
-        }
-    }
-}
-
-impl<'a> Iterator for ICUBreakingWord<'a> {
-    type Item = (String, usize, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut start = self.default_breaking_iterator.current() as usize;
-        'find_end: loop {
-            let mut end = self.default_breaking_iterator.next()?;
-
-            // the inner loop locates the next token.  if the next token begins because of
-            // a non-zero break rule then we already have our token between [start..end]
-            //
-            // if it doesn't, then we move forward in the breaking iterator and move the `start`
-            // position to whatever the current `end` position is
-            'next_token: loop {
-                if self.default_breaking_iterator.get_rule_status() == 0 {
-                    // the token boundary is unspecified, so move to the next token
-                    start = end as usize;
-                    end = self.default_breaking_iterator.next()?;
-                    continue 'next_token;
-                }
-
-                // translate from utf16 back to utf8 bytes through our translation table
-                let start_byte = self.utf16_indices_to_byte_offsets[start];
-                let end_byte = self.utf16_indices_to_byte_offsets[end as usize];
-                let substring = &self.text[start_byte..end_byte];
-
-                if !substring.chars().any(char::is_alphanumeric) {
-                    // the string doesn't contain any alphanumerics, so keep extending it
-                    // until it does
-                    continue 'find_end;
-                }
-
-                return Some((substring.into(), start_byte, end_byte));
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ICUTokenizerTokenStream<'a> {
-    breaking_word: ICUBreakingWord<'a>,
+    text: &'a str,
+    segments: Vec<(usize, usize)>,
+    current_index: usize,
     token: Token,
 }
 
 impl<'a> ICUTokenizerTokenStream<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
+        let segmenter = WordSegmenter::new_auto(WordBreakInvariantOptions::default());
+
+        // Collect all word boundaries (positions in bytes)
+        let boundaries: Vec<usize> = segmenter.segment_str(text).collect();
+
+        // Convert boundaries to segments, filtering for alphanumeric content
+        let mut segments: Vec<(usize, usize)> = Vec::new();
+        for window in boundaries.windows(2) {
+            let start = window[0];
+            let end = window[1];
+            let substring = &text[start..end];
+
+            // Replicate get_rule_status() filtering: keep only alphanumeric segments
+            if substring.chars().any(char::is_alphanumeric) {
+                segments.push((start, end));
+            }
+        }
+
         ICUTokenizerTokenStream {
-            breaking_word: ICUBreakingWord::from(text),
+            text,
+            segments,
+            current_index: 0,
             token: Token::default(),
         }
     }
@@ -133,18 +62,21 @@ impl<'a> ICUTokenizerTokenStream<'a> {
 
 impl<'a> TokenStream for ICUTokenizerTokenStream<'a> {
     fn advance(&mut self) -> bool {
-        let token = self.breaking_word.next();
-        match token {
-            None => false,
-            Some(token) => {
-                self.token.text.clear();
-                self.token.position = self.token.position.wrapping_add(1);
-                self.token.offset_from = token.1;
-                self.token.offset_to = token.2;
-                self.token.text.push_str(&token.0);
-                true
-            }
+        if self.current_index >= self.segments.len() {
+            return false;
         }
+
+        let (start, end) = self.segments[self.current_index];
+        let substring = &self.text[start..end];
+
+        self.token.text.clear();
+        self.token.text.push_str(substring);
+        self.token.position = self.token.position.wrapping_add(1);
+        self.token.offset_from = start;
+        self.token.offset_to = end;
+
+        self.current_index += 1;
+        true
     }
 
     fn token(&self) -> &Token {

@@ -352,7 +352,6 @@ pub(crate) mod pdb {
         custom_typmod = false
     );
 
-    #[cfg(feature = "icu")]
     define_tokenizer_type!(
         ICU,
         SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),

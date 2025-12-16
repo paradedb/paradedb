@@ -87,52 +87,28 @@ fn list_tokenizers(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
 
-    if cfg!(feature = "icu") {
-        assert_eq!(
-            rows,
-            vec![
-                ("default".into(),),
-                ("keyword".into(),),
-                ("keyword_deprecated".into(),),
-                ("raw".into(),),
-                ("literal_normalized".into(),),
-                ("white_space".into(),),
-                ("regex_tokenizer".into(),),
-                ("chinese_compatible".into(),),
-                ("source_code".into(),),
-                ("ngram".into(),),
-                ("chinese_lindera".into(),),
-                ("japanese_lindera".into(),),
-                ("korean_lindera".into(),),
-                ("icu".into(),),
-                ("jieba".into(),),
-                ("lindera".into(),),
-                ("unicode_words".into(),)
-            ]
-        );
-    } else {
-        assert_eq!(
-            rows,
-            vec![
-                ("default".into(),),
-                ("keyword".into(),),
-                ("keyword_deprecated".into(),),
-                ("raw".into(),),
-                ("literal_normalized".into(),),
-                ("white_space".into(),),
-                ("regex_tokenizer".into(),),
-                ("chinese_compatible".into(),),
-                ("source_code".into(),),
-                ("ngram".into(),),
-                ("chinese_lindera".into(),),
-                ("japanese_lindera".into(),),
-                ("korean_lindera".into(),),
-                ("jieba".into(),),
-                ("lindera".into(),),
-                ("unicode_words".into(),)
-            ]
-        );
-    }
+    assert_eq!(
+        rows,
+        vec![
+            ("default".into(),),
+            ("keyword".into(),),
+            ("keyword_deprecated".into(),),
+            ("raw".into(),),
+            ("literal_normalized".into(),),
+            ("white_space".into(),),
+            ("regex_tokenizer".into(),),
+            ("chinese_compatible".into(),),
+            ("source_code".into(),),
+            ("ngram".into(),),
+            ("chinese_lindera".into(),),
+            ("japanese_lindera".into(),),
+            ("korean_lindera".into(),),
+            ("icu".into(),),
+            ("jieba".into(),),
+            ("lindera".into(),),
+            ("unicode_words".into(),)
+        ]
+    );
 }
 
 #[rstest]

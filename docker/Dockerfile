@@ -65,23 +65,8 @@ ENV COMMIT_SHA=${COMMIT_SHA} \
 
 COPY . /tmp/
 
-# Download the ICU 76.1 library source. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-WORKDIR /tmp
-RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz
-
-# Compile and install the ICU library
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    ldconfig && ldconfig # Yes, running it twice
-
-# Build the extension in release mode, but with debug symbols (which will be split out later)
 WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Strip debug symbols from the extension and add a debug link
 RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \

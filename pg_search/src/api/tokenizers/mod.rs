@@ -84,7 +84,6 @@ pub fn search_field_config_from_type(
             LinderaLanguage::default(),
             SearchTokenizerFilters::default(),
         ),
-        #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
         "ngram" => SearchTokenizer::Ngram {
@@ -198,7 +197,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = generic_typmod.filters;
         }
 
-        #[cfg(feature = "icu")]
         SearchTokenizer::ICUTokenizer(filters) => {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);

@@ -14,6 +14,10 @@ on:
         type: string
         required: false
         description: Test duration (minutes, default 30)
+      notebook:
+        type: string
+        required: false
+        description: Antithesis notebook name (default 'paradedb')
       emails:
         type: string
         required: false
@@ -101,7 +105,7 @@ jobs:
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
         with:
-          notebook_name: basic_k8s_test
+          notebook_name: ${{ github.event.inputs.duration || 'paradedb' }}
           tenant: paradedb
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}

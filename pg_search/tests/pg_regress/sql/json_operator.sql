@@ -28,6 +28,16 @@ SELECT description, metadata->>'color' as color, metadata->>'price' as price FRO
 WHERE metadata->>'color' @@@ 'white'
 ORDER BY id LIMIT 5;
 
+-- basic FTS query with subscript operator
+SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
+WHERE metadata['color'] @@@ 'white'
+ORDER BY id LIMIT 5;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
+WHERE metadata['color'] @@@ 'white'
+ORDER BY id LIMIT 5;
+
 -- should be pushed down
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
 WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100

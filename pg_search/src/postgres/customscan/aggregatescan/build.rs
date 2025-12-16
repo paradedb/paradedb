@@ -31,6 +31,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -136,6 +137,19 @@ impl CollectAggregations for AggregateCSClause {
                          (with OVER clause). GROUP BY aggregates always use MVCC filtering for correctness. \
                          Remove the second argument or use solve_mvcc=true."
                     );
+                }
+            }
+        }
+
+        // Validate that all fields referenced in custom aggregates exist in the index schema
+        if self.indexrelid != pg_sys::InvalidOid {
+            let indexrel =
+                PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);
+            if let Ok(schema) = SearchIndexSchema::open(&indexrel) {
+                for agg in self.aggregates() {
+                    if let Err(e) = agg.validate_fields(&schema) {
+                        pgrx::error!("{}", e);
+                    }
                 }
             }
         }

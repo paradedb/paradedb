@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod builder;
+pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
 pub mod pdb_query;
@@ -22,6 +24,8 @@ pub(crate) mod proximity;
 mod range;
 mod score;
 
+use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
+use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
 use crate::api::operator::searchqueryinput_typoid;
@@ -40,7 +44,6 @@ use pgrx::{
 };
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use smallvec::{smallvec, SmallVec};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
@@ -54,106 +57,6 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
-
-// F64 can exactly represent integers up to 2^53 (permissive boundary).
-// This is used when converting F64 to integer types where 2^53 is losslessly convertible.
-pub(crate) const F64_EXACT_INTEGER_MAX: u64 = 1u64 << 53;
-
-// Conservative boundary (2^53-2) for deciding when to create F64 variants from integers.
-// Matches types.rs classification logic to ensure consistency between indexing and querying.
-// Values > this threshold are stored/queried as I64/U64 only, not F64.
-pub(crate) const F64_SAFE_INTEGER_MAX: u64 = (1u64 << 53) - 2;
-
-/// Expands a numeric value into multiple Tantivy term variants to handle
-/// JSON numeric type mismatches (e.g., 1 stored as I64 vs 1.0 stored as F64).
-/// This enables cross-type matching for equality and IN clause queries.
-/// Uses SmallVec to avoid heap allocation for typical cases (up to 3 terms).
-pub(crate) fn expand_json_numeric_to_terms(
-    tantivy_field: Field,
-    value: &OwnedValue,
-    path: Option<&str>,
-) -> anyhow::Result<SmallVec<[Term; 3]>> {
-    let mut terms = SmallVec::new();
-
-    match value {
-        OwnedValue::I64(i64_val) => {
-            // Create I64 variant (matches JSON integers like 1)
-            let i64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(i64_term);
-
-            // Also create F64 variant (matches JSON floats like 1.0)
-            let f64_value = OwnedValue::F64(*i64_val as f64);
-            let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
-            terms.push(f64_term);
-
-            // For non-negative i64 values, also create U64 variant
-            // This handles the case where JSON stores a number as U64 but query uses I64
-            if *i64_val >= 0 {
-                let u64_value = OwnedValue::U64(*i64_val as u64);
-                let u64_term = value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
-                terms.push(u64_term);
-            }
-        }
-        OwnedValue::U64(u64_val) => {
-            // Create U64 variant (matches large JSON integers)
-            let u64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(u64_term);
-
-            // Also create F64 variant if it doesn't lose precision
-            if *u64_val <= F64_SAFE_INTEGER_MAX {
-                let f64_value = OwnedValue::F64(*u64_val as f64);
-                let f64_term = value_to_json_term(tantivy_field, &f64_value, path, true, false)?;
-                terms.push(f64_term);
-            }
-
-            // If value fits in I64, also create I64 variant
-            if *u64_val <= i64::MAX as u64 {
-                let i64_value = OwnedValue::I64(*u64_val as i64);
-                let i64_term = value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
-                terms.push(i64_term);
-            }
-        }
-        OwnedValue::F64(f64_val) => {
-            // Always create F64 variant
-            let f64_term = value_to_json_term(tantivy_field, value, path, true, false)?;
-            terms.push(f64_term);
-
-            // For special float values (NaN, Infinity, -Infinity), only create F64 variant
-            if !f64_val.is_finite() {
-                return Ok(terms);
-            }
-
-            // If it's a whole number, create integer variants
-            if f64_val.fract() == 0.0 {
-                // Create I64 variant if in i64 range and within safe precision
-                // Using permissive boundary: 2^53 can be exactly represented in F64
-                if *f64_val >= i64::MIN as f64
-                    && *f64_val <= i64::MAX as f64
-                    && *f64_val >= -(F64_EXACT_INTEGER_MAX as f64)
-                    && *f64_val <= F64_EXACT_INTEGER_MAX as f64
-                {
-                    let i64_value = OwnedValue::I64(*f64_val as i64);
-                    let i64_term =
-                        value_to_json_term(tantivy_field, &i64_value, path, true, false)?;
-                    terms.push(i64_term);
-                }
-
-                // Create U64 variant if in u64 range (including values > i64::MAX)
-                // Note: We check >= 0 because U64 can't represent negative numbers
-                // Using permissive boundary for lossless conversion
-                if *f64_val >= 0.0 && *f64_val <= F64_EXACT_INTEGER_MAX as f64 {
-                    let u64_value = OwnedValue::U64(*f64_val as u64);
-                    let u64_term =
-                        value_to_json_term(tantivy_field, &u64_value, path, true, false)?;
-                    terms.push(u64_term);
-                }
-            }
-        }
-        _ => return Err(anyhow::anyhow!("Expected numeric value")),
-    }
-
-    Ok(terms)
-}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -760,127 +663,261 @@ impl SearchQueryInput {
         expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
         planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
     ) -> Result<Box<dyn TantivyQuery>> {
+        self.into_tantivy_query_generic(
+            &QueryOnlyBuilder,
+            schema,
+            parser,
+            searcher,
+            index_oid,
+            relation_oid,
+            expr_context,
+            planstate,
+        )
+    }
+
+    /// Convert SearchQueryInput using the provided builder pattern.
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_tantivy_query_generic<B: QueryBuilder, QueryParserCtor: Fn() -> QueryParser>(
+        self,
+        builder: &B,
+        schema: &SearchIndexSchema,
+        parser: &QueryParserCtor,
+        searcher: &Searcher,
+        index_oid: pg_sys::Oid,
+        relation_oid: Option<pg_sys::Oid>,
+        expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
+        planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
+    ) -> Result<B::Output> {
+        let recurse = |input: SearchQueryInput| {
+            input.into_tantivy_query_generic(
+                builder,
+                schema,
+                parser,
+                searcher,
+                index_oid,
+                relation_oid,
+                expr_context,
+                planstate,
+            )
+        };
+
+        // Conditionally clone for QueryTreeBuilder estimation (zero-cost for QueryOnlyBuilder).
+        // Used by all query types (including leaf nodes like All, Empty, Parse, TermSet, etc.)
+        // to provide the original SearchQueryInput for cost estimation in EXPLAIN VERBOSE.
+        let cloned_for_estimate = if B::NEEDS_QUERY_INPUT {
+            Some(self.clone())
+        } else {
+            None
+        };
+
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")
             }
-            SearchQueryInput::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
+            SearchQueryInput::All => {
+                let query = Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0));
+                Ok(builder.build_leaf(query, || "All Query".to_string(), cloned_for_estimate))
+            }
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
             } => {
+                // Boolean query optimization pattern:
+                // ---------------------------------
+                // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
+                //
+                // For QueryOnlyBuilder (normal queries):
+                //   - split_for_parent returns (query, None)
+                //   - No clone happens, query ownership is transferred
+                //   - *_outputs vectors stay empty (opt_output is None)
+                //
+                // For QueryTreeBuilder (EXPLAIN VERBOSE):
+                //   - split_for_parent returns (cloned_query, Some(output))
+                //   - Clone is necessary because we need both:
+                //     * The query for BooleanQuery::new()
+                //     * The output for the children closure (to build estimate tree)
+                //   - *_outputs vectors are populated for use in children closure
                 let mut subqueries = vec![];
+                let mut must_outputs = vec![];
+
                 for input in must {
-                    subqueries.push((
-                        Occur::Must,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let (query, opt_output) = B::split_for_parent(output);
+                    subqueries.push((Occur::Must, query));
+                    if let Some(out) = opt_output {
+                        must_outputs.push(out);
+                    }
                 }
+
+                let mut should_outputs = vec![];
                 for input in should {
-                    subqueries.push((
-                        Occur::Should,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let (query, opt_output) = B::split_for_parent(output);
+                    subqueries.push((Occur::Should, query));
+                    if let Some(out) = opt_output {
+                        should_outputs.push(out);
+                    }
                 }
+
+                let mut must_not_outputs = vec![];
                 for input in must_not {
-                    subqueries.push((
-                        Occur::MustNot,
-                        input.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )?,
-                    ));
+                    let output = recurse(input)?;
+                    let (query, opt_output) = B::split_for_parent(output);
+                    subqueries.push((Occur::MustNot, query));
+                    if let Some(out) = opt_output {
+                        must_not_outputs.push(out);
+                    }
                 }
-                Ok(Box::new(BooleanQuery::new(subqueries)))
+
+                let query = Box::new(BooleanQuery::new(subqueries));
+
+                // Children are built lazily inside the closure - QueryOnlyBuilder
+                // never calls this closure, so wrapping work is skipped entirely
+                Ok(builder.build_with_children(
+                    query,
+                    || "Boolean Query".to_string(),
+                    |b| {
+                        let mut children = Vec::new();
+                        for (idx, child) in must_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("Must Clause [{}]", idx),
+                                |_| vec![child],
+                                Some(SearchQueryInput::Empty),
+                            );
+                            children.push(wrapped);
+                        }
+                        for (idx, child) in should_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("Should Clause [{}]", idx),
+                                |_| vec![child],
+                                Some(SearchQueryInput::Empty),
+                            );
+                            children.push(wrapped);
+                        }
+                        for (idx, child) in must_not_outputs.into_iter().enumerate() {
+                            let child_query = B::extract_query(&child);
+                            let wrapped = b.build_with_children(
+                                child_query.box_clone(),
+                                || format!("MustNot Clause [{}]", idx),
+                                |_| vec![child],
+                                Some(SearchQueryInput::Empty),
+                            );
+                            children.push(wrapped);
+                        }
+                        children
+                    },
+                    cloned_for_estimate,
+                ))
             }
-            SearchQueryInput::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?,
+            SearchQueryInput::Boost {
+                query: inner_query,
                 factor,
-            ))),
-            SearchQueryInput::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?,
+            } => {
+                let inner_output = recurse(*inner_query)?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
+                let query = Box::new(BoostQuery::new(inner_tantivy, factor));
+                Ok(builder.build_with_children(
+                    query,
+                    || format!("Boost Query (factor: {})", factor),
+                    |_| opt_output.into_iter().collect(),
+                    cloned_for_estimate,
+                ))
+            }
+            SearchQueryInput::ConstScore {
+                query: inner_query,
                 score,
-            ))),
-            SearchQueryInput::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
+            } => {
+                let inner_output = recurse(*inner_query)?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
+                let query = Box::new(ConstScoreQuery::new(inner_tantivy, score));
+                Ok(builder.build_with_children(
+                    query,
+                    || format!("ConstScore Query (score: {})", score),
+                    |_| opt_output.into_iter().collect(),
+                    cloned_for_estimate,
+                ))
+            }
+            SearchQueryInput::ScoreFilter {
                 bounds,
-                query
-                    .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(
-                        schema,
-                        parser,
-                        searcher,
-                        index_oid,
-                        relation_oid,
-                        expr_context,
-                        planstate,
-                    )?,
-            ))),
+                query: inner_query,
+            } => {
+                let inner_output =
+                    recurse(*inner_query.expect("ScoreFilter's query should have been set"))?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
+                let query = Box::new(ScoreFilter::new(bounds.clone(), inner_tantivy));
+                Ok(builder.build_with_children(
+                    query,
+                    || "ScoreFilter Query".to_string(),
+                    |_| opt_output.into_iter().collect(),
+                    cloned_for_estimate,
+                ))
+            }
             SearchQueryInput::DisjunctionMax {
                 disjuncts,
                 tie_breaker,
             } => {
-                let disjuncts = disjuncts
-                    .into_iter()
-                    .map(|query| {
-                        query.into_tantivy_query(
-                            schema,
-                            parser,
-                            searcher,
-                            index_oid,
-                            relation_oid,
-                            expr_context,
-                            planstate,
-                        )
-                    })
-                    .collect::<Result<_, _>>()?;
-                if let Some(tie_breaker) = tie_breaker {
-                    Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
-                        disjuncts,
-                        tie_breaker,
-                    )))
-                } else {
-                    Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
+                let mut tantivy_disjuncts = vec![];
+                let mut disjunct_outputs = vec![];
+
+                for disjunct in disjuncts {
+                    let output = recurse(disjunct)?;
+                    // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                    let (query, opt_output) = B::split_for_parent(output);
+                    tantivy_disjuncts.push(query);
+                    if let Some(out) = opt_output {
+                        disjunct_outputs.push(out);
+                    }
                 }
+
+                let query = if let Some(tie_breaker) = tie_breaker {
+                    Box::new(DisjunctionMaxQuery::with_tie_breaker(
+                        tantivy_disjuncts,
+                        tie_breaker,
+                    ))
+                } else {
+                    Box::new(DisjunctionMaxQuery::new(tantivy_disjuncts))
+                };
+
+                // Children are built lazily inside the closure
+                Ok(builder.build_with_children(
+                    query,
+                    || {
+                        if let Some(tb) = tie_breaker {
+                            format!("DisjunctionMax Query (tie_breaker: {})", tb)
+                        } else {
+                            "DisjunctionMax Query".to_string()
+                        }
+                    },
+                    |b| {
+                        disjunct_outputs
+                            .into_iter()
+                            .enumerate()
+                            .map(|(idx, output)| {
+                                let child_query = B::extract_query(&output);
+                                b.build_with_children(
+                                    child_query.box_clone(),
+                                    || format!("Disjunct [{}]", idx),
+                                    |_| vec![output],
+                                    Some(SearchQueryInput::All), // Placeholder
+                                )
+                            })
+                            .collect()
+                    },
+                    cloned_for_estimate,
+                ))
             }
-            SearchQueryInput::Empty => Ok(Box::new(EmptyQuery)),
+            SearchQueryInput::Empty => {
+                let query = Box::new(EmptyQuery);
+                Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
+            }
             SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
                 max_doc_frequency,
@@ -894,49 +931,53 @@ impl SearchQueryInput {
                 key_value,
                 fields,
             } => {
-                let mut builder = MoreLikeThisQuery::builder();
+                let mut mlt_builder = MoreLikeThisQuery::builder();
 
                 // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {
-                    builder = builder.with_min_doc_frequency(min_doc_frequency);
+                    mlt_builder = mlt_builder.with_min_doc_frequency(min_doc_frequency);
                 } else {
-                    builder = builder.with_min_doc_frequency(1);
+                    mlt_builder = mlt_builder.with_min_doc_frequency(1);
                 }
                 // default min_term_frequency to 1, Tantivy's default is 2
                 if let Some(min_term_frequency) = min_term_frequency {
-                    builder = builder.with_min_term_frequency(min_term_frequency);
+                    mlt_builder = mlt_builder.with_min_term_frequency(min_term_frequency);
                 } else {
-                    builder = builder.with_min_term_frequency(1);
+                    mlt_builder = mlt_builder.with_min_term_frequency(1);
                 }
                 if let Some(max_doc_frequency) = max_doc_frequency {
-                    builder = builder.with_max_doc_frequency(max_doc_frequency);
+                    mlt_builder = mlt_builder.with_max_doc_frequency(max_doc_frequency);
                 }
                 if let Some(max_query_terms) = max_query_terms {
-                    builder = builder.with_max_query_terms(max_query_terms);
+                    mlt_builder = mlt_builder.with_max_query_terms(max_query_terms);
                 }
                 if let Some(min_work_length) = min_word_length {
-                    builder = builder.with_min_word_length(min_work_length);
+                    mlt_builder = mlt_builder.with_min_word_length(min_work_length);
                 }
                 if let Some(max_work_length) = max_word_length {
-                    builder = builder.with_max_word_length(max_work_length);
+                    mlt_builder = mlt_builder.with_max_word_length(max_work_length);
                 }
                 if let Some(boost_factor) = boost_factor {
-                    builder = builder.with_boost_factor(boost_factor);
+                    mlt_builder = mlt_builder.with_boost_factor(boost_factor);
                 }
-                if let Some(stopwords) = stopwords {
-                    builder = builder.with_stop_words(stopwords);
+                if let Some(stopwords_clone) = &stopwords {
+                    mlt_builder = mlt_builder.with_stop_words(stopwords_clone.clone());
                 }
 
-                match (key_value, fields, document) {
-                    (Some(key_value), fields, None) => {
-                        Ok(match builder.with_key_value(key_value, fields, index_oid) {
-                            Some(query) => Box::new(query),
-                            None => Box::new(EmptyQuery),
-                        })
+                let query = match (&key_value, &fields, &document) {
+                    (Some(key_value_clone), fields_ref, None) => {
+                        match mlt_builder.with_key_value(
+                            key_value_clone.clone(),
+                            fields_ref.clone(),
+                            index_oid,
+                        ) {
+                            Some(query) => Box::new(query) as Box<dyn TantivyQuery>,
+                            None => Box::new(EmptyQuery) as Box<dyn TantivyQuery>,
+                        }
                     }
                     (None, None, Some(doc)) => {
                         let mut fields_map = HashMap::default();
-                        for (field, mut value) in doc {
+                        for (field, mut value) in doc.clone() {
                             let search_field = schema
                                 .search_field(&field)
                                 .ok_or(QueryError::NonIndexedField(field.into()))?;
@@ -949,39 +990,46 @@ impl SearchQueryInput {
                                 vec.push(value)
                             }
                         }
-                        Ok(Box::new(
-                            builder.with_document(fields_map.into_iter().collect()),
-                        ))
+                        Box::new(mlt_builder.with_document(fields_map.into_iter().collect()))
+                            as Box<dyn TantivyQuery>
                     }
                     _ => {
                         panic!("more_like_this must be called with either key_value or document")
                     }
-                }
+                };
+
+                Ok(builder.build_leaf(
+                    query,
+                    || "MoreLikeThis Query".to_string(),
+                    cloned_for_estimate,
+                ))
             }
             SearchQueryInput::Parse {
                 query_string,
                 lenient,
                 conjunction_mode,
             } => {
-                let mut parser = parser();
+                let mut query_parser = parser();
                 if let Some(true) = conjunction_mode {
-                    parser.set_conjunction_by_default();
+                    query_parser.set_conjunction_by_default();
                 }
 
-                match lenient {
+                let query = match lenient {
                     Some(true) => {
-                        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-                        Ok(Box::new(parsed_query))
+                        let (parsed_query, _) = query_parser.parse_query_lenient(&query_string);
+                        Box::new(parsed_query) as Box<dyn TantivyQuery>
                     }
-                    _ => {
-                        Ok(Box::new(parser.parse_query(&query_string).map_err(
-                            |err| QueryError::ParseError(err, query_string),
-                        )?))
-                    }
-                }
+                    _ => Box::new(
+                        query_parser
+                            .parse_query(&query_string)
+                            .map_err(|err| QueryError::ParseError(err, query_string.clone()))?,
+                    ) as Box<dyn TantivyQuery>,
+                };
+
+                Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {
-                Ok(Box::new(TermSetQuery::new(fields.into_iter().flat_map(
+                let query = Box::new(TermSetQuery::new(fields.into_iter().map(
                     |TermInput {
                          field,
                          value,
@@ -993,80 +1041,108 @@ impl SearchQueryInput {
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
                         let is_datetime = search_field.is_datetime() || is_datetime;
-
-                        // Check if this is a JSON field with numeric value
-                        let is_json_field = matches!(field_type, FieldType::JsonObject(_));
-                        let is_numeric = matches!(
-                            value,
-                            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-                        );
-
-                        if is_json_field && is_numeric && !is_datetime {
-                            // For JSON numeric fields, expand to multiple type variants
-                            expand_json_numeric_to_terms(
-                                search_field.field(),
-                                &value,
-                                field.path().as_deref(),
-                            )
-                            .expect("could not expand JSON numeric to terms")
-                        } else {
-                            // Standard term creation for non-JSON or non-numeric fields
-                            smallvec![value_to_term(
-                                search_field.field(),
-                                &value,
-                                field_type,
-                                field.path().as_deref(),
-                                is_datetime,
-                            )
-                            .expect("could not convert argument to search term")]
-                        }
+                        value_to_term(
+                            search_field.field(),
+                            &value,
+                            field_type,
+                            field.path().as_deref(),
+                            is_datetime,
+                        )
+                        .expect("could not convert argument to search term")
                     },
-                ))))
+                )));
+
+                Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
-            SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
-                schema,
-                parser,
-                searcher,
-                index_oid,
-                relation_oid,
-                expr_context,
-                planstate,
-            ),
+            SearchQueryInput::WithIndex {
+                oid: _,
+                query: inner_query,
+            } => {
+                let inner_output = recurse(*inner_query)?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (inner_tantivy, opt_output) = B::split_for_parent(inner_output);
+                Ok(builder.build_with_children(
+                    inner_tantivy,
+                    || "WithIndex Query".to_string(),
+                    |_| opt_output.into_iter().collect(),
+                    cloned_for_estimate,
+                ))
+            }
             SearchQueryInput::HeapFilter {
                 indexed_query,
                 field_filters,
             } => {
                 // Convert indexed query first
-                let indexed_tantivy_query = indexed_query.into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                    expr_context,
-                    planstate,
-                )?;
+                let inner_output = recurse(*indexed_query)?;
+                // Use split_for_parent: zero-cost for QueryOnlyBuilder
+                let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
                 // Is initialized in `begin_custom_scan` if `has_heap_filters`.
                 let expr_context = expr_context
                     .expect("An expression context must be provided when heap filtering.");
 
                 // Create combined query with heap field filters
-                Ok(Box::new(heap_field_filter::HeapFilterQuery::new(
+                let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
-                    field_filters,
+                    field_filters.clone(),
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                     expr_context,
                     planstate,
-                )))
+                ));
+
+                Ok(builder.build_with_children(
+                    query,
+                    || "HeapFilter Query".to_string(),
+                    |_| opt_output.into_iter().collect(),
+                    cloned_for_estimate,
+                ))
             }
             SearchQueryInput::PostgresExpression { .. } => {
                 panic!("postgres expressions have not been solved")
             }
-            SearchQueryInput::FieldedQuery { field, query } => {
-                query.into_tantivy_query(field, schema, parser, searcher)
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb_query,
+            } => {
+                let query = pdb_query.clone().into_tantivy_query(
+                    field.clone(),
+                    schema,
+                    parser,
+                    searcher,
+                )?;
+                Ok(builder.build_leaf(
+                    Box::new(query),
+                    || format!("FieldedQuery (field: {})", field),
+                    cloned_for_estimate,
+                ))
             }
         }
+    }
+
+    /// Convert SearchQueryInput into both a Tantivy Query and a QueryWithEstimates tree.
+    /// This is used for EXPLAIN ANALYZE VERBOSE to show recursive cost estimates.
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_tantivy_query_with_tree<QueryParserCtor: Fn() -> QueryParser>(
+        self,
+        schema: &SearchIndexSchema,
+        parser: &QueryParserCtor,
+        searcher: &Searcher,
+        index_oid: pg_sys::Oid,
+        relation_oid: Option<pg_sys::Oid>,
+        expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
+        planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
+    ) -> Result<(Box<dyn TantivyQuery>, QueryWithEstimates)> {
+        // Use the generic method with QueryTreeBuilder to get both query and tree
+        self.into_tantivy_query_generic(
+            &QueryTreeBuilder,
+            schema,
+            parser,
+            searcher,
+            index_oid,
+            relation_oid,
+            expr_context,
+            planstate,
+        )
     }
 }
 

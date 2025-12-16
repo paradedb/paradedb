@@ -8,6 +8,7 @@
 **/*.txt
 **/*.zip
 /docker/.docker_cache_dev/
+/docker/manifests/
 /docs/documentation/aggregates/overview.mdx
 /docs/documentation/aggregates/common.mdx
 /docs/documentation/getting-started/quickstart.mdx

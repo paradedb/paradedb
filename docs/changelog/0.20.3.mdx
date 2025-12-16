@@ -1,0 +1,12 @@
+---
+title: 0.20.3
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed an error when `pdb.score` was used with aggregate functions (`max`, `min`, `avg`, `sum`) in parallel query plans
+- Reverted numeric pushdown, which caused errors during indexing and reads of very large numeric fields
+- Fixed an issue where `MIN`/`MAX` of datetime fields returned null with aggregate pushdown enabled
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.3).

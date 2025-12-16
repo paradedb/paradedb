@@ -1,6 +1,10 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
 ARG PG_VERSION_MAJOR=18
 
+# Antithesis is a deterministic simulation testing tool requiring instrumentation at compile-time and runtime. We only enable it
+# when building ParadeDB images specifically for use with Antithesis.
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
+
 ###############################################
 # First Stage: Builder
 ###############################################
@@ -58,15 +62,23 @@ FROM builder AS builder-pg_search
 
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare compile-time environment variables
 ENV COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION}
+    PARADEDB_VERSION=${PARADEDB_VERSION} \
+    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
 COPY . /tmp/
 
-WORKDIR /tmp/pg_search
-RUN cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# Build the extension in release mode, but with debug symbols (which will be split out later)
+# Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
+RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+    curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so; \
+    export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar" ; \
+  fi; \
+  cd /tmp/pg_search && \
+  cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Strip debug symbols from the extension and add a debug link
 RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
@@ -137,9 +149,11 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare runtime environment variables
-ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -217,6 +231,13 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make install && \
     rm -rf /tmp/icu && \
     ldconfig && ldconfig # Yes, running it twice
+
+# Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
+RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+   wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+   mkdir /symbols && \
+   ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
+ fi
 
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.

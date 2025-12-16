@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765841701990,
+  "lastUpdate": 1765920876886,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4412,6 +4412,72 @@ window.BENCHMARK_DATA = {
             "value": 122.90036894475682,
             "unit": "median tps",
             "extra": "avg tps: 146.93361634206124, max tps: 516.7956163604263, count: 55272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a592128d17a6ede4a65237164ea471803dbacb6",
+          "message": "feat: Add support for the json/b subscript [] operator (#3785)\n\nThis can be used in place of `->`, the following two cases are treated\nthe same:\n\n```\nWHERE metadata->'color' @@@ 'white'\nWHERE metadata['color'] @@@ 'white'\n```\n\nBut the second shows up as a `T_SubscriptingRef` node and not a\n`T_OpExpr` node.\n\nNote that if you create an index in these ways:\n\n```\nUSING BM25(id, (metadata->'color'))\nUSING BM25(id, (metadata['color']))\n```\nThen you will have to access it with that operator as well, you can't\nswap. This is the same as standard Postgres expression indexes.",
+          "timestamp": "2025-12-17T10:17:41+13:00",
+          "tree_id": "220f15018597bade02d1530722690ccd44f215e7",
+          "url": "https://github.com/paradedb/paradedb/commit/1a592128d17a6ede4a65237164ea471803dbacb6"
+        },
+        "date": 1765920874109,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 568.9009675771383,
+            "unit": "median tps",
+            "extra": "avg tps: 577.4245661243173, max tps: 741.7206857180989, count: 54615"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3210.302161035302,
+            "unit": "median tps",
+            "extra": "avg tps: 3193.2895746924387, max tps: 3221.0012706158655, count: 54615"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 569.8050317868294,
+            "unit": "median tps",
+            "extra": "avg tps: 578.851794917867, max tps: 757.5100107774454, count: 54615"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 467.29973432553663,
+            "unit": "median tps",
+            "extra": "avg tps: 472.1736086808745, max tps: 501.43206610307294, count: 54615"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3157.105732365186,
+            "unit": "median tps",
+            "extra": "avg tps: 3160.553600686186, max tps: 3340.3484934193207, count: 109230"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2168.9113038788687,
+            "unit": "median tps",
+            "extra": "avg tps: 2152.4934284227406, max tps: 2177.136096290836, count: 54615"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 128.54199052319842,
+            "unit": "median tps",
+            "extra": "avg tps: 150.95010156480586, max tps: 810.1285511985042, count: 54615"
           }
         ]
       }

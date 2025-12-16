@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765923514199,
+  "lastUpdate": 1765924360749,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40658,6 +40658,54 @@ window.BENCHMARK_DATA = {
             "value": 108.00185349006429,
             "unit": "median tps",
             "extra": "avg tps: 107.47842261801873, max tps: 193.1895677178869, count: 107456"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a592128d17a6ede4a65237164ea471803dbacb6",
+          "message": "feat: Add support for the json/b subscript [] operator (#3785)\n\nThis can be used in place of `->`, the following two cases are treated\nthe same:\n\n```\nWHERE metadata->'color' @@@ 'white'\nWHERE metadata['color'] @@@ 'white'\n```\n\nBut the second shows up as a `T_SubscriptingRef` node and not a\n`T_OpExpr` node.\n\nNote that if you create an index in these ways:\n\n```\nUSING BM25(id, (metadata->'color'))\nUSING BM25(id, (metadata['color']))\n```\nThen you will have to access it with that operator as well, you can't\nswap. This is the same as standard Postgres expression indexes.",
+          "timestamp": "2025-12-17T10:17:41+13:00",
+          "tree_id": "220f15018597bade02d1530722690ccd44f215e7",
+          "url": "https://github.com/paradedb/paradedb/commit/1a592128d17a6ede4a65237164ea471803dbacb6"
+        },
+        "date": 1765924357828,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 599.5387116197883,
+            "unit": "median tps",
+            "extra": "avg tps: 600.3001903877117, max tps: 747.5466567115332, count: 53670"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 621.6407618627268,
+            "unit": "median tps",
+            "extra": "avg tps: 623.4413030548028, max tps: 888.8183853691352, count: 53670"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.2836901784149,
+            "unit": "median tps",
+            "extra": "avg tps: 87.33823240198119, max tps: 91.71529194895805, count: 53670"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.45343370066675,
+            "unit": "median tps",
+            "extra": "avg tps: 108.29863449334043, max tps: 147.01919753158296, count: 107340"
           }
         ]
       }

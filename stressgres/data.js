@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765921752243,
+  "lastUpdate": 1765922650928,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21606,6 +21606,54 @@ window.BENCHMARK_DATA = {
             "value": 5.54909472921824,
             "unit": "median tps",
             "extra": "avg tps: 5.556699815022664, max tps: 6.677666831756398, count: 56216"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a592128d17a6ede4a65237164ea471803dbacb6",
+          "message": "feat: Add support for the json/b subscript [] operator (#3785)\n\nThis can be used in place of `->`, the following two cases are treated\nthe same:\n\n```\nWHERE metadata->'color' @@@ 'white'\nWHERE metadata['color'] @@@ 'white'\n```\n\nBut the second shows up as a `T_SubscriptingRef` node and not a\n`T_OpExpr` node.\n\nNote that if you create an index in these ways:\n\n```\nUSING BM25(id, (metadata->'color'))\nUSING BM25(id, (metadata['color']))\n```\nThen you will have to access it with that operator as well, you can't\nswap. This is the same as standard Postgres expression indexes.",
+          "timestamp": "2025-12-17T10:17:41+13:00",
+          "tree_id": "220f15018597bade02d1530722690ccd44f215e7",
+          "url": "https://github.com/paradedb/paradedb/commit/1a592128d17a6ede4a65237164ea471803dbacb6"
+        },
+        "date": 1765922648076,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1135.7837182725182,
+            "unit": "median tps",
+            "extra": "avg tps: 1143.388759895357, max tps: 1236.9017765889641, count: 56617"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1193.3129657908244,
+            "unit": "median tps",
+            "extra": "avg tps: 1193.465318865672, max tps: 1343.3395497970214, count: 56617"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1908.9875101634213,
+            "unit": "median tps",
+            "extra": "avg tps: 1892.4620454214637, max tps: 2069.1461609264265, count: 56617"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.668149171712322,
+            "unit": "median tps",
+            "extra": "avg tps: 5.636862781887404, max tps: 6.569428928609049, count: 56617"
           }
         ]
       }

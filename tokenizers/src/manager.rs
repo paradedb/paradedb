@@ -54,7 +54,6 @@ pub struct SearchTokenizerFilters {
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
-    pub chinese_convert: Option<ConvertMode>,
 }
 
 impl SearchTokenizerFilters {
@@ -75,7 +74,6 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
-            chinese_convert: None,
         }
     }
 
@@ -91,7 +89,6 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
-            chinese_convert: None,
         }
     }
 
@@ -159,38 +156,6 @@ impl SearchTokenizerFilters {
                 )
             })?);
         }
-        if let Some(chinese_convert) = value.get("chinese_convert") {
-            let mode_str = chinese_convert
-                .as_str()
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                    "a 'chinese_convert' value passed to the pg_search tokenizer configuration \
-                     must be of type string, found: {chinese_convert:#?}"
-                )
-                })?
-                .to_lowercase();
-
-            filters.chinese_convert = match mode_str.as_str() {
-                "t2s" => Some(ConvertMode::T2S),
-                "tw2s" => Some(ConvertMode::TW2S),
-                "tw2sp" => Some(ConvertMode::TW2SP),
-                "s2t" => Some(ConvertMode::S2T),
-                "s2tw" => Some(ConvertMode::S2TW),
-                "s2twp" => Some(ConvertMode::S2TWP),
-                _ => {
-                    return Err(anyhow::anyhow!(
-                        "invalid 'chinese_convert' mode: '{}'. Valid modes are: \
-                         't2s' (Traditional to Simplified), \
-                         's2t' (Simplified to Traditional), \
-                         'tw2s' (Traditional Taiwan to Simplified), \
-                         'tw2sp' (Traditional Taiwan to Simplified with idioms), \
-                         's2tw' (Simplified to Traditional Taiwan), \
-                         's2twp' (Simplified to Traditional Taiwan with idioms)",
-                        mode_str
-                    ));
-                }
-            };
-        }
 
         Ok(filters)
     }
@@ -241,10 +206,6 @@ impl SearchTokenizerFilters {
         }
         if let Some(value) = self.ascii_folding {
             write!(buffer, "{}ascii_folding={value}", sep(is_empty)).unwrap();
-            is_empty = false;
-        }
-        if let Some(value) = self.chinese_convert {
-            write!(buffer, "{}chinese_convert={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
         }
 
@@ -374,8 +335,10 @@ pub enum SearchTokenizer {
     #[cfg(feature = "icu")]
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
-    Jieba(SearchTokenizerFilters),
-
+    Jieba {
+        chinese_convert: Option<ConvertMode>,
+        filters: SearchTokenizerFilters,
+    },
     Lindera(LinderaLanguage, SearchTokenizerFilters),
     UnicodeWordsDeprecated {
         remove_emojis: bool,
@@ -458,7 +421,23 @@ impl SearchTokenizer {
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
             #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
-            "jieba" => Ok(SearchTokenizer::Jieba(filters)),
+            "jieba" => {
+                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
+                    None
+                } else {
+                    Some(
+                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
+                            anyhow::anyhow!(
+                                "jieba tokenizer requires a string 'chinese_convert' field"
+                            )
+                        })?,
+                    )
+                };
+                Ok(SearchTokenizer::Jieba {
+                    chinese_convert,
+                    filters,
+                })
+            }
             "unicode_words" => {
                 let remove_emojis: bool = serde_json::from_value(value["remove_emojis"].clone())
                     .map_err(|_| {
@@ -546,12 +525,15 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
             }
-            SearchTokenizer::Jieba(filters) => {
+            SearchTokenizer::Jieba {
+                chinese_convert,
+                filters,
+            } => {
                 // If Chinese conversion is configured, perform the conversion before tokenization
-                if let Some(convert_mode) = filters.chinese_convert {
+                if let Some(convert_mode) = chinese_convert {
                     let base_tokenizer = JiebaTokenizer::new();
                     let convert_tokenizer =
-                        ChineseConvertTokenizer::new(base_tokenizer, convert_mode);
+                        ChineseConvertTokenizer::new(base_tokenizer, *convert_mode);
                     add_filters!(convert_tokenizer, filters)
                 } else {
                     add_filters!(JiebaTokenizer::new(), filters)
@@ -595,7 +577,7 @@ impl SearchTokenizer {
             SearchTokenizer::Lindera(_, filters) => filters,
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
-            SearchTokenizer::Jieba(filters) => filters,
+            SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
             SearchTokenizer::UnicodeWords { filters, .. } => filters,
         }
@@ -666,7 +648,10 @@ impl SearchTokenizer {
             }
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
-            SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
+            SearchTokenizer::Jieba {
+                chinese_convert,
+                filters: _,
+             } => format!("jieba_convert:{chinese_convert:?}{filters_suffix}"),
             SearchTokenizer::UnicodeWordsDeprecated{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
             SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
@@ -741,7 +726,6 @@ mod tests {
                     trim: None,
                     normalizer: None,
                     alpha_num_only: None,
-                    chinese_convert: None,
                 }
             }
         );
@@ -767,7 +751,6 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
-                chinese_convert: None,
             },
         };
 
@@ -798,23 +781,25 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: None,
-                stopwords: Some(vec![
-                    " ".to_string(),
-                    "花朵".to_string(),
-                    "公园".to_string()
-                ]),
-                ascii_folding: None,
-                trim: None,
-                normalizer: None,
-                alpha_num_only: None,
+            SearchTokenizer::Jieba {
                 chinese_convert: None,
-            })
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: None,
+                    stopwords: Some(vec![
+                        " ".to_string(),
+                        "花朵".to_string(),
+                        "公园".to_string()
+                    ]),
+                    ascii_folding: None,
+                    trim: None,
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully
@@ -856,19 +841,21 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: Some(Language::English),
-                stopwords: None,
-                ascii_folding: None,
-                trim: None,
-                normalizer: None,
-                alpha_num_only: None,
+            SearchTokenizer::Jieba {
                 chinese_convert: None,
-            })
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: Some(Language::English),
+                    stopwords: None,
+                    ascii_folding: None,
+                    trim: None,
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully
@@ -909,19 +896,21 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: None,
-                stopwords: None,
-                ascii_folding: None,
-                trim: Some(true),
-                normalizer: None,
-                alpha_num_only: None,
+            SearchTokenizer::Jieba {
                 chinese_convert: None,
-            })
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: None,
+                    stopwords: None,
+                    ascii_folding: None,
+                    trim: Some(true),
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully
@@ -972,7 +961,6 @@ mod tests {
                 trim: Some(true),
                 normalizer: None,
                 alpha_num_only: None,
-                chinese_convert: None,
             })
         );
 

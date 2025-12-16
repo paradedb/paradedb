@@ -343,21 +343,6 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
             trim: value.get("trim").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
-            chinese_convert: value
-                .get("chinese_convert")
-                .and_then(|p| p.as_str())
-                .and_then(|mode| {
-                    use tokenizers::chinese_convert::ConvertMode;
-                    match mode.to_lowercase().as_str() {
-                        "t2s" => Some(ConvertMode::T2S),
-                        "s2t" => Some(ConvertMode::S2T),
-                        "tw2s" => Some(ConvertMode::TW2S),
-                        "tw2sp" => Some(ConvertMode::TW2SP),
-                        "s2tw" => Some(ConvertMode::S2TW),
-                        "s2twp" => Some(ConvertMode::S2TWP),
-                        _ => None,
-                    }
-                }),
         }
     }
 }

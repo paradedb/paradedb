@@ -34,8 +34,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
-    UnicodeWordsTypmod,
+    AliasTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod,
+    UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -97,7 +97,10 @@ pub fn search_field_config_from_type(
         ),
         #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
-        "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+        "jieba" => SearchTokenizer::Jieba {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "ngram" => SearchTokenizer::Ngram {
             min_gram: 0,
             max_gram: 0,
@@ -201,12 +204,23 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLindera(filters)
         | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters)
-        | SearchTokenizer::Jieba(filters) => {
+        | SearchTokenizer::KoreanLindera(filters) => {
+            // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::Jieba {
+            chinese_convert,
+            filters,
+        } => {
+            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *filters = jieba_typmod.filters;
+            *chinese_convert = jieba_typmod.chinese_convert;
         }
 
         #[cfg(feature = "icu")]

@@ -64,7 +64,7 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata[color] @@@ 'white'
+WHERE metadata['color'] @@@ 'white'
 ORDER BY id LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------

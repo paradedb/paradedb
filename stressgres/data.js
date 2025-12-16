@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765921748202,
+  "lastUpdate": 1765921752243,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18602,6 +18602,66 @@ window.BENCHMARK_DATA = {
             "value": 92,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.87654966783491, max segment_count: 162.0, count: 57351"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a592128d17a6ede4a65237164ea471803dbacb6",
+          "message": "feat: Add support for the json/b subscript [] operator (#3785)\n\nThis can be used in place of `->`, the following two cases are treated\nthe same:\n\n```\nWHERE metadata->'color' @@@ 'white'\nWHERE metadata['color'] @@@ 'white'\n```\n\nBut the second shows up as a `T_SubscriptingRef` node and not a\n`T_OpExpr` node.\n\nNote that if you create an index in these ways:\n\n```\nUSING BM25(id, (metadata->'color'))\nUSING BM25(id, (metadata['color']))\n```\nThen you will have to access it with that operator as well, you can't\nswap. This is the same as standard Postgres expression indexes.",
+          "timestamp": "2025-12-17T10:17:41+13:00",
+          "tree_id": "220f15018597bade02d1530722690ccd44f215e7",
+          "url": "https://github.com/paradedb/paradedb/commit/1a592128d17a6ede4a65237164ea471803dbacb6"
+        },
+        "date": 1765921749433,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.240669961487377, max cpu: 42.519684, count: 57759"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 231.17900646436053, max mem: 232.71484375, count: 57759"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.399432929405602, max cpu: 33.20158, count: 57759"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.3404145484903, max mem: 171.74609375, count: 57759"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49758,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49218.01670735297, max block_count: 51830.0, count: 57759"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.21769767482124, max segment_count: 162.0, count: 57759"
           }
         ]
       }

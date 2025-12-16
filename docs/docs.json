@@ -154,7 +154,8 @@
                           "documentation/query-builder/phrase/phrase-prefix",
                           "documentation/query-builder/compound/query-parser",
                           "documentation/query-builder/term/range-term",
-                          "documentation/query-builder/term/regex"
+                          "documentation/query-builder/term/regex",
+                          "documentation/query-builder/phrase/regex-phrase"
                         ]
                       },
                       {

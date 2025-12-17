@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765977909944,
+  "lastUpdate": 1765978778156,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15298,6 +15298,42 @@ window.BENCHMARK_DATA = {
             "value": 5.401830590631235,
             "unit": "median tps",
             "extra": "avg tps: 4.847975969911881, max tps: 6.037375614673417, count: 57960"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e3451094459f2edbc73258d61559f7be9b8aaf7",
+          "message": "fix: vint overflow during indexing (#3789)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUpgrades Tantivy hash, which contains the fix.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-17T08:06:37-05:00",
+          "tree_id": "2ca657e65db4fd8b5e36ca1f2aa103c6466cce03",
+          "url": "https://github.com/paradedb/paradedb/commit/4e3451094459f2edbc73258d61559f7be9b8aaf7"
+        },
+        "date": 1765978775223,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.118428706480836,
+            "unit": "median tps",
+            "extra": "avg tps: 6.933376720496261, max tps: 10.498918232507043, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.217195455455995,
+            "unit": "median tps",
+            "extra": "avg tps: 4.689909779453203, max tps: 5.834025349697741, count: 57582"
           }
         ]
       }

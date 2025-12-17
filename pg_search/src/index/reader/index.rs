@@ -46,8 +46,8 @@ use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
-    query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
-    Order, ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
+    query::Query, schema::OwnedValue, DateTime, DocAddress, DocSet, Executor, IndexReader, Order,
+    ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
@@ -170,18 +170,6 @@ pub struct MultiSegmentSearchResults {
     searcher: Searcher,
     ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
-}
-
-/// A score which sorts in ascending direction.
-#[derive(PartialEq, Clone, Debug)]
-pub struct AscendingScore {
-    score: Score,
-}
-
-impl PartialOrd for AscendingScore {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.score.partial_cmp(&other.score).map(|o| o.reverse())
-    }
 }
 
 impl Iterator for TopNSearchResults {
@@ -664,7 +652,7 @@ impl SearchIndexReader {
                 feature: OrderByFeature::Score,
                 direction,
                 .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
-            } if !erased_features.is_empty() => {
+            } => {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: Order = (*direction).into();
                 let (top_docs, aggregation_results) = self.top_in_segments(
@@ -680,14 +668,6 @@ impl SearchIndexReader {
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
-            }
-            OrderByInfo {
-                feature: OrderByFeature::Score,
-                direction,
-                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
-            } => {
-                // TODO: See method docs.
-                self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
             }
         }
     }
@@ -793,57 +773,6 @@ impl SearchIndexReader {
                         x + 1,
                     )
                 }
-            }
-        }
-    }
-
-    /// Order by score only.
-    ///
-    /// NOTE: This is a special case for a single score feature: the score-only codepath is highly
-    /// specializedi due to Block-WAND, and at least 50% faster than `TopDocs::order_by` when
-    /// sorting on only the score. We should try to close that gap over time, but for now we
-    /// special case it.
-    ///
-    /// TODO: Confirm after rebasing atop https://github.com/quickwit-oss/tantivy/pull/2726
-    fn top_by_score_in_segments(
-        &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
-        sortdir: SortDirection,
-        n: usize,
-        offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNSearchResults {
-        match sortdir {
-            // requires tweaking the score, which is a bit slower
-            SortDirection::Asc => {
-                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).tweak_score(
-                    move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| AscendingScore {
-                            score: original_score,
-                        }
-                    },
-                );
-
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
-
-                TopNSearchResults::new_for_score(
-                    &self.searcher,
-                    top_docs
-                        .into_iter()
-                        .map(|(score, doc_address)| (score.score, doc_address)),
-                    aggregation_results,
-                )
-            }
-
-            // can use tantivy's score directly, which allows for Block-WAND
-            SortDirection::Desc => {
-                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by_score();
-
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
-
-                TopNSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
             }
         }
     }
@@ -1170,10 +1099,6 @@ pub struct ErasedFeatures {
 impl ErasedFeatures {
     pub fn len(&self) -> usize {
         self.features.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.features.is_empty()
     }
 
     pub fn pop(&mut self) -> Option<(SortByErasedType, Order)> {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765948415165,
+  "lastUpdate": 1765948419321,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28318,6 +28318,108 @@ window.BENCHMARK_DATA = {
             "value": 159.234375,
             "unit": "median mem",
             "extra": "avg mem: 179.50198462089566, max mem: 219.6875, count: 56617"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765948416429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08027140984303582, max background_merging: 2.0, count: 56446"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.694833495925511, max cpu: 9.514371, count: 56446"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.767882550357864, max mem: 22.78125, count: 56446"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.911232907641708, max cpu: 9.836065, count: 56446"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.65069484274792, max mem: 165.1015625, count: 56446"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65487,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65387.38973532226, max block_count: 65487.0, count: 56446"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.16814300393296, max segment_count: 56.0, count: 56446"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.572809110803627, max cpu: 9.458128, count: 56446"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 115.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 106.04996243644368, max mem: 133.28125, count: 56446"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.773323501562761, max cpu: 9.638554, count: 56446"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.15889065987847, max mem: 164.53125, count: 56446"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.882785889776155, max cpu: 33.466137, count: 56446"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.95168723204478, max mem: 219.90625, count: 56446"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765949263185,
+  "lastUpdate": 1765950117273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41300,6 +41300,54 @@ window.BENCHMARK_DATA = {
             "value": 108.45343370066675,
             "unit": "median tps",
             "extra": "avg tps: 108.29863449334043, max tps: 147.01919753158296, count: 107340"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765950114273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 540.3974425530639,
+            "unit": "median tps",
+            "extra": "avg tps: 545.2245482846924, max tps: 700.0876622670523, count: 53723"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 615.1861923157813,
+            "unit": "median tps",
+            "extra": "avg tps: 625.8046690547761, max tps: 902.0630609496948, count: 53723"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.23740115998126,
+            "unit": "median tps",
+            "extra": "avg tps: 87.46471728857354, max tps: 94.59566454825982, count: 53723"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.66341592824092,
+            "unit": "median tps",
+            "extra": "avg tps: 108.20969735458988, max tps: 166.29465858646464, count: 107446"
           }
         ]
       }

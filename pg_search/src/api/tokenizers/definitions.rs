@@ -352,6 +352,7 @@ pub(crate) mod pdb {
         custom_typmod = false
     );
 
+    #[allow(clippy::upper_case_acronyms)]
     define_tokenizer_type!(
         ICU,
         SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),

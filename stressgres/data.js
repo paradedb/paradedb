@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765948419321,
+  "lastUpdate": 1765949258881,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31814,6 +31814,60 @@ window.BENCHMARK_DATA = {
             "value": 15.135736270455384,
             "unit": "median tps",
             "extra": "avg tps: 15.039694968770903, max tps: 19.66706684558715, count: 55661"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765949255898,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 34.023632818994514,
+            "unit": "median tps",
+            "extra": "avg tps: 33.82507781039484, max tps: 37.82603953829196, count: 55443"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.36723928209437,
+            "unit": "median tps",
+            "extra": "avg tps: 262.0686451443033, max tps: 2683.4924659441435, count: 55443"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1972.0085327126817,
+            "unit": "median tps",
+            "extra": "avg tps: 1947.9012789856909, max tps: 2142.147080811271, count: 55443"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.15312514331612,
+            "unit": "median tps",
+            "extra": "avg tps: 192.39494940328836, max tps: 1855.174516980341, count: 110886"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.671376749012628,
+            "unit": "median tps",
+            "extra": "avg tps: 15.752843460868323, max tps: 19.036215085701706, count: 55443"
           }
         ]
       }

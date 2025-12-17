@@ -546,8 +546,8 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                             QUERY PLAN                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Scan) on articles a
@@ -557,7 +557,7 @@ LIMIT 5;
                Scores: true
                   TopN Order By: pdb.score() desc
                   TopN Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 96 :opfuncid 65 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1007 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 32 [ -128 0 0 0 1 0 0 0 0 0 0 0 23 0 0 0 2 0 0 0 1 0 0 0 1 0 0 0 2 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)

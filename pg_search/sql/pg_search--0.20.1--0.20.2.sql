@@ -3,7 +3,7 @@
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:94
 -- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
-CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(
+CREATE OR REPLACE FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(
 	"this" internal, /* pgrx::datum::internal::Internal */
 	"arg_one" jsonb /* pgrx::datum::json::JsonB */
 ) RETURNS internal /* pgrx::datum::internal::Internal */
@@ -13,7 +13,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:94
 -- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize
-CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(
+CREATE OR REPLACE FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(
 	"this" internal /* pgrx::datum::internal::Internal */
 ) RETURNS jsonb /* pgrx::datum::json::JsonB */
 LANGUAGE c /* Rust */
@@ -22,6 +22,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_final
 /* <begin connected objects> */
 -- pg_search/src/api/aggregate.rs:94
 -- pg_search::api::aggregate::pdb::AggPlaceholderWithMVCC
+DROP AGGREGATE IF EXISTS pdb.agg(jsonb);
 CREATE AGGREGATE pdb.agg (
 	jsonb /* pgrx::datum::json::JsonB */
 )

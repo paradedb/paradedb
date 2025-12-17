@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765947514734,
+  "lastUpdate": 1765947518907,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18884,6 +18884,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.21769767482124, max segment_count: 162.0, count: 57759"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765947516055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.300278690774043, max cpu: 43.199997, count: 57960"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 231.22731490467564, max mem: 232.78125, count: 57960"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.45165238189429, max cpu: 33.23442, count: 57960"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.29950322690217, max mem: 171.8125, count: 57960"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49897,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49379.2231021394, max block_count: 52278.0, count: 57960"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.64102829537612, max segment_count: 161.0, count: 57960"
           }
         ]
       }

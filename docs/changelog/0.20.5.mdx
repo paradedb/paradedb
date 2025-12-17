@@ -1,0 +1,13 @@
+---
+title: 0.20.5
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed a bug introduced in `0.20.2` where query cancels could cause a crash
+- Fixed an issue where background merges would get kicked off over `INVALID` indexes still being indexed `CONCURRENTLY`,
+  causing index creation to take longer than necessary
+- Fixed an upstream bug in Tantivy where `CREATE INDEX` could fail due to overflow of variable-length encoded integers
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.5).

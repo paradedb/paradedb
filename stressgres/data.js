@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765978778156,
+  "lastUpdate": 1765978782418,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19166,6 +19166,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.64102829537612, max segment_count: 161.0, count: 57960"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e3451094459f2edbc73258d61559f7be9b8aaf7",
+          "message": "fix: vint overflow during indexing (#3789)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUpgrades Tantivy hash, which contains the fix.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-17T08:06:37-05:00",
+          "tree_id": "2ca657e65db4fd8b5e36ca1f2aa103c6466cce03",
+          "url": "https://github.com/paradedb/paradedb/commit/4e3451094459f2edbc73258d61559f7be9b8aaf7"
+        },
+        "date": 1765978779501,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.1301012378864, max cpu: 42.687748, count: 57582"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 231.70605580682766, max mem: 233.2421875, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.49037295187278, max cpu: 33.432835, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.44173078718177, max mem: 171.90234375, count: 57582"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49982,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49285.504185335696, max block_count: 51922.0, count: 57582"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.55251641137856, max segment_count: 161.0, count: 57582"
           }
         ]
       }

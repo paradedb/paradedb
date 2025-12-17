@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765946649372,
+  "lastUpdate": 1765947514734,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15076,6 +15076,42 @@ window.BENCHMARK_DATA = {
             "value": 5.329607516455054,
             "unit": "median tps",
             "extra": "avg tps: 4.789387718639856, max tps: 5.978265329113915, count: 57759"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765947511835,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.075839714018649,
+            "unit": "median tps",
+            "extra": "avg tps: 6.919064778315432, max tps: 10.500831367082974, count: 57960"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.401830590631235,
+            "unit": "median tps",
+            "extra": "avg tps: 4.847975969911881, max tps: 6.037375614673417, count: 57960"
           }
         ]
       }

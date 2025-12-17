@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765999140471,
+  "lastUpdate": 1765999867139,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42770,6 +42770,54 @@ window.BENCHMARK_DATA = {
             "value": 107.89042931723944,
             "unit": "median tps",
             "extra": "avg tps: 106.6717596927424, max tps: 189.4530073574402, count: 107492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc6ea392a109e1e6b3cb70ffeaeff5643224c388",
+          "message": "chore: Rebase atop Tantivy lazy scoring (#3752)\n\n## What\n\nThis rebases atop https://github.com/paradedb/tantivy/pull/86, which is\na rebase of our patches atop\nhttps://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4\n\n## Why\n\nThis rebase gets us atop\nhttps://github.com/quickwit-oss/tantivy/pull/2726, which is an important\nstep towards fixing a variety of TopN related issues.",
+          "timestamp": "2025-12-17T10:14:23-08:00",
+          "tree_id": "e09f58a3ce2cc9b04bc503d4202994cb935adbf9",
+          "url": "https://github.com/paradedb/paradedb/commit/cc6ea392a109e1e6b3cb70ffeaeff5643224c388"
+        },
+        "date": 1765999864075,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 573.2968171700832,
+            "unit": "median tps",
+            "extra": "avg tps: 573.7573066771605, max tps: 740.1465916924292, count: 53766"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 640.4669040433048,
+            "unit": "median tps",
+            "extra": "avg tps: 640.5478354062603, max tps: 911.8937180576454, count: 53766"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.23254500026785,
+            "unit": "median tps",
+            "extra": "avg tps: 88.22635539736758, max tps: 94.41993550625324, count: 53766"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 110.38774880779201,
+            "unit": "median tps",
+            "extra": "avg tps: 109.63674007844796, max tps: 184.9744141379773, count: 107532"
           }
         ]
       }

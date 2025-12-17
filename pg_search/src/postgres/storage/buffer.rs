@@ -397,8 +397,10 @@ impl BorrowedBuffer {
 impl Drop for BorrowedBuffer {
     fn drop(&mut self) {
         unsafe {
-            // Only unlock, don't release
-            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+            if crate::postgres::utils::IsTransactionState() {
+                // Only unlock, don't release
+                pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
+            }
         }
     }
 }

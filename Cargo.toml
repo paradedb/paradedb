@@ -21,7 +21,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "stuhood.rebase-2025-12-10", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "9ffe4af0964a3e2cbdb979176515cff1bdd8d987", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
@@ -31,4 +31,4 @@ pgrx-tests = "=0.16.1"
 tantivy-jieba = "0.17.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "stuhood.rebase-2025-12-10" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "9ffe4af0964a3e2cbdb979176515cff1bdd8d987" }

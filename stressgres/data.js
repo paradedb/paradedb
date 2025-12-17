@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765946644571,
+  "lastUpdate": 1765946649372,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12696,6 +12696,126 @@ window.BENCHMARK_DATA = {
             "value": 49.953125,
             "unit": "median mem",
             "extra": "avg mem: 48.43720532362904, max mem: 61.18359375, count: 54615"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765946646399,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.359326861355429, max cpu: 15.023475, count: 55301"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.895102343312054, max mem: 67.67578125, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655410064745731, max cpu: 9.467456, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 32.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.50560137644437, max mem: 34.76953125, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.370527050330469, max cpu: 18.916256, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.31412540855952, max mem: 68.07421875, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6885350414695806, max cpu: 9.302325, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.26377984236271, max mem: 67.51171875, count: 55301"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582968183748344, max cpu: 9.430255, count: 110602"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.84852592233866, max mem: 55.765625, count: 110602"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1754,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1742.8831666696806, max block_count: 3072.0, count: 55301"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.15616354134645, max segment_count: 18.0, count: 55301"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5747197910515895, max cpu: 9.239654, count: 55301"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.25653349114392, max mem: 57.90234375, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.318458781637659, max cpu: 4.64666, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.326154887004755, max mem: 61.29296875, count: 55301"
           }
         ]
       }

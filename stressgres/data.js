@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766000943663,
+  "lastUpdate": 1766001787959,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33272,6 +33272,60 @@ window.BENCHMARK_DATA = {
             "value": 16.345556812283213,
             "unit": "median tps",
             "extra": "avg tps: 16.225832762801293, max tps: 18.68172518334105, count: 55501"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98a4dd05665d08dec888aaf3ed41af0f5dc2ade5",
+          "message": "chore: Upgrade to `0.20.5` (#3796)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-17T14:00:22-05:00",
+          "tree_id": "ae1fa15204d1bf4447871b13c95094eb19d4a2e9",
+          "url": "https://github.com/paradedb/paradedb/commit/98a4dd05665d08dec888aaf3ed41af0f5dc2ade5"
+        },
+        "date": 1766001785153,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 27.494905699869022,
+            "unit": "median tps",
+            "extra": "avg tps: 27.51583026386577, max tps: 30.219926329803155, count: 55387"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 239.09258875883688,
+            "unit": "median tps",
+            "extra": "avg tps: 263.1745872019132, max tps: 2959.475553078107, count: 55387"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2000.2124572924245,
+            "unit": "median tps",
+            "extra": "avg tps: 1972.704382722394, max tps: 2399.3447361298045, count: 55387"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.46469280535666,
+            "unit": "median tps",
+            "extra": "avg tps: 191.78169592445653, max tps: 1782.0523183729774, count: 110774"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.973889587288602,
+            "unit": "median tps",
+            "extra": "avg tps: 14.972189562573908, max tps: 20.899833555815547, count: 55387"
           }
         ]
       }

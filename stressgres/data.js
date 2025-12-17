@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765979676034,
+  "lastUpdate": 1765980530937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32300,6 +32300,60 @@ window.BENCHMARK_DATA = {
             "value": 15.671376749012628,
             "unit": "median tps",
             "extra": "avg tps: 15.752843460868323, max tps: 19.036215085701706, count: 55443"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e3451094459f2edbc73258d61559f7be9b8aaf7",
+          "message": "fix: vint overflow during indexing (#3789)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUpgrades Tantivy hash, which contains the fix.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-17T08:06:37-05:00",
+          "tree_id": "2ca657e65db4fd8b5e36ca1f2aa103c6466cce03",
+          "url": "https://github.com/paradedb/paradedb/commit/4e3451094459f2edbc73258d61559f7be9b8aaf7"
+        },
+        "date": 1765980527967,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.611205440318585,
+            "unit": "median tps",
+            "extra": "avg tps: 31.58383269181559, max tps: 34.8189670714947, count: 55538"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 127.24922276649836,
+            "unit": "median tps",
+            "extra": "avg tps: 165.38377484402997, max tps: 2813.190930622188, count: 55538"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1923.318835838516,
+            "unit": "median tps",
+            "extra": "avg tps: 1918.3027995303485, max tps: 2388.699581562147, count: 55538"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.55306656575578,
+            "unit": "median tps",
+            "extra": "avg tps: 152.68196488722717, max tps: 1770.3833977693878, count: 111076"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.47775884971824,
+            "unit": "median tps",
+            "extra": "avg tps: 15.389750799728976, max tps: 19.86808544929768, count: 55538"
           }
         ]
       }

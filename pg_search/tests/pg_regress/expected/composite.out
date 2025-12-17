@@ -35,14 +35,40 @@ INSERT INTO products (name, description, price) VALUES ('Widget', 'A useful widg
 INSERT INTO products (name, description, price) VALUES ('Gadget', 'An amazing gadget', 29.99);
 INSERT INTO products (name, description, price) VALUES ('Gizmo', 'A fantastic gizmo', 39.99);
 -- Query on composite field - search by name
-SELECT COUNT(*) FROM products WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: idx_products
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
  count 
 -------
      1
 (1 row)
 
 -- Query on composite field - search by description
-SELECT COUNT(*) FROM products WHERE id @@@ paradedb.parse('description:amazing');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: idx_products
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
  count 
 -------
      1
@@ -81,13 +107,39 @@ CREATE INDEX idx_large ON large_table USING bm25 (id, (ROW(
     field_31, field_32, field_33, field_34, field_35
 )::large_composite)) WITH (key_field='id');
 INSERT INTO large_table (field_1, field_20, field_35) VALUES ('alpha', 'beta', 'gamma');
-SELECT COUNT(*) FROM large_table WHERE id @@@ paradedb.parse('field_1:alpha');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on large_table
+         Table: large_table
+         Index: idx_large
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_1:alpha","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM large_table WHERE id @@@ paradedb.parse('field_35:gamma');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on large_table
+         Table: large_table
+         Index: idx_large
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_35:gamma","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
  count 
 -------
      1
@@ -120,19 +172,58 @@ BEGIN
     EXECUTE format('CREATE INDEX idx_huge ON huge_table USING bm25 (id, (ROW(%s)::huge_composite)) WITH (key_field=''id'')', index_cols);
 END $$;
 INSERT INTO huge_table (f001, f050, f100) VALUES ('first_field', 'middle_field', 'last_field');
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f001:first_field');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on huge_table
+         Table: huge_table
+         Index: idx_huge
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f050:middle_field');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on huge_table
+         Table: huge_table
+         Index: idx_huge
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f050:middle_field","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f100:last_field');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on huge_table
+         Table: huge_table
+         Index: idx_huge
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f100:last_field","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
  count 
 -------
      1
@@ -276,7 +367,20 @@ INSERT INTO nullable_test (name, description, price) VALUES ('Product A', 'Has d
 INSERT INTO nullable_test (name, description, price) VALUES ('Product B', NULL, 20.00);
 INSERT INTO nullable_test (name, description, price) VALUES ('Product C', 'Another desc', NULL);
 -- Should find non-NULL fields
-SELECT COUNT(*) FROM nullable_test WHERE id @@@ paradedb.parse('name:"Product C"');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on nullable_test
+         Table: nullable_test
+         Index: idx_nullable
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:\"Product C\"","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
  count 
 -------
      1
@@ -299,7 +403,20 @@ INSERT INTO reindex_test (name, description, price) VALUES ('Widget', 'A useful 
 -- Perform REINDEX
 REINDEX INDEX idx_reindex;
 -- Verify data is still searchable after REINDEX
-SELECT COUNT(*) FROM reindex_test WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on reindex_test
+         Table: reindex_test
+         Index: idx_reindex
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
  count 
 -------
      1
@@ -324,7 +441,20 @@ INSERT INTO large_val_test (title, content, metadata) VALUES (
     repeat('This is a large content block. ', 100),
     repeat('metadata value ', 50)
 );
-SELECT COUNT(*) FROM large_val_test WHERE id @@@ paradedb.parse('title:Large');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on large_val_test
+         Table: large_val_test
+         Index: idx_large_val
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:Large","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
  count 
 -------
      1
@@ -357,42 +487,116 @@ INSERT INTO full_pipeline_test (name, description, category, tags) VALUES
     ('Chair', 'Ergonomic office chair', 'Furniture', 'office comfort'),
     ('Desk', 'Standing desk', 'Furniture', 'office workspace');
 -- Test search on each field
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('name:Laptop');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Laptop","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('description:Wireless');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:Wireless","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('category:Electronics');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
  count 
 -------
      2
 (1 row)
 
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('tags:office');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:office","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
  count 
 -------
      2
 (1 row)
 
--- Test complex queries with OR and AND
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.boolean(
-    should := ARRAY[paradedb.term('category', 'books'), paradedb.term('tags', 'computer')]
-);
+-- Test complex queries with OR and AND using pdb.parse with tantivy syntax
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:books OR tags:computer","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
  count 
 -------
      3
 (1 row)
 
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('category', 'electronics'), paradedb.term('tags', 'accessories')]
-);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+         Table: full_pipeline_test
+         Index: idx_full_pipeline
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:electronics AND tags:accessories","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
  count 
 -------
      1
@@ -426,34 +630,97 @@ INSERT INTO multi_comp_test (title, body, author, category) VALUES
     ('PostgreSQL Guide', 'Learn about databases', 'Alice', 'tech'),
     ('Cooking Tips', 'How to make pasta', 'Bob', 'food');
 -- Search works on fields from BOTH composites
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('title:PostgreSQL');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+         Table: multi_comp_test
+         Index: idx_multi_comp
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('body:pasta');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+         Table: multi_comp_test
+         Index: idx_multi_comp
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:pasta","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('author:Alice');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+         Table: multi_comp_test
+         Index: idx_multi_comp
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"author:Alice","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
  count 
 -------
      1
 (1 row)
 
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('category:food');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+         Table: multi_comp_test
+         Index: idx_multi_comp
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:food","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
  count 
 -------
      1
 (1 row)
 
--- Cross-composite search
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('title', 'guide'), paradedb.term('author', 'alice')]
-);
+-- Cross-composite search using pdb.parse with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+         Table: multi_comp_test
+         Index: idx_multi_comp
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:guide AND author:alice","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
  count 
 -------
      1
@@ -484,37 +751,100 @@ INSERT INTO hybrid_test (name, description, notes, category, tags, keywords) VAL
     ('Widget', 'A useful widget', 'Some notes here', 'tools', 'gadget,useful', 'tool widget'),
     ('Gizmo', 'An amazing gizmo', 'More notes', 'electronics', 'device,tech', 'electronic gizmo');
 -- Test regular column
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+         Table: hybrid_test
+         Index: idx_hybrid
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
  count 
 -------
      1
 (1 row)
 
 -- Test first composite field
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('description:amazing');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+         Table: hybrid_test
+         Index: idx_hybrid
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
  count 
 -------
      1
 (1 row)
 
 -- Test second regular column
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('category:tools');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+         Table: hybrid_test
+         Index: idx_hybrid
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:tools","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
  count 
 -------
      1
 (1 row)
 
 -- Test second composite field
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('tags:tech');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+         Table: hybrid_test
+         Index: idx_hybrid
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:tech","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
  count 
 -------
      1
 (1 row)
 
--- Test cross-type query
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('name', 'widget'), paradedb.term('description', 'useful')]
-);
+-- Test cross-type query using pdb.parse with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+         Table: hybrid_test
+         Index: idx_hybrid
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:widget AND description:useful","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
  count 
 -------
      1
@@ -546,14 +876,40 @@ INSERT INTO articles (title, body, created_at) VALUES
     ('First Post', 'This is the first post', '2024-01-15'),
     ('Second Post', 'This is the second post', '2024-02-20');
 -- Search by title (simple column)
-SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ paradedb.parse('title:First');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on articles
+         Table: articles
+         Index: idx_articles
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:First","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
  title_search 
 --------------
             1
 (1 row)
 
 -- Search by title_upper (expression result - uppercase)
-SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ paradedb.parse('title_upper:FIRST');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on articles
+         Table: articles
+         Index: idx_articles
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_upper:FIRST","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
  title_upper_search 
 --------------------
                   1
@@ -590,13 +946,39 @@ SELECT COUNT(*) AS mixed_total FROM mixed_data;
 (1 row)
 
 -- Verify searchable non-NULL values
-SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ paradedb.parse('medium:medium');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on mixed_data
+         Table: mixed_data
+         Index: idx_mixed
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"medium:medium","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
  found_medium 
 --------------
             1
 (1 row)
 
-SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ paradedb.parse('small:tiny');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on mixed_data
+         Table: mixed_data
+         Index: idx_mixed
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"small:tiny","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
  found_tiny 
 ------------
           1
@@ -633,13 +1015,39 @@ SELECT EXISTS (SELECT 1 FROM paradedb.schema('verify_idx') WHERE name = 'second_
 
 -- Verify they work by indexing and searching
 INSERT INTO verify_table (first_field, second_field) VALUES ('hello', 'world');
-SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ paradedb.parse('first_field:hello');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on verify_table
+         Table: verify_table
+         Index: verify_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"first_field:hello","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
  first_field_search 
 --------------------
                   1
 (1 row)
 
-SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ paradedb.parse('second_field:world');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on verify_table
+         Table: verify_table
+         Index: verify_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"second_field:world","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
  second_field_search 
 ---------------------
                    1
@@ -684,13 +1092,39 @@ WHERE name IN ('product_name', 'product_desc', 'product_price');
 -- Insert data and verify it's searchable on each field
 INSERT INTO products_schema (product_name, product_desc, product_price) VALUES ('TestProduct', 'TestDescription', 99.99);
 -- Search each field to prove it was indexed
-SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ paradedb.parse('product_name:TestProduct');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on products_schema
+         Table: products_schema
+         Index: idx_products_schema
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_name:TestProduct","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
  name_search 
 -------------
            1
 (1 row)
 
-SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ paradedb.parse('product_desc:TestDescription');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on products_schema
+         Table: products_schema
+         Index: idx_products_schema
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_desc:TestDescription","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
  desc_search 
 -------------
            1
@@ -713,14 +1147,40 @@ CREATE INDEX idx_tokenized ON tokenized_test USING bm25 (
 ) WITH (key_field='id');
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
 -- Search on the simple tokenizer field (lowercased)
-SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ paradedb.parse('title_simple:running');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on tokenized_test
+         Table: tokenized_test
+         Index: idx_tokenized
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_simple:running","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
  simple_tokenizer_search 
 -------------------------
                        1
 (1 row)
 
 -- Search on the default text field (should also find it)
-SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ paradedb.parse('title:running');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on tokenized_test
+         Table: tokenized_test
+         Index: idx_tokenized
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:running","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
  default_text_search 
 ---------------------
                    1
@@ -743,14 +1203,40 @@ CREATE INDEX idx_ngram ON ngram_test USING bm25 (
 ) WITH (key_field='id');
 INSERT INTO ngram_test (content) VALUES ('PostgreSQL database');
 -- Search with partial match via ngram - 'gres' should match 'PostgreSQL'
-SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ paradedb.parse('content_ngram:gres');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on ngram_test
+         Table: ngram_test
+         Index: idx_ngram
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_ngram:gres","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
  ngram_partial_search 
 ----------------------
                     1
 (1 row)
 
 -- Default text field should NOT match partial 'gres' (no ngram)
-SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ paradedb.parse('content:gres');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on ngram_test
+         Table: ngram_test
+         Index: idx_ngram
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:gres","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
  default_no_partial 
 --------------------
                   0
@@ -775,17 +1261,1211 @@ INSERT INTO stemmer_test (content) VALUES
     ('running quickly'),
     ('he runs fast');
 -- Stemmed search: 'run' should match 'running' and 'runs' (both stem to 'run')
-SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ paradedb.parse('content_stemmed:run');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on stemmer_test
+         Table: stemmer_test
+         Index: idx_stemmer
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_stemmed:run","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
  stemmer_search 
 ----------------
               2
 (1 row)
 
 -- Default text field should NOT match 'run' (no stemming)
-SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ paradedb.parse('content:run');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on stemmer_test
+         Table: stemmer_test
+         Index: idx_stemmer
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:run","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
  default_no_stem 
 -----------------
                0
+(1 row)
+
+------------------------------------------------------------
+-- SMOKE TESTS: Comprehensive feature coverage
+------------------------------------------------------------
+-- Create composite type for smoke tests (using pdb tokenizer types)
+CREATE TYPE smoke_product AS (
+    name TEXT,
+    description TEXT,
+    category pdb.literal  -- keyword tokenizer with fast field
+);
+-- Create table with columns that will be indexed via composite type
+CREATE TABLE smoke_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    category TEXT,
+    rating FLOAT,
+    price NUMERIC,
+    in_stock BOOLEAN
+);
+-- Insert test data
+INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VALUES
+    ('Running Shoes', 'Lightweight running shoes for athletes', 'Footwear', 4.5, 89.99, true),
+    ('Wireless Keyboard', 'Ergonomic wireless keyboard with backlight', 'Electronics', 4.2, 79.99, true),
+    ('Gaming Mouse', 'High precision gaming mouse with RGB', 'Electronics', 4.8, 59.99, true),
+    ('Yoga Mat', 'Non-slip yoga mat for exercise', 'Sports', 4.0, 29.99, true),
+    ('Coffee Maker', 'Automatic drip coffee maker', 'Kitchen', 3.9, 49.99, false),
+    ('Hiking Boots', 'Waterproof hiking boots for trails', 'Footwear', 4.6, 129.99, true),
+    ('Bluetooth Speaker', 'Portable bluetooth speaker waterproof', 'Electronics', 4.3, 39.99, true),
+    ('Tennis Racket', 'Professional tennis racket lightweight', 'Sports', 4.1, 149.99, false);
+-- Create BM25 index on composite type
+-- Numeric fields (rating, price) are automatically fast
+-- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
+CREATE INDEX smoke_idx ON smoke_test
+USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
+WITH (key_field = 'id');
+------------------------------------------------------------
+-- TEST: Scoring with pdb.score()
+------------------------------------------------------------
+\echo '=== TEST: Scoring ==='
+=== TEST: Scoring ===
+-- Basic score (tie-breaker on id)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY score DESC, id;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (pdb.score(id)) DESC, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY score DESC, id;
+ id |     name      |   score   
+----+---------------+-----------
+  1 | Running Shoes | 1.7731597
+(1 row)
+
+-- Score with multiple matches (tie-breaker on id)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (pdb.score(id)) DESC, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id;
+ id |       name        |   score   
+----+-------------------+-----------
+  1 | Running Shoes     | 1.7731597
+  2 | Wireless Keyboard | 1.7731597
+(2 rows)
+
+------------------------------------------------------------
+-- TEST: Snippets with pdb.snippet()
+------------------------------------------------------------
+\echo '=== TEST: Snippets ==='
+=== TEST: Snippets ===
+-- Snippet on field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.snippet(description) as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY id;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, pdb.snippet(description) as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY id;
+ id |                    snippet                    
+----+-----------------------------------------------
+  1 | Lightweight running <b>shoes</b> for athletes
+(1 row)
+
+-- Snippet with custom tags
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.snippet(description, start_tag => '**', end_tag => '**') as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:wireless')
+ORDER BY id;
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:wireless","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, pdb.snippet(description, start_tag => '**', end_tag => '**') as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:wireless')
+ORDER BY id;
+ id |                    snippet                     
+----+------------------------------------------------
+  2 | Ergonomic **wireless** keyboard with backlight
+(1 row)
+
+------------------------------------------------------------
+-- TEST: TopN Scan (ORDER BY with LIMIT)
+------------------------------------------------------------
+\echo '=== TEST: TopN Scan ==='
+=== TEST: TopN Scan ===
+-- Basic TopN with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc, id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- Execute TopN query
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+ id |       name        | rating 
+----+-------------------+--------
+  3 | Gaming Mouse      |    4.8
+  1 | Running Shoes     |    4.5
+  2 | Wireless Keyboard |    4.2
+(3 rows)
+
+-- TopN with score ordering
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 2;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 2
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 2;
+ id |       name        |   score   
+----+-------------------+-----------
+  1 | Running Shoes     | 1.7731597
+  2 | Wireless Keyboard | 1.7731597
+(2 rows)
+
+------------------------------------------------------------
+-- TEST: Aggregates
+------------------------------------------------------------
+\echo '=== TEST: Aggregates ==='
+=== TEST: Aggregates ===
+-- COUNT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+ total 
+-------
+     3
+(1 row)
+
+-- SUM
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: price
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+ total_price 
+-------------
+      179.97
+(1 row)
+
+-- AVG
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: rating
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
+ avg_rating 
+------------
+       4.55
+(1 row)
+
+-- Multiple aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: price, rating
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
+ count | total  | avg_rating | min_price | max_price 
+-------+--------+------------+-----------+-----------
+     5 | 399.95 |       4.48 |     39.99 |    129.99
+(1 row)
+
+------------------------------------------------------------
+-- TEST: GROUP BY with Aggregates
+------------------------------------------------------------
+\echo '=== TEST: GROUP BY ==='
+=== TEST: GROUP BY ===
+-- GROUP BY on field (tie-breaker on category)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.all()
+GROUP BY category
+ORDER BY count DESC, category;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Sort
+   Sort Key: (count(*)) DESC, category
+   ->  HashAggregate
+         Group Key: category
+         ->  Custom Scan (ParadeDB Scan) on smoke_test
+               Table: smoke_test
+               Index: smoke_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, rating
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.all()
+GROUP BY category
+ORDER BY count DESC, category;
+  category   | count |    avg_rating     
+-------------+-------+-------------------
+ Electronics |     3 | 4.433333333333334
+ Footwear    |     2 |              4.55
+ Sports      |     2 |              4.05
+ Kitchen     |     1 |               3.9
+(4 rows)
+
+------------------------------------------------------------
+-- TEST: pdb.agg() Window Function
+------------------------------------------------------------
+\echo '=== TEST: pdb.agg() Window Function ==='
+=== TEST: pdb.agg() Window Function ===
+-- pdb.agg with terms aggregation (requires TopN query)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, category,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+SELECT id, name, category,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+ id |       name        |  category   |                                                                                                        category_facets                                                                                                        
+----+-------------------+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | Running Shoes     | Footwear    | {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Footwear", "doc_count": 2}, {"key": "Sports", "doc_count": 2}, {"key": "Kitchen", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  2 | Wireless Keyboard | Electronics | {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Footwear", "doc_count": 2}, {"key": "Sports", "doc_count": 2}, {"key": "Kitchen", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | Gaming Mouse      | Electronics | {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Footwear", "doc_count": 2}, {"key": "Sports", "doc_count": 2}, {"key": "Kitchen", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(3 rows)
+
+-- pdb.agg with avg aggregation (requires TopN query)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating,
+       pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics')
+ORDER BY id
+LIMIT 3;
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT id, name, rating,
+       pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics')
+ORDER BY id
+LIMIT 3;
+ id |       name        | rating |          avg_rating          
+----+-------------------+--------+------------------------------
+  2 | Wireless Keyboard |    4.2 | {"value": 4.433333333333334}
+  3 | Gaming Mouse      |    4.8 | {"value": 4.433333333333334}
+  7 | Bluetooth Speaker |    4.3 | {"value": 4.433333333333334}
+(3 rows)
+
+-- pdb.agg with stats aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price,
+       pdb.agg('{"stats": {"field": "price"}}'::jsonb) OVER () as price_stats
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+SELECT id, name, price,
+       pdb.agg('{"stats": {"field": "price"}}'::jsonb) OVER () as price_stats
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+ id |       name        | price |                                          price_stats                                          
+----+-------------------+-------+-----------------------------------------------------------------------------------------------
+  1 | Running Shoes     | 89.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
+  2 | Wireless Keyboard | 79.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
+  3 | Gaming Mouse      | 59.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
+(3 rows)
+
+------------------------------------------------------------
+-- TEST: Range Queries with pdb.range()
+------------------------------------------------------------
+\echo '=== TEST: Range Queries ==='
+=== TEST: Range Queries ===
+-- Range on numeric field using PostgreSQL range type
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price FROM smoke_test
+WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
+ORDER BY price, id;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: price, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
+(8 rows)
+
+SELECT id, name, price FROM smoke_test
+WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
+ORDER BY price, id;
+ id |       name        | price 
+----+-------------------+-------
+  3 | Gaming Mouse      | 59.99
+  2 | Wireless Keyboard | 79.99
+  1 | Running Shoes     | 89.99
+(3 rows)
+
+-- Range combined with text search
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
+ORDER BY rating DESC, id;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: rating DESC, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":null,"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, name, rating FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
+ORDER BY rating DESC, id;
+ id |     name      | rating 
+----+---------------+--------
+  6 | Hiking Boots  |    4.6
+  1 | Running Shoes |    4.5
+(2 rows)
+
+------------------------------------------------------------
+-- TEST: Fuzzy Search (parse syntax with ~N for edit distance)
+------------------------------------------------------------
+\echo '=== TEST: Fuzzy Search ==='
+=== TEST: Fuzzy Search ===
+-- Fuzzy search using tantivy parse syntax (~ for fuzzy, ~1 for edit distance 1)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:runnin~1')
+ORDER BY id;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:runnin~1","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:runnin~1')
+ORDER BY id;
+ id | name 
+----+------
+(0 rows)
+
+-- Fuzzy search with more distance (~2 for edit distance 2)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:keyboar~2')
+ORDER BY id;
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:keyboar~2","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:keyboar~2')
+ORDER BY id;
+ id | name 
+----+------
+(0 rows)
+
+------------------------------------------------------------
+-- TEST: Phrase with Slop (parse syntax with ~N for slop)
+------------------------------------------------------------
+\echo '=== TEST: Phrase with Slop ==='
+=== TEST: Phrase with Slop ===
+-- Phrase with slop 0 (exact phrase match) - double quotes for phrase
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"running shoes"')
+ORDER BY id;
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:\"running shoes\"","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"running shoes"')
+ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- Phrase with slop 2 (allows 2 words between terms) - ~2 after phrase for slop
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"lightweight shoes"~2')
+ORDER BY id;
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:\"lightweight shoes\"~2","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"lightweight shoes"~2')
+ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+------------------------------------------------------------
+-- TEST: Mixed Conditions (BM25 + Regular SQL)
+------------------------------------------------------------
+\echo '=== TEST: Mixed Conditions ==='
+=== TEST: Mixed Conditions ===
+-- BM25 search with regular column filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating, in_stock
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
+ORDER BY rating DESC, id;
+                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: rating DESC, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}},"field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}}
+(8 rows)
+
+SELECT id, name, rating, in_stock
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
+ORDER BY rating DESC, id;
+ id |       name        | rating | in_stock 
+----+-------------------+--------+----------
+  3 | Gaming Mouse      |    4.8 | t
+  7 | Bluetooth Speaker |    4.3 | t
+  2 | Wireless Keyboard |    4.2 | t
+(3 rows)
+
+-- BM25 search with price range
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
+ORDER BY price, id;
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: price, id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0},"is_datetime":false}}]}}
+(8 rows)
+
+SELECT id, name, price
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
+ORDER BY price, id;
+ id |     name      | price  
+----+---------------+--------
+  1 | Running Shoes |  89.99
+  6 | Hiking Boots  | 129.99
+(2 rows)
+
+-- BM25 search with IN clause
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, category
+FROM smoke_test
+WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
+ORDER BY id;
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics","is_datetime":false},{"field":"category","value":"Footwear","is_datetime":false}]}}]}}
+(8 rows)
+
+SELECT id, name, category
+FROM smoke_test
+WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
+ORDER BY id;
+ id |       name        |  category   
+----+-------------------+-------------
+  1 | Running Shoes     | Footwear
+  2 | Wireless Keyboard | Electronics
+  3 | Gaming Mouse      | Electronics
+  6 | Hiking Boots      | Footwear
+  7 | Bluetooth Speaker | Electronics
+(5 rows)
+
+------------------------------------------------------------
+-- TEST: EXPLAIN Plan Verification
+------------------------------------------------------------
+\echo '=== TEST: EXPLAIN Plans ==='
+=== TEST: EXPLAIN Plans ===
+-- NormalScanExecState / MixedFastFieldExecState - basic search
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes');
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on smoke_test
+   Table: smoke_test
+   Index: smoke_idx
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes","lenient":null,"conjunction_mode":null}}}}
+(6 rows)
+
+-- TopNScanExecState - search with ORDER BY score DESC and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 3;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- TopNScanExecState - search with ORDER BY fast field and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc, id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- ParadeDB Aggregate Scan - aggregate query with fast fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics');
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+-- Verify TopN with pdb.agg window function
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+------------------------------------------------------------
+-- TEST: Field existence with pdb.exists()
+------------------------------------------------------------
+\echo '=== TEST: Field Existence ==='
+=== TEST: Field Existence ===
+-- Check field existence using pdb.exists() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE category @@@ pdb.exists()
+ORDER BY id;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"category"}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE category @@@ pdb.exists()
+ORDER BY id;
+ id |       name        
+----+-------------------
+  1 | Running Shoes
+  2 | Wireless Keyboard
+  3 | Gaming Mouse
+  4 | Yoga Mat
+  5 | Coffee Maker
+  6 | Hiking Boots
+  7 | Bluetooth Speaker
+  8 | Tennis Racket
+(8 rows)
+
+------------------------------------------------------------
+-- TEST: pdb functions on composite fields
+------------------------------------------------------------
+\echo '=== TEST: pdb functions on composite fields ==='
+=== TEST: pdb functions on composite fields ===
+-- pdb.term() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.match() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER BY id;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.regex() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORDER BY id;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*shoes.*"}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.fuzzy_term() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance => 1) ORDER BY id;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"name","value":"runnin","distance":1,"transposition_cost_one":null,"prefix":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance => 1) ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.phrase() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes') ORDER BY id;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes') ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.phrase_prefix() on composite field (takes array of terms)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"phrase_prefix":{"field":"description","phrases":["lightweight","run"],"max_expansions":null}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.range() on numeric field (not composite, but verify it works alongside)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":{"included":5.0},"is_datetime":false}}}}
+(8 rows)
+
+SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
+ id |       name        | rating 
+----+-------------------+--------
+  1 | Running Shoes     |    4.5
+  2 | Wireless Keyboard |    4.2
+  3 | Gaming Mouse      |    4.8
+  4 | Yoga Mat          |      4
+  6 | Hiking Boots      |    4.6
+  7 | Bluetooth Speaker |    4.3
+  8 | Tennis Racket     |    4.1
+(7 rows)
+
+-- Multiple pdb functions combined with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
+ORDER BY id;
+                                                                                                                                                          QUERY PLAN                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+(8 rows)
+
+SELECT id, name FROM smoke_test
+WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
+ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+(1 row)
+
+-- pdb.term() with different composite fields (category uses pdb.literal - case sensitive)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear","is_datetime":false}}}}
+(8 rows)
+
+SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
+ id |     name      
+----+---------------
+  1 | Running Shoes
+  6 | Hiking Boots
+(2 rows)
+
+------------------------------------------------------------
+-- TEST: TopN queries with pdb functions on composite fields
+------------------------------------------------------------
+\echo '=== TEST: TopN with pdb functions on composite fields ==='
+=== TEST: TopN with pdb functions on composite fields ===
+-- TopN with pdb.term() on composite field, ORDER BY score
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('shoes')
+ORDER BY score DESC, id LIMIT 3;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
+(9 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('shoes')
+ORDER BY score DESC, id LIMIT 3;
+ id |     name      |   score   
+----+---------------+-----------
+  1 | Running Shoes | 1.7917595
+(1 row)
+
+-- TopN with pdb.match() on composite field, ORDER BY rating (fast field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
+ORDER BY rating DESC, id LIMIT 3;
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc, id asc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless OR shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT id, name, rating
+FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
+ORDER BY rating DESC, id LIMIT 3;
+ id |       name        | rating 
+----+-------------------+--------
+  1 | Running Shoes     |    4.5
+  2 | Wireless Keyboard |    4.2
+(2 rows)
+
+-- TopN with pdb.regex() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
+ORDER BY score DESC, id LIMIT 2;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 2
+         Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*boot.*"}}}}
+(9 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
+ORDER BY score DESC, id LIMIT 2;
+ id |     name     | score 
+----+--------------+-------
+  6 | Hiking Boots |     1
+(1 row)
+
+-- TopN with multiple composite field conditions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
+ORDER BY score DESC, id LIMIT 2;
+                                                                                                                                                          QUERY PLAN                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on smoke_test
+         Table: smoke_test
+         Index: smoke_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 2
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+(9 rows)
+
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
+ORDER BY score DESC, id LIMIT 2;
+ id |       name        |   score   
+----+-------------------+-----------
+  2 | Wireless Keyboard | 3.5649192
 (1 row)
 
 \i common/composite_cleanup.sql

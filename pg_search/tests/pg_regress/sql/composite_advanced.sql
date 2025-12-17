@@ -41,15 +41,16 @@ SELECT COUNT(*) AS segment_count FROM paradedb.index_info('idx_parallel');
 SELECT SUM(num_docs) AS total_docs FROM paradedb.index_info('idx_parallel');
 
 -- Verify search works on parallel-built index
-SELECT COUNT(*) FROM parallel_test WHERE id @@@ paradedb.parse('f1:field1_5000');
-SELECT COUNT(*) FROM parallel_test WHERE id @@@ paradedb.parse('f2:field2_1');
-SELECT COUNT(*) FROM parallel_test WHERE id @@@ paradedb.parse('f3:field3_35000');
+-- Note: EXPLAIN omitted for parallel queries as plans vary with parallel workers
+SELECT COUNT(*) FROM parallel_test WHERE id @@@ pdb.parse('f1:field1_5000');
+SELECT COUNT(*) FROM parallel_test WHERE id @@@ pdb.parse('f2:field2_1');
+SELECT COUNT(*) FROM parallel_test WHERE id @@@ pdb.parse('f3:field3_35000');
 
 -- Verify bulk search works (confirms parallel build indexed all rows correctly)
 SELECT COUNT(*) AS rows_1_to_100 FROM parallel_test
-WHERE id @@@ paradedb.parse('f1:field1_1 OR f1:field1_50 OR f1:field1_100');
+WHERE id @@@ pdb.parse('f1:field1_1 OR f1:field1_50 OR f1:field1_100');
 SELECT COUNT(*) AS rows_high_range FROM parallel_test
-WHERE id @@@ paradedb.parse('f1:field1_34998 OR f1:field1_34999 OR f1:field1_35000');
+WHERE id @@@ pdb.parse('f1:field1_34998 OR f1:field1_34999 OR f1:field1_35000');
 
 -- Reset parallel settings
 SET max_parallel_workers_per_gather = 0;
@@ -87,19 +88,29 @@ INSERT INTO mvcc_test (content) VALUES ('unique_epsilon_new');
 -- DO NOT VACUUM - forces executor to check heap visibility
 
 -- Test 1: Deleted row's content should NOT be visible
-SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ paradedb.parse('content:unique_beta_two');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_beta_two');
+SELECT COUNT(*) AS deleted_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_beta_two');
 
 -- Test 2: Updated row's OLD content should NOT be visible
-SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ paradedb.parse('content:unique_alpha_one');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_alpha_one');
+SELECT COUNT(*) AS old_content_not_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_alpha_one');
 
 -- Test 3: Updated row's NEW content SHOULD be visible
-SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ paradedb.parse('content:unique_delta_updated');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_delta_updated');
+SELECT COUNT(*) AS new_content_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_delta_updated');
 
 -- Test 4: Unchanged row SHOULD still be visible
-SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ paradedb.parse('content:unique_gamma_three');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_gamma_three');
+SELECT COUNT(*) AS unchanged_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_gamma_three');
 
 -- Test 5: Newly inserted row SHOULD be visible
-SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ paradedb.parse('content:unique_epsilon_new');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_epsilon_new');
+SELECT COUNT(*) AS new_row_visible FROM mvcc_test WHERE id @@@ pdb.parse('content:unique_epsilon_new');
 
 -- Test 6: Count all visible rows (should be 3)
 SELECT COUNT(*) AS total_visible FROM mvcc_test;
@@ -139,25 +150,35 @@ CREATE INDEX idx_catchup ON catchup_test USING bm25 (
     id, (ROW(content)::catchup_comp)
 ) WITH (key_field='id');
 
--- Verify index structure via index_info (should have at least 1 segment)
+-- Verify index structure via paradedb.index_info (should have at least 1 segment)
 SELECT COUNT(*) AS segment_count FROM paradedb.index_info('idx_catchup');
 
 -- Verify index reflects current state, not original state
 
 -- Modified row should have new content indexed
-SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ paradedb.parse('content:modified_one');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('content:modified_one');
+SELECT COUNT(*) AS modified_found FROM catchup_test WHERE id @@@ pdb.parse('content:modified_one');
 
 -- Original content should NOT be found
-SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ paradedb.parse('content:original_one');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_one');
+SELECT COUNT(*) AS original_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_one');
 
 -- Deleted row should not be in index
-SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ paradedb.parse('content:original_two');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_two');
+SELECT COUNT(*) AS deleted_not_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_two');
 
 -- Newly inserted row should be in index
-SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ paradedb.parse('content:inserted_six');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('content:inserted_six');
+SELECT COUNT(*) AS inserted_found FROM catchup_test WHERE id @@@ pdb.parse('content:inserted_six');
 
 -- Unchanged rows should be in index
-SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ paradedb.parse('content:original_three');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_three');
+SELECT COUNT(*) AS unchanged_found FROM catchup_test WHERE id @@@ pdb.parse('content:original_three');
 
 -- Total visible rows
 SELECT COUNT(*) AS total_rows FROM catchup_test;
@@ -166,13 +187,17 @@ SELECT COUNT(*) AS total_rows FROM catchup_test;
 -- TEST: Fast fields configuration with 50 composite fields
 ------------------------------------------------------------
 
--- Create composite type with 50 fields (40 text + 10 numeric)
--- This stress tests fast field configuration with many composite-derived field names
+-- Create composite type with 50 fields (40 literal/keyword + 10 numeric)
+-- Uses pdb.literal for fast keyword fields (v2 API), numeric fields are automatically fast
 CREATE TYPE fast_comp_50 AS (
-    t01 TEXT, t02 TEXT, t03 TEXT, t04 TEXT, t05 TEXT, t06 TEXT, t07 TEXT, t08 TEXT, t09 TEXT, t10 TEXT,
-    t11 TEXT, t12 TEXT, t13 TEXT, t14 TEXT, t15 TEXT, t16 TEXT, t17 TEXT, t18 TEXT, t19 TEXT, t20 TEXT,
-    t21 TEXT, t22 TEXT, t23 TEXT, t24 TEXT, t25 TEXT, t26 TEXT, t27 TEXT, t28 TEXT, t29 TEXT, t30 TEXT,
-    t31 TEXT, t32 TEXT, t33 TEXT, t34 TEXT, t35 TEXT, t36 TEXT, t37 TEXT, t38 TEXT, t39 TEXT, t40 TEXT,
+    t01 pdb.literal, t02 pdb.literal, t03 pdb.literal, t04 pdb.literal, t05 pdb.literal,
+    t06 pdb.literal, t07 pdb.literal, t08 pdb.literal, t09 pdb.literal, t10 pdb.literal,
+    t11 pdb.literal, t12 pdb.literal, t13 pdb.literal, t14 pdb.literal, t15 pdb.literal,
+    t16 pdb.literal, t17 pdb.literal, t18 pdb.literal, t19 pdb.literal, t20 pdb.literal,
+    t21 pdb.literal, t22 pdb.literal, t23 pdb.literal, t24 pdb.literal, t25 pdb.literal,
+    t26 pdb.literal, t27 pdb.literal, t28 pdb.literal, t29 pdb.literal, t30 pdb.literal,
+    t31 pdb.literal, t32 pdb.literal, t33 pdb.literal, t34 pdb.literal, t35 pdb.literal,
+    t36 pdb.literal, t37 pdb.literal, t38 pdb.literal, t39 pdb.literal, t40 pdb.literal,
     n01 NUMERIC, n02 NUMERIC, n03 NUMERIC, n04 NUMERIC, n05 NUMERIC,
     n06 NUMERIC, n07 NUMERIC, n08 NUMERIC, n09 NUMERIC, n10 NUMERIC
 );
@@ -187,28 +212,12 @@ CREATE TABLE fast_test_50 (
     n06 NUMERIC, n07 NUMERIC, n08 NUMERIC, n09 NUMERIC, n10 NUMERIC
 );
 
--- Create index with fast fields enabled for ALL 50 composite-derived field names
+-- Create index with fast fields via v2 API (pdb.literal in composite type)
 CREATE INDEX idx_fast_50 ON fast_test_50 USING bm25 (
     id, (ROW(t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,
              t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t40,
              n01,n02,n03,n04,n05,n06,n07,n08,n09,n10)::fast_comp_50)
-) WITH (
-    key_field='id',
-    text_fields='{
-        "t01": {"fast": true}, "t02": {"fast": true}, "t03": {"fast": true}, "t04": {"fast": true}, "t05": {"fast": true},
-        "t06": {"fast": true}, "t07": {"fast": true}, "t08": {"fast": true}, "t09": {"fast": true}, "t10": {"fast": true},
-        "t11": {"fast": true}, "t12": {"fast": true}, "t13": {"fast": true}, "t14": {"fast": true}, "t15": {"fast": true},
-        "t16": {"fast": true}, "t17": {"fast": true}, "t18": {"fast": true}, "t19": {"fast": true}, "t20": {"fast": true},
-        "t21": {"fast": true}, "t22": {"fast": true}, "t23": {"fast": true}, "t24": {"fast": true}, "t25": {"fast": true},
-        "t26": {"fast": true}, "t27": {"fast": true}, "t28": {"fast": true}, "t29": {"fast": true}, "t30": {"fast": true},
-        "t31": {"fast": true}, "t32": {"fast": true}, "t33": {"fast": true}, "t34": {"fast": true}, "t35": {"fast": true},
-        "t36": {"fast": true}, "t37": {"fast": true}, "t38": {"fast": true}, "t39": {"fast": true}, "t40": {"fast": true}
-    }',
-    numeric_fields='{
-        "n01": {"fast": true}, "n02": {"fast": true}, "n03": {"fast": true}, "n04": {"fast": true}, "n05": {"fast": true},
-        "n06": {"fast": true}, "n07": {"fast": true}, "n08": {"fast": true}, "n09": {"fast": true}, "n10": {"fast": true}
-    }'
-);
+) WITH (key_field='id');
 
 -- Insert test data with values in first, middle, and last fields
 INSERT INTO fast_test_50 (t01, t20, t40, n01, n05, n10) VALUES
@@ -217,23 +226,39 @@ INSERT INTO fast_test_50 (t01, t20, t40, n01, n05, n10) VALUES
     ('first_text', 'other', 'delta', 200.00, 250.00, 300.00);
 
 -- Verify search works on first text field
-SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ paradedb.parse('t01:first_text');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first_text');
+SELECT COUNT(*) AS t01_count FROM fast_test_50 WHERE id @@@ pdb.parse('t01:first_text');
 
 -- Verify search works on middle text field
-SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ paradedb.parse('t20:middle_text');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middle_text');
+SELECT COUNT(*) AS t20_count FROM fast_test_50 WHERE id @@@ pdb.parse('t20:middle_text');
 
 -- Verify search works on last text field
-SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ paradedb.parse('t40:last_text');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_text');
+SELECT COUNT(*) AS t40_count FROM fast_test_50 WHERE id @@@ pdb.parse('t40:last_text');
 
 -- Test ordering by first numeric field (n01)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t01, n01 FROM fast_test_50
-WHERE id @@@ paradedb.parse('t01:first_text OR t01:alpha')
+WHERE id @@@ pdb.parse('t01:first_text OR t01:alpha')
+ORDER BY n01
+LIMIT 3;
+SELECT t01, n01 FROM fast_test_50
+WHERE id @@@ pdb.parse('t01:first_text OR t01:alpha')
 ORDER BY n01
 LIMIT 3;
 
 -- Test ordering by last numeric field (n10) with paradedb search
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t01, n10 FROM fast_test_50
-WHERE id @@@ paradedb.parse('t01:first_text OR t01:alpha')
+WHERE id @@@ pdb.parse('t01:first_text OR t01:alpha')
+ORDER BY n10 DESC
+LIMIT 2;
+SELECT t01, n10 FROM fast_test_50
+WHERE id @@@ pdb.parse('t01:first_text OR t01:alpha')
 ORDER BY n10 DESC
 LIMIT 2;
 
@@ -293,9 +318,17 @@ BEGIN
 END $$;
 
 -- Verify search works on first, middle, and last fields
-SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ paradedb.parse('f001:first_field');
-SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ paradedb.parse('f250:middle_field');
-SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ paradedb.parse('f500:last_field');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f001:first_field');
+SELECT COUNT(*) AS first_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f001:first_field');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f250:middle_field');
+SELECT COUNT(*) AS middle_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f250:middle_field');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f500:last_field');
+SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse('f500:last_field');
 
 ------------------------------------------------------------
 -- TEST: Dual composite field limit (799 + 800 = 1599 fields)
@@ -387,10 +420,107 @@ END $$;
 INSERT INTO dual_comp_test (a0001, a0400, a0799, b0001, b0400, b0800)
 VALUES ('first_a', 'mid_a', 'last_a', 'first_b', 'mid_b', 'last_b');
 
--- Test search on both composite types
-SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ paradedb.parse('a0001:first_a');
-SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ paradedb.parse('a0799:last_a');
-SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ paradedb.parse('b0001:first_b');
-SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ paradedb.parse('b0800:last_b');
+-- Test search on both composite types using pdb.parse
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
+SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0799:last_a');
+SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0799:last_a');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
+SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0800:last_b');
+SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0800:last_b');
+
+------------------------------------------------------------
+-- TEST: pdb functions on composite fields (field @@@ pdb.function())
+------------------------------------------------------------
+
+-- pdb.term() on composite field from type A
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
+SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
+
+-- pdb.term() on composite field from type B
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
+SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
+
+-- pdb.match() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a');
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a');
+
+-- pdb.regex() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0800 @@@ pdb.regex('last.*');
+SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0800 @@@ pdb.regex('last.*');
+
+-- Test pdb functions on MVCC test table composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
+SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
+SELECT COUNT(*) AS mvcc_match FROM mvcc_test WHERE content @@@ pdb.match('unique_delta_updated');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
+SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique_.*_new');
+
+-- Test pdb functions on parallel test table composite fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
+SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
+SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('field2_500');
+
+-- Test pdb functions on fast fields table
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
+SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
+SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
+
+------------------------------------------------------------
+-- TEST: TopN queries with pdb functions on composite fields
+------------------------------------------------------------
+
+-- TopN with pdb.term() on composite field, ORDER BY score
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, t01, pdb.score(id) as score
+FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
+ORDER BY score DESC, id LIMIT 2;
+SELECT id, t01, pdb.score(id) as score
+FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
+ORDER BY score DESC, id LIMIT 2;
+
+-- TopN with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, t01, n01
+FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
+ORDER BY n01 DESC, id LIMIT 3;
+SELECT id, t01, n01
+FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
+ORDER BY n01 DESC, id LIMIT 3;
+
+-- TopN with pdb functions on parallel test (large table)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.score(id) as score
+FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
+ORDER BY score DESC, id LIMIT 1;
+SELECT id, pdb.score(id) as score
+FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
+ORDER BY score DESC, id LIMIT 1;
 
 \i common/composite_advanced_cleanup.sql

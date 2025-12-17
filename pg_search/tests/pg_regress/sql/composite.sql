@@ -34,10 +34,14 @@ INSERT INTO products (name, description, price) VALUES ('Gadget', 'An amazing ga
 INSERT INTO products (name, description, price) VALUES ('Gizmo', 'A fantastic gizmo', 39.99);
 
 -- Query on composite field - search by name
-SELECT COUNT(*) FROM products WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
 
 -- Query on composite field - search by description
-SELECT COUNT(*) FROM products WHERE id @@@ paradedb.parse('description:amazing');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
+SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
@@ -77,8 +81,13 @@ CREATE INDEX idx_large ON large_table USING bm25 (id, (ROW(
 
 INSERT INTO large_table (field_1, field_20, field_35) VALUES ('alpha', 'beta', 'gamma');
 
-SELECT COUNT(*) FROM large_table WHERE id @@@ paradedb.parse('field_1:alpha');
-SELECT COUNT(*) FROM large_table WHERE id @@@ paradedb.parse('field_35:gamma');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
+SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
 
 ------------------------------------------------------------
 -- TEST: Composite type with 100 fields
@@ -110,9 +119,17 @@ END $$;
 
 INSERT INTO huge_table (f001, f050, f100) VALUES ('first_field', 'middle_field', 'last_field');
 
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f001:first_field');
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f050:middle_field');
-SELECT COUNT(*) FROM huge_table WHERE id @@@ paradedb.parse('f100:last_field');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
+SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
 
 ------------------------------------------------------------
 -- TEST: Anonymous ROW expressions are rejected (ERROR expected)
@@ -276,7 +293,9 @@ INSERT INTO nullable_test (name, description, price) VALUES ('Product B', NULL, 
 INSERT INTO nullable_test (name, description, price) VALUES ('Product C', 'Another desc', NULL);
 
 -- Should find non-NULL fields
-SELECT COUNT(*) FROM nullable_test WHERE id @@@ paradedb.parse('name:"Product C"');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
+SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 
 ------------------------------------------------------------
 -- TEST: REINDEX with composite types
@@ -301,7 +320,9 @@ INSERT INTO reindex_test (name, description, price) VALUES ('Widget', 'A useful 
 REINDEX INDEX idx_reindex;
 
 -- Verify data is still searchable after REINDEX
-SELECT COUNT(*) FROM reindex_test WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
+SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
 
 ------------------------------------------------------------
 -- TEST: Large values in composite fields
@@ -327,7 +348,10 @@ INSERT INTO large_val_test (title, content, metadata) VALUES (
     repeat('metadata value ', 50)
 );
 
-SELECT COUNT(*) FROM large_val_test WHERE id @@@ paradedb.parse('title:Large');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
+SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
+
 SELECT COUNT(*) FROM large_val_test;
 
 ------------------------------------------------------------
@@ -356,18 +380,30 @@ INSERT INTO full_pipeline_test (name, description, category, tags) VALUES
     ('Desk', 'Standing desk', 'Furniture', 'office workspace');
 
 -- Test search on each field
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('name:Laptop');
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('description:Wireless');
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('category:Electronics');
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.parse('tags:office');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
 
--- Test complex queries with OR and AND
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.boolean(
-    should := ARRAY[paradedb.term('category', 'books'), paradedb.term('tags', 'computer')]
-);
-SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('category', 'electronics'), paradedb.term('tags', 'accessories')]
-);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
+
+-- Test complex queries with OR and AND using pdb.parse with tantivy syntax
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
+SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
 
 -- Verify total rows
 SELECT COUNT(*) FROM full_pipeline_test;
@@ -398,15 +434,26 @@ INSERT INTO multi_comp_test (title, body, author, category) VALUES
     ('Cooking Tips', 'How to make pasta', 'Bob', 'food');
 
 -- Search works on fields from BOTH composites
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('title:PostgreSQL');
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('body:pasta');
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('author:Alice');
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.parse('category:food');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
 
--- Cross-composite search
-SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('title', 'guide'), paradedb.term('author', 'alice')]
-);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
+
+-- Cross-composite search using pdb.parse with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
+SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
 
 ------------------------------------------------------------
 -- TEST: Complex hybrid index (composite + regular columns)
@@ -438,21 +485,29 @@ INSERT INTO hybrid_test (name, description, notes, category, tags, keywords) VAL
     ('Gizmo', 'An amazing gizmo', 'More notes', 'electronics', 'device,tech', 'electronic gizmo');
 
 -- Test regular column
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('name:Widget');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
 
 -- Test first composite field
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('description:amazing');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
 
 -- Test second regular column
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('category:tools');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
 
 -- Test second composite field
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.parse('tags:tech');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
 
--- Test cross-type query
-SELECT COUNT(*) FROM hybrid_test WHERE id @@@ paradedb.boolean(
-    must := ARRAY[paradedb.term('name', 'widget'), paradedb.term('description', 'useful')]
-);
+-- Test cross-type query using pdb.parse with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
+SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
 
 ------------------------------------------------------------
 -- TEST: Mixed expressions (columns + IMMUTABLE functions)
@@ -485,10 +540,14 @@ INSERT INTO articles (title, body, created_at) VALUES
     ('Second Post', 'This is the second post', '2024-02-20');
 
 -- Search by title (simple column)
-SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ paradedb.parse('title:First');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
+SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
 
 -- Search by title_upper (expression result - uppercase)
-SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ paradedb.parse('title_upper:FIRST');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
+SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
 
 ------------------------------------------------------------
 -- TEST: Mixed data sizes (empty, small, medium, large, NULL)
@@ -522,8 +581,13 @@ INSERT INTO mixed_data (small, medium, large) VALUES
 SELECT COUNT(*) AS mixed_total FROM mixed_data;
 
 -- Verify searchable non-NULL values
-SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ paradedb.parse('medium:medium');
-SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ paradedb.parse('small:tiny');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
+SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
+SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
 
 ------------------------------------------------------------
 -- TEST: Composite fields exist in index schema
@@ -552,8 +616,13 @@ SELECT EXISTS (SELECT 1 FROM paradedb.schema('verify_idx') WHERE name = 'second_
 -- Verify they work by indexing and searching
 INSERT INTO verify_table (first_field, second_field) VALUES ('hello', 'world');
 
-SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ paradedb.parse('first_field:hello');
-SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ paradedb.parse('second_field:world');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
+SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
+SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
 
 ------------------------------------------------------------
 -- TEST: Comprehensive schema verification with search
@@ -591,8 +660,13 @@ WHERE name IN ('product_name', 'product_desc', 'product_price');
 INSERT INTO products_schema (product_name, product_desc, product_price) VALUES ('TestProduct', 'TestDescription', 99.99);
 
 -- Search each field to prove it was indexed
-SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ paradedb.parse('product_name:TestProduct');
-SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ paradedb.parse('product_desc:TestDescription');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
+SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
+SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
 
 ------------------------------------------------------------
 -- TEST: Tokenizer types in composite fields (pdb.simple)
@@ -616,10 +690,14 @@ CREATE INDEX idx_tokenized ON tokenized_test USING bm25 (
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
 
 -- Search on the simple tokenizer field (lowercased)
-SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ paradedb.parse('title_simple:running');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
+SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
 
 -- Search on the default text field (should also find it)
-SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ paradedb.parse('title:running');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
+SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
 
 ------------------------------------------------------------
 -- TEST: Ngram tokenizer in composite fields
@@ -643,10 +721,14 @@ CREATE INDEX idx_ngram ON ngram_test USING bm25 (
 INSERT INTO ngram_test (content) VALUES ('PostgreSQL database');
 
 -- Search with partial match via ngram - 'gres' should match 'PostgreSQL'
-SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ paradedb.parse('content_ngram:gres');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
+SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
 
 -- Default text field should NOT match partial 'gres' (no ngram)
-SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ paradedb.parse('content:gres');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
+SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
 
 ------------------------------------------------------------
 -- TEST: Stemmer tokenizer in composite fields
@@ -672,9 +754,493 @@ INSERT INTO stemmer_test (content) VALUES
     ('he runs fast');
 
 -- Stemmed search: 'run' should match 'running' and 'runs' (both stem to 'run')
-SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ paradedb.parse('content_stemmed:run');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
+SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
 
 -- Default text field should NOT match 'run' (no stemming)
-SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ paradedb.parse('content:run');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
+SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
+
+------------------------------------------------------------
+-- SMOKE TESTS: Comprehensive feature coverage
+------------------------------------------------------------
+
+-- Create composite type for smoke tests (using pdb tokenizer types)
+CREATE TYPE smoke_product AS (
+    name TEXT,
+    description TEXT,
+    category pdb.literal  -- keyword tokenizer with fast field
+);
+
+-- Create table with columns that will be indexed via composite type
+CREATE TABLE smoke_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    category TEXT,
+    rating FLOAT,
+    price NUMERIC,
+    in_stock BOOLEAN
+);
+
+-- Insert test data
+INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VALUES
+    ('Running Shoes', 'Lightweight running shoes for athletes', 'Footwear', 4.5, 89.99, true),
+    ('Wireless Keyboard', 'Ergonomic wireless keyboard with backlight', 'Electronics', 4.2, 79.99, true),
+    ('Gaming Mouse', 'High precision gaming mouse with RGB', 'Electronics', 4.8, 59.99, true),
+    ('Yoga Mat', 'Non-slip yoga mat for exercise', 'Sports', 4.0, 29.99, true),
+    ('Coffee Maker', 'Automatic drip coffee maker', 'Kitchen', 3.9, 49.99, false),
+    ('Hiking Boots', 'Waterproof hiking boots for trails', 'Footwear', 4.6, 129.99, true),
+    ('Bluetooth Speaker', 'Portable bluetooth speaker waterproof', 'Electronics', 4.3, 39.99, true),
+    ('Tennis Racket', 'Professional tennis racket lightweight', 'Sports', 4.1, 149.99, false);
+
+-- Create BM25 index on composite type
+-- Numeric fields (rating, price) are automatically fast
+-- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
+CREATE INDEX smoke_idx ON smoke_test
+USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
+WITH (key_field = 'id');
+
+------------------------------------------------------------
+-- TEST: Scoring with pdb.score()
+------------------------------------------------------------
+\echo '=== TEST: Scoring ==='
+
+-- Basic score (tie-breaker on id)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY score DESC, id;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY score DESC, id;
+
+-- Score with multiple matches (tie-breaker on id)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id;
+
+------------------------------------------------------------
+-- TEST: Snippets with pdb.snippet()
+------------------------------------------------------------
+\echo '=== TEST: Snippets ==='
+
+-- Snippet on field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.snippet(description) as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY id;
+SELECT id, pdb.snippet(description) as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes')
+ORDER BY id;
+
+-- Snippet with custom tags
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.snippet(description, start_tag => '**', end_tag => '**') as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:wireless')
+ORDER BY id;
+SELECT id, pdb.snippet(description, start_tag => '**', end_tag => '**') as snippet
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:wireless')
+ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: TopN Scan (ORDER BY with LIMIT)
+------------------------------------------------------------
+\echo '=== TEST: TopN Scan ==='
+
+-- Basic TopN with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+
+-- Execute TopN query
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+
+-- TopN with score ordering
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 2;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 2;
+
+------------------------------------------------------------
+-- TEST: Aggregates
+------------------------------------------------------------
+\echo '=== TEST: Aggregates ==='
+
+-- COUNT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+
+-- SUM
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
+
+-- AVG
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
+SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
+
+-- Multiple aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
+SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
+
+------------------------------------------------------------
+-- TEST: GROUP BY with Aggregates
+------------------------------------------------------------
+\echo '=== TEST: GROUP BY ==='
+
+-- GROUP BY on field (tie-breaker on category)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.all()
+GROUP BY category
+ORDER BY count DESC, category;
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.all()
+GROUP BY category
+ORDER BY count DESC, category;
+
+------------------------------------------------------------
+-- TEST: pdb.agg() Window Function
+------------------------------------------------------------
+\echo '=== TEST: pdb.agg() Window Function ==='
+
+-- pdb.agg with terms aggregation (requires TopN query)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, category,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+SELECT id, name, category,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+
+-- pdb.agg with avg aggregation (requires TopN query)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating,
+       pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics')
+ORDER BY id
+LIMIT 3;
+SELECT id, name, rating,
+       pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics')
+ORDER BY id
+LIMIT 3;
+
+-- pdb.agg with stats aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price,
+       pdb.agg('{"stats": {"field": "price"}}'::jsonb) OVER () as price_stats
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+SELECT id, name, price,
+       pdb.agg('{"stats": {"field": "price"}}'::jsonb) OVER () as price_stats
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+
+------------------------------------------------------------
+-- TEST: Range Queries with pdb.range()
+------------------------------------------------------------
+\echo '=== TEST: Range Queries ==='
+
+-- Range on numeric field using PostgreSQL range type
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price FROM smoke_test
+WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
+ORDER BY price, id;
+SELECT id, name, price FROM smoke_test
+WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
+ORDER BY price, id;
+
+-- Range combined with text search
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
+ORDER BY rating DESC, id;
+SELECT id, name, rating FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
+ORDER BY rating DESC, id;
+
+------------------------------------------------------------
+-- TEST: Fuzzy Search (parse syntax with ~N for edit distance)
+------------------------------------------------------------
+\echo '=== TEST: Fuzzy Search ==='
+
+-- Fuzzy search using tantivy parse syntax (~ for fuzzy, ~1 for edit distance 1)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:runnin~1')
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:runnin~1')
+ORDER BY id;
+
+-- Fuzzy search with more distance (~2 for edit distance 2)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:keyboar~2')
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:keyboar~2')
+ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: Phrase with Slop (parse syntax with ~N for slop)
+------------------------------------------------------------
+\echo '=== TEST: Phrase with Slop ==='
+
+-- Phrase with slop 0 (exact phrase match) - double quotes for phrase
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"running shoes"')
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"running shoes"')
+ORDER BY id;
+
+-- Phrase with slop 2 (allows 2 words between terms) - ~2 after phrase for slop
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"lightweight shoes"~2')
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('description:"lightweight shoes"~2')
+ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: Mixed Conditions (BM25 + Regular SQL)
+------------------------------------------------------------
+\echo '=== TEST: Mixed Conditions ==='
+
+-- BM25 search with regular column filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating, in_stock
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
+ORDER BY rating DESC, id;
+SELECT id, name, rating, in_stock
+FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
+ORDER BY rating DESC, id;
+
+-- BM25 search with price range
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, price
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
+ORDER BY price, id;
+SELECT id, name, price
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
+ORDER BY price, id;
+
+-- BM25 search with IN clause
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, category
+FROM smoke_test
+WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
+ORDER BY id;
+SELECT id, name, category
+FROM smoke_test
+WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
+ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: EXPLAIN Plan Verification
+------------------------------------------------------------
+\echo '=== TEST: EXPLAIN Plans ==='
+
+-- NormalScanExecState / MixedFastFieldExecState - basic search
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes');
+
+-- TopNScanExecState - search with ORDER BY score DESC and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test
+WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
+ORDER BY score DESC, id
+LIMIT 3;
+
+-- TopNScanExecState - search with ORDER BY fast field and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test
+WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
+ORDER BY rating DESC, id
+LIMIT 3;
+
+-- ParadeDB Aggregate Scan - aggregate query with fast fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM smoke_test
+WHERE id @@@ pdb.parse('category:Electronics');
+
+-- Verify TopN with pdb.agg window function
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name,
+       pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
+FROM smoke_test
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+
+------------------------------------------------------------
+-- TEST: Field existence with pdb.exists()
+------------------------------------------------------------
+\echo '=== TEST: Field Existence ==='
+
+-- Check field existence using pdb.exists() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE category @@@ pdb.exists()
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE category @@@ pdb.exists()
+ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: pdb functions on composite fields
+------------------------------------------------------------
+\echo '=== TEST: pdb functions on composite fields ==='
+
+-- pdb.term() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
+
+-- pdb.match() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER BY id;
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER BY id;
+
+-- pdb.regex() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORDER BY id;
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORDER BY id;
+
+-- pdb.fuzzy_term() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance => 1) ORDER BY id;
+SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance => 1) ORDER BY id;
+
+-- pdb.phrase() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes') ORDER BY id;
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes') ORDER BY id;
+
+-- pdb.phrase_prefix() on composite field (takes array of terms)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
+SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
+
+-- pdb.range() on numeric field (not composite, but verify it works alongside)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
+SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
+
+-- Multiple pdb functions combined with AND
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test
+WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
+ORDER BY id;
+SELECT id, name FROM smoke_test
+WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
+ORDER BY id;
+
+-- pdb.term() with different composite fields (category uses pdb.literal - case sensitive)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
+SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
+
+------------------------------------------------------------
+-- TEST: TopN queries with pdb functions on composite fields
+------------------------------------------------------------
+\echo '=== TEST: TopN with pdb functions on composite fields ==='
+
+-- TopN with pdb.term() on composite field, ORDER BY score
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('shoes')
+ORDER BY score DESC, id LIMIT 3;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('shoes')
+ORDER BY score DESC, id LIMIT 3;
+
+-- TopN with pdb.match() on composite field, ORDER BY rating (fast field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, rating
+FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
+ORDER BY rating DESC, id LIMIT 3;
+SELECT id, name, rating
+FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
+ORDER BY rating DESC, id LIMIT 3;
+
+-- TopN with pdb.regex() on composite field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
+ORDER BY score DESC, id LIMIT 2;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
+ORDER BY score DESC, id LIMIT 2;
+
+-- TopN with multiple composite field conditions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
+ORDER BY score DESC, id LIMIT 2;
+SELECT id, name, pdb.score(id) as score
+FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
+ORDER BY score DESC, id LIMIT 2;
 
 \i common/composite_cleanup.sql

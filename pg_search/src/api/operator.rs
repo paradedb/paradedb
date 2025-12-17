@@ -37,6 +37,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
+use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{deparse_expr, locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{
@@ -359,8 +360,28 @@ pub unsafe fn field_name_from_node(
                             }
                         }
                     }
-                    expr_no += 1;
                 }
+
+                // Check if the expression is a RowExpr (composite type like ROW(a,b)::my_type)
+                if let Some(_row_expr) = nodecast!(RowExpr, T_RowExpr, expression) {
+                    let composite_oid = pg_sys::exprType(expression.cast());
+                    let Ok(fields) = get_composite_type_fields(composite_oid) else {
+                        expr_no += 1;
+                        continue;
+                    };
+
+                    // Get the column name from the query's Var and check if it matches
+                    // any field in the composite type
+                    if let Some(var_name) = attname_from_var(heaprel, var) {
+                        for field in &fields {
+                            if field.field_name == var_name.0 {
+                                return Some(FieldName::from(field.field_name.clone()));
+                            }
+                        }
+                    }
+                }
+
+                expr_no += 1;
             }
         }
 

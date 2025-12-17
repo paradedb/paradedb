@@ -146,12 +146,12 @@ jobs:
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features "icu,block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features "block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},icu,block_tracker"
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
 
       # ---------- Start Postgres ----------
       - name: Start Postgres (system)
@@ -174,7 +174,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
 
       - name: Run pg_search Unit Tests (system)
         if: matrix.pg_impl == 'system'
@@ -186,13 +186,13 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
-          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto; then
+          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then
             git diff
             exit 1
           fi

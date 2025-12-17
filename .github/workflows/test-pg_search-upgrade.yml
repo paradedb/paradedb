@@ -105,7 +105,7 @@ jobs:
 
       - name: Compile & install pg_search $PRIOR_PG_SEARCH_VERSION
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -153,7 +153,7 @@ jobs:
 
       - name: Compile & install pg_search
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -181,7 +181,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu
+          RUST_BACKTRACE=1 cargo test --jobs $(nproc)
 
       - name: Print the Postgres Logs
         if: always()

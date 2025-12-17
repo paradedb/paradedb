@@ -208,30 +208,6 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     grep "shared_preload_libraries = 'pg_search,pg_cron'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
-# The pg_search extension requires the ICU library binaries to be installed at runtime. Therefore, we download
-# and install the ICU library binaries in the final stage as well.
-#
-# Download the ICU 76.1 library source and required build tools. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    make \
-    gcc && \
-    wget -q https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz && \
-    rm -rf /var/lib/apt/lists/*
-
-# Compile and install the ICU library and remove the source code to minimize the image size.
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    rm -rf /tmp/icu && \
-    ldconfig && ldconfig # Yes, running it twice
-
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
@@ -244,13 +220,8 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
 # downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
 # extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
-#
-# We also uninstall `wget` and the build tools used for compiling `icu` after adding the PostgreSQL APT repository to the list of sources to
-# minimize the surface area for potential security risks.
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
-    apt-get purge -y build-essential wget make gcc && \
-    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Reset the working directory to the root directory

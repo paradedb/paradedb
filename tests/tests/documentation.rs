@@ -2437,7 +2437,6 @@ fn available_tokenizers(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-
     r#"
     CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description)

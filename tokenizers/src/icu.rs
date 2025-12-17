@@ -8,8 +8,8 @@
  *
  */
 
-use icu_segmenter::WordSegmenter;
 use icu_segmenter::options::WordBreakInvariantOptions;
+use icu_segmenter::WordSegmenter;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2772,7 +2772,6 @@ mod tests {
                 text: "FACOG".into(),
                 position_length: 1,
             },
-
         ];
         assert_eq!(result, expected);
     }

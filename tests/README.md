@@ -33,7 +33,7 @@ cargo pgrx stop --package pg_search
 cargo pgrx install --package pg_search --pg-config /opt/homebrew/opt/postgresql@17/bin/pg_config
 cargo pgrx start --package pg_search
 
-cargo test --package tests 
+cargo test --package tests
 ```
 
 To run a single test, you can use the following command(replace `<testname>` with the test file name without the `.rs` extension):

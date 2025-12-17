@@ -181,7 +181,7 @@ impl TryFrom<i32> for JiebaTypmod {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
         let chinese_convert = parsed
-            .try_get("chinese_convert", 0)
+            .get("chinese_convert")
             .and_then(|p| p.as_str())
             .map(|s| {
                 let lcase: String = s.to_lowercase();

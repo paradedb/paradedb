@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765980535619,
+  "lastUpdate": 1765981384270,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41942,6 +41942,54 @@ window.BENCHMARK_DATA = {
             "value": 109.66341592824092,
             "unit": "median tps",
             "extra": "avg tps: 108.20969735458988, max tps: 166.29465858646464, count: 107446"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e3451094459f2edbc73258d61559f7be9b8aaf7",
+          "message": "fix: vint overflow during indexing (#3789)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nUpgrades Tantivy hash, which contains the fix.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-17T08:06:37-05:00",
+          "tree_id": "2ca657e65db4fd8b5e36ca1f2aa103c6466cce03",
+          "url": "https://github.com/paradedb/paradedb/commit/4e3451094459f2edbc73258d61559f7be9b8aaf7"
+        },
+        "date": 1765981381336,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 549.5290351686278,
+            "unit": "median tps",
+            "extra": "avg tps: 551.1962732010867, max tps: 719.9907442420632, count: 53746"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 604.0506842356967,
+            "unit": "median tps",
+            "extra": "avg tps: 604.967172162545, max tps: 791.945363323871, count: 53746"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.2090143254706,
+            "unit": "median tps",
+            "extra": "avg tps: 86.27384946709063, max tps: 93.35295357818582, count: 53746"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.89042931723944,
+            "unit": "median tps",
+            "extra": "avg tps: 106.6717596927424, max tps: 189.4530073574402, count: 107492"
           }
         ]
       }

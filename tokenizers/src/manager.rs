@@ -651,7 +651,13 @@ impl SearchTokenizer {
             SearchTokenizer::Jieba {
                 chinese_convert,
                 filters: _,
-             } => format!("jieba_convert:{chinese_convert:?}{filters_suffix}"),
+            } => {
+                if let Some(chinese_convert) = chinese_convert {
+                    format!("jieba_convert:{chinese_convert:?}{filters_suffix}")
+                } else {
+                    format!("jieba{filters_suffix}")
+                }
+            }
             SearchTokenizer::UnicodeWordsDeprecated{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
             SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }

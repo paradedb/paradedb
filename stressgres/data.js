@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765947518907,
+  "lastUpdate": 1765948415165,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21936,6 +21936,54 @@ window.BENCHMARK_DATA = {
             "value": 5.668149171712322,
             "unit": "median tps",
             "extra": "avg tps: 5.636862781887404, max tps: 6.569428928609049, count: 56617"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765948412187,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1165.8312144021734,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.0870597628311, max tps: 1228.1700550361568, count: 56446"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1286.44958373094,
+            "unit": "median tps",
+            "extra": "avg tps: 1278.7423764276114, max tps: 1296.5284628265872, count: 56446"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1983.3522004652573,
+            "unit": "median tps",
+            "extra": "avg tps: 1952.6061883056848, max tps: 2147.9342940136407, count: 56446"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.472641490242999,
+            "unit": "median tps",
+            "extra": "avg tps: 5.450264159663824, max tps: 6.883894331368411, count: 56446"
           }
         ]
       }

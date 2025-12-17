@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765924364953,
+  "lastUpdate": 1765946644571,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4478,6 +4478,72 @@ window.BENCHMARK_DATA = {
             "value": 128.54199052319842,
             "unit": "median tps",
             "extra": "avg tps: 150.95010156480586, max tps: 810.1285511985042, count: 54615"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b67454fd05a7c2998360ee17b41dbdaf69053d94",
+          "message": "fix: Skip `Drop` for `BorrowedBuffer` if not in transaction (#3790)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPossibly related to some panics we're seeing in production -- the `Drop`\nimpl should be skipped if we're not in a transaction state.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-16T20:27:14-08:00",
+          "tree_id": "c0e858314842d0a40a44b8aff06b1b176162b48a",
+          "url": "https://github.com/paradedb/paradedb/commit/b67454fd05a7c2998360ee17b41dbdaf69053d94"
+        },
+        "date": 1765946641608,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 608.2406863424378,
+            "unit": "median tps",
+            "extra": "avg tps: 609.904232064372, max tps: 680.3532208175257, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3143.6659839299896,
+            "unit": "median tps",
+            "extra": "avg tps: 3116.6339356061785, max tps: 3169.441969318361, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 599.3285517649629,
+            "unit": "median tps",
+            "extra": "avg tps: 602.0257154683032, max tps: 696.7737908210689, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 512.074242962495,
+            "unit": "median tps",
+            "extra": "avg tps: 512.216903055527, max tps: 535.6542542160777, count: 55301"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3375.225712676047,
+            "unit": "median tps",
+            "extra": "avg tps: 3353.9577286486947, max tps: 3406.7684247617717, count: 110602"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2172.789495161797,
+            "unit": "median tps",
+            "extra": "avg tps: 2155.3495019150123, max tps: 2179.2536743272517, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 108.23469145315815,
+            "unit": "median tps",
+            "extra": "avg tps: 119.11301449803852, max tps: 430.6138299669619, count: 55301"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765997257206,
+  "lastUpdate": 1765997261510,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19448,6 +19448,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.55251641137856, max segment_count: 161.0, count: 57582"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc6ea392a109e1e6b3cb70ffeaeff5643224c388",
+          "message": "chore: Rebase atop Tantivy lazy scoring (#3752)\n\n## What\n\nThis rebases atop https://github.com/paradedb/tantivy/pull/86, which is\na rebase of our patches atop\nhttps://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4\n\n## Why\n\nThis rebase gets us atop\nhttps://github.com/quickwit-oss/tantivy/pull/2726, which is an important\nstep towards fixing a variety of TopN related issues.",
+          "timestamp": "2025-12-17T10:14:23-08:00",
+          "tree_id": "e09f58a3ce2cc9b04bc503d4202994cb935adbf9",
+          "url": "https://github.com/paradedb/paradedb/commit/cc6ea392a109e1e6b3cb70ffeaeff5643224c388"
+        },
+        "date": 1765997258511,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.068802408578858, max cpu: 43.50453, count: 57619"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.75,
+            "unit": "median mem",
+            "extra": "avg mem: 231.63692674345702, max mem: 233.234375, count: 57619"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.450512076014288, max cpu: 33.168808, count: 57619"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.21825293089086, max mem: 171.609375, count: 57619"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49974,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49304.76117252989, max block_count: 52017.0, count: 57619"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.2640622017043, max segment_count: 161.0, count: 57619"
           }
         ]
       }

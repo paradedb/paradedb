@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765997261510,
+  "lastUpdate": 1765998151682,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22596,6 +22596,54 @@ window.BENCHMARK_DATA = {
             "value": 5.409323953892695,
             "unit": "median tps",
             "extra": "avg tps: 5.436792301674596, max tps: 7.690223878258957, count: 55967"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc6ea392a109e1e6b3cb70ffeaeff5643224c388",
+          "message": "chore: Rebase atop Tantivy lazy scoring (#3752)\n\n## What\n\nThis rebases atop https://github.com/paradedb/tantivy/pull/86, which is\na rebase of our patches atop\nhttps://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4\n\n## Why\n\nThis rebase gets us atop\nhttps://github.com/quickwit-oss/tantivy/pull/2726, which is an important\nstep towards fixing a variety of TopN related issues.",
+          "timestamp": "2025-12-17T10:14:23-08:00",
+          "tree_id": "e09f58a3ce2cc9b04bc503d4202994cb935adbf9",
+          "url": "https://github.com/paradedb/paradedb/commit/cc6ea392a109e1e6b3cb70ffeaeff5643224c388"
+        },
+        "date": 1765998148707,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1119.7247168053582,
+            "unit": "median tps",
+            "extra": "avg tps: 1120.106387638634, max tps: 1167.1352447624333, count: 56086"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1253.313640875295,
+            "unit": "median tps",
+            "extra": "avg tps: 1249.9312378065279, max tps: 1266.7944693283646, count: 56086"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1832.3276102199766,
+            "unit": "median tps",
+            "extra": "avg tps: 1812.2887770517536, max tps: 1957.5498885856493, count: 56086"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.494997447185766,
+            "unit": "median tps",
+            "extra": "avg tps: 5.487911487221475, max tps: 7.231344209410009, count: 56086"
           }
         ]
       }

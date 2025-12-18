@@ -95,6 +95,84 @@ WITH agg AS (
 )
 SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
 
+-- =====================================================================
+-- Non-Window Aggregates Wrapped in Functions (Issue #3757)
+-- =====================================================================
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Add a numeric column for aggregate tests
+ALTER TABLE fn_wrapped_agg_logs ADD COLUMN score INTEGER DEFAULT 50;
+UPDATE fn_wrapped_agg_logs SET score = log_id * 10;
+
+-- Recreate index with score column using v2 API
+DROP INDEX fn_wrapped_agg_logs_idx;
+CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
+USING bm25 (log_id, description, (category::pdb.literal), score)
+WITH (key_field = 'log_id');
+
+-- Test 5: pdb.agg() wrapped in jsonb_pretty (non-window)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+-- Test 6: pdb.agg() with -> operator (non-window)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+-- Test 7: pdb.agg() wrapped in COALESCE (non-window)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+-- Test 8: Nested wrappers - jsonb_pretty(COALESCE(pdb.agg(...)))
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+-- Test 9: Standard COUNT(*) wrapped in COALESCE (non-window)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COALESCE(COUNT(*), 0)
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT COALESCE(COUNT(*), 0)
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+-- Test 10: Standard SUM wrapped in COALESCE (non-window)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COALESCE(SUM(score), 0)
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+SELECT COALESCE(SUM(score), 0)
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+
+RESET paradedb.enable_aggregate_custom_scan;
+
 -- Cleanup
 DROP TABLE fn_wrapped_agg_logs CASCADE;
 

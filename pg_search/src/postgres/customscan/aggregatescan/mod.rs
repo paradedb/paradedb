@@ -34,7 +34,6 @@ pub use targetlist::TargetListEntry;
 
 use crate::api::agg_funcoid;
 use crate::gucs;
-use crate::nodecast;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
@@ -345,25 +344,58 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+/// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    use pgrx::pg_guard;
+
     if (*plan).targetlist.is_null() {
         return;
     }
 
-    let targetlist = (*plan).targetlist;
+    // Mutator function to replace Aggref nodes with placeholder FuncExpr
+    #[pg_guard]
+    unsafe extern "C-unwind" fn aggref_mutator(
+        node: *mut pg_sys::Node,
+        _context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
 
-    // First, check if there are any T_Aggref nodes in the target list using list_nth
-    // If not, we can skip the replacement (it's already been done or not needed)
-    let mut has_aggref = false;
+        // If this is an Aggref, replace it with a placeholder FuncExpr
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            let aggref = node as *mut pg_sys::Aggref;
+            return make_placeholder_func_expr(aggref) as *mut pg_sys::Node;
+        }
+
+        // For all other nodes, use the standard mutator to walk children
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = aggref_mutator as usize as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), std::ptr::null_mut())
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), std::ptr::null_mut())
+        }
+    }
+
+    let targetlist = (*plan).targetlist;
     let list_len = pg_sys::list_length(targetlist);
+
+    // Check if there are any Aggref nodes anywhere in the target list
+    let mut has_aggref = false;
     for i in 0..list_len {
         let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
-        if !te.is_null()
-            && !(*te).expr.is_null()
-            && (*(*te).expr).type_ == pg_sys::NodeTag::T_Aggref
-        {
-            has_aggref = true;
-            break;
+        if !te.is_null() && !(*te).expr.is_null() {
+            // Use expression_tree_walker to check for nested Aggrefs
+            if expr_contains_aggref((*te).expr as *mut pg_sys::Node) {
+                has_aggref = true;
+                break;
+            }
         }
     }
 
@@ -371,25 +403,48 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         return;
     }
 
-    // Use list_nth to safely access list elements and build a new list using lappend
+    // Build a new target list with Aggrefs replaced by placeholders
     let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
     for i in 0..list_len {
         let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
-            // Create a flat copy of the target entry
-            let new_te = pg_sys::flatCopyTargetEntry(te);
-            // Replace the T_Aggref with a T_FuncExpr placeholder
-            let funcexpr = make_placeholder_func_expr(aggref);
-            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
-            new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
-        } else {
-            // For non-Aggref entries, just make a flat copy
-            let copied_te = pg_sys::flatCopyTargetEntry(te);
-            new_targetlist = pg_sys::lappend(new_targetlist, copied_te.cast());
-        }
+        let new_te = pg_sys::flatCopyTargetEntry(te);
+
+        // Use the mutator to replace any Aggref nodes in the expression
+        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
+        (*new_te).expr = new_expr as *mut pg_sys::Expr;
+
+        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
     }
 
     (*plan).targetlist = new_targetlist;
+}
+
+/// Check if an expression tree contains any Aggref nodes
+unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            let ctx = &mut *(context as *mut bool);
+            *ctx = true;
+            return true; // Stop walking
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut found = false;
+    walker(node, addr_of_mut!(found).cast());
+    found
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

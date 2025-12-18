@@ -17,7 +17,7 @@ on:
       notebook:
         type: string
         required: false
-        description: Antithesis notebook name (default 'paradedb')
+        description: Antithesis notebook name (default 'parade')
       emails:
         type: string
         required: false
@@ -105,7 +105,7 @@ jobs:
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
         with:
-          notebook_name: ${{ github.event.inputs.notebook || 'paradedb' }}
+          notebook_name: ${{ github.event.inputs.notebook || 'parade' }}
           tenant: paradedb
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}

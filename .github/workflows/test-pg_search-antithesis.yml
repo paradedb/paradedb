@@ -34,7 +34,7 @@ jobs:
     runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
-        pg_version: [18]
+        pg_version: [17]
 
     steps:
       - name: Checkout Git Repository

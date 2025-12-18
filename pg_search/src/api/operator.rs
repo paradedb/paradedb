@@ -366,7 +366,7 @@ pub unsafe fn field_name_from_node(
                 }
 
                 // Check if the expression is a RowExpr (composite type like ROW(a,b)::my_type)
-                if let Some(_row_expr) = nodecast!(RowExpr, T_RowExpr, expression) {
+                if nodecast!(RowExpr, T_RowExpr, expression).is_some() {
                     let composite_oid = pg_sys::exprType(expression.cast());
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
                         expr_no += 1;

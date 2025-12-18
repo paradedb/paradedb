@@ -23,8 +23,8 @@
 //! - Extract field metadata from composite types
 //! - Unpack composite values during indexing
 
+use crate::api::HashMap;
 use pgrx::{pg_sys, PgTupleDesc};
-use std::collections::HashMap;
 
 /// RAII guard for detoasted datum.
 /// Frees the datum if it was a palloc'd copy (different from original).
@@ -262,9 +262,7 @@ pub struct CompositeSlotValues {
 impl CompositeSlotValues {
     /// Create a new empty cache for a row.
     pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Unpack a composite datum, caching the result.
@@ -293,7 +291,6 @@ impl CompositeSlotValues {
         is_null: bool,
         type_oid: pg_sys::Oid,
     ) -> &[(pg_sys::Datum, bool)] {
-        // Check cache first
         if self.cache.contains_key(&index_attno) {
             return &self.cache[&index_attno];
         }
@@ -316,18 +313,13 @@ impl CompositeSlotValues {
         let pg_tupdesc = PgTupleDesc::from_pg(tupdesc); // Released on drop
         let natts = pg_tupdesc.len();
 
-        // Detoast the composite datum if needed
-        // Composite datums can be TOASTed (stored externally/compressed) just like any varlena value.
-        // We must detoast before unpacking, following the same pattern as pgrx's FromDatum implementations.
         let original_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
         let detoasted_ptr = pg_sys::pg_detoast_datum_packed(original_ptr);
         let _detoast_guard = DetoastedDatumGuard {
             detoasted: detoasted_ptr,
             original: original_ptr,
-        }; // Freed on drop if it's a copy (even on panic)
+        };
 
-        // DatumGetHeapTupleHeader: cast detoasted datum to HeapTupleHeader pointer
-        // Composite types are stored as varlena objects
         let htup_header = detoasted_ptr.cast::<pg_sys::HeapTupleHeaderData>();
 
         // Use pgrx's varsize_any to correctly handle both short (1-byte) and regular (4-byte) varlena headers

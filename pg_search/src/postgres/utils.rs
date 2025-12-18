@@ -287,7 +287,6 @@ pub unsafe fn get_field_value(
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { .. } | FieldSource::Expression { .. } => {
-            // Use index_attno to read from values[] array in aminsert/build_callback paths
             (*values.add(index_attno), *isnull.add(index_attno))
         }
         FieldSource::CompositeField {
@@ -296,11 +295,9 @@ pub unsafe fn get_field_value(
             composite_type_oid,
             ..
         } => {
-            // Get the composite datum from values[comp_index_attno]
             let composite_datum = *values.add(*comp_index_attno);
             let composite_is_null = *isnull.add(*comp_index_attno);
 
-            // Unpack the composite (caches to avoid redundant unpacking)
             let unpacked_fields = composite_slot_values.unpack(
                 *comp_index_attno,
                 composite_datum,
@@ -308,8 +305,6 @@ pub unsafe fn get_field_value(
                 *composite_type_oid,
             );
 
-            // Return the specific field from the unpacked composite
-            // Bounds check to provide clearer error message on metadata mismatch
             unpacked_fields.get(*field_idx).copied().unwrap_or_else(|| {
                 panic!(
                     "composite field index {} out of bounds (composite has {} fields)",

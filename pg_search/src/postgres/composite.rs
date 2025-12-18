@@ -237,81 +237,72 @@ pub unsafe fn get_composite_fields_for_index(
     Ok(fields)
 }
 
-/// Cache for unpacked composite values per row.
+/// Pre-unpacked composite values for a row.
 ///
-/// This cache prevents redundant unpacking when multiple fields
-/// come from the same composite. Each composite is unpacked once
-/// per row and the results are reused.
+/// All composites are unpacked upfront when this struct is created,
+/// eliminating on-demand caching complexity.
 ///
 /// # Example
 /// ```sql
 /// CREATE INDEX idx ON t USING bm25 (id, ROW(a,b,c)::my_type);
 /// ```
-/// Fields "a", "b", "c" all come from the same composite at values[1].
-/// Without cache: unpack 3 times. With cache: unpack once, reuse twice.
+/// The composite at values[1] is unpacked once during construction.
+/// Fields "a", "b", "c" are then retrieved via simple lookups.
 ///
 /// # Lifetime
 /// Created once per row, dropped after row is indexed.
 #[derive(Default)]
 pub struct CompositeSlotValues {
-    /// Cached unpacked values: index_attno → [(Datum, is_null), ...]
-    /// Key is the slot position in values[] array.
-    cache: HashMap<usize, Vec<(pg_sys::Datum, bool)>>,
+    /// Unpacked values: slot_index → [(Datum, is_null), ...]
+    unpacked: HashMap<usize, Vec<(pg_sys::Datum, bool)>>,
 }
 
 impl CompositeSlotValues {
-    /// Create a new empty cache for a row.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Unpack a composite datum, caching the result.
-    ///
-    /// If this composite has already been unpacked (by checking index_attno),
-    /// returns the cached result. Otherwise, unpacks it and caches.
+    /// Create with all composites unpacked upfront.
     ///
     /// # Arguments
-    /// * `index_attno` - Slot position in values[] array (cache key)
-    /// * `datum` - The composite Datum from values[index_attno]
-    /// * `is_null` - Whether the composite is NULL
-    /// * `type_oid` - OID of the named composite type
-    ///
-    /// # Returns
-    /// Slice of (Datum, is_null) for each field in the composite.
+    /// * `composites` - Iterator of (slot_index, datum, is_null, type_oid) for each composite
     ///
     /// # Safety
-    /// Caller must ensure:
-    /// - type_oid is valid and refers to a named composite type
-    /// - datum is valid if is_null is false
-    /// - We're in a PostgreSQL memory context
-    pub unsafe fn unpack(
-        &mut self,
-        index_attno: usize,
+    /// Caller must ensure all datums and type_oids are valid.
+    pub unsafe fn from_composites<I>(composites: I) -> Self
+    where
+        I: IntoIterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)>,
+    {
+        let mut unpacked = HashMap::default();
+
+        for (slot_index, datum, is_null, type_oid) in composites {
+            if unpacked.contains_key(&slot_index) {
+                continue;
+            }
+            let fields = Self::unpack_datum(datum, is_null, type_oid);
+            unpacked.insert(slot_index, fields);
+        }
+
+        Self { unpacked }
+    }
+
+    /// Get a field from a pre-unpacked composite.
+    ///
+    /// # Panics
+    /// Panics if the slot was not unpacked or field_idx is out of bounds.
+    pub fn get(&self, slot_index: usize, field_idx: usize) -> (pg_sys::Datum, bool) {
+        self.unpacked[&slot_index][field_idx]
+    }
+
+    /// Unpack a single composite datum into its field values.
+    unsafe fn unpack_datum(
         datum: pg_sys::Datum,
         is_null: bool,
         type_oid: pg_sys::Oid,
-    ) -> &[(pg_sys::Datum, bool)] {
-        if self.cache.contains_key(&index_attno) {
-            return &self.cache[&index_attno];
-        }
-
-        // If whole composite is NULL, all fields are NULL
-        if is_null {
-            // Lookup TupleDesc to get number of fields
-            let tupdesc = pg_sys::lookup_rowtype_tupdesc(type_oid, -1);
-            let pg_tupdesc = PgTupleDesc::from_pg(tupdesc); // Released on drop
-            let natts = pg_tupdesc.len();
-
-            let nulls = vec![(pg_sys::Datum::from(0), true); natts];
-            self.cache.insert(index_attno, nulls);
-
-            return &self.cache[&index_attno];
-        }
-
-        // Unpack the composite
+    ) -> Vec<(pg_sys::Datum, bool)> {
         let tupdesc = pg_sys::lookup_rowtype_tupdesc(type_oid, -1);
-        let pg_tupdesc = PgTupleDesc::from_pg(tupdesc); // Released on drop
+        let pg_tupdesc = PgTupleDesc::from_pg(tupdesc);
         let natts = pg_tupdesc.len();
+
+        if is_null {
+            return vec![(pg_sys::Datum::from(0), true); natts];
+        }
 
         let original_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
         let detoasted_ptr = pg_sys::pg_detoast_datum_packed(original_ptr);
@@ -321,8 +312,6 @@ impl CompositeSlotValues {
         };
 
         let htup_header = detoasted_ptr.cast::<pg_sys::HeapTupleHeaderData>();
-
-        // Use pgrx's varsize_any to correctly handle both short (1-byte) and regular (4-byte) varlena headers
         let t_len = pgrx::varlena::varsize_any(detoasted_ptr.cast()) as u32;
 
         let mut htup_data = pg_sys::HeapTupleData {
@@ -342,10 +331,6 @@ impl CompositeSlotValues {
             nulls_raw.as_mut_ptr(),
         );
 
-        // Cache the unpacked values
-        let result: Vec<(pg_sys::Datum, bool)> = values.into_iter().zip(nulls_raw).collect();
-
-        self.cache.insert(index_attno, result);
-        &self.cache[&index_attno]
+        values.into_iter().zip(nulls_raw).collect()
     }
 }

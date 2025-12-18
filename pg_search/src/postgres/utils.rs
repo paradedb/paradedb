@@ -256,34 +256,62 @@ pub enum FieldSource {
     },
 }
 
-/// Helper to extract field value from values[] array, handling composite unpacking.
+/// Collect composite slot info from categorized fields for upfront unpacking.
+///
+/// Returns an iterator of (slot_index, datum, is_null, type_oid) for each unique
+/// composite slot in the categorized fields.
+///
+/// # Safety
+/// Caller must ensure values and isnull pointers are valid.
+pub unsafe fn collect_composites_for_unpacking<'a>(
+    categorized_fields: impl Iterator<Item = &'a CategorizedFieldData>,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+) -> impl Iterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)> {
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut result = Vec::new();
+
+    for cat in categorized_fields {
+        if let FieldSource::CompositeField {
+            index_attno,
+            composite_type_oid,
+            ..
+        } = cat.source
+        {
+            if seen.insert(index_attno) {
+                let datum = *values.add(index_attno);
+                let is_null = *isnull.add(index_attno);
+                result.push((index_attno, datum, is_null, composite_type_oid));
+            }
+        }
+    }
+
+    result.into_iter()
+}
+
+/// Helper to extract field value from values[] array, handling composite fields.
 ///
 /// **Works for**: aminsert (INSERT) and build_callback (CREATE INDEX) paths.
 /// **Does NOT work for**: MVCC build (which uses expr_results[] instead).
 ///
-/// In both aminsert and build_callback, PostgreSQL has already evaluated all
-/// expressions and placed results in values[] array at position index_attno.
-/// For composite fields, this function unpacks the composite datum and extracts
-/// the specific field.
-///
 /// # Arguments
 /// * `source` - The field source (Heap, Expression, or CompositeField)
 /// * `index_attno` - Index attribute position (slot in values[] array)
-/// * `values` - Array of datums from PostgreSQL (index columns for aminsert/build_callback)
+/// * `values` - Array of datums from PostgreSQL
 /// * `isnull` - Array of null flags from PostgreSQL
-/// * `composite_slot_values` - Unpacked composite values from slot (reused per row)
+/// * `unpacked_composites` - Pre-unpacked composite values
 ///
 /// # Returns
 /// Tuple of (datum, is_null) for the field
 ///
 /// # Safety
-/// Caller must ensure values and isnull pointers are valid and have sufficient elements.
+/// Caller must ensure values and isnull pointers are valid.
 pub unsafe fn get_field_value(
     source: &FieldSource,
     index_attno: usize,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
-    composite_slot_values: &mut CompositeSlotValues,
+    unpacked_composites: &CompositeSlotValues,
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { .. } | FieldSource::Expression { .. } => {
@@ -292,27 +320,8 @@ pub unsafe fn get_field_value(
         FieldSource::CompositeField {
             index_attno: comp_index_attno,
             field_idx,
-            composite_type_oid,
             ..
-        } => {
-            let composite_datum = *values.add(*comp_index_attno);
-            let composite_is_null = *isnull.add(*comp_index_attno);
-
-            let unpacked_fields = composite_slot_values.unpack(
-                *comp_index_attno,
-                composite_datum,
-                composite_is_null,
-                *composite_type_oid,
-            );
-
-            unpacked_fields.get(*field_idx).copied().unwrap_or_else(|| {
-                panic!(
-                    "composite field index {} out of bounds (composite has {} fields)",
-                    field_idx,
-                    unpacked_fields.len()
-                )
-            })
-        }
+        } => unpacked_composites.get(*comp_index_attno, *field_idx),
     }
 }
 

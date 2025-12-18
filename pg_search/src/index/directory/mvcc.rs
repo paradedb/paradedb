@@ -722,7 +722,23 @@ pub fn index_memory_segment(
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
             let mut doc = tantivy::TantivyDocument::new();
-            let mut composite_slot_values = CompositeSlotValues::new();
+
+            // Unpack all composites upfront from expr_results
+            let unpacked_composites = CompositeSlotValues::from_composites(
+                categorized_fields.iter().filter_map(|(_, cat)| {
+                    if let FieldSource::CompositeField {
+                        expression_idx,
+                        composite_type_oid,
+                        ..
+                    } = cat.source
+                    {
+                        let (datum, is_null) = expr_results[expression_idx];
+                        Some((expression_idx, datum, is_null, composite_type_oid))
+                    } else {
+                        None
+                    }
+                }),
+            );
 
             row_to_search_document(
                 categorized_fields
@@ -738,23 +754,10 @@ pub fn index_memory_segment(
                         FieldSource::CompositeField {
                             expression_idx,
                             field_idx,
-                            composite_type_oid,
                             ..
                         } => {
-                            // In MVCC build: composite comes from expr_results[expression_idx]
-                            let (composite_datum, composite_is_null) = expr_results[expression_idx];
-
-                            // Unpack the composite (caches to avoid redundant unpacking)
-                            // Note: already in unsafe block, no need for nested unsafe
-                            let unpacked_fields = composite_slot_values.unpack(
-                                expression_idx,
-                                composite_datum,
-                                composite_is_null,
-                                composite_type_oid,
-                            );
-
-                            // Return the specific field from the unpacked composite
-                            let (datum, is_null) = unpacked_fields[field_idx];
+                            let (datum, is_null) =
+                                unpacked_composites.get(expression_idx, field_idx);
                             (datum, is_null, field, categorized)
                         }
                     }),

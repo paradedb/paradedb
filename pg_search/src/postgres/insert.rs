@@ -28,7 +28,9 @@ use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{get_field_value, item_pointer_to_u64, row_to_search_document};
+use crate::postgres::utils::{
+    collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
+};
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -279,7 +281,14 @@ unsafe fn insert(
     match &mut state.mode {
         InsertMode::Immutable(mode) => state.per_row_context.switch_to(|cxt| {
             let mut search_document = TantivyDocument::new();
-            let mut composite_slot_values = CompositeSlotValues::new();
+
+            // Unpack all composites upfront
+            let unpacked_composites =
+                CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                    mode.categorized_fields.iter().map(|(_, cat)| cat),
+                    values,
+                    isnull,
+                ));
 
             row_to_search_document(
                 mode.categorized_fields.iter().map(|(field, categorized)| {
@@ -288,7 +297,7 @@ unsafe fn insert(
                         categorized.attno,
                         values,
                         isnull,
-                        &mut composite_slot_values,
+                        &unpacked_composites,
                     );
                     (datum, is_null, field, categorized)
                 }),
@@ -299,7 +308,6 @@ unsafe fn insert(
                 .insert(search_document, ctid, || {})
                 .expect("insertion into index should succeed");
 
-            // CompositeSlotValues dropped here (releases any resources)
             cxt.reset();
         }),
         InsertMode::Mutable(mode) => {

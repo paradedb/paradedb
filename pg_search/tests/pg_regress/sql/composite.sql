@@ -687,6 +687,9 @@ CREATE INDEX idx_tokenized ON tokenized_test USING bm25 (
     (ROW(title, title)::tokenized_fields)
 ) WITH (key_field='id');
 
+-- Validate that pdb.simple tokenizer was applied (should show 'default' tokenizer for title_simple)
+SELECT * FROM paradedb.schema('idx_tokenized') ORDER BY name;
+
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
 
 -- Search on the simple tokenizer field (lowercased)
@@ -718,6 +721,9 @@ CREATE INDEX idx_ngram ON ngram_test USING bm25 (
     (ROW(content, content)::ngram_fields)
 ) WITH (key_field='id');
 
+-- Validate that ngram tokenizer was applied (should show 'ngram_mingram:2_maxgram:4...' for content_ngram)
+SELECT * FROM paradedb.schema('idx_ngram') ORDER BY name;
+
 INSERT INTO ngram_test (content) VALUES ('PostgreSQL database');
 
 -- Search with partial match via ngram - 'gres' should match 'PostgreSQL'
@@ -748,6 +754,9 @@ CREATE INDEX idx_stemmer ON stemmer_test USING bm25 (
     id,
     (ROW(content, content)::stemmer_fields)
 ) WITH (key_field='id');
+
+-- Validate that stemmer tokenizer was applied (should show 'default[stemmer=English]' for content_stemmed)
+SELECT * FROM paradedb.schema('idx_stemmer') ORDER BY name;
 
 INSERT INTO stemmer_test (content) VALUES
     ('running quickly'),

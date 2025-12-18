@@ -41,7 +41,7 @@ SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
  simple             | Str        | f      | t       | f    | t          |             | default                                    | position | 
  source_code        | Str        | f      | t       | f    | t          |             | source_code                                | position | 
  stemmed            | Str        | f      | t       | f    | t          |             | default[stemmer=English]                   | position | 
- t                  | Str        | f      | t       | f    | t          |             | remove_emojis:false                        | position | 
+ t                  | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
  whitespace         | Str        | f      | t       | f    | t          |             | whitespace                                 | position | 
 (15 rows)
 

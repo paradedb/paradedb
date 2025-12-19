@@ -295,8 +295,7 @@ impl From<SortDirection> for tantivy::collector::sort_key::ComparatorEnum {
                 tantivy::collector::sort_key::ComparatorEnum::ReverseNoneLower
             }
             SortDirection::DescNullsFirst => {
-                // TODO: Not yet supported.
-                panic!("DESC NULLS FIRST is not yet supported.")
+                tantivy::collector::sort_key::ComparatorEnum::NaturalNoneHigher
             }
             SortDirection::DescNullsLast => tantivy::collector::sort_key::ComparatorEnum::Natural,
             SortDirection::AscNullsFirst => tantivy::collector::sort_key::ComparatorEnum::Reverse,

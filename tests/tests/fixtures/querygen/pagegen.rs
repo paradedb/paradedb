@@ -96,10 +96,9 @@ pub fn arb_paging_exprs(
             // Generate a suffix for each column.
             let suffixes = proptest::collection::vec(
                 prop_oneof![
-                    Just(" ASC NULLS LAST"),
                     Just(" ASC NULLS FIRST"),
-                    // TODO: Not yet supported.
-                    //Just(" DESC NULLS FIRST"),
+                    Just(" ASC NULLS LAST"),
+                    Just(" DESC NULLS FIRST"),
                     Just(" DESC NULLS LAST"),
                 ],
                 len..=len,

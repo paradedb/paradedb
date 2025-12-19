@@ -579,7 +579,6 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Field(sort_field),
                 direction,
-                .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
             } => {
                 let field = self
                     .schema
@@ -646,7 +645,10 @@ impl SearchIndexReader {
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
-                            (SortByStaticFastValue::<DateTime>::for_field(sort_field), order),
+                            (
+                                SortByStaticFastValue::<DateTime>::for_field(sort_field),
+                                order,
+                            ),
                             erased_features,
                             n,
                             offset,
@@ -663,7 +665,6 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
-                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
@@ -684,7 +685,6 @@ impl SearchIndexReader {
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
-                .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } => {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
@@ -800,11 +800,11 @@ impl SearchIndexReader {
     /// Order by score only.
     ///
     /// NOTE: This is a special case for a single score feature: the score-only codepath is highly
-    /// specializedi due to Block-WAND, and at least 50% faster than `TopDocs::order_by` when
+    /// specialized due to Block-WAND, and at least 15% faster than `TopDocs::order_by` when
     /// sorting on only the score. We should try to close that gap over time, but for now we
     /// special case it.
     ///
-    /// TODO: Confirm after rebasing atop https://github.com/quickwit-oss/tantivy/pull/2726
+    /// NOTE: Scores cannot be NULL, so we do not need to differentiate the nulls-first/last cases.
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -815,7 +815,7 @@ impl SearchIndexReader {
     ) -> TopNSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
-            SortDirection::Asc => {
+            SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
                 let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).tweak_score(
                     move |_segment_reader: &tantivy::SegmentReader| {
                         move |_doc: DocId, original_score: Score| AscendingScore {
@@ -837,7 +837,7 @@ impl SearchIndexReader {
             }
 
             // can use tantivy's score directly, which allows for Block-WAND
-            SortDirection::Desc => {
+            SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
                 let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by_score();
 
                 let (top_docs, aggregation_results) =
@@ -1084,16 +1084,15 @@ impl SearchIndexReader {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
-                    .. // TODO(#3266): Handle nulls_first for ORDER BY field sorting
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with
                     // `SearchField::is_sortable`.
-                    erased_features.push_feature(SortByErasedType::for_field(sort_field), *direction);
+                    erased_features
+                        .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
-                    .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
                 } => {
                     erased_features.push_score_feature(*direction);
                 }
@@ -1106,7 +1105,7 @@ impl SearchIndexReader {
             && erased_features.score_index().is_none()
             && !first_orderby_info.is_score()
         {
-            erased_features.push_score_feature(SortDirection::Desc);
+            erased_features.push_score_feature(SortDirection::DescNullsFirst);
         }
 
         (first_orderby_info, erased_features)

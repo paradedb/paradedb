@@ -262,19 +262,22 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
-#[repr(i32)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SortDirection {
+    AscNullsFirst,
     #[default]
-    Asc = pg_sys::BTLessStrategyNumber as i32,
-    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+    AscNullsLast,
+    DescNullsFirst,
+    DescNullsLast,
 }
 
 impl AsRef<str> for SortDirection {
     fn as_ref(&self) -> &str {
         match self {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
+            SortDirection::AscNullsFirst => "asc nulls first",
+            SortDirection::AscNullsLast => "asc",
+            SortDirection::DescNullsFirst => "desc",
+            SortDirection::DescNullsLast => "desc nulls last",
         }
     }
 }
@@ -288,8 +291,15 @@ impl Display for SortDirection {
 impl From<SortDirection> for tantivy::collector::sort_key::ComparatorEnum {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => tantivy::collector::sort_key::ComparatorEnum::ReverseNoneLower,
-            SortDirection::Desc => tantivy::collector::sort_key::ComparatorEnum::Natural,
+            SortDirection::AscNullsLast => {
+                tantivy::collector::sort_key::ComparatorEnum::ReverseNoneLower
+            }
+            SortDirection::DescNullsFirst => {
+                // TODO: Not yet supported.
+                panic!("DESC NULLS FIRST is not yet supported.")
+            }
+            SortDirection::DescNullsLast => tantivy::collector::sort_key::ComparatorEnum::Natural,
+            SortDirection::AscNullsFirst => tantivy::collector::sort_key::ComparatorEnum::Reverse,
         }
     }
 }
@@ -297,8 +307,12 @@ impl From<SortDirection> for tantivy::collector::sort_key::ComparatorEnum {
 impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => tantivy::aggregation::bucket::Order::Asc,
-            SortDirection::Desc => tantivy::aggregation::bucket::Order::Desc,
+            SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
+                tantivy::aggregation::bucket::Order::Asc
+            }
+            SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
+                tantivy::aggregation::bucket::Order::Desc
+            }
         }
     }
 }
@@ -314,9 +328,6 @@ pub enum OrderByFeature {
 pub struct OrderByInfo {
     pub feature: OrderByFeature,
     pub direction: SortDirection,
-    /// Whether NULLs should sort first (true) or last (false, the default for ASC)
-    #[serde(default)]
-    pub nulls_first: bool,
 }
 
 impl OrderByInfo {

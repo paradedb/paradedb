@@ -24,22 +24,7 @@
 //! - Unpack composite values during indexing
 
 use crate::api::HashMap;
-use pgrx::{pg_sys, PgTupleDesc};
-
-/// RAII guard for detoasted datum.
-/// Frees the datum if it was a palloc'd copy (different from original).
-struct DetoastedDatumGuard {
-    detoasted: *mut pg_sys::varlena,
-    original: *mut pg_sys::varlena,
-}
-
-impl Drop for DetoastedDatumGuard {
-    fn drop(&mut self) {
-        if !self.detoasted.is_null() && self.detoasted != self.original {
-            unsafe { pg_sys::pfree(self.detoasted.cast()) };
-        }
-    }
-}
+use pgrx::{heap_tuple::PgHeapTuple, pg_sys, PgTupleDesc};
 
 /// Metadata for a field within a composite type
 #[derive(Debug, Clone)]
@@ -304,28 +289,13 @@ impl CompositeSlotValues {
             return vec![(pg_sys::Datum::from(0), true); natts];
         }
 
-        let original_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
-        let detoasted_ptr = pg_sys::pg_detoast_datum_packed(original_ptr);
-        let _detoast_guard = DetoastedDatumGuard {
-            detoasted: detoasted_ptr,
-            original: original_ptr,
-        };
-
-        let htup_header = detoasted_ptr.cast::<pg_sys::HeapTupleHeaderData>();
-        let t_len = pgrx::varlena::varsize_any(detoasted_ptr.cast()) as u32;
-
-        let mut htup_data = pg_sys::HeapTupleData {
-            t_len,
-            t_self: pg_sys::ItemPointerData::default(),
-            t_tableOid: pg_sys::InvalidOid,
-            t_data: htup_header,
-        };
-
+        let heap_tuple = PgHeapTuple::from_composite_datum(datum);
+        let htup_data = heap_tuple.into_pg();
         let mut values = vec![pg_sys::Datum::from(0); natts];
         let mut nulls_raw = vec![false; natts];
 
         pg_sys::heap_deform_tuple(
-            &mut htup_data,
+            htup_data,
             pg_tupdesc.as_ptr(),
             values.as_mut_ptr(),
             nulls_raw.as_mut_ptr(),

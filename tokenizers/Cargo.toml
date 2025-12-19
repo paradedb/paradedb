@@ -22,9 +22,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 tantivy-jieba = { workspace = true }
 emoji = "0.2.1"
 unicode-segmentation = "1.12.0"
-icu = "2.1.1"
 icu_segmenter = "2.1.1"
-icu_locale = "2.1.1"
 
 [dev-dependencies]
 rstest = "0.25.0"

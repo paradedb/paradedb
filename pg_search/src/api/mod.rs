@@ -285,11 +285,11 @@ impl Display for SortDirection {
     }
 }
 
-impl From<SortDirection> for tantivy::Order {
+impl From<SortDirection> for tantivy::collector::sort_key::ComparatorEnum {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => tantivy::Order::Asc,
-            SortDirection::Desc => tantivy::Order::Desc,
+            SortDirection::Asc => tantivy::collector::sort_key::ComparatorEnum::ReverseNoneLower,
+            SortDirection::Desc => tantivy::collector::sort_key::ComparatorEnum::Natural,
         }
     }
 }

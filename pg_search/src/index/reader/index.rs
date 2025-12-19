@@ -39,7 +39,7 @@ use anyhow::Result;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::sort_key::{
-    SortByErasedType, SortBySimilarityScore, SortByStaticFastValue, SortByString,
+    ComparatorEnum, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue, SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, SegmentId};
@@ -47,7 +47,7 @@ use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
-    Order, ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
+    ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
@@ -585,7 +585,7 @@ impl SearchIndexReader {
                     .schema
                     .search_field(sort_field)
                     .expect("sort field should exist in index schema");
-                let order: Order = (*direction).into();
+                let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
                         &self.searcher,
@@ -666,7 +666,7 @@ impl SearchIndexReader {
                 .. // TODO(#3266): Handle nulls_first for ORDER BY score sorting
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
-                let order: Order = (*direction).into();
+                let order: ComparatorEnum = (*direction).into();
                 let (top_docs, aggregation_results) = self.top_in_segments(
                     segment_ids,
                     (SortBySimilarityScore, order),
@@ -1176,9 +1176,9 @@ impl ErasedFeatures {
         self.features.is_empty()
     }
 
-    pub fn pop(&mut self) -> Option<(SortByErasedType, Order)> {
+    pub fn pop(&mut self) -> Option<(SortByErasedType, ComparatorEnum)> {
         self.features.pop().map(|(s, sort_direction)| {
-            let order: Order = sort_direction.into();
+            let order: ComparatorEnum = sort_direction.into();
             (s, order)
         })
     }

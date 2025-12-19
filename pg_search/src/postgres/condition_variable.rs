@@ -70,8 +70,9 @@ impl ConditionVariable {
         }
     }
 
-    /// Cancels the current sleep operation.
-    /// This is a static method as it operates on the current process's sleep state.
+    /// Cancels the current sleep operation and removes the process from the wait queue.
+    /// Must be called after `prepare_to_sleep()` when the process decides not to sleep
+    /// (e.g., when the awaited condition is already satisfied).
     pub fn cancel_sleep() {
         unsafe {
             pg_sys::ConditionVariableCancelSleep();

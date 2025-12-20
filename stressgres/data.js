@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766262516321,
+  "lastUpdate": 1766263422216,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23586,6 +23586,54 @@ window.BENCHMARK_DATA = {
             "value": 5.345692526654331,
             "unit": "median tps",
             "extra": "avg tps: 5.377845896547772, max tps: 7.962494231571053, count: 56093"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f",
+          "message": "fix: `unicode_words` tokenizer is named correctly in `paradedb.schema` output (#3802)\n\n# Ticket(s) Closed\n\n- Closes #3798 \n\n## What\n\nWe accidentally left out `unicode_words` in the tokenizer's name\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-20T14:57:01-05:00",
+          "tree_id": "689e28ba5c616170ac046d425604266a197edb75",
+          "url": "https://github.com/paradedb/paradedb/commit/7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f"
+        },
+        "date": 1766263419291,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1110.6751433336076,
+            "unit": "median tps",
+            "extra": "avg tps: 1112.8140497052045, max tps: 1158.4272236063778, count: 56488"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1221.7536383330312,
+            "unit": "median tps",
+            "extra": "avg tps: 1220.2088157296455, max tps: 1238.2713884283403, count: 56488"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1889.803730453857,
+            "unit": "median tps",
+            "extra": "avg tps: 1866.270826162762, max tps: 2044.5268205093191, count: 56488"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.35002271347512,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3623307386044745, max tps: 7.280419631738901, count: 56488"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766262511316,
+  "lastUpdate": 1766262516321,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20294,6 +20294,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.64239802654437, max segment_count: 161.0, count: 57564"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f",
+          "message": "fix: `unicode_words` tokenizer is named correctly in `paradedb.schema` output (#3802)\n\n# Ticket(s) Closed\n\n- Closes #3798 \n\n## What\n\nWe accidentally left out `unicode_words` in the tokenizer's name\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-20T14:57:01-05:00",
+          "tree_id": "689e28ba5c616170ac046d425604266a197edb75",
+          "url": "https://github.com/paradedb/paradedb/commit/7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f"
+        },
+        "date": 1766262513328,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.054390740571076, max cpu: 42.857143, count: 57795"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 231.43216277629986, max mem: 233.0390625, count: 57795"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.52872211347971, max cpu: 33.366436, count: 57795"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.8644419391816, max mem: 171.21484375, count: 57795"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49340,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49213.70481875595, max block_count: 52018.0, count: 57795"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 90,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 95.67111341811575, max segment_count: 162.0, count: 57795"
           }
         ]
       }

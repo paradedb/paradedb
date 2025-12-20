@@ -337,6 +337,10 @@ pub enum SearchTokenizer {
     Jieba(SearchTokenizerFilters),
 
     Lindera(LinderaLanguage, SearchTokenizerFilters),
+    UnicodeWordsDeprecated {
+        remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
     UnicodeWords {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
@@ -511,6 +515,10 @@ impl SearchTokenizer {
             SearchTokenizer::UnicodeWords {
                 remove_emojis,
                 filters,
+            }
+            | SearchTokenizer::UnicodeWordsDeprecated {
+                remove_emojis,
+                filters,
             } => {
                 add_filters!(UnicodeWordsTokenizer::new(*remove_emojis), filters)
             }
@@ -540,6 +548,7 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba(filters) => filters,
+            SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
             SearchTokenizer::UnicodeWords { filters, .. } => filters,
         }
     }
@@ -610,7 +619,8 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
-            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWordsDeprecated{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
     }
 }

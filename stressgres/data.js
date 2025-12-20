@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766219513681,
+  "lastUpdate": 1766220410191,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23256,6 +23256,54 @@ window.BENCHMARK_DATA = {
             "value": 5.331979770841206,
             "unit": "median tps",
             "extra": "avg tps: 5.33788291818062, max tps: 7.972691109252712, count: 56009"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f23093109c3831fff9f5d12336b8ad1123823d5d",
+          "message": "fix: replace busy-wait with ConditionVariable in ParallelScanState (#3800)\n\n## Summary\n- Replace 10ms sleep polling loop in aggregation_wait() with PostgreSQL\nConditionVariable\n- Workers now sleep on CV and wake immediately when aggregation results\nare ready\n  - Eliminates unnecessary latency and CPU usage from busy-waiting\n\n  ## Changes\n  1. Add aggregation_cv field to ParallelScanState struct\n  2. Initialize CV in init() method\n3. Broadcast CV in aggregation_append() when all segment results\nreceived\n4. Replace sleep(10ms) with ConditionVariableSleep() in\naggregation_wait()\n\n  ## Test plan\n  - Existing tests pass\n\n  Closes #3489",
+          "timestamp": "2025-12-20T13:30:12+05:30",
+          "tree_id": "a9350cd1c8ea34a7c9afdbf0ae008acf7e5f47af",
+          "url": "https://github.com/paradedb/paradedb/commit/f23093109c3831fff9f5d12336b8ad1123823d5d"
+        },
+        "date": 1766220407390,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1093.1973324830115,
+            "unit": "median tps",
+            "extra": "avg tps: 1094.4842125414323, max tps: 1144.4482185115337, count: 56093"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1244.267672942352,
+            "unit": "median tps",
+            "extra": "avg tps: 1235.9110508863273, max tps: 1258.819908019783, count: 56093"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1870.3352726582873,
+            "unit": "median tps",
+            "extra": "avg tps: 1839.942901487847, max tps: 2006.785060811947, count: 56093"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.345692526654331,
+            "unit": "median tps",
+            "extra": "avg tps: 5.377845896547772, max tps: 7.962494231571053, count: 56093"
           }
         ]
       }

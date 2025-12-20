@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766220414304,
+  "lastUpdate": 1766221261487,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33758,6 +33758,60 @@ window.BENCHMARK_DATA = {
             "value": 14.973889587288602,
             "unit": "median tps",
             "extra": "avg tps: 14.972189562573908, max tps: 20.899833555815547, count: 55387"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f23093109c3831fff9f5d12336b8ad1123823d5d",
+          "message": "fix: replace busy-wait with ConditionVariable in ParallelScanState (#3800)\n\n## Summary\n- Replace 10ms sleep polling loop in aggregation_wait() with PostgreSQL\nConditionVariable\n- Workers now sleep on CV and wake immediately when aggregation results\nare ready\n  - Eliminates unnecessary latency and CPU usage from busy-waiting\n\n  ## Changes\n  1. Add aggregation_cv field to ParallelScanState struct\n  2. Initialize CV in init() method\n3. Broadcast CV in aggregation_append() when all segment results\nreceived\n4. Replace sleep(10ms) with ConditionVariableSleep() in\naggregation_wait()\n\n  ## Test plan\n  - Existing tests pass\n\n  Closes #3489",
+          "timestamp": "2025-12-20T13:30:12+05:30",
+          "tree_id": "a9350cd1c8ea34a7c9afdbf0ae008acf7e5f47af",
+          "url": "https://github.com/paradedb/paradedb/commit/f23093109c3831fff9f5d12336b8ad1123823d5d"
+        },
+        "date": 1766221258527,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.237925549551576,
+            "unit": "median tps",
+            "extra": "avg tps: 32.01169479805518, max tps: 34.259915891786115, count: 55401"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.1210138442343,
+            "unit": "median tps",
+            "extra": "avg tps: 265.5654405475951, max tps: 2759.1503976880035, count: 55401"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1920.362596018217,
+            "unit": "median tps",
+            "extra": "avg tps: 1912.1212543837282, max tps: 2283.258114850245, count: 55401"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.36868059581002,
+            "unit": "median tps",
+            "extra": "avg tps: 194.999218619359, max tps: 1692.7089608387998, count: 110802"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.002364332294494,
+            "unit": "median tps",
+            "extra": "avg tps: 15.001120503845547, max tps: 20.108947158819674, count: 55401"
           }
         ]
       }

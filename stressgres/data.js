@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766221261487,
+  "lastUpdate": 1766221265741,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41028,6 +41028,114 @@ window.BENCHMARK_DATA = {
             "value": 171.49609375,
             "unit": "median mem",
             "extra": "avg mem: 167.71945681635583, max mem: 172.23046875, count: 55387"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f23093109c3831fff9f5d12336b8ad1123823d5d",
+          "message": "fix: replace busy-wait with ConditionVariable in ParallelScanState (#3800)\n\n## Summary\n- Replace 10ms sleep polling loop in aggregation_wait() with PostgreSQL\nConditionVariable\n- Workers now sleep on CV and wake immediately when aggregation results\nare ready\n  - Eliminates unnecessary latency and CPU usage from busy-waiting\n\n  ## Changes\n  1. Add aggregation_cv field to ParallelScanState struct\n  2. Initialize CV in init() method\n3. Broadcast CV in aggregation_append() when all segment results\nreceived\n4. Replace sleep(10ms) with ConditionVariableSleep() in\naggregation_wait()\n\n  ## Test plan\n  - Existing tests pass\n\n  Closes #3489",
+          "timestamp": "2025-12-20T13:30:12+05:30",
+          "tree_id": "a9350cd1c8ea34a7c9afdbf0ae008acf7e5f47af",
+          "url": "https://github.com/paradedb/paradedb/commit/f23093109c3831fff9f5d12336b8ad1123823d5d"
+        },
+        "date": 1766221262737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.614816700843996, max cpu: 46.920822, count: 55401"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 171.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.82827356173624, max mem: 172.0078125, count: 55401"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.741392118596847, max cpu: 27.906979, count: 55401"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 115.07509312783162, max mem: 116.33984375, count: 55401"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.874940104501032, max cpu: 13.9265, count: 55401"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 135.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.94674086433457, max mem: 157.03515625, count: 55401"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14236,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14337.39706864497, max block_count: 24730.0, count: 55401"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.373641204446329, max cpu: 4.64666, count: 55401"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.94421679550008, max mem: 133.7734375, count: 55401"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.2091658995325, max segment_count: 38.0, count: 55401"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.838907447686063, max cpu: 27.961164, count: 110802"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.0891421183733, max mem: 160.0390625, count: 110802"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.742167503537896, max cpu: 28.042841, count: 55401"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.6076484545631, max mem: 173.36328125, count: 55401"
           }
         ]
       }

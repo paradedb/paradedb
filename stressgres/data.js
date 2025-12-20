@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766220410191,
+  "lastUpdate": 1766220414304,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30046,6 +30046,108 @@ window.BENCHMARK_DATA = {
             "value": 159.34375,
             "unit": "median mem",
             "extra": "avg mem: 178.1452092241872, max mem: 219.90625, count: 56009"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f23093109c3831fff9f5d12336b8ad1123823d5d",
+          "message": "fix: replace busy-wait with ConditionVariable in ParallelScanState (#3800)\n\n## Summary\n- Replace 10ms sleep polling loop in aggregation_wait() with PostgreSQL\nConditionVariable\n- Workers now sleep on CV and wake immediately when aggregation results\nare ready\n  - Eliminates unnecessary latency and CPU usage from busy-waiting\n\n  ## Changes\n  1. Add aggregation_cv field to ParallelScanState struct\n  2. Initialize CV in init() method\n3. Broadcast CV in aggregation_append() when all segment results\nreceived\n4. Replace sleep(10ms) with ConditionVariableSleep() in\naggregation_wait()\n\n  ## Test plan\n  - Existing tests pass\n\n  Closes #3489",
+          "timestamp": "2025-12-20T13:30:12+05:30",
+          "tree_id": "a9350cd1c8ea34a7c9afdbf0ae008acf7e5f47af",
+          "url": "https://github.com/paradedb/paradedb/commit/f23093109c3831fff9f5d12336b8ad1123823d5d"
+        },
+        "date": 1766220411390,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07762109354108356, max background_merging: 2.0, count: 56093"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.777339975781604, max cpu: 9.9241905, count: 56093"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.63920436819211, max mem: 22.64453125, count: 56093"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0211969271220145, max cpu: 14.229248, count: 56093"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 164.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.09530273663827, max mem: 164.62109375, count: 56093"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64557,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64471.528087283616, max block_count: 64557.0, count: 56093"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.1733371365411, max segment_count: 59.0, count: 56093"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.624934929608376, max cpu: 9.411765, count: 56093"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 111.13970716043, max mem: 137.8828125, count: 56093"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.746530081286902, max cpu: 13.93998, count: 56093"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.77353039817802, max mem: 164.26171875, count: 56093"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.96878293503966, max cpu: 33.366436, count: 56093"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.96329191866633, max mem: 219.75, count: 56093"
           }
         ]
       }

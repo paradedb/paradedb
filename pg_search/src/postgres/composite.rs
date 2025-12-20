@@ -129,17 +129,14 @@ pub unsafe fn is_domain_over_composite(type_oid: pg_sys::Oid) -> bool {
 pub unsafe fn get_composite_type_fields(
     type_oid: pg_sys::Oid,
 ) -> Result<Vec<CompositeFieldInfo>, CompositeError> {
-    // Reject RECORDOID (anonymous ROW)
     if is_anonymous_record(type_oid) {
         return Err(CompositeError::AnonymousRowNotSupported);
     }
 
-    // Reject domain over composite
     if is_domain_over_composite(type_oid) {
         return Err(CompositeError::DomainOverCompositeNotSupported);
     }
 
-    // Verify it's actually a composite
     if !is_composite_type(type_oid) {
         return Err(CompositeError::NotACompositeType(type_oid));
     }
@@ -149,7 +146,6 @@ pub unsafe fn get_composite_type_fields(
     if tupdesc.is_null() {
         return Err(CompositeError::TupleDescLookupFailed(type_oid));
     }
-    // PgTupleDesc::from_pg handles refcount release on drop
     let pg_tupdesc = PgTupleDesc::from_pg(tupdesc);
     let natts = pg_tupdesc.len();
     let mut fields = Vec::with_capacity(natts);

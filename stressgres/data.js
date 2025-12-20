@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766221265741,
+  "lastUpdate": 1766222132332,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -43868,6 +43868,54 @@ window.BENCHMARK_DATA = {
             "value": 112.81325738677116,
             "unit": "median tps",
             "extra": "avg tps: 110.59294469648678, max tps: 163.8191387344205, count: 107442"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f23093109c3831fff9f5d12336b8ad1123823d5d",
+          "message": "fix: replace busy-wait with ConditionVariable in ParallelScanState (#3800)\n\n## Summary\n- Replace 10ms sleep polling loop in aggregation_wait() with PostgreSQL\nConditionVariable\n- Workers now sleep on CV and wake immediately when aggregation results\nare ready\n  - Eliminates unnecessary latency and CPU usage from busy-waiting\n\n  ## Changes\n  1. Add aggregation_cv field to ParallelScanState struct\n  2. Initialize CV in init() method\n3. Broadcast CV in aggregation_append() when all segment results\nreceived\n4. Replace sleep(10ms) with ConditionVariableSleep() in\naggregation_wait()\n\n  ## Test plan\n  - Existing tests pass\n\n  Closes #3489",
+          "timestamp": "2025-12-20T13:30:12+05:30",
+          "tree_id": "a9350cd1c8ea34a7c9afdbf0ae008acf7e5f47af",
+          "url": "https://github.com/paradedb/paradedb/commit/f23093109c3831fff9f5d12336b8ad1123823d5d"
+        },
+        "date": 1766222129361,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 578.2304819380904,
+            "unit": "median tps",
+            "extra": "avg tps: 576.5158293917896, max tps: 746.0427151583899, count: 53699"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 657.7875521050544,
+            "unit": "median tps",
+            "extra": "avg tps: 655.906921488142, max tps: 940.2500070333174, count: 53699"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.13836231734525,
+            "unit": "median tps",
+            "extra": "avg tps: 85.27817942140398, max tps: 91.43026810469135, count: 53699"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 106.27208500823157,
+            "unit": "median tps",
+            "extra": "avg tps: 105.83076960870352, max tps: 176.47351373204583, count: 107398"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766261633062,
+  "lastUpdate": 1766262511316,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16186,6 +16186,42 @@ window.BENCHMARK_DATA = {
             "value": 5.207174784302416,
             "unit": "median tps",
             "extra": "avg tps: 4.6854497603593845, max tps: 5.835407656509694, count: 57564"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f",
+          "message": "fix: `unicode_words` tokenizer is named correctly in `paradedb.schema` output (#3802)\n\n# Ticket(s) Closed\n\n- Closes #3798 \n\n## What\n\nWe accidentally left out `unicode_words` in the tokenizer's name\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-20T14:57:01-05:00",
+          "tree_id": "689e28ba5c616170ac046d425604266a197edb75",
+          "url": "https://github.com/paradedb/paradedb/commit/7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f"
+        },
+        "date": 1766262508347,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.802774043906176,
+            "unit": "median tps",
+            "extra": "avg tps: 6.66233796662543, max tps: 10.347883346836932, count: 57795"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.283821148821561,
+            "unit": "median tps",
+            "extra": "avg tps: 4.744330132447676, max tps: 5.860097549550571, count: 57795"
           }
         ]
       }

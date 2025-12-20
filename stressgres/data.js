@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766264295351,
+  "lastUpdate": 1766265148915,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44510,6 +44510,54 @@ window.BENCHMARK_DATA = {
             "value": 106.27208500823157,
             "unit": "median tps",
             "extra": "avg tps: 105.83076960870352, max tps: 176.47351373204583, count: 107398"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f",
+          "message": "fix: `unicode_words` tokenizer is named correctly in `paradedb.schema` output (#3802)\n\n# Ticket(s) Closed\n\n- Closes #3798 \n\n## What\n\nWe accidentally left out `unicode_words` in the tokenizer's name\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-20T14:57:01-05:00",
+          "tree_id": "689e28ba5c616170ac046d425604266a197edb75",
+          "url": "https://github.com/paradedb/paradedb/commit/7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f"
+        },
+        "date": 1766265145785,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 545.295369178777,
+            "unit": "median tps",
+            "extra": "avg tps: 549.557455474684, max tps: 724.058615520149, count: 53709"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 585.422933792965,
+            "unit": "median tps",
+            "extra": "avg tps: 593.2031195841063, max tps: 853.8981334932275, count: 53709"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.91657409736213,
+            "unit": "median tps",
+            "extra": "avg tps: 90.98342056815648, max tps: 95.54274845706622, count: 53709"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 114.21516076785812,
+            "unit": "median tps",
+            "extra": "avg tps: 114.01655515332934, max tps: 167.98625364753374, count: 107418"
           }
         ]
       }

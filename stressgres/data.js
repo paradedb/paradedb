@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766263426532,
+  "lastUpdate": 1766264290452,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34244,6 +34244,60 @@ window.BENCHMARK_DATA = {
             "value": 15.002364332294494,
             "unit": "median tps",
             "extra": "avg tps: 15.001120503845547, max tps: 20.108947158819674, count: 55401"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f",
+          "message": "fix: `unicode_words` tokenizer is named correctly in `paradedb.schema` output (#3802)\n\n# Ticket(s) Closed\n\n- Closes #3798 \n\n## What\n\nWe accidentally left out `unicode_words` in the tokenizer's name\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-12-20T14:57:01-05:00",
+          "tree_id": "689e28ba5c616170ac046d425604266a197edb75",
+          "url": "https://github.com/paradedb/paradedb/commit/7040ac3acbe4cf2dabfb5aff1ce3f51ed941052f"
+        },
+        "date": 1766264287276,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.16698597510995,
+            "unit": "median tps",
+            "extra": "avg tps: 32.93683400595055, max tps: 34.547690677102054, count: 55529"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 236.95978182061836,
+            "unit": "median tps",
+            "extra": "avg tps: 259.8157422263891, max tps: 2680.2782584340684, count: 55529"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1903.6090722339425,
+            "unit": "median tps",
+            "extra": "avg tps: 1882.1378510143704, max tps: 2170.291052724717, count: 55529"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.36315762242742,
+            "unit": "median tps",
+            "extra": "avg tps: 191.55670401437555, max tps: 1700.514769009417, count: 111058"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.595987429832382,
+            "unit": "median tps",
+            "extra": "avg tps: 15.693998842235164, max tps: 19.65538991084905, count: 55529"
           }
         ]
       }

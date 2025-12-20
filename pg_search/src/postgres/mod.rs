@@ -23,6 +23,7 @@ use std::ops::Range;
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::build::is_bm25_index;
+use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
@@ -47,6 +48,7 @@ mod validate;
 
 mod build_parallel;
 pub mod catalog;
+mod condition_variable;
 pub mod customscan;
 pub mod datetime;
 #[cfg(not(any(feature = "pg17", feature = "pg18")))]
@@ -384,6 +386,10 @@ const WORKER_METRICS_MAX_COUNT: usize = 256;
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
+    /// Condition variable for efficient waiting in `aggregation_wait()`.
+    /// Workers sleep on this CV instead of busy-waiting, and are woken
+    /// when the last worker calls `aggregation_append()`.
+    aggregation_cv: ConditionVariable,
     remaining_segments: usize,
     nsegments: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
@@ -400,6 +406,7 @@ impl ParallelScanState {
 
     fn init(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
+        self.aggregation_cv.init();
         self.init_without_mutex(args.segment_readers, &args.query, args.with_aggregates);
     }
 
@@ -530,6 +537,11 @@ impl ParallelScanState {
         buffer[data_start..data_start + merged_len].copy_from_slice(&serialized_merged);
         agg_header.watermark += len_bytes.len() + merged_len;
 
+        // Wake up any workers waiting in `aggregation_wait()` now that all results are in.
+        if all_received {
+            self.aggregation_cv.broadcast();
+        }
+
         Ok(())
     }
 
@@ -539,6 +551,11 @@ impl ParallelScanState {
         loop {
             check_for_interrupts!();
 
+            // Re-arm the condition variable on every iteration.
+            // After ConditionVariableSleep returns (spurious wake, interrupt, or broadcast),
+            // we're removed from the wait queue. We must re-prepare before sleeping again.
+            self.aggregation_cv.prepare_to_sleep();
+
             // See whether the aggregations has been finalized: if not, keep waiting.
             let lock = self.acquire_mutex();
             let agg_header = self
@@ -547,13 +564,12 @@ impl ParallelScanState {
                 .expect("cannot wait for aggregations without an aggregations payload");
             if agg_header.received_count != self.nsegments {
                 std::mem::drop(lock);
-                // TODO: Use another synchronization primitive.
-                // https://github.com/paradedb/paradedb/issues/3489
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                self.aggregation_cv.sleep();
                 continue;
             }
 
             // Aggregation has been finalized: deserialize and return it.
+            ConditionVariable::cancel_sleep();
             let agg_data = self.payload.aggregates_data().unwrap();
             let buffer = &agg_data[agg_header.serialized_aggregations_len..];
             assert!(

@@ -1147,12 +1147,12 @@ CREATE INDEX idx_tokenized ON tokenized_test USING bm25 (
 ) WITH (key_field='id');
 -- Validate that pdb.simple tokenizer was applied (should show 'default' tokenizer for title_simple)
 SELECT * FROM paradedb.schema('idx_tokenized') ORDER BY name;
-     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |      tokenizer      |  record  | normalizer 
---------------+------------+--------+---------+------+------------+-------------+---------------------+----------+------------
- ctid         | U64        | f      | t       | t    | f          |             |                     |          | 
- id           | I64        | f      | t       | t    | f          |             |                     |          | 
- title        | Str        | f      | t       | f    | t          |             | remove_emojis:false | position | 
- title_simple | Str        | f      | t       | f    | t          |             | default             | position | 
+     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+--------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ ctid         | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id           | I64        | f      | t       | t    | f          |             |                                  |          | 
+ title        | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ title_simple | Str        | f      | t       | f    | t          |             | default                          | position | 
 (4 rows)
 
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
@@ -1215,7 +1215,7 @@ CREATE INDEX idx_ngram ON ngram_test USING bm25 (
 SELECT * FROM paradedb.schema('idx_ngram') ORDER BY name;
      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- content       | Str        | f      | t       | f    | t          |             | remove_emojis:false                        | position | 
+ content       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
  content_ngram | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:4_prefixonly:false | position | 
  ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
@@ -1279,12 +1279,12 @@ CREATE INDEX idx_stemmer ON stemmer_test USING bm25 (
 ) WITH (key_field='id');
 -- Validate that stemmer tokenizer was applied (should show 'default[stemmer=English]' for content_stemmed)
 SELECT * FROM paradedb.schema('idx_stemmer') ORDER BY name;
-      name       | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
------------------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
- content         | Str        | f      | t       | f    | t          |             | remove_emojis:false      | position | 
- content_stemmed | Str        | f      | t       | f    | t          |             | default[stemmer=English] | position | 
- ctid            | U64        | f      | t       | t    | f          |             |                          |          | 
- id              | I64        | f      | t       | t    | f          |             |                          |          | 
+      name       | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+-----------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ content         | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ content_stemmed | Str        | f      | t       | f    | t          |             | default[stemmer=English]         | position | 
+ ctid            | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id              | I64        | f      | t       | t    | f          |             |                                  |          | 
 (4 rows)
 
 INSERT INTO stemmer_test (content) VALUES
@@ -2516,12 +2516,12 @@ CREATE INDEX idx_json_composite ON json_test USING bm25 (
 ) WITH (key_field='id');
 -- Validate schema shows JSON field
 SELECT * FROM paradedb.schema('idx_json_composite') ORDER BY name;
-   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |      tokenizer      |  record  | normalizer 
-----------+------------+--------+---------+------+------------+-------------+---------------------+----------+------------
- ctid     | U64        | f      | t       | t    | f          |             |                     |          | 
- id       | I64        | f      | t       | t    | f          |             |                     |          | 
- metadata | JsonObject | f      | t       | f    | f          | t           | remove_emojis:false | position | 
- tags     | Str        | f      | t       | f    | t          |             | remove_emojis:false | position | 
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+----------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ ctid     | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id       | I64        | f      | t       | t    | f          |             |                                  |          | 
+ metadata | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ tags     | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
 (4 rows)
 
 INSERT INTO json_test (metadata, tags) VALUES
@@ -2665,7 +2665,7 @@ SELECT * FROM paradedb.schema('idx_multi_tokenizer') ORDER BY name;
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
  ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
  desc_ngram    | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:3_prefixonly:false | position | 
- desc_standard | Str        | f      | t       | f    | t          |             | remove_emojis:false                        | position | 
+ desc_standard | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
 (4 rows)
 

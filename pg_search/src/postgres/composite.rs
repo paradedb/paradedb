@@ -282,12 +282,12 @@ impl CompositeSlotValues {
         let natts = pg_tupdesc.len();
 
         if is_null {
-            return vec![(pg_sys::Datum::from(0), true); natts];
+            return vec![(pg_sys::Datum::null(), true); natts];
         }
 
         let heap_tuple = PgHeapTuple::from_composite_datum(datum);
         let htup_data = heap_tuple.into_pg();
-        let mut values = vec![pg_sys::Datum::from(0); natts];
+        let mut values = vec![pg_sys::Datum::null(); natts];
         let mut nulls_raw = vec![false; natts];
 
         pg_sys::heap_deform_tuple(

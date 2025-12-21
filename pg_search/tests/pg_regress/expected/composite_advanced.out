@@ -639,55 +639,56 @@ SELECT COUNT(*) AS last_field_found FROM max_fields_test WHERE id @@@ pdb.parse(
 (1 row)
 
 ------------------------------------------------------------
--- TEST: Dual composite field limit (799 + 800 = 1599 fields)
+-- TEST: Dual composite field limit (400 + 400 = 800 fields)
 ------------------------------------------------------------
 -- Test TWO composite types combined in one index
--- 799 fields in type A + 800 fields in type B = 1599 total index fields
--- This tests PostgreSQL's 1600 column limit (799 + 800 + 1 id = 1600)
--- Create two composite types (799 for A, 800 for B to stay within PG's 1600 column limit)
+-- 400 fields in type A + 400 fields in type B = 800 total index fields
+-- This tests multiple composites in a single index while staying under
+-- PostgreSQL 17's catalog tuple size limit (~8KB for pg_index.indexprs)
+-- Create two composite types (400 fields each)
 DO $$
 DECLARE
     type_sql TEXT;
     i INT;
 BEGIN
-    -- Create type A with 799 fields (a0001 to a0799)
-    type_sql := 'CREATE TYPE composite_adv.comp_a_799 AS (';
-    FOR i IN 1..799 LOOP
+    -- Create type A with 400 fields (a0001 to a0400)
+    type_sql := 'CREATE TYPE composite_adv.comp_a_400 AS (';
+    FOR i IN 1..400 LOOP
         type_sql := type_sql || format('a%s TEXT', lpad(i::text, 4, '0'));
-        IF i < 799 THEN type_sql := type_sql || ', '; END IF;
+        IF i < 400 THEN type_sql := type_sql || ', '; END IF;
     END LOOP;
     type_sql := type_sql || ')';
     EXECUTE type_sql;
 
-    -- Create type B with 800 fields (b0001 to b0800)
-    type_sql := 'CREATE TYPE composite_adv.comp_b_800 AS (';
-    FOR i IN 1..800 LOOP
+    -- Create type B with 400 fields (b0001 to b0400)
+    type_sql := 'CREATE TYPE composite_adv.comp_b_400 AS (';
+    FOR i IN 1..400 LOOP
         type_sql := type_sql || format('b%s TEXT', lpad(i::text, 4, '0'));
-        IF i < 800 THEN type_sql := type_sql || ', '; END IF;
+        IF i < 400 THEN type_sql := type_sql || ', '; END IF;
     END LOOP;
     type_sql := type_sql || ')';
     EXECUTE type_sql;
 END $$;
--- Create table with columns for both composites (799 for A + 800 for B = 1599 + 1 id = 1600)
+-- Create table with columns for both composites (400 for A + 400 for B = 800 + 1 id = 801)
 DO $$
 DECLARE
     table_sql TEXT;
     i INT;
 BEGIN
     table_sql := 'CREATE TABLE dual_comp_test (id SERIAL PRIMARY KEY, ';
-    -- Add 799 columns for type A
-    FOR i IN 1..799 LOOP
+    -- Add 400 columns for type A
+    FOR i IN 1..400 LOOP
         table_sql := table_sql || format('a%s TEXT, ', lpad(i::text, 4, '0'));
     END LOOP;
-    -- Add 800 columns for type B (last one without comma)
-    FOR i IN 1..800 LOOP
+    -- Add 400 columns for type B (last one without comma)
+    FOR i IN 1..400 LOOP
         table_sql := table_sql || format('b%s TEXT', lpad(i::text, 4, '0'));
-        IF i < 800 THEN table_sql := table_sql || ', '; END IF;
+        IF i < 400 THEN table_sql := table_sql || ', '; END IF;
     END LOOP;
     table_sql := table_sql || ')';
     EXECUTE table_sql;
 END $$;
--- Create index with BOTH composite types (799 + 800 = 1599 index fields)
+-- Create index with BOTH composite types (400 + 400 = 800 index fields)
 DO $$
 DECLARE
     row_a TEXT;
@@ -695,32 +696,28 @@ DECLARE
     idx_sql TEXT;
     i INT;
 BEGIN
-    -- Build ROW expression for type A (799 fields)
+    -- Build ROW expression for type A (400 fields)
     row_a := 'ROW(';
-    FOR i IN 1..799 LOOP
+    FOR i IN 1..400 LOOP
         row_a := row_a || format('a%s', lpad(i::text, 4, '0'));
-        IF i < 799 THEN row_a := row_a || ', '; END IF;
+        IF i < 400 THEN row_a := row_a || ', '; END IF;
     END LOOP;
-    row_a := row_a || ')::composite_adv.comp_a_799';
+    row_a := row_a || ')::composite_adv.comp_a_400';
 
-    -- Build ROW expression for type B (800 fields)
+    -- Build ROW expression for type B (400 fields)
     row_b := 'ROW(';
-    FOR i IN 1..800 LOOP
+    FOR i IN 1..400 LOOP
         row_b := row_b || format('b%s', lpad(i::text, 4, '0'));
-        IF i < 800 THEN row_b := row_b || ', '; END IF;
+        IF i < 400 THEN row_b := row_b || ', '; END IF;
     END LOOP;
-    row_b := row_b || ')::composite_adv.comp_b_800';
+    row_b := row_b || ')::composite_adv.comp_b_400';
 
     -- Create index with both composites
     idx_sql := format('CREATE INDEX idx_dual_comp ON dual_comp_test USING bm25 (id, (%s), (%s)) WITH (key_field=''id'')', row_a, row_b);
     EXECUTE idx_sql;
-
-    RAISE NOTICE '1599 index fields (799+800): SUCCESS';
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE '1599 index fields (799+800): FAILED - %', SQLERRM;
 END $$;
--- Insert test data (a0799 is the last field in type A)
-INSERT INTO dual_comp_test (a0001, a0400, a0799, b0001, b0400, b0800)
+-- Insert test data (a0400 is the last field in type A)
+INSERT INTO dual_comp_test (a0001, a0200, a0400, b0001, b0200, b0400)
 VALUES ('first_a', 'mid_a', 'last_a', 'first_b', 'mid_b', 'last_b');
 -- Test search on both composite types using pdb.parse
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -743,7 +740,7 @@ SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:fir
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0799:last_a');
+SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -752,10 +749,10 @@ SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0799:last
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0799:last_a","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0400:last_a","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0799:last_a');
+SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
  a_last 
 --------
       1
@@ -781,7 +778,7 @@ SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:fir
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0800:last_b');
+SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -790,10 +787,10 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0800:last
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0800:last_b","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0400:last_b","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
-SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0800:last_b');
+SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
  b_last 
 --------
       1
@@ -844,7 +841,7 @@ SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b'
 
 -- pdb.match() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a');
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -853,10 +850,10 @@ SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a'
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"a0400","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (7 rows)
 
-SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a');
+SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
  match_a 
 ---------
        1
@@ -864,7 +861,7 @@ SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0400 @@@ pdb.match('mid_a'
 
 -- pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0800 @@@ pdb.regex('last.*');
+SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Aggregate
@@ -873,10 +870,10 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0800 @@@ pdb.regex('last.*
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0800","pattern":"last.*"}}}}
+         Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0400","pattern":"last.*"}}}}
 (7 rows)
 
-SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0800 @@@ pdb.regex('last.*');
+SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
  regex_b 
 ---------
        1

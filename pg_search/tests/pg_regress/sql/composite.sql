@@ -1252,4 +1252,146 @@ SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
 ORDER BY score DESC, id LIMIT 2;
 
+------------------------------------------------------------
+-- TEST: JSON fields in composite types
+------------------------------------------------------------
+
+CREATE TYPE json_composite AS (
+    metadata JSONB,
+    tags TEXT[]
+);
+
+CREATE TABLE json_test (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB,
+    tags TEXT[]
+);
+
+CREATE INDEX idx_json_composite ON json_test USING bm25 (
+    id,
+    (ROW(metadata, tags)::json_composite)
+) WITH (key_field='id');
+
+-- Validate schema shows JSON field
+SELECT * FROM paradedb.schema('idx_json_composite') ORDER BY name;
+
+INSERT INTO json_test (metadata, tags) VALUES
+    ('{"title": "PostgreSQL Guide", "author": "John", "year": 2024}', ARRAY['database', 'tutorial']),
+    ('{"title": "Search Engine Basics", "author": "Jane", "year": 2023}', ARRAY['search', 'guide']);
+
+-- Search JSON field using key_field with full path
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:PostgreSQL');
+SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:PostgreSQL');
+
+-- Search JSON field using JSON path operator
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
+SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
+
+-- Search JSON nested path using key_field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John');
+SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John');
+
+-- Search JSON nested path using JSON path operator
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
+SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
+
+------------------------------------------------------------
+-- TEST: Array fields in composite types
+------------------------------------------------------------
+
+-- Search array field using key_field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, tags FROM json_test WHERE id @@@ pdb.parse('tags:database');
+SELECT id, tags FROM json_test WHERE id @@@ pdb.parse('tags:database');
+
+-- Search array field using source column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, tags FROM json_test WHERE tags @@@ pdb.parse('database');
+SELECT id, tags FROM json_test WHERE tags @@@ pdb.parse('database');
+
+------------------------------------------------------------
+-- TEST: Multiple tokenizers per field using composite types
+------------------------------------------------------------
+
+CREATE TYPE multi_tokenizer_composite AS (
+    desc_standard TEXT,          -- Standard word tokenization
+    desc_ngram pdb.ngram(3, 3)   -- Partial matching with ngram (min=3, max=3)
+);
+
+CREATE TABLE multi_tokenizer_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT
+);
+
+CREATE INDEX idx_multi_tokenizer ON multi_tokenizer_test USING bm25 (
+    id,
+    (ROW(description, description::pdb.ngram(3,3))::multi_tokenizer_composite)
+) WITH (key_field='id');
+
+-- Validate schema shows both fields with different tokenizers
+SELECT * FROM paradedb.schema('idx_multi_tokenizer') ORDER BY name;
+
+INSERT INTO multi_tokenizer_test (description) VALUES
+    ('PostgreSQL is a powerful database'),
+    ('MySQL is also popular'),
+    ('Search engines use indexing');
+
+-- Search using standard tokenizer via source column (full word match)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
+SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
+
+-- Search using ngram tokenizer via key_field (partial match - 'owe' is inside 'powerful')
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
+SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
+
+-- Search using ngram tokenizer via tokenizer cast expression (matches ROW arg at position 1)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ pdb.parse('owe');
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ pdb.parse('owe');
+
+-- Same query with simple string shows explicit field name in Tantivy Query (parse_with_field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
+
+------------------------------------------------------------
+-- TEST: Non-text expressions in composite fields
+------------------------------------------------------------
+
+CREATE TYPE numeric_expr_composite AS (
+    original_price NUMERIC,
+    discounted_price NUMERIC
+);
+
+CREATE TABLE numeric_expr_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC
+);
+
+CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (
+    id,
+    (ROW(price, price * 0.9)::numeric_expr_composite)
+) WITH (key_field='id');
+
+-- Validate schema
+SELECT * FROM paradedb.schema('idx_numeric_expr') ORDER BY name;
+
+INSERT INTO numeric_expr_test (price) VALUES (100.00), (200.00), (50.00);
+
+-- Range query on original price (use the expression 'price' which maps to 'original_price' field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
+SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
+
+-- Range query on calculated discounted price (use the expression 'price * 0.9' which maps to 'discounted_price' field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
+SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
+
 \i common/composite_cleanup.sql

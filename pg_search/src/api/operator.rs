@@ -514,21 +514,20 @@ pub unsafe fn field_name_from_node(
                     }
                 }
             } else if expr_matches_node(node, indexed_expression) {
-                let field_name = if type_is_tokenizer(unsafe {
-                    pg_sys::exprType(indexed_expression.cast())
-                }) {
-                    let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
-                    let typmod = unsafe { pg_sys::exprTypmod(indexed_expression.cast()) };
-                    try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
-                        find_one_var(indexed_expression.cast())
-                            .and_then(|var| attname_from_var(heaprel, var.cast()))
-                    })
-                } else {
-                    let expr_str = deparse_expr(None, heaprel, indexed_expression.cast());
-                    panic!(
-                        "indexed expression requires a tokenizer cast with an alias: {expr_str}"
-                    );
-                };
+                let field_name =
+                    if type_is_tokenizer(unsafe { pg_sys::exprType(indexed_expression.cast()) }) {
+                        let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
+                        let typmod = unsafe { pg_sys::exprTypmod(indexed_expression.cast()) };
+                        try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
+                            find_one_var(indexed_expression.cast())
+                                .and_then(|var| attname_from_var(heaprel, var.cast()))
+                        })
+                    } else {
+                        let expr_str = deparse_expr(None, heaprel, indexed_expression.cast());
+                        panic!(
+                            "indexed expression requires a tokenizer cast with an alias: {expr_str}"
+                        );
+                    };
 
                 return field_name;
             }

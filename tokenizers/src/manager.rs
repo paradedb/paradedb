@@ -653,7 +653,7 @@ impl SearchTokenizer {
                 filters: _,
             } => {
                 if let Some(chinese_convert) = chinese_convert {
-                    format!("jieba_convert:{chinese_convert:?}{filters_suffix}")
+                    format!("jieba{chinese_convert:?}{filters_suffix}")
                 } else {
                     format!("jieba{filters_suffix}")
                 }

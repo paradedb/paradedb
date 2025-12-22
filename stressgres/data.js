@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766431373632,
+  "lastUpdate": 1766431378045,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13812,6 +13812,126 @@ window.BENCHMARK_DATA = {
             "value": 49.53125,
             "unit": "median mem",
             "extra": "avg mem: 49.60231280758653, max mem: 62.30859375, count: 55269"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43472713+lilei1128@users.noreply.github.com",
+            "name": "sanshi",
+            "username": "lilei1128"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae38d61a8474a66e32e14b3c79e35368c0c9a026",
+          "message": "feat: JIEBA supports conversion between simplified and traditional Chinese characters (#3764)\n\n# Ticket(s) Closed\n\nClose #3758 \n\n## What\nEnhance the capabilities of the JIEBA tokenizer, which supports the\nconversion between traditional and simplified Chinese characters.\n\n## Why\nIn the languages used in Chinese mainland, many user scenarios encounter\nsituations where both traditional and simplified characters coexist.\nUser need query traditional document by simplified characters .\n\n## How\nI have already implemented this function in the local environment, the\ndetail is:\n\nConfig when creating bm25 index, and the usage method is as follows:\nCREATE INDEX search_idx ON mock_items\nUSING bm25 (id, (description::pdb.jieba('chinese_convert=t2s')))\nWITH (key_field='id');\n\nExplanation：\n\ns2t：simple -> traditional\nt2s：traditional -> simple\ns2tw：simple-> TaiWai Standard\ntw2s：TaiWai Standard -> simple\n...\n\n## Tests\n<img width=\"1386\" height=\"402\" alt=\"image\"\nsrc=\"https://github.com/user-attachments/assets/4496c944-5f2b-4f1a-8a1f-0957c73998de\"\n/>",
+          "timestamp": "2025-12-22T11:04:21-08:00",
+          "tree_id": "060f808f49f5f5470b936923fd0c42f4d362ed71",
+          "url": "https://github.com/paradedb/paradedb/commit/ae38d61a8474a66e32e14b3c79e35368c0c9a026"
+        },
+        "date": 1766431374922,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.444951605004482, max cpu: 18.991098, count: 55214"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.558814128323434, max mem: 68.5625, count: 55214"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663309973066984, max cpu: 9.448819, count: 55214"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 31.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.7535449427455, max mem: 33.3046875, count: 55214"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.43077588565069, max cpu: 15.446501, count: 55214"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.72843476065853, max mem: 68.76171875, count: 55214"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63104990376495, max cpu: 9.311348, count: 55214"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.93235489130927, max mem: 68.32421875, count: 55214"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.583555512716397, max cpu: 9.329447, count: 110428"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.537139053557524, max mem: 56.3671875, count: 110428"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1785,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1787.605082044409, max block_count: 3143.0, count: 55214"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.272865577570906, max segment_count: 30.0, count: 55214"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552931729285573, max cpu: 4.7666335, count: 55214"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.999355844418986, max mem: 58.83203125, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.0760811165231619, max cpu: 4.7197638, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.77893004944398, max mem: 61.0546875, count: 55214"
           }
         ]
       }

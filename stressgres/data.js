@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766432271918,
+  "lastUpdate": 1766432275929,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20576,6 +20576,66 @@ window.BENCHMARK_DATA = {
             "value": 90,
             "unit": "median segment_count",
             "extra": "avg segment_count: 95.67111341811575, max segment_count: 162.0, count: 57795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43472713+lilei1128@users.noreply.github.com",
+            "name": "sanshi",
+            "username": "lilei1128"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae38d61a8474a66e32e14b3c79e35368c0c9a026",
+          "message": "feat: JIEBA supports conversion between simplified and traditional Chinese characters (#3764)\n\n# Ticket(s) Closed\n\nClose #3758 \n\n## What\nEnhance the capabilities of the JIEBA tokenizer, which supports the\nconversion between traditional and simplified Chinese characters.\n\n## Why\nIn the languages used in Chinese mainland, many user scenarios encounter\nsituations where both traditional and simplified characters coexist.\nUser need query traditional document by simplified characters .\n\n## How\nI have already implemented this function in the local environment, the\ndetail is:\n\nConfig when creating bm25 index, and the usage method is as follows:\nCREATE INDEX search_idx ON mock_items\nUSING bm25 (id, (description::pdb.jieba('chinese_convert=t2s')))\nWITH (key_field='id');\n\nExplanation：\n\ns2t：simple -> traditional\nt2s：traditional -> simple\ns2tw：simple-> TaiWai Standard\ntw2s：TaiWai Standard -> simple\n...\n\n## Tests\n<img width=\"1386\" height=\"402\" alt=\"image\"\nsrc=\"https://github.com/user-attachments/assets/4496c944-5f2b-4f1a-8a1f-0957c73998de\"\n/>",
+          "timestamp": "2025-12-22T11:04:21-08:00",
+          "tree_id": "060f808f49f5f5470b936923fd0c42f4d362ed71",
+          "url": "https://github.com/paradedb/paradedb/commit/ae38d61a8474a66e32e14b3c79e35368c0c9a026"
+        },
+        "date": 1766432273094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.52139408954973, max cpu: 43.02789, count: 57883"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.23648317241245, max mem: 233.8046875, count: 57883"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.38169589629903, max cpu: 33.333336, count: 57883"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.83912975582209, max mem: 172.16796875, count: 57883"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49323,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49052.25397785188, max block_count: 51642.0, count: 57883"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 90,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 95.36953855190643, max segment_count: 161.0, count: 57883"
           }
         ]
       }

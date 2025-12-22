@@ -18,6 +18,7 @@
 use crate::api::tokenizers::typmod;
 use crate::api::tokenizers::typmod::validation::{rule, PropertyRule, ValueConstraint};
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
+use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchNormalizer;
 
@@ -32,6 +33,12 @@ pub struct UncheckedTypmod {
 
 // for typmods that do not have special parameters, like `pdb.simple`
 pub struct GenericTypmod {
+    pub filters: SearchTokenizerFilters,
+}
+
+// for pdb.jieba
+pub struct JiebaTypmod {
+    pub chinese_convert: Option<ConvertMode>,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -76,6 +83,15 @@ trait TypmodRules {
 impl TypmodRules for GenericTypmod {
     fn rules() -> Vec<PropertyRule> {
         vec![]
+    }
+}
+
+impl TypmodRules for JiebaTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![rule!(
+            "chinese_convert",
+            ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+        )]
     }
 }
 
@@ -155,6 +171,34 @@ impl TryFrom<i32> for GenericTypmod {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
         Ok(GenericTypmod { filters })
+    }
+}
+
+impl TryFrom<i32> for JiebaTypmod {
+    type Error = typmod::Error;
+
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        let chinese_convert = parsed
+            .get("chinese_convert")
+            .and_then(|p| p.as_str())
+            .map(|s| {
+                let lcase: String = s.to_lowercase();
+                match lcase.as_str() {
+                    "t2s" => ConvertMode::T2S,
+                    "s2t" => ConvertMode::S2T,
+                    "tw2s" => ConvertMode::TW2S,
+                    "tw2sp" => ConvertMode::TW2SP,
+                    "s2tw" => ConvertMode::S2TW,
+                    "s2twp" => ConvertMode::S2TWP,
+                    other => panic!("unknown chinese convert mode: {other}"),
+                }
+            });
+        Ok(JiebaTypmod {
+            chinese_convert,
+            filters,
+        })
     }
 }
 

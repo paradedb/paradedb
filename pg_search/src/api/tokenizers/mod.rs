@@ -218,6 +218,10 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         SearchTokenizer::UnicodeWords {
             remove_emojis,
             filters,
+        }
+        | SearchTokenizer::UnicodeWordsDeprecated {
+            remove_emojis,
+            filters,
         } => {
             let unicode_typmod = UnicodeWordsTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);

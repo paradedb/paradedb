@@ -313,9 +313,9 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
+    computed_key_field_names: Rc<RefCell<Option<Vec<FieldName>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
-    computed_key_field_names: Rc<RefCell<Option<Vec<FieldName>>>>,
 }
 
 #[derive(Clone, Debug)]

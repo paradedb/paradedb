@@ -170,7 +170,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
             if !WARNING_SHOWN {
                 WARNING_SHOWN = true;
                 pgrx::notice!(
-                    "WITH (key_field='...') is deprecated. The first column in the index definition is automatically used as the key field."
+                    "WITH (key_field='...') is deprecated. The first N columns in the index definition that match a UNIQUE index are used."
                 );
             }
         }
@@ -189,11 +189,11 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         if find_smallest_matching_unique_index(&PgRelation::from_pg(heap_relation.as_ptr()), &bm25_columns).is_none() {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_INVALID_OBJECT_DEFINITION,
-                "Key field requires a unique constraint",
+                "BM25 indexes require a unique constraint",
                 "build_index",
             )
-            .set_detail("The BM25 index columns must match the first N columns of a unique index")
-            .set_hint("Add a PRIMARY KEY or UNIQUE constraint that matches the first columns of your BM25 index")
+            .set_detail("The first N BM25 index columns must match the first N columns of a unique index")
+            .set_hint("Add a PRIMARY KEY or UNIQUE INDEX that matches the first columns of your BM25 index")
             .report(PgLogLevel::ERROR);
         }
     } else {

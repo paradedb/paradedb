@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766434036181,
+  "lastUpdate": 1766434040781,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42216,6 +42216,114 @@ window.BENCHMARK_DATA = {
             "value": 171.1484375,
             "unit": "median mem",
             "extra": "avg mem: 167.3121304014569, max mem: 172.0, count: 55529"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43472713+lilei1128@users.noreply.github.com",
+            "name": "sanshi",
+            "username": "lilei1128"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae38d61a8474a66e32e14b3c79e35368c0c9a026",
+          "message": "feat: JIEBA supports conversion between simplified and traditional Chinese characters (#3764)\n\n# Ticket(s) Closed\n\nClose #3758 \n\n## What\nEnhance the capabilities of the JIEBA tokenizer, which supports the\nconversion between traditional and simplified Chinese characters.\n\n## Why\nIn the languages used in Chinese mainland, many user scenarios encounter\nsituations where both traditional and simplified characters coexist.\nUser need query traditional document by simplified characters .\n\n## How\nI have already implemented this function in the local environment, the\ndetail is:\n\nConfig when creating bm25 index, and the usage method is as follows:\nCREATE INDEX search_idx ON mock_items\nUSING bm25 (id, (description::pdb.jieba('chinese_convert=t2s')))\nWITH (key_field='id');\n\nExplanation：\n\ns2t：simple -> traditional\nt2s：traditional -> simple\ns2tw：simple-> TaiWai Standard\ntw2s：TaiWai Standard -> simple\n...\n\n## Tests\n<img width=\"1386\" height=\"402\" alt=\"image\"\nsrc=\"https://github.com/user-attachments/assets/4496c944-5f2b-4f1a-8a1f-0957c73998de\"\n/>",
+          "timestamp": "2025-12-22T11:04:21-08:00",
+          "tree_id": "060f808f49f5f5470b936923fd0c42f4d362ed71",
+          "url": "https://github.com/paradedb/paradedb/commit/ae38d61a8474a66e32e14b3c79e35368c0c9a026"
+        },
+        "date": 1766434037853,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.215327005777517, max cpu: 47.151276, count: 55388"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 167.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 149.95391467070937, max mem: 169.48046875, count: 55388"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.724144312438918, max cpu: 32.36994, count: 55388"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 117.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.36488414683686, max mem: 117.7109375, count: 55388"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.795234994539323, max cpu: 9.384164, count: 55388"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 129.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 114.7301615422113, max mem: 149.046875, count: 55388"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14825,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14899.407416768976, max block_count: 25910.0, count: 55388"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.428439899469918, max cpu: 4.64666, count: 55388"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.74907781243229, max mem: 127.75390625, count: 55388"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.974362677836353, max segment_count: 37.0, count: 55388"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.174341008154917, max cpu: 28.973843, count: 110776"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.70853036899916, max mem: 161.47265625, count: 110776"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.618729700193624, max cpu: 27.906979, count: 55388"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.17523594912257, max mem: 172.625, count: 55388"
           }
         ]
       }

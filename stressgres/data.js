@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766433180561,
+  "lastUpdate": 1766434036181,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34730,6 +34730,60 @@ window.BENCHMARK_DATA = {
             "value": 15.595987429832382,
             "unit": "median tps",
             "extra": "avg tps: 15.693998842235164, max tps: 19.65538991084905, count: 55529"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "43472713+lilei1128@users.noreply.github.com",
+            "name": "sanshi",
+            "username": "lilei1128"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae38d61a8474a66e32e14b3c79e35368c0c9a026",
+          "message": "feat: JIEBA supports conversion between simplified and traditional Chinese characters (#3764)\n\n# Ticket(s) Closed\n\nClose #3758 \n\n## What\nEnhance the capabilities of the JIEBA tokenizer, which supports the\nconversion between traditional and simplified Chinese characters.\n\n## Why\nIn the languages used in Chinese mainland, many user scenarios encounter\nsituations where both traditional and simplified characters coexist.\nUser need query traditional document by simplified characters .\n\n## How\nI have already implemented this function in the local environment, the\ndetail is:\n\nConfig when creating bm25 index, and the usage method is as follows:\nCREATE INDEX search_idx ON mock_items\nUSING bm25 (id, (description::pdb.jieba('chinese_convert=t2s')))\nWITH (key_field='id');\n\nExplanation：\n\ns2t：simple -> traditional\nt2s：traditional -> simple\ns2tw：simple-> TaiWai Standard\ntw2s：TaiWai Standard -> simple\n...\n\n## Tests\n<img width=\"1386\" height=\"402\" alt=\"image\"\nsrc=\"https://github.com/user-attachments/assets/4496c944-5f2b-4f1a-8a1f-0957c73998de\"\n/>",
+          "timestamp": "2025-12-22T11:04:21-08:00",
+          "tree_id": "060f808f49f5f5470b936923fd0c42f4d362ed71",
+          "url": "https://github.com/paradedb/paradedb/commit/ae38d61a8474a66e32e14b3c79e35368c0c9a026"
+        },
+        "date": 1766434033183,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.69024364150154,
+            "unit": "median tps",
+            "extra": "avg tps: 29.858067338915287, max tps: 35.272939868274584, count: 55388"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.13770294535033,
+            "unit": "median tps",
+            "extra": "avg tps: 267.27722731488313, max tps: 2767.036511668577, count: 55388"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1969.7183910255576,
+            "unit": "median tps",
+            "extra": "avg tps: 1953.8034032419464, max tps: 2385.9489589220016, count: 55388"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.5969552532219,
+            "unit": "median tps",
+            "extra": "avg tps: 194.66990780080363, max tps: 1662.120766370643, count: 110776"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.433600876258527,
+            "unit": "median tps",
+            "extra": "avg tps: 14.508796769417462, max tps: 21.08053221808886, count: 55388"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766516055352,
+  "lastUpdate": 1766516927622,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45794,6 +45794,54 @@ window.BENCHMARK_DATA = {
             "value": 107.12108169929671,
             "unit": "median tps",
             "extra": "avg tps: 107.11801782949173, max tps: 136.96198106354518, count: 107414"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fc02740e2237093c10309a0f60f37562afcf9ad",
+          "message": "fix: Complete support for NULL-FIRST/NULLS-LAST in TopN (#3805)\n\n# Ticket(s) Closed\n\n- Closes #3266\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/90 to complete\nsupport for `NULLS FIRST` and `NULLS LAST` in TopN.\n\n## Tests\n\nProperty tests are re-enabled (fixing #3266), and expanded to test\n`NULLS FIRST` and `NULLS LAST`.",
+          "timestamp": "2025-12-23T09:50:42-08:00",
+          "tree_id": "6d924ca98e9e41ed27c1d28f4cc40889ed9036b7",
+          "url": "https://github.com/paradedb/paradedb/commit/2fc02740e2237093c10309a0f60f37562afcf9ad"
+        },
+        "date": 1766516924500,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 540.0134385860542,
+            "unit": "median tps",
+            "extra": "avg tps: 542.3143614187309, max tps: 713.6327721577959, count: 53735"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 612.6599295217692,
+            "unit": "median tps",
+            "extra": "avg tps: 616.1744750064458, max tps: 826.787577341844, count: 53735"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.49888735800783,
+            "unit": "median tps",
+            "extra": "avg tps: 86.57212676951072, max tps: 96.44569196589795, count: 53735"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.13370814356435,
+            "unit": "median tps",
+            "extra": "avg tps: 106.4165877075365, max tps: 194.07695855146494, count: 107470"
           }
         ]
       }

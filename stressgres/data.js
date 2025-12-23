@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766514253241,
+  "lastUpdate": 1766515173380,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24246,6 +24246,54 @@ window.BENCHMARK_DATA = {
             "value": 5.489577816026801,
             "unit": "median tps",
             "extra": "avg tps: 5.467704093709154, max tps: 7.1821324288404735, count: 56258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fc02740e2237093c10309a0f60f37562afcf9ad",
+          "message": "fix: Complete support for NULL-FIRST/NULLS-LAST in TopN (#3805)\n\n# Ticket(s) Closed\n\n- Closes #3266\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/90 to complete\nsupport for `NULLS FIRST` and `NULLS LAST` in TopN.\n\n## Tests\n\nProperty tests are re-enabled (fixing #3266), and expanded to test\n`NULLS FIRST` and `NULLS LAST`.",
+          "timestamp": "2025-12-23T09:50:42-08:00",
+          "tree_id": "6d924ca98e9e41ed27c1d28f4cc40889ed9036b7",
+          "url": "https://github.com/paradedb/paradedb/commit/2fc02740e2237093c10309a0f60f37562afcf9ad"
+        },
+        "date": 1766515170290,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1142.6674337578452,
+            "unit": "median tps",
+            "extra": "avg tps: 1141.884767339211, max tps: 1197.5059500309887, count: 56319"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1263.925458460812,
+            "unit": "median tps",
+            "extra": "avg tps: 1249.7292595455579, max tps: 1270.7011736488441, count: 56319"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1915.2347459421603,
+            "unit": "median tps",
+            "extra": "avg tps: 1885.584775481959, max tps: 2076.4540006229518, count: 56319"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.462902638048855,
+            "unit": "median tps",
+            "extra": "avg tps: 5.472923491411597, max tps: 7.04206199687724, count: 56319"
           }
         ]
       }

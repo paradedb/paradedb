@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766516051012,
+  "lastUpdate": 1766516055352,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42810,6 +42810,114 @@ window.BENCHMARK_DATA = {
             "value": 171.6875,
             "unit": "median mem",
             "extra": "avg mem: 168.17523594912257, max mem: 172.625, count: 55388"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fc02740e2237093c10309a0f60f37562afcf9ad",
+          "message": "fix: Complete support for NULL-FIRST/NULLS-LAST in TopN (#3805)\n\n# Ticket(s) Closed\n\n- Closes #3266\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/90 to complete\nsupport for `NULLS FIRST` and `NULLS LAST` in TopN.\n\n## Tests\n\nProperty tests are re-enabled (fixing #3266), and expanded to test\n`NULLS FIRST` and `NULLS LAST`.",
+          "timestamp": "2025-12-23T09:50:42-08:00",
+          "tree_id": "6d924ca98e9e41ed27c1d28f4cc40889ed9036b7",
+          "url": "https://github.com/paradedb/paradedb/commit/2fc02740e2237093c10309a0f60f37562afcf9ad"
+        },
+        "date": 1766516052261,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.16710197956229, max cpu: 42.772278, count: 55827"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 147.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 134.59930230891862, max mem: 173.16015625, count: 55827"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.769115418941038, max cpu: 27.988338, count: 55827"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.76759950102549, max mem: 117.0234375, count: 55827"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752040467823445, max cpu: 9.495549, count: 55827"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 131.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.20431107203952, max mem: 158.37890625, count: 55827"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14832,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14944.415193365217, max block_count: 26063.0, count: 55827"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5647960737409266, max cpu: 4.7244096, count: 55827"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 100.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.45030028592795, max mem: 134.6640625, count: 55827"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.137872355670197, max segment_count: 39.0, count: 55827"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.184368881055672, max cpu: 28.973843, count: 111654"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.97157954204508, max mem: 162.203125, count: 111654"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.806328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.470553280499146, max cpu: 28.042841, count: 55827"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 172.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.86669917501837, max mem: 173.65625, count: 55827"
           }
         ]
       }

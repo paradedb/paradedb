@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766513364054,
+  "lastUpdate": 1766514248981,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16630,6 +16630,42 @@ window.BENCHMARK_DATA = {
             "value": 5.402872890795666,
             "unit": "median tps",
             "extra": "avg tps: 4.844891879428476, max tps: 6.0234098126266655, count: 57883"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fc02740e2237093c10309a0f60f37562afcf9ad",
+          "message": "fix: Complete support for NULL-FIRST/NULLS-LAST in TopN (#3805)\n\n# Ticket(s) Closed\n\n- Closes #3266\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/90 to complete\nsupport for `NULLS FIRST` and `NULLS LAST` in TopN.\n\n## Tests\n\nProperty tests are re-enabled (fixing #3266), and expanded to test\n`NULLS FIRST` and `NULLS LAST`.",
+          "timestamp": "2025-12-23T09:50:42-08:00",
+          "tree_id": "6d924ca98e9e41ed27c1d28f4cc40889ed9036b7",
+          "url": "https://github.com/paradedb/paradedb/commit/2fc02740e2237093c10309a0f60f37562afcf9ad"
+        },
+        "date": 1766514245902,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.053951183670499,
+            "unit": "median tps",
+            "extra": "avg tps: 6.902269295095502, max tps: 10.471774714762594, count: 57353"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.331149834467329,
+            "unit": "median tps",
+            "extra": "avg tps: 4.801494127945033, max tps: 5.973550426583464, count: 57353"
           }
         ]
       }

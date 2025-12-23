@@ -19,6 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -721,6 +722,24 @@ pub fn index_memory_segment(
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
             let mut doc = tantivy::TantivyDocument::new();
+
+            // Unpack all composites upfront from expr_results
+            let unpacked_composites = CompositeSlotValues::from_composites(
+                categorized_fields.iter().filter_map(|(_, cat)| {
+                    if let FieldSource::CompositeField {
+                        expression_idx,
+                        composite_type_oid,
+                        ..
+                    } = cat.source
+                    {
+                        let (datum, is_null) = expr_results[expression_idx];
+                        Some((expression_idx, datum, is_null, composite_type_oid))
+                    } else {
+                        None
+                    }
+                }),
+            );
+
             row_to_search_document(
                 categorized_fields
                     .iter()
@@ -730,6 +749,15 @@ pub fn index_memory_segment(
                         }
                         FieldSource::Expression { att_idx } => {
                             let (datum, is_null) = expr_results[att_idx];
+                            (datum, is_null, field, categorized)
+                        }
+                        FieldSource::CompositeField {
+                            expression_idx,
+                            field_idx,
+                            ..
+                        } => {
+                            let (datum, is_null) =
+                                unpacked_composites.get(expression_idx, field_idx);
                             (datum, is_null, field, categorized)
                         }
                     }),

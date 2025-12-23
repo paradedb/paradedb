@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766434895716,
+  "lastUpdate": 1766513359233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4940,6 +4940,72 @@ window.BENCHMARK_DATA = {
             "value": 492.2999428519035,
             "unit": "median tps",
             "extra": "avg tps: 444.61690865335464, max tps: 763.5143956821734, count: 55214"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fc02740e2237093c10309a0f60f37562afcf9ad",
+          "message": "fix: Complete support for NULL-FIRST/NULLS-LAST in TopN (#3805)\n\n# Ticket(s) Closed\n\n- Closes #3266\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/90 to complete\nsupport for `NULLS FIRST` and `NULLS LAST` in TopN.\n\n## Tests\n\nProperty tests are re-enabled (fixing #3266), and expanded to test\n`NULLS FIRST` and `NULLS LAST`.",
+          "timestamp": "2025-12-23T09:50:42-08:00",
+          "tree_id": "6d924ca98e9e41ed27c1d28f4cc40889ed9036b7",
+          "url": "https://github.com/paradedb/paradedb/commit/2fc02740e2237093c10309a0f60f37562afcf9ad"
+        },
+        "date": 1766513356135,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 608.7618852861631,
+            "unit": "median tps",
+            "extra": "avg tps: 608.7461559075593, max tps: 679.5622326939173, count: 55226"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3096.88213910146,
+            "unit": "median tps",
+            "extra": "avg tps: 3058.59126150667, max tps: 3143.318945642964, count: 55226"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 596.4737021443063,
+            "unit": "median tps",
+            "extra": "avg tps: 596.8277371304338, max tps: 668.5581840244818, count: 55226"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 497.8337249697474,
+            "unit": "median tps",
+            "extra": "avg tps: 499.7227305780711, max tps: 518.7770164286483, count: 55226"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3330.8739323135096,
+            "unit": "median tps",
+            "extra": "avg tps: 3326.580318540233, max tps: 3500.901638928814, count: 110452"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2189.655332647828,
+            "unit": "median tps",
+            "extra": "avg tps: 2164.392590406338, max tps: 2202.2693983739323, count: 55226"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 78.43923450284598,
+            "unit": "median tps",
+            "extra": "avg tps: 87.35423904145749, max tps: 743.4258848998307, count: 55226"
           }
         ]
       }

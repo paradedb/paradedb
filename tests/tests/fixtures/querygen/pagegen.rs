@@ -92,13 +92,32 @@ pub fn arb_paging_exprs(
     )
         .prop_flat_map(move |(mut order_by_prefix, tiebreaker)| {
             order_by_prefix.push(tiebreaker);
+            let len = order_by_prefix.len();
+            // Generate a suffix for each column.
+            let suffixes = proptest::collection::vec(
+                prop_oneof![
+                    Just(" ASC NULLS FIRST"),
+                    Just(" ASC NULLS LAST"),
+                    Just(" DESC NULLS FIRST"),
+                    Just(" DESC NULLS LAST"),
+                ],
+                len..=len,
+            );
+
             (
                 Just(order_by_prefix),
+                suffixes,
                 proptest::option::of(0..100_usize),
                 proptest::option::of(0..100_usize),
             )
         })
-        .prop_map(|(order_by, offset, limit)| {
+        .prop_map(|(cols, suffixes, offset, limit)| {
+            let order_by = cols
+                .into_iter()
+                .zip(suffixes)
+                .map(|(col, suffix)| format!("{col}{suffix}"))
+                .collect();
+
             PagingExprs {
                 order_by,
                 offset,

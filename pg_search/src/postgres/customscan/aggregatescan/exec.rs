@@ -33,7 +33,7 @@ use tantivy::aggregation::agg_result::{
     BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
+use tantivy::aggregation::Key;
 use tantivy::schema::OwnedValue;
 
 /// Unified result type for aggregates
@@ -64,13 +64,20 @@ pub fn aggregation_results_iter(
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
 
+    // Use the GUC for term aggregation bucket limits (single source of truth).
+    let bucket_limit_i32 = gucs::max_term_agg_buckets();
+    if bucket_limit_i32 <= 0 {
+        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
+    }
+    let bucket_limit: u32 = bucket_limit_i32 as u32;
+
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
         true,
         gucs::adjust_work_mem().get().try_into().unwrap(),
-        DEFAULT_BUCKET_LIMIT,
+        bucket_limit,
         expr_context,
         planstate,
     )

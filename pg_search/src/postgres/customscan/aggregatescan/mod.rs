@@ -55,7 +55,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
 
@@ -178,6 +178,25 @@ impl CustomScan for AggregateScan {
                 .custom_state_mut()
                 .init_expr_context(estate, planstate);
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+            // Create a reusable tuple slot for aggregate results
+            // This avoids per-row MakeTupleTableSlot calls which leak memory
+            let scan_slot =
+                pg_sys::MakeTupleTableSlot((*planstate).ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual);
+            state.custom_state_mut().scan_slot = Some(scan_slot);
+
+            // Set up placeholder targetlist for wrapped aggregate expression projection.
+            let plan_targetlist = (*(*planstate).plan).targetlist;
+            // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
+            // by Const nodes. The Const nodes will be mutated with actual aggregate values
+            // before each ExecBuildProjectionInfo call in exec_custom_scan (pdbscan pattern).
+            let (placeholder_tlist, const_nodes, needs_projection) =
+                create_placeholder_targetlist(plan_targetlist);
+            if needs_projection && !placeholder_tlist.is_null() {
+                state.custom_state_mut().placeholder_targetlist = Some(placeholder_tlist);
+                state.custom_state_mut().const_agg_nodes = const_nodes;
+                // Note: projection is built per-row in exec_custom_scan, not here
+            }
         }
     }
 
@@ -210,10 +229,11 @@ impl CustomScan for AggregateScan {
 
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
-            let slot = pg_sys::MakeTupleTableSlot(
-                (*state.planstate()).ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
+            // Use the reusable slot created in begin_custom_scan to avoid per-row memory leaks
+            let slot = state
+                .custom_state()
+                .scan_slot
+                .expect("scan_slot should be initialized in begin_custom_scan");
             pg_sys::ExecClearTuple(slot);
 
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
@@ -223,7 +243,7 @@ impl CustomScan for AggregateScan {
             let mut aggregates = row.aggregates.clone().into_iter();
             let mut natts_processed = 0;
 
-            // Fill in values according to the target list mapping
+            // Fill in values according to the target list
             for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
                 let attr = tupdesc.get(i).expect("missing attribute");
                 let expected_typoid = attr.type_oid().value();
@@ -289,16 +309,113 @@ impl CustomScan for AggregateScan {
             assert_eq!(natts, natts_processed, "target list length mismatch",);
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
+            // Note: We don't set TTS_FLAG_SHOULDFREE since we're reusing this slot across rows
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
+
+            // If we have wrapped aggregates, project the expressions using pdbscan pattern:
+            // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
+            // 2. Build projection in per-tuple memory context (bakes Const values in)
+            // 3. ExecProject
+            if let Some(placeholder_tlist) = state.custom_state().placeholder_targetlist {
+                let planstate = state.planstate();
+                let expr_context = (*planstate).ps_ExprContext;
+
+                // Switch to per-tuple memory context and reset it to avoid memory leaks
+                // from ExecBuildProjectionInfo allocations and wrapper functions
+                let mut per_tuple_context =
+                    PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
+                per_tuple_context.reset();
+
+                // Mutate Const nodes with aggregate values directly from the row results.
+                // We DON'T use the slot's datums because those were converted using the
+                // output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
+                // but we need the native aggregate type (e.g., JSONB for pdb.agg).
+                // This matches pdbscan's approach of setting Const values directly.
+                let mut agg_iter = row.aggregates.iter();
+                for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
+                    if let TargetListEntry::Aggregate(agg_type) = entry {
+                        if let Some(&const_node) = state.custom_state().const_agg_nodes.get(&i) {
+                            // Get the next aggregate result
+                            let agg_result = agg_iter.next().and_then(|v| v.clone());
+
+                            // Convert to datum using the Const node's type (native aggregate type)
+                            // not the output tuple descriptor's type
+                            let (datum, is_null) = if row.is_empty() {
+                                // Empty result - use nullish value
+                                let nullish_datum = agg_type.nullish().value.and_then(|value| {
+                                    TantivyValue(OwnedValue::F64(value))
+                                        .try_into_datum((*const_node).consttype.into())
+                                        .unwrap()
+                                });
+                                (
+                                    nullish_datum.unwrap_or(pg_sys::Datum::null()),
+                                    nullish_datum.is_none(),
+                                )
+                            } else if agg_type.can_use_doc_count()
+                                && !state.custom_state().aggregate_clause.has_filter()
+                                && state.custom_state().aggregate_clause.has_groupby()
+                            {
+                                let d = row
+                                    .doc_count()
+                                    .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
+                                match d {
+                                    Ok(Some(datum)) => (datum, false),
+                                    _ => (pg_sys::Datum::null(), true),
+                                }
+                            } else {
+                                // Use the native aggregate result type (from the Const node)
+                                let d = exec::aggregate_result_to_datum(
+                                    agg_result,
+                                    agg_type,
+                                    (*const_node).consttype, // Use Const's type, not output type
+                                );
+                                match d {
+                                    Some(datum) => (datum, false),
+                                    None => (pg_sys::Datum::null(), true),
+                                }
+                            };
+
+                            (*const_node).constvalue = datum;
+                            (*const_node).constisnull = is_null;
+                        } else {
+                            // No Const node for this aggregate, skip the iterator
+                            agg_iter.next();
+                        }
+                    }
+                }
+
+                // Set the scan tuple for expression evaluation context
+                (*expr_context).ecxt_scantuple = slot;
+
+                // Build projection and execute in per-tuple memory context (pdbscan pattern)
+                // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
+                return per_tuple_context.switch_to(|_| {
+                    let proj_info = pg_sys::ExecBuildProjectionInfo(
+                        placeholder_tlist,
+                        expr_context,
+                        (*planstate).ps_ResultTupleSlot,
+                        planstate,
+                        (*slot).tts_tupleDescriptor,
+                    );
+                    pg_sys::ExecProject(proj_info)
+                });
+            }
+
             slot
         }
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
-    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Clean up the reusable scan slot
+        if let Some(slot) = state.custom_state().scan_slot {
+            unsafe {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+            }
+        }
+    }
 }
 
 impl ExecMethod for AggregateScan {
@@ -417,6 +534,233 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     (*plan).targetlist = new_targetlist;
+}
+
+/// Context for the Const placeholder mutator
+struct ConstPlaceholderContext {
+    /// Current target entry index being processed
+    current_te_idx: usize,
+    /// The OID of our placeholder function (pdb.agg_fn)
+    placeholder_funcid: pg_sys::Oid,
+    /// Collected Const node pointers for later mutation
+    /// Key: target entry index, Value: pointer to Const node
+    const_nodes: crate::api::HashMap<usize, *mut pg_sys::Const>,
+}
+
+/// Create a placeholder target list with Const nodes replacing our FuncExpr placeholders.
+/// This is called AFTER replace_aggrefs_in_target_list has replaced Aggrefs with FuncExprs.
+/// For wrapped expressions, we replace those FuncExprs with Const nodes that will be
+/// mutated with actual aggregate values before each ExecBuildProjectionInfo call.
+/// This follows the pdbscan pattern where Const values are baked in when projection is built.
+///
+/// Returns: (placeholder_targetlist, const_nodes, needs_projection)
+/// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes
+/// - const_nodes: HashMap of Const node pointers for later mutation
+/// - needs_projection: true if projection is needed (wrapped expressions exist)
+unsafe fn create_placeholder_targetlist(
+    targetlist: *mut pg_sys::List,
+) -> (
+    *mut pg_sys::List,
+    crate::api::HashMap<usize, *mut pg_sys::Const>,
+    bool,
+) {
+    use pgrx::pg_guard;
+
+    if targetlist.is_null() {
+        return (std::ptr::null_mut(), Default::default(), false);
+    }
+
+    let placeholder_funcid = placeholder_procid();
+    let list_len = pg_sys::list_length(targetlist);
+
+    // Check if any target entries have wrapped placeholder FuncExprs (not top-level)
+    let mut needs_projection = false;
+    for i in 0..list_len {
+        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
+        if !te.is_null() && !(*te).expr.is_null() {
+            // Check if the expression is NOT a direct FuncExpr placeholder but CONTAINS one
+            let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
+                && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
+
+            if !is_top_level_placeholder
+                && expr_contains_placeholder_funcexpr(
+                    (*te).expr as *mut pg_sys::Node,
+                    placeholder_funcid,
+                )
+            {
+                needs_projection = true;
+                break;
+            }
+        }
+    }
+
+    if !needs_projection {
+        return (std::ptr::null_mut(), Default::default(), false);
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn const_placeholder_mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let ctx = &mut *(context as *mut ConstPlaceholderContext);
+
+        // If this is our placeholder FuncExpr, replace it with a Const
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let funcexpr = node as *mut pg_sys::FuncExpr;
+            if (*funcexpr).funcid == ctx.placeholder_funcid {
+                // Create a Const node with NULL value (will be mutated before projection)
+                let const_node = make_placeholder_const_from_funcexpr(funcexpr);
+                // Store the pointer for later mutation
+                debug_assert!(
+                    !ctx.const_nodes.contains_key(&ctx.current_te_idx),
+                    "AggregateScan supports only one aggregate per target entry"
+                );
+                ctx.const_nodes.insert(ctx.current_te_idx, const_node);
+                return const_node as *mut pg_sys::Node;
+            }
+        }
+
+        // For all other nodes, use the standard mutator to walk children
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = const_placeholder_mutator as usize as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(const_placeholder_mutator), context)
+        }
+    }
+
+    let mut ctx = ConstPlaceholderContext {
+        current_te_idx: 0,
+        placeholder_funcid,
+        const_nodes: Default::default(),
+    };
+
+    // Build a new target list with ALL FuncExpr placeholders replaced by Const nodes.
+    // This is critical for mixed wrapped/unwrapped cases like:
+    //   SELECT pdb.agg(...), (pdb.agg(...))->'avg' FROM ...
+    // If we only replace wrapped ones, ExecProject will try to execute the unwrapped
+    // pdb.agg_fn() FuncExpr and fail with "placeholder should not be executed".
+    let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
+    for i in 0..list_len {
+        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
+        let new_te = pg_sys::flatCopyTargetEntry(te);
+
+        ctx.current_te_idx = i as usize;
+
+        // AggregateScan assumes a contiguous, non-resjunk targetlist.
+        // Wrapper support doesn't change this assumption.
+        debug_assert!(
+            !(*te).resjunk,
+            "AggregateScan does not support resjunk target entries"
+        );
+        debug_assert!(
+            (*te).resno as usize == (i as usize) + 1,
+            "AggregateScan expects contiguous resno values (1, 2, 3, ...)"
+        );
+
+        // Check if this expression contains any placeholder FuncExpr (wrapped or top-level)
+        let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
+            && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
+
+        let contains_placeholder = is_top_level_placeholder
+            || expr_contains_placeholder_funcexpr(
+                (*te).expr as *mut pg_sys::Node,
+                placeholder_funcid,
+            );
+
+        if contains_placeholder {
+            // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)
+            // For top-level: the mutator will replace the FuncExpr directly with a Const
+            // For wrapped: the mutator will walk the tree and replace nested FuncExprs
+            let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext as *mut core::ffi::c_void;
+            let new_expr = const_placeholder_mutator((*te).expr as *mut pg_sys::Node, ctx_ptr);
+            (*new_te).expr = new_expr as *mut pg_sys::Expr;
+        }
+
+        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
+    }
+
+    (new_targetlist, ctx.const_nodes, true)
+}
+
+/// Check if an expression tree contains our placeholder FuncExpr
+unsafe fn expr_contains_placeholder_funcexpr(
+    node: *mut pg_sys::Node,
+    placeholder_funcid: pg_sys::Oid,
+) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    struct WalkerContext {
+        found: bool,
+        funcid: pg_sys::Oid,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let ctx = &mut *(context as *mut WalkerContext);
+
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let funcexpr = node as *mut pg_sys::FuncExpr;
+            if (*funcexpr).funcid == ctx.funcid {
+                ctx.found = true;
+                return true; // Stop walking
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut ctx = WalkerContext {
+        found: false,
+        funcid: placeholder_funcid,
+    };
+    walker(node, addr_of_mut!(ctx).cast());
+    ctx.found
+}
+
+/// Create a placeholder Const node from a FuncExpr placeholder.
+/// The Const will be initialized with NULL value and will be mutated with actual
+/// aggregate values before each ExecBuildProjectionInfo call. This follows the
+/// pdbscan pattern where Const values are baked in when projection is built per-row.
+unsafe fn make_placeholder_const_from_funcexpr(
+    funcexpr: *mut pg_sys::FuncExpr,
+) -> *mut pg_sys::Const {
+    let result_type = (*funcexpr).funcresulttype;
+
+    // Get type information for the Const node
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval(result_type, &mut typlen, &mut typbyval);
+
+    // Create a Const with NULL value - will be mutated before each projection build
+    pg_sys::makeConst(
+        result_type,
+        -1,                     // typmod
+        (*funcexpr).funccollid, // collation
+        typlen as i32,          // constlen
+        pg_sys::Datum::null(),  // constvalue (NULL initially)
+        true,                   // constisnull (starts as NULL)
+        typbyval,               // constbyval
+    )
 }
 
 /// Check if an expression tree contains any Aggref nodes

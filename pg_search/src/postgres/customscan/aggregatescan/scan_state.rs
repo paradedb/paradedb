@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashMap;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -38,6 +39,23 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
+
+    /// Target list with FuncExpr placeholders replaced by Const nodes.
+    /// Used for expression projection when aggregates are wrapped in functions.
+    /// The Const nodes are mutated with actual aggregate values before each
+    /// ExecBuildProjectionInfo call, which bakes the current values into the
+    /// compiled projection. This follows the pdbscan pattern.
+    pub placeholder_targetlist: Option<*mut pg_sys::List>,
+
+    /// Pointers to Const nodes in placeholder_targetlist, indexed by target entry position.
+    /// These are mutated with aggregate values before each projection build.
+    /// Key: target entry index (0-based), Value: pointer to Const node
+    pub const_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
+
+    /// Reusable tuple slot for aggregate result rows
+    /// Created once during begin_custom_scan and cleared/reused for each row
+    /// to avoid per-row memory allocation and leaks
+    pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
 }
 
 impl AggregateScanState {

@@ -312,9 +312,11 @@ WHERE description @@@ 'error';
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
 FROM fn_wrapped_agg_logs
 WHERE description @@@ 'error';
- jsonb_pretty 
---------------
- 3
+   jsonb_pretty   
+------------------
+ {               +
+     "value": 3.0+
+ }
 (1 row)
 
 -- Test 6: pdb.agg() with -> operator (non-window)
@@ -335,9 +337,9 @@ WHERE description @@@ 'error';
 SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
 WHERE description @@@ 'error';
-                                   avg_score                                    
---------------------------------------------------------------------------------
- {"avg": 23.333333333333332, "max": 40.0, "min": 10.0, "sum": 70.0, "count": 3}
+     avg_score      
+--------------------
+ 23.333333333333332
 (1 row)
 
 -- Test 7: pdb.agg() wrapped in COALESCE (non-window)
@@ -381,9 +383,11 @@ WHERE description @@@ 'error';
 SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
 FROM fn_wrapped_agg_logs
 WHERE description @@@ 'error';
- jsonb_pretty 
---------------
- 3
+   jsonb_pretty   
+------------------
+ {               +
+     "value": 3.0+
+ }
 (1 row)
 
 -- Test 9: Standard COUNT(*) wrapped in COALESCE (non-window)
@@ -430,6 +434,93 @@ WHERE description @@@ 'error';
  coalesce 
 ----------
        70
+(1 row)
+
+-- Test 11: Mixed wrapped and unwrapped aggregates in same SELECT
+-- This is critical: if we don't replace ALL placeholders with Const nodes,
+-- ExecProject will try to execute the unwrapped pdb.agg_fn() and fail.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
+    (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
+   Output: pdb.agg_fn('pdb.agg'::text), (pdb.agg_fn('pdb.agg'::text) -> 'avg'::text)
+   Index: fn_wrapped_agg_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}}), CUSTOM_AGG({"stats":{"field":"score"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}},"1":{"stats":{"field":"score","missing":null}}}
+(6 rows)
+
+SELECT
+    pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
+    (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+   raw_count    |     avg_score      
+----------------+--------------------
+ {"value": 3.0} | 23.333333333333332
+(1 row)
+
+-- Test 12: Multiple wrapped aggregates with different wrappers
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}')) as pretty_count,
+    (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
+    COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
+   Output: jsonb_pretty(pdb.agg_fn('pdb.agg'::text)), (pdb.agg_fn('pdb.agg'::text) -> 'max'::text), COALESCE(pdb.agg_fn('pdb.agg'::text), '{}'::jsonb)
+   Index: fn_wrapped_agg_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}}), CUSTOM_AGG({"stats":{"field":"score"}}), CUSTOM_AGG({"sum":{"field":"score"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}},"1":{"stats":{"field":"score","missing":null}},"2":{"sum":{"field":"score","missing":null}}}
+(6 rows)
+
+SELECT
+    jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}')) as pretty_count,
+    (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
+    COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+   pretty_count   | max_score |    sum_score    
+------------------+-----------+-----------------
+ {               +| 40.0      | {"value": 70.0}
+     "value": 3.0+|           | 
+ }                |           | 
+(1 row)
+
+-- Test 13: Mixed standard aggregates - wrapped and unwrapped
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    COUNT(*) as raw_count,
+    COALESCE(SUM(score), 0) as coalesced_sum
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
+   Output: pdb.agg_fn('COUNT(*)'::text), COALESCE(pdb.agg_fn('SUM'::text), '0'::bigint)
+   Index: fn_wrapped_agg_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), SUM(score)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null}}}
+(6 rows)
+
+SELECT
+    COUNT(*) as raw_count,
+    COALESCE(SUM(score), 0) as coalesced_sum
+FROM fn_wrapped_agg_logs
+WHERE description @@@ 'error';
+ raw_count | coalesced_sum 
+-----------+---------------
+         3 |            70
 (1 row)
 
 RESET paradedb.enable_aggregate_custom_scan;

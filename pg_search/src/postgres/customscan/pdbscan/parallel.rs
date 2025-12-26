@@ -55,7 +55,7 @@ impl ParallelQueryCapable for PdbScan {
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).init(args);
+            (*pscan_state).create_and_populate(args);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }

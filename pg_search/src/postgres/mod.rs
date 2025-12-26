@@ -411,27 +411,26 @@ impl ParallelScanState {
         std::mem::size_of::<Self>() + dynamic_layout.total.size()
     }
 
-    fn init(&mut self, args: ParallelScanArgs) {
+    /// Phase 1+2: Create the mutex and populate with actual data in one call.
+    /// Used by Custom Scan which has all data available at initialization time.
+    fn create_and_populate(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
-        self.init_without_mutex(args.segment_readers, &args.query, args.with_aggregates);
+        self.populate(args.segment_readers, &args.query, args.with_aggregates);
     }
 
-    fn init_without_mutex(
-        &mut self,
-        segments: &[SegmentReader],
-        query: &[u8],
-        with_aggregates: bool,
-    ) {
+    /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
+    /// Used by Index Scan where the leader populates data after workers may have started.
+    fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
         self.payload.init(segments, query, with_aggregates);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
     }
 
-    /// Initialize the mutex and mark the state as uninitialized.
+    /// Phase 1: Create the mutex but mark state as uninitialized.
     /// This is called by `aminitparallelscan` before workers are launched.
-    /// The leader will later call `init_without_mutex` to set up the segment data.
-    pub fn init_mutex_and_mark_uninitialized(&mut self) {
+    /// The leader will later call `populate` to set up the segment data.
+    pub fn create(&mut self) {
         self.mutex.init();
         // Mark as uninitialized so workers know to wait for the leader
         self.nsegments = PARALLEL_STATE_UNINITIALIZED;
@@ -669,7 +668,8 @@ impl ParallelScanState {
                 pgrx::error!("Timeout waiting for parallel scan leader to initialize segment data");
             }
 
-            // Brief sleep to avoid busy-waiting
+            // TODO: Use another synchronization primitive to avoid busy-waiting.
+            // https://github.com/paradedb/paradedb/issues/3489
             std::thread::sleep(std::time::Duration::from_micros(PARALLEL_INIT_SLEEP_MICROS));
         }
     }

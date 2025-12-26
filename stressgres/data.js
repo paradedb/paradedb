@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766774477454,
+  "lastUpdate": 1766774481960,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31774,6 +31774,108 @@ window.BENCHMARK_DATA = {
             "value": 159.84765625,
             "unit": "median mem",
             "extra": "avg mem: 178.9494941066736, max mem: 220.19921875, count: 56319"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "350b85e060654dfccd1fbd5ac67984b8162c1921",
+          "message": "fix: race condition in parallel index scan initialization (#3773)\n\n## Ticket(s) Closed\n\n- Closes #3750\n\n## What\n\nFixed a race condition in parallel index scans where workers could\nattempt to read segment data before the leader had fully initialized the\nshared parallel scan state.\n\n## Why\n\nIn PostgreSQL's parallel index scan mechanism, `aminitparallelscan` is\ncalled to initialize the shared parallel state, followed by `amrescan`\nbeing called by both the leader and workers. The original implementation\nof `aminitparallelscan` only initialized the mutex, leaving the\n`nsegments` field at its default zero-initialized value.\n\nWorkers, upon starting, would call `segments()` or `checkout_segment()`\nto get their assigned segments. If a worker accessed `nsegments` before\nthe leader's `amrescan` had completed initialization, the worker would\nsee `nsegments = 0` and return zero results.\n\n## How\n\nThe fix introduces a synchronization mechanism using PostgreSQL's\n`ConditionVariable`:\n\n1. **Sentinel Value**: A `PARALLEL_STATE_UNINITIALIZED` constant\n(`usize::MAX`) marks uninitialized state.\n2. **Phase 1 (`create`)**: Called by `aminitparallelscan`. Initializes\nthe mutex and condition variable, sets `nsegments =\nPARALLEL_STATE_UNINITIALIZED`.\n3. **Phase 2 (`populate`)**: Called by the leader's `amrescan`.\nPopulates segment data, sets `nsegments` to actual count, and broadcasts\non the condition variable to wake waiting workers.\n4. **Worker Waiting**: Workers call `wait_for_initialization()` which\nsleeps on the condition variable until `nsegments` is initialized.\n\n## Tests\n\nAdded `issue-3750-repro.sql` regression test. Though, it doesn't\nreproduce the issue. It's a race and wasn't able to reproduce it.",
+          "timestamp": "2025-12-26T09:53:45-08:00",
+          "tree_id": "9e4853f91357af92326e7c73719e720747e64b10",
+          "url": "https://github.com/paradedb/paradedb/commit/350b85e060654dfccd1fbd5ac67984b8162c1921"
+        },
+        "date": 1766774478747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07699775820373868, max background_merging: 2.0, count: 56651"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707206311101144, max cpu: 9.542743, count: 56651"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.449174413293676, max mem: 25.53515625, count: 56651"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.906639150255775, max cpu: 9.628887, count: 56651"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.3056858688505, max mem: 165.75390625, count: 56651"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67106,
+            "unit": "median block_count",
+            "extra": "avg block_count: 67021.10268132955, max block_count: 67106.0, count: 56651"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.26327867116203, max segment_count: 55.0, count: 56651"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.617823823840708, max cpu: 9.504951, count: 56651"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 117.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 107.43806610320206, max mem: 133.91015625, count: 56651"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.742600145617858, max cpu: 9.504951, count: 56651"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.2298912695716, max mem: 165.23828125, count: 56651"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.809262276643388, max cpu: 33.633633, count: 56651"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.5384462680491, max mem: 220.51171875, count: 56651"
           }
         ]
       }

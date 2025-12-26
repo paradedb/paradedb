@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766773550438,
+  "lastUpdate": 1766773554986,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21140,6 +21140,66 @@ window.BENCHMARK_DATA = {
             "value": 91,
             "unit": "median segment_count",
             "extra": "avg segment_count: 96.42386623193207, max segment_count: 162.0, count: 57353"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "350b85e060654dfccd1fbd5ac67984b8162c1921",
+          "message": "fix: race condition in parallel index scan initialization (#3773)\n\n## Ticket(s) Closed\n\n- Closes #3750\n\n## What\n\nFixed a race condition in parallel index scans where workers could\nattempt to read segment data before the leader had fully initialized the\nshared parallel scan state.\n\n## Why\n\nIn PostgreSQL's parallel index scan mechanism, `aminitparallelscan` is\ncalled to initialize the shared parallel state, followed by `amrescan`\nbeing called by both the leader and workers. The original implementation\nof `aminitparallelscan` only initialized the mutex, leaving the\n`nsegments` field at its default zero-initialized value.\n\nWorkers, upon starting, would call `segments()` or `checkout_segment()`\nto get their assigned segments. If a worker accessed `nsegments` before\nthe leader's `amrescan` had completed initialization, the worker would\nsee `nsegments = 0` and return zero results.\n\n## How\n\nThe fix introduces a synchronization mechanism using PostgreSQL's\n`ConditionVariable`:\n\n1. **Sentinel Value**: A `PARALLEL_STATE_UNINITIALIZED` constant\n(`usize::MAX`) marks uninitialized state.\n2. **Phase 1 (`create`)**: Called by `aminitparallelscan`. Initializes\nthe mutex and condition variable, sets `nsegments =\nPARALLEL_STATE_UNINITIALIZED`.\n3. **Phase 2 (`populate`)**: Called by the leader's `amrescan`.\nPopulates segment data, sets `nsegments` to actual count, and broadcasts\non the condition variable to wake waiting workers.\n4. **Worker Waiting**: Workers call `wait_for_initialization()` which\nsleeps on the condition variable until `nsegments` is initialized.\n\n## Tests\n\nAdded `issue-3750-repro.sql` regression test. Though, it doesn't\nreproduce the issue. It's a race and wasn't able to reproduce it.",
+          "timestamp": "2025-12-26T09:53:45-08:00",
+          "tree_id": "9e4853f91357af92326e7c73719e720747e64b10",
+          "url": "https://github.com/paradedb/paradedb/commit/350b85e060654dfccd1fbd5ac67984b8162c1921"
+        },
+        "date": 1766773551808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.021140143716067, max cpu: 42.857143, count: 57729"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.2402016588283, max mem: 233.80078125, count: 57729"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43541686320107, max cpu: 33.168808, count: 57729"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 172.1316789709245, max mem: 172.48046875, count: 57729"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49597,
+            "unit": "median block_count",
+            "extra": "avg block_count: 49233.446170901974, max block_count: 51784.0, count: 57729"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 91,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 96.17656637045506, max segment_count: 162.0, count: 57729"
           }
         ]
       }
